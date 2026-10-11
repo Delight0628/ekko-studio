@@ -201,11 +201,11 @@ describe('native model directory adapters', () => {
     })) })
     const models = normalizeModels((await claudeCodeModels.discover(ctx)).models)
     expect(models).toEqual([
-      { id: 'default', name: 'Default (recommended) (claude-opus-5-5)', isDefault: true },
-      { id: 'opus', name: 'Opus (claude-opus-5-5)', isDefault: false },
-      { id: 'sonnet', name: 'Sonnet (configured-sonnet-model)', isDefault: false },
-      { id: 'claude-fable-5-1[1m]', name: 'Fable (claude-fable-5-1)', isDefault: false },
-      { id: 'custom', name: 'custom-model-id', isDefault: false },
+      { id: 'default', name: 'claude-opus-5-5', resolvedModel: 'claude-opus-5-5', isDefault: true },
+      { id: 'opus', name: 'claude-opus-5-5', resolvedModel: 'claude-opus-5-5', isDefault: false },
+      { id: 'sonnet', name: 'configured-sonnet-model', resolvedModel: 'configured-sonnet-model', isDefault: false },
+      { id: 'claude-fable-5-1[1m]', name: 'claude-fable-5-1', resolvedModel: 'claude-fable-5-1', isDefault: false },
+      { id: 'custom', name: 'custom-model-id', resolvedModel: 'custom-model-id', isDefault: false },
       { id: 'haiku', name: 'Haiku', isDefault: false },
     ])
     expect(JSON.stringify(models)).not.toContain('private')

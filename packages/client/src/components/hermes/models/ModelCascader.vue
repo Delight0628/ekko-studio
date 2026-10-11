@@ -159,7 +159,7 @@ async function openWithKeyboard(event: KeyboardEvent) {
               :disabled="loading" :aria-expanded="group.provider === activeGroup?.provider" aria-haspopup="menu" :aria-controls="menuId"
               :title="group.label || group.provider" @focus="selectProvider(group.provider)" @click="selectProvider(group.provider)">
               <span>{{ group.provider === 'moa' ? t('chat.moaPresets') : group.label || group.provider }}</span>
-              <small>{{ group.models.length }}</small><span aria-hidden="true">›</span>
+              <small>{{ group.models.filter(model => model !== '').length }}</small><span aria-hidden="true">›</span>
             </button>
           </div>
           <div class="model-cascader-model-pane">

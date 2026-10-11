@@ -1520,6 +1520,7 @@ const nativeModelSchema = {
   type: 'object', required: ['id', 'name'], properties: {
     id: { type: 'string', description: 'Native model ID or alias; preserve provider prefixes.' },
     name: { type: 'string' }, provider: { type: 'string' },
+    resolvedModel: { type: 'string', description: 'Concrete identity from native discovery; execution preserves id.' },
     isDefault: { type: 'boolean' }, hidden: { type: 'boolean' },
     contextWindow: { type: 'number' }, maxOutputTokens: { type: 'number' },
     reasoningEfforts: { type: 'array', items: { type: 'string' } },

@@ -71,6 +71,7 @@ export interface CodingAgentsStatus {
 export interface CodingAgentModel {
   id: string
   name: string
+  resolvedModel?: string
   provider?: string
   isDefault?: boolean
   hidden?: boolean

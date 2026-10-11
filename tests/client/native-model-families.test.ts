@@ -31,4 +31,19 @@ describe('native family choices', () => {
     expect(nativeModelPickerId(legacy, 'gemini-pro-high')).toBe('gemini-pro-high')
     expect(nativeModelFamilies(legacy)).toEqual(legacy)
   })
+  it('removes duplicate native defaults without changing persisted alias or context selectors', () => {
+    const claude: CodingAgentModel[] = [
+      { id: 'default', name: 'claude-opus-5-5', resolvedModel: 'claude-opus-5-5', isDefault: true },
+      { id: 'opus', name: 'claude-opus-5-5', resolvedModel: 'claude-opus-5-5' },
+      { id: 'claude-fable-5-1[1m]', name: 'claude-fable-5-1', resolvedModel: 'claude-fable-5-1' },
+      { id: 'sonnet', name: 'claude-sonnet-5-5', resolvedModel: 'claude-sonnet-5-5' },
+      { id: 'haiku', name: 'claude-haiku-5-5', resolvedModel: 'claude-haiku-5-5' },
+    ]
+    expect(nativeModelFamilies(claude).map(model => model.id)).toEqual(['opus', 'claude-fable-5-1[1m]', 'sonnet', 'haiku'])
+    expect(nativeModelPickerId(claude, 'default')).toBe('opus')
+    expect(selectNativeModelEffort(claude, 'default', 'high')).toEqual({ model: 'default', reasoningEffort: 'high' })
+    expect(selectNativeModelEffort(claude, 'claude-fable-5-1[1m]', 'high')).toEqual({ model: 'claude-fable-5-1[1m]', reasoningEffort: 'high' })
+    expect(nativeModelFamilies([{ id: 'default', name: 'Only default', resolvedModel: 'one' }])).toHaveLength(1)
+    expect(nativeModelFamilies([claude[0], { ...claude[1], provider: 'another-account' }])).toHaveLength(2)
+  })
 })

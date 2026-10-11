@@ -16,9 +16,9 @@ export const claudeCodeModels: ModelDiscoveryAdapter = {
         const label = text(item.displayName) || text(item.name) || id
         const resolvedModel = text(item.resolvedModel)
         // Keep the native selector (including aliases and context suffixes) for execution.
-        const name = resolvedModel && label && !label.includes(resolvedModel)
-          ? `${label} (${resolvedModel})` : label
+        const name = resolvedModel || label
         return id ? [{ id, name: name || id, isDefault: id === 'default',
+          ...(resolvedModel ? { resolvedModel } : {}),
           ...(reasoningEfforts.length ? { reasoningEfforts } : {}) }] : []
       }) }
     })

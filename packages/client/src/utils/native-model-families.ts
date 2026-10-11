@@ -11,7 +11,10 @@ export function nativeCatalogModel(models: CodingAgentModel[] = [], id: string) 
 
 export function nativeModelFamilies(models: CodingAgentModel[] = []) {
   const families = new Map<string, CodingAgentModel[]>()
-  for (const model of models.filter(model => !model.hidden)) {
+  const visible = models.filter(model => !model.hidden)
+  for (const model of visible.filter(model => model.id !== 'default' || !model.resolvedModel
+    || !visible.some(other => other.id !== 'default' && other.provider === model.provider
+      && other.resolvedModel === model.resolvedModel))) {
     const key = JSON.stringify([model.provider, model.modelFamily || model.id])
     const members = families.get(key) || []
     members.push(model)
@@ -24,6 +27,11 @@ export function nativeModelFamilies(models: CodingAgentModel[] = []) {
 export function nativeModelPickerId(models: CodingAgentModel[] = [], id: string) {
   if (!id) return ''
   const selected = nativeCatalogModel(models, id)
+  if (id === 'default' && selected?.resolvedModel) {
+    const concreteChoice = nativeModelFamilies(models).find(model => model.provider === selected.provider
+      && model.resolvedModel === selected.resolvedModel)
+    if (concreteChoice) return concreteChoice.id
+  }
   return nativeModelFamilies(models).find(model => model.provider === selected?.provider
     && (model.modelFamily || model.id) === (selected?.modelFamily || id))?.id || id
 }

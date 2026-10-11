@@ -39,9 +39,11 @@ for (const mobile of [false, true]) test(`Claude shows and searches resolved mod
   await page.route('**/api/coding-agents/models?*', route => route.fulfill({ json: { agents: [{
     ...catalog, agentId: 'claude-code', name: 'Claude Code', source: 'control-protocol',
     models: [
-      { id: 'opus', name: 'Opus (claude-opus-5-5)' },
-      { id: 'sonnet', name: 'Sonnet (configured-sonnet-model)' },
-      { id: 'claude-fable-5-1[1m]', name: 'Fable (claude-fable-5-1)' },
+      { id: 'default', name: 'claude-opus-5-5', resolvedModel: 'claude-opus-5-5', isDefault: true },
+      { id: 'opus', name: 'claude-opus-5-5', resolvedModel: 'claude-opus-5-5' },
+      { id: 'sonnet', name: 'claude-sonnet-5-5', resolvedModel: 'claude-sonnet-5-5' },
+      { id: 'claude-fable-5-1[1m]', name: 'claude-fable-5-1', resolvedModel: 'claude-fable-5-1' },
+      { id: 'haiku', name: 'claude-haiku-5-5', resolvedModel: 'claude-haiku-5-5' },
     ],
   }] } }))
   await page.goto('/#/hermes/chat')
@@ -52,14 +54,18 @@ for (const mobile of [false, true]) test(`Claude shows and searches resolved mod
   const draft = page.locator('.new-chat-page')
   await draft.locator('.input-model-button').click()
   const picker = page.locator('.model-cascader:visible')
-  await expect(picker.getByRole('menuitemradio', { name: 'Fable (claude-fable-5-1)', exact: true })).toBeVisible()
+  await expect(picker.getByRole('menuitemradio', { name: 'claude-fable-5-1', exact: true })).toBeVisible()
+  await expect(picker.getByRole('menuitemradio', { name: 'claude-opus-5-5', exact: true })).toHaveCount(1)
+  await expect(picker.locator('.model-cascader-providers small')).toHaveText('4')
+  await expect(picker).not.toContainText('Default (recommended)')
+  await expect(picker).not.toContainText('Opus (')
   await picker.getByPlaceholder('Search models...').fill('claude-opus-5-5')
-  await expect(picker.getByRole('menuitemradio', { name: 'Sonnet (configured-sonnet-model)', exact: true })).toHaveCount(0)
-  await picker.getByRole('menuitemradio', { name: 'Opus (claude-opus-5-5)', exact: true }).click()
+  await expect(picker.getByRole('menuitemradio', { name: 'claude-sonnet-5-5', exact: true })).toHaveCount(0)
+  await picker.getByRole('menuitemradio', { name: 'claude-opus-5-5', exact: true }).click()
   await expect(draft.locator('.input-model-button')).toContainText('claude-opus-5-5')
   await draft.locator('.input-model-button').click()
-  await expect(picker.getByRole('menuitemradio', { name: 'Opus (claude-opus-5-5)', exact: true })).toHaveAttribute('aria-checked', 'true')
-  await page.screenshot({ path: `/tmp/claude-resolved-model-${mobile ? 'mobile' : 'desktop'}.png`, animations: 'disabled' })
+  await expect(picker.getByRole('menuitemradio', { name: 'claude-opus-5-5', exact: true })).toHaveAttribute('aria-checked', 'true')
+  await picker.screenshot({ path: `/tmp/claude-resolved-model-${mobile ? 'mobile' : 'desktop'}.png` })
   await page.keyboard.press('Escape')
   await sendNewChatMessage(page, 'Use the native Claude alias')
   await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__?.emitted?.find((item: any) => item.event === 'run')?.payload))

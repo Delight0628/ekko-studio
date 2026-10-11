@@ -41,13 +41,22 @@ An older CLI that does not expose the required protocol returns `unsupported`.
 nor a builtin directory proves that every entry can be used by the account.
 Native model IDs, aliases and provider prefixes are preserved. In particular,
 Claude Code aliases can refer to models selected in native settings.
-Claude Code labels include the concrete `resolvedModel` returned by native
-initialization, when available (for example, `Opus (claude-opus-5-5)`).
+Claude Code labels show the concrete `resolvedModel` returned by native
+initialization, when available (for example, `claude-opus-5-5`).
+When the native default alias resolves to another listed model, the picker
+shows that model once and keeps the separate Agent default choice. Provider
+counts exclude that empty default choice. The native catalog retains both
+aliases so saved selections still display and execute correctly.
 The selection still submits the original native value, such as `opus` or a
 context-window suffix, so display metadata does not change CLI execution.
 Older CLI responses without `resolvedModel` keep their original labels. Optional
 context limits, input modalities and reasoning efforts are returned only when
 the native discovery response provides them. Codex includes hidden entries.
+
+The Claude Code directory comes from the installed CLI's native selectors,
+independently of Studio's Claude OAuth provider directory. The latter can
+contain a provider API result or a cached fallback preset. Its model count and
+IDs must not be copied into native discovery or used to infer CLI availability.
 
 ## Adapters
 

@@ -66,6 +66,7 @@ export function normalizeModels(models: CodingAgentModel[]): CodingAgentModel[] 
     seen.add(key)
     return [{
       id, name: text(raw.name) || id,
+      ...(text(raw.resolvedModel) ? { resolvedModel: text(raw.resolvedModel) } : {}),
       ...(provider ? { provider } : {}),
       ...(typeof raw.isDefault === 'boolean' ? { isDefault: raw.isDefault } : {}),
       ...(typeof raw.hidden === 'boolean' ? { hidden: raw.hidden } : {}),
