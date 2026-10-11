@@ -4,7 +4,7 @@ import { NButton, NSelect } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import type { CodingAgentId } from '@/api/coding-agents'
 import { useCodingAgentModels } from '@/composables/useCodingAgentModels'
-import { nativeCatalogModel, nativeModelEffortChoices, nativeModelFamilies, nativeModelPickerId, selectNativeModelEffort } from '@/utils/native-model-families'
+import { nativeCatalogModel, nativeModelLabel, nativeModelEffortChoices, nativeModelFamilies, nativeModelPickerId, selectNativeModelEffort } from '@/utils/native-model-families'
 import ModelCascader from './ModelCascader.vue'
 
 const props = defineProps<{ agent: CodingAgentId; model: string; reasoningEffort: string; disabled?: boolean; field?: 'model' | 'reasoning-effort' }>()
@@ -30,8 +30,7 @@ const canSelectEffort = computed(() => Boolean(selected.value?.reasoningEfforts?
 const groups = computed(() => [{ provider: `native:${props.agent}`, label: catalog.value?.name || props.agent,
   base_url: '', api_key: '', models: ['', ...new Set(nativeModelFamilies(models.value).map(model => model.id))] }])
 function displayName(id: string) {
-  const model = nativeCatalogModel(models.value, id)
-  return id ? model?.modelFamilyName || model?.name || id : t('codingAgents.nativeModelDefault')
+  return nativeModelLabel(models.value, id, t('codingAgents.nativeModelDefault'))
 }
 function selectModel({ model }: { model: string }) {
   if (props.disabled) return

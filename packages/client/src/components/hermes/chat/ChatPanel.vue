@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { isNativeCodingAgent, isGlobalOnlyCodingAgent } from '@/utils/agent-catalog'
+import { agentMetadata, isNativeCodingAgent, isGlobalOnlyCodingAgent } from '@/utils/agent-catalog'
 import PageSidebar from "@/components/layout/PageSidebar.vue"
 import { usePageSidebarState } from "@/composables/usePageSidebar"
 import { usePageLoadingTask } from '@/composables/usePageLoading'
@@ -23,7 +23,7 @@ import {
 } from "@/api/studio/sessions";
 import type { AvailableModelGroup } from "@/api/hermes/system";
 import { inferCodingAgentApiMode, normalizeCodingAgentApiMode, type ChatCodingAgentId, type CodingAgentApiMode, type CodingAgentId } from "@/api/coding-agents";
-import { nativeCatalogModel, nativeModelFamilies, nativeModelPickerId, nativeModelEffortChoices, selectNativeModelEffort } from "@/utils/native-model-families";
+import { nativeCatalogModel, nativeModelLabel, nativeModelFamilies, nativeModelPickerId, nativeModelEffortChoices, selectNativeModelEffort } from "@/utils/native-model-families";
 import { agentInstallationState, fetchAgentAvailabilitySnapshot, type AgentAvailabilitySnapshot } from "@/api/agent-status";
 import { useChatStore, type Session, type Attachment } from "@/stores/hermes/chat";
 import { useAppStore } from "@/stores/hermes/app";
@@ -811,8 +811,7 @@ const activeSessionUsesGlobalCodingAgentConfig = computed(() => {
 const activeSessionModelLabel = computed(() => {
   const session = chatStore.activeSession;
   if (activeSessionUsesGlobalCodingAgentConfig.value) {
-    const model = nativeCatalogModel(activeSessionNativeCatalog.value?.models, session?.model || "");
-    return session?.model ? model?.modelFamilyName || session.model : t("codingAgents.nativeModelDefault");
+    return nativeModelLabel(activeSessionNativeCatalog.value?.models, session?.model || "", t("codingAgents.nativeModelDefault"));
   }
   if (!session?.model) return t("models.selectModel");
   if (session.provider === "moa") return `MoA · ${session.model}`;
@@ -1125,7 +1124,10 @@ const selectedNewChatNativeModel = computed(() => nativeCatalogModel(newChatNati
 const newChatNativeReasoningEfforts = computed(() => selectedNewChatNativeModel.value?.reasoningEfforts || []);
 const newChatNativeEffortChoices = computed(() => nativeModelEffortChoices(newChatNativeCatalog.value?.models, newChatNativeSelection.value.model));
 const { catalog: activeSessionNativeCatalog } = useCodingAgentModels(
-  () => (chatStore.activeSession?.codingAgentId || chatStore.activeSession?.agent || "codex") as CodingAgentId,
+  () => {
+    const id = chatStore.activeSession?.codingAgentId || chatStore.activeSession?.agent || "codex";
+    return (agentMetadata(id)?.id || id) as CodingAgentId;
+  },
   () => !showNewChatPage.value && activeSessionUsesGlobalCodingAgentConfig.value,
 );
 const activeSessionNativeReasoningEfforts = computed(() => {
@@ -1140,8 +1142,7 @@ const newChatComposerReasoningEffort = computed({
   },
 });
 function nativeModelDisplayName(model: string) {
-  const entry = nativeCatalogModel(newChatNativeCatalog.value?.models, model);
-  return model ? entry?.modelFamilyName || entry?.name || model : t("codingAgents.nativeModelDefault");
+  return nativeModelLabel(newChatNativeCatalog.value?.models, model, t("codingAgents.nativeModelDefault"));
 }
 const newChatNativeModelGroups = computed<AvailableModelGroup[]>(() => [{
   provider: `native:${newChatAgent.value}`, label: newChatNativeCatalog.value?.name || newChatAgent.value,

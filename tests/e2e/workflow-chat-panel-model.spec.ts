@@ -10,6 +10,9 @@ const cases = [
   { name: 'ZCode', agent: 'zcode', mode: 'global', model: 'glm-5-turbo', effort: 'enabled', label: 'glm-5-turbo' },
   { name: 'Agent default', agent: 'codex', mode: 'global', model: '', effort: 'high', label: 'Agent default model' },
   { name: 'global Codex on mobile', agent: 'codex', mode: 'global', model: 'codex-native-runtime-model', effort: 'high', label: 'codex-native-runtime-model', mobile: true },
+  { name: 'global Claude alias', agent: 'claude', mode: 'global', model: 'opus', effort: 'high', label: 'claude-opus-5-5' },
+  { name: 'global Claude default alias', agent: 'claude', mode: 'global', model: 'default', effort: 'high', label: 'claude-opus-5-5' },
+  { name: 'global Claude alias on mobile', agent: 'claude', mode: 'global', model: 'opus', effort: 'high', label: 'claude-opus-5-5', mobile: true },
 ] as const
 
 for (const target of cases) {
@@ -44,6 +47,13 @@ for (const target of cases) {
       }],
     })
     await page.route(url => url.pathname === `/api/studio/sessions/${sessionId}`, route => route.fulfill({ json: { session } }))
+    if (target.agent === 'claude') await page.route('**/api/coding-agents/models?*', route => route.fulfill({ json: { agents: [{
+      agentId: 'claude-code', name: 'Claude Code', status: 'ready', source: 'control-protocol', scope: 'available',
+      models: [
+        { id: 'default', name: 'Default', resolvedModel: 'claude-opus-5-5', isDefault: true },
+        { id: 'opus', name: 'Opus', resolvedModel: 'claude-opus-5-5' },
+      ], checkedAt: '2026-10-11T00:00:00.000Z', cached: false,
+    }] } }))
     await mockChatSocket(page)
     await page.addInitScript(id => {
       ;(window as any).__PW_CHAT_SOCKET_RESUMES__ = {
@@ -63,6 +73,7 @@ for (const target of cases) {
     await expect(model.locator('.input-model-label')).toBeVisible()
     await expect(model).toHaveText(target.label)
     await expect(model).toHaveAttribute('aria-label', target.label)
+    if (!mobile) await expect(model).toHaveAttribute('title', target.label)
     await expect(model).toBeDisabled()
     const effort = panel.locator('.reasoning-effort-button')
     await expect(effort).toContainText(target.effort === 'enabled' ? 'On' : target.effort ? 'High' : 'Default')

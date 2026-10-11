@@ -47,6 +47,10 @@ When the native default alias resolves to another listed model, the picker
 shows that model once and keeps the separate Agent default choice. Provider
 counts exclude that empty default choice. The native catalog retains both
 aliases so saved selections still display and execute correctly.
+Existing Global chats and workflow session panels use the same label resolver
+for their input toolbar and tooltip. They keep the saved native selector for
+continuation; when discovery has no matching entry, the saved ID is displayed
+unchanged rather than inferring a different model.
 The selection still submits the original native value, such as `opus` or a
 context-window suffix, so display metadata does not change CLI execution.
 Older CLI responses without `resolvedModel` keep their original labels. Optional

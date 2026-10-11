@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { isGlobalOnlyCodingAgent } from '@/utils/agent-catalog'
+import { agentMetadata, isGlobalOnlyCodingAgent } from '@/utils/agent-catalog'
+import { useCodingAgentModels } from '@/composables/useCodingAgentModels'
+import { nativeModelLabel } from '@/utils/native-model-families'
 import PageSidebar from "@/components/layout/PageSidebar.vue"
 import { usePageSidebarState } from "@/composables/usePageSidebar"
 import PageLoading from '@/components/common/PageLoading.vue'
@@ -120,7 +122,7 @@ import {
 } from '@/api/studio/workflow-socket'
 import { fetchSkills } from '@/api/hermes/skills'
 import { fetchSession } from '@/api/studio/sessions'
-import { inferCodingAgentApiMode, normalizeCodingAgentApiMode, type ChatCodingAgentId } from '@/api/coding-agents'
+import { inferCodingAgentApiMode, normalizeCodingAgentApiMode, type ChatCodingAgentId, type CodingAgentId } from '@/api/coding-agents'
 import { buildWorkflowSkillOptions, workflowAgentToSkillTarget } from '@/utils/hermes/workflow-skills'
 import type {
   WorkflowAgentNodeData,
@@ -887,10 +889,18 @@ const workflowChatPanelPendingApproval = computed(() => {
   return workflowNodeStatusFromRun(run, nodeId) === 'pending_approval'
 })
 
+const { catalog: workflowChatNativeCatalog } = useCodingAgentModels(
+  () => {
+    const id = chatStore.activeSession?.codingAgentId || chatStore.activeSession?.agent || 'codex'
+    return (agentMetadata(id)?.id || id) as CodingAgentId
+  },
+  () => workflowChatPanelVisible.value && chatStore.activeSession?.id === workflowChatPanelSessionId.value
+    && chatStore.activeSession?.codingAgentMode === 'global',
+)
 const workflowChatPanelModelLabel = computed(() => {
   const session = chatStore.activeSession
   if (!session || session.id !== workflowChatPanelSessionId.value) return t('models.selectModel')
-  if (session.codingAgentMode === 'global') return session.model || t('codingAgents.nativeModelDefault')
+  if (session.codingAgentMode === 'global') return nativeModelLabel(workflowChatNativeCatalog.value?.models, session.model || '', t('codingAgents.nativeModelDefault'))
   if (!session.model) return t('models.selectModel')
   if (session.provider === 'moa') return `MoA · ${session.model}`
   return appStore.displayModelName(session.model, session.provider)

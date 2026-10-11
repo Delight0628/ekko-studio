@@ -9,6 +9,12 @@ export function nativeCatalogModel(models: CodingAgentModel[] = [], id: string) 
   return candidates.find(model => model.provider === current?.provider) || candidates[0]
 }
 
+export function nativeModelLabel(models: CodingAgentModel[] | undefined, id: string, defaultLabel: string) {
+  if (!id) return defaultLabel
+  const model = nativeCatalogModel(models, id)
+  return model?.modelFamilyName || model?.resolvedModel || model?.name || id
+}
+
 export function nativeModelFamilies(models: CodingAgentModel[] = []) {
   const families = new Map<string, CodingAgentModel[]>()
   const visible = models.filter(model => !model.hidden)

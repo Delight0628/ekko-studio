@@ -19,6 +19,21 @@ function response(agentId: CodingAgentId = 'codex', id = 'native-model', status:
 }
 
 describe('native model catalog loading', () => {
+  it('does not hydrate malformed concrete model metadata used by session labels', async () => {
+    const key = 'studio_native_models_v1:' + JSON.stringify(['', 1, 'claude-code'])
+    localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), catalog: {
+      ...response('claude-code').agents[0],
+      models: [{ id: 'opus', name: 'Opus', resolvedModel: { invalid: true } }],
+    } }))
+    let finish!: (value: any) => void
+    fetchModels.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    const scope = effectScope()
+    const state = scope.run(() => useCodingAgentModels(() => 'claude-code', () => true))!
+    expect(state.catalog.value).toBeUndefined()
+    finish(response('claude-code'))
+    await state.reload()
+    scope.stop()
+  })
   it('ignores an older agent response after the user switches agents', async () => {
     let finishCodex!: (value: any) => void
     fetchModels.mockImplementation(({ agent }) => agent === 'codex'

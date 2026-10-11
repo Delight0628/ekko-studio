@@ -18,7 +18,7 @@ function createEntry(key: string, agent: CodingAgentId) {
     if (saved?.catalog?.agentId === agent && usable(saved.catalog)
       && Array.isArray(saved.catalog.models) && saved.catalog.models.every((model: any) =>
         typeof model?.id === 'string' && typeof model?.name === 'string'
-        && ['modelFamily', 'modelFamilyName', 'reasoningEffort'].every(key => model[key] === undefined || typeof model[key] === 'string')
+        && ['resolvedModel', 'modelFamily', 'modelFamilyName', 'reasoningEffort'].every(key => model[key] === undefined || typeof model[key] === 'string')
         && (model.reasoningEfforts === undefined || (Array.isArray(model.reasoningEfforts)
           && model.reasoningEfforts.every((value: unknown) => typeof value === 'string'))))
       && typeof saved.savedAt === 'number' && saved.savedAt <= Date.now()

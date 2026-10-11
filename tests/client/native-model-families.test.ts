@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nativeModelFamilies, nativeModelPickerId, nativeModelEffortChoices, selectNativeModelEffort } from '@/utils/native-model-families'
+import { nativeModelLabel, nativeModelFamilies, nativeModelPickerId, nativeModelEffortChoices, selectNativeModelEffort } from '@/utils/native-model-families'
 import type { CodingAgentModel } from '@/api/coding-agents'
 
 const models: CodingAgentModel[] = [
@@ -13,6 +13,15 @@ const models: CodingAgentModel[] = [
 ]
 
 describe('native family choices', () => {
+  it('uses concrete native metadata for labels without substituting unavailable or default selections', () => {
+    const claude = [{ id: 'opus', name: 'Opus (claude-opus-5-5)', resolvedModel: 'claude-opus-5-5' }]
+    expect(nativeModelLabel(claude, 'opus', 'Agent default')).toBe('claude-opus-5-5')
+    expect(nativeModelLabel(claude, 'claude-opus-4-8', 'Agent default')).toBe('claude-opus-4-8')
+    expect(nativeModelLabel(undefined, 'opus', 'Agent default')).toBe('opus')
+    expect(nativeModelLabel(claude, '', 'Agent default')).toBe('Agent default')
+    expect(nativeModelLabel(models, 'codex-extra-high-fast', 'Agent default')).toBe('Codex Extra High Fast')
+    expect(nativeModelLabel(models, 'gemini-pro-high', 'Agent default')).toBe('Gemini Pro')
+  })
   it('restores literal variant IDs into one selected picker row without losing Fast', () => {
     expect(nativeModelFamilies(models).map(model => model.id)).toEqual(['gemini-pro-high', 'codex-fast', 'codex-low'])
     expect(nativeModelPickerId(models, 'gemini-pro-low')).toBe('gemini-pro-high')

@@ -70,6 +70,52 @@ for (const mobile of [false, true]) test(`Claude shows and searches resolved mod
   await sendNewChatMessage(page, 'Use the native Claude alias')
   await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__?.emitted?.find((item: any) => item.event === 'run')?.payload))
     .toMatchObject({ coding_agent_id: 'claude-code', mode: 'global', model: 'opus' })
+  const sessionModel = page.locator('.chat-input-area .input-model-button')
+  await expect(sessionModel).toHaveText('claude-opus-5-5')
+  await expect(sessionModel).toHaveAttribute('aria-label', 'claude-opus-5-5')
+  await expect(sessionModel).toBeDisabled()
+  if (!mobile) await expect(sessionModel).toHaveAttribute('title', 'claude-opus-5-5')
+  expect(api.unexpectedRequests).toEqual([])
+})
+
+for (const mobile of [false, true]) test(`restored Claude session displays the concrete model and keeps its execution alias (${mobile ? 'mobile' : 'desktop'})`, async ({ page }) => {
+  await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 })
+  await authenticate(page, TEST_ACCESS_KEY, 'research')
+  const sessionId = 'saved-claude-opus'
+  const api = await mockHermesApi(page, { sessions: [{
+    id: sessionId, profile: 'research', source: 'coding_agent', agent: 'claude', agent_mode: 'global',
+    model: 'opus', provider: 'global', title: 'Saved Claude alias', reasoning_effort: 'high',
+    started_at: 100, last_active: 101, message_count: 1,
+  }] })
+  await page.addInitScript(id => {
+    ;(window as any).__PW_CHAT_SOCKET_RESUMES__ = { [id]: {
+      session_id: id, messages: [{ id: 1, role: 'user', content: 'Previous message', timestamp: 100 }], isWorking: false, events: [],
+    } }
+  }, sessionId)
+  await mockChatSocket(page)
+  await page.route('**/api/coding-agents/models?*', route => route.fulfill({ json: { agents: [{
+    ...catalog, agentId: 'claude-code', name: 'Claude Code', source: 'control-protocol',
+    models: [{ id: 'opus', name: 'Opus', resolvedModel: 'claude-opus-5-5', reasoningEfforts: ['low', 'high'] }],
+  }] } }))
+  await page.goto(`/#/hermes/session/${sessionId}`)
+  await expect(page.getByText('Previous message', { exact: true })).toBeVisible()
+  const model = page.locator('.chat-input-area .input-model-button')
+  await expect(model).toHaveText('claude-opus-5-5')
+  await expect(model).toHaveAttribute('aria-label', 'claude-opus-5-5')
+  await expect(model).toBeDisabled()
+  if (!mobile) {
+    await expect(model).toHaveAttribute('title', 'claude-opus-5-5')
+    await model.hover({ force: true })
+    await expect(page.locator('.n-popover:visible')).toHaveText('claude-opus-5-5')
+    await page.screenshot({ path: '/tmp/claude-session-model-tooltip.png' })
+  }
+  await model.dispatchEvent('click')
+  await expect(page.locator('.model-cascader:visible')).toHaveCount(0)
+  await page.locator('.chat-input-area textarea').fill('Continue with the saved alias')
+  await page.locator('.chat-input-area textarea').press('Enter')
+  await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__?.emitted?.filter((item: any) => item.event === 'run').at(-1)?.payload))
+    .toMatchObject({ model: 'opus', reasoning_effort: 'high', input: 'Continue with the saved alias' })
+  expect(api.requests.filter(request => request.pathname.endsWith('/model') && request.method !== 'GET')).toEqual([])
   expect(api.unexpectedRequests).toEqual([])
 })
 
@@ -237,7 +283,7 @@ for (const mobile of [false, true]) test(`global draft selects native model and 
   })
   const payload = await page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.emitted.find((item: any) => item.event === 'run').payload)
   for (const key of ['provider', 'baseUrl', 'apiKey', 'apiMode']) expect(payload[key]).toBeUndefined()
-  await expect(page.locator('.input-model-button')).toContainText('native-b')
+  await expect(page.locator('.input-model-button')).toContainText('Native B')
   await expect(page.locator('.reasoning-effort-button')).toHaveAttribute('aria-label', /high/i)
   await expect(page.locator('.reasoning-effort-button .reasoning-effort-label')).toBeVisible()
   await expect(page.locator('.reasoning-effort-button .reasoning-effort-label')).toHaveText('High')
