@@ -1567,6 +1567,16 @@ openapi.paths['/api/coding-agents/models'] = { get: {
   },
 } }
 
+const usageStatsOperation = openapi.paths['/api/studio/usage/stats']?.get
+if (usageStatsOperation) {
+  usageStatsOperation.description = 'Aggregates all recorded usage across accessible Profiles by default. Account means the Studio user who owns the session, not a provider account. Account options include newly created sessions before their first usage event. Legacy rows use confirmed Studio ownership; unknown ownership remains unassigned.'
+  const accountParameter = usageStatsOperation.parameters.find(parameter => parameter.name === 'account')
+  accountParameter.schema = { type: 'string', pattern: '^(?:[1-9][0-9]*|unassigned)$' }
+  accountParameter.description = 'Studio user ID, or unassigned. Omit to include all accounts.'
+  usageStatsOperation.responses['400'] = { description: 'Invalid account ID or timezone' }
+  usageStatsOperation.responses['403'] = { description: 'Selected Profile is not accessible to this user' }
+}
+
 // Write output
 const outputPath = join(rootDir, 'docs/openapi.json')
 writeFileSync(outputPath, JSON.stringify(openapi, null, 2))

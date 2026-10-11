@@ -23465,7 +23465,7 @@
           "Sessions"
         ],
         "summary": "Get stats",
-        "description": "GET /api/studio/usage/stats",
+        "description": "Aggregates all recorded usage across accessible Profiles by default. Account means the Studio user who owns the session, not a provider account. Account options include newly created sessions before their first usage event. Legacy rows use confirmed Studio ownership; unknown ownership remains unassigned.",
         "operationId": "usageStats",
         "security": [
           {
@@ -23476,8 +23476,14 @@
           "200": {
             "description": "Success"
           },
+          "400": {
+            "description": "Invalid account ID or timezone"
+          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Selected Profile is not accessible to this user"
           },
           "404": {
             "description": "Not found"
@@ -23485,11 +23491,64 @@
         },
         "parameters": [
           {
+            "name": "account",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[1-9][0-9]*|unassigned)$"
+            },
+            "description": "Studio user ID, or unassigned. Omit to include all accounts."
+          },
+          {
+            "name": "agent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "days",
             "in": "query",
             "required": false,
             "schema": {
               "type": "integer"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "today"
+              ]
+            }
+          },
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "time_zone",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ]

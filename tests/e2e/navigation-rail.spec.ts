@@ -124,6 +124,7 @@ test('navigates through the shared mobile rail and closes it on leaf pages', asy
     ['Device connections', '.connections-panel'],
     ['Agent Manager', '.agent-manager-panel'],
     ['Models', '.models-view'],
+    ['Usage', '.usage-view'],
   ]) {
     await page.getByRole('button', { name: 'Menu', exact: true }).click()
     await expect(drawer).toBeVisible()
@@ -137,6 +138,33 @@ test('navigates through the shared mobile rail and closes it on leaf pages', asy
   await drawer.getByRole('link', { name: 'Chat', exact: true }).click()
   await expect(page).toHaveURL(/#\/hermes\/chat$/)
   await expect(drawer.locator('.session-list .session-items')).toBeVisible()
+})
+
+test('places Usage below Models as a standalone page with its own active navigation', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/#/hermes/settings')
+  const rail = page.locator('.studio-navigation-rail')
+  const usage = rail.getByRole('link', { name: 'Usage', exact: true })
+  await expect(usage).toHaveAttribute('href', '#/hermes/usage')
+  expect(await usage.evaluate(element => element.previousElementSibling?.getAttribute('href'))).toBe('#/hermes/models')
+  await expect(page.locator('aside.sidebar').getByRole('link', { name: 'Usage', exact: true })).toHaveCount(0)
+  await usage.click()
+  await expect(page.locator('.usage-view')).toBeVisible()
+  await expect(page.locator('.usage-content')).toHaveAttribute('aria-busy', 'false')
+  await expect(page.locator('.usage-content [role="alert"]')).toHaveCount(0)
+  await expect(usage).toHaveAttribute('aria-current', 'page')
+  await expect(rail.getByRole('link', { name: 'Settings', exact: true })).not.toHaveAttribute('aria-current', 'page')
+  await expect(page.locator('aside.sidebar')).toHaveCount(0)
+  await page.reload()
+  await expect(usage).toHaveAttribute('aria-current', 'page')
+  await page.setViewportSize({ width: 390, height: 800 })
+  await page.getByRole('button', { name: 'Menu', exact: true }).click()
+  const drawer = page.locator('.studio-mobile-drawer')
+  await expect(drawer).toHaveCSS('width', '64px')
+  await expect(drawer.getByRole('link', { name: 'Usage', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(drawer.locator('aside.sidebar')).toHaveCount(0)
+  await drawer.getByRole('link', { name: 'Usage', exact: true }).click()
+  await expect(drawer).not.toBeVisible()
 })
 
 test('keeps both navigation levels while switching lists and settings on mobile', async ({ page }) => {

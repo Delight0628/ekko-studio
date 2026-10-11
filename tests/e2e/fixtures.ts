@@ -219,6 +219,18 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
       return
     }
 
+    if (pathname === '/api/studio/usage/stats' && request.method() === 'GET') {
+      await route.fulfill(jsonResponse({
+        period_days: Number(url.searchParams.get('days') || 30),
+        total_input_tokens: 0, total_output_tokens: 0, total_cache_read_tokens: 0,
+        total_cache_write_tokens: 0, total_reasoning_tokens: 0, total_sessions: 0,
+        total_api_calls: 0, total_cost: 0, cost_coverage: { reported: 0, estimated: 0, unknown: 0 },
+        filter_options: { accounts: [], models: [], agents: [] },
+        model_usage: [], agent_usage: [], daily_usage: [],
+      }))
+      return
+    }
+
     if (pathname === '/api/agents/status' && request.method() === 'GET') {
       await route.fulfill(jsonResponse({
         revision: 1,
