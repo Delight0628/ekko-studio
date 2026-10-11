@@ -113,7 +113,7 @@ function formatTokens(value: number) { return formatUsageTokens(value, locale?.v
   .stat-label { font-size: 11px; margin-bottom: 12px; }
   .stat-value { font-size: clamp(24px, 6.5vw, 28px); letter-spacing: -.7px; margin-bottom: 12px; white-space: nowrap; }
   .stat-hero .stat-value { font-size: clamp(24px, 7vw, 28px); letter-spacing: -1px; }
-  .stat-currency-value:not(.stat-text-value) { font-size: clamp(18px, 5.5vw, 24px); }
+  .stat-currency-value:not(.stat-text-value) { font-size: clamp(16px, 5vw, 22px); }
   .stat-text-value { font-size: 16px; letter-spacing: 0; white-space: normal; }
   .stat-main { gap: 4px; }
   .stat-unit { font-size: 10px; }
