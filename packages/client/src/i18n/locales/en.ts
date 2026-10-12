@@ -3846,6 +3846,16 @@ export default {
 
   // Changelog
   changelog: {
+    new_0_7_34_1: 'Coding Agents can select native models and reasoning effort in chats, group chats, and workflows, and remember the selected configuration (#3354, #3360)',
+    new_0_7_34_2: 'Unified model selection dialogs with provider and model columns, improving search, scrolling, and small-screen layouts (#3355)',
+    new_0_7_34_3: 'Added account and Profile filters, model and Agent usage breakdowns, and improved mobile layouts to the usage overview (#3363)',
+    new_0_7_34_4: 'Fixed cost, token, and percentage display precision, and mismatched trend charts and totals for rolling time windows (#3373)',
+    new_0_7_34_5: 'Added desktop remote server mode to connect to a self-hosted Web UI without starting the local server or runtime (#3366)',
+    new_0_7_34_6: 'Fixed mouse wheel navigation of Agent cards and improved fades at the list edges (#3351)',
+    new_0_7_34_7: 'Fixed thinking content appearing in chat replies when the model leaves a thinking tag unclosed (#3365)',
+    new_0_7_34_8: 'Fixed session category submenus failing to scroll when they contain many items (#3374)',
+    new_0_7_34_9: 'Fixed managed MCP connection issues caused by inheriting unrelated authentication tokens (#3359)',
+    new_0_7_34_10: 'Fixed custom provider model discovery metadata being reported as unknown configuration and reduced duplicate warnings (#3375)',
     new_0_7_33_1: 'New Chat now uses a responsive page with Agent cards, the shared chat composer, and session settings (#3333)',
     new_0_7_33_2: 'New chats remember the last model, workspace, launch mode, and reasoning options for creating more conversations (#3333)',
     new_0_7_33_3: 'Added gold borders and jade foil effects to Agent cards, with consistent interior animation speed across platforms (#3336, #3344)',
@@ -3862,10 +3872,5 @@ export default {
     new_0_7_32_6: 'Improved Hermes chat recovery after reconnects, fixed runs remaining busy after completion or stop, and ensured queued messages continue (#3321)',
     new_0_7_32_7: 'Fixed Linux desktop Open at Login and improved error messages and diagnostics for desktop startup failures (#3307, #3308)',
     new_0_7_32_8: 'Removed the outdated group chat upgrade notice (#3306)',
-    new_0_7_31_1: 'Added authenticated P2P connections between the App and Studio, with automatic cloud relay fallback when direct connections are unavailable (#3290)',
-    new_0_7_31_2: 'Improved P2P connections on systems with multiple network interfaces and in Docker, and fixed direct connection failures caused by proxy fake-IP DNS (#3292, #3303)',
-    new_0_7_31_3: 'Unified model context, reasoning effort, and pricing lookup, improved matching for custom endpoints and prefixed model IDs, and prioritized manually configured prices (#3298, #3300)',
-    new_0_7_31_4: 'Fixed context queries for custom endpoints in the App and added model aliases and reasoning options to shared sessions (#3299)',
-    new_0_7_31_5: 'Fixed Comic theme preferences being lost after refresh or restart; saved theme styles now return during loading (#3302)',
   },
 }
