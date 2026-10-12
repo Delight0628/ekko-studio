@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { formatUsageTokens, formatUsagePercent } from '@/utils/usage-display'
 
 describe('localized usage numbers', () => {
@@ -14,5 +14,28 @@ describe('localized usage numbers', () => {
     expect(formatUsagePercent(12.5, 'en')).toBe('12.5%')
     expect(formatUsagePercent(12.5, 'zh')).toBe('12.5%')
     expect(formatUsagePercent(12.5, 'fr').replace(/\s/g, ' ')).toBe('12,5 %')
+  })
+
+  it('bounds decimals even when toLocaleString ignores formatting options', () => {
+    const raw = vi.spyOn(Number.prototype, 'toLocaleString').mockImplementation(function (this: number) { return String(this.valueOf()) })
+    try {
+      expect(formatUsageTokens(1_078_623_373)).toBe('1.08B')
+      expect(formatUsageTokens(30_848_410_706)).toBe('30.85B')
+      expect(formatUsagePercent(96.9834590987114)).toBe('97.0%')
+    } finally {
+      raw.mockRestore()
+    }
+  })
+
+  it('falls back to fixed precision when Intl is unavailable', () => {
+    vi.stubGlobal('Intl', undefined)
+    try {
+      expect(formatUsageTokens(1_078_623_373)).toBe('1.08B')
+      expect(formatUsageTokens(1250)).toBe('1.3K')
+      expect(formatUsageTokens(999)).toBe('999')
+      expect(formatUsagePercent(96.9834590987114)).toBe('97.0%')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

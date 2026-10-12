@@ -1,6 +1,34 @@
 import { expect, test } from '@playwright/test'
 import { authenticate, mockHermesApi, TEST_ACCESS_KEY } from './fixtures'
 
+test('keeps usage totals and details readable when toLocaleString ignores options', async ({ page }) => {
+  await authenticate(page, TEST_ACCESS_KEY)
+  await mockHermesApi(page)
+  await page.addInitScript(() => {
+    Number.prototype.toLocaleString = function () { return String(this.valueOf()) }
+  })
+  const date = new Date().toISOString().slice(0, 10)
+  const tokens = { input_tokens: 959_483_597, output_tokens: 119_139_776, cache_read_tokens: 30_848_410_706, cache_write_tokens: 222_354, reasoning_tokens: 0, sessions: 1 }
+  const cost = 360.37559642599996
+  const cost_coverage = { reported: 0, estimated: 1, unknown: 0 }
+  await page.route('**/api/studio/usage/stats?*', route => route.fulfill({ json: {
+    total_input_tokens: tokens.input_tokens, total_output_tokens: tokens.output_tokens,
+    total_cache_read_tokens: tokens.cache_read_tokens, total_cache_write_tokens: tokens.cache_write_tokens,
+    total_sessions: 1, total_cost: cost, cost_coverage,
+    model_usage: [{ model: 'usage-model', ...tokens }], agent_usage: [],
+    daily_usage: [{ date, ...tokens, errors: 0, cost, cost_coverage }],
+  } }))
+  await page.goto('/#/hermes/usage')
+  await expect(page.locator('.stat-hero .stat-value')).toHaveText('1.08B')
+  await expect(page.locator('.stat-currency-value')).toHaveText('$360.38')
+  await expect(page.locator('.cache-ring strong')).toHaveText('97.0%')
+  await expect(page.locator('.cache-caption strong')).toHaveText('30.85B')
+  await expect(page.locator('.rank-share')).toHaveText('100.0%')
+  await page.locator('.daily-details summary').click()
+  await expect(page.locator('tbody')).toContainText('$360.38')
+  await expect(page.locator('tbody')).toContainText('97.0%')
+})
+
 test('shows unknown, partial and free costs and saves explicit model pricing', async ({ page }) => {
   await authenticate(page, TEST_ACCESS_KEY)
   await mockHermesApi(page)

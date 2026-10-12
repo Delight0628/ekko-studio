@@ -11,9 +11,13 @@ export function usageCostState(amount: number, coverage?: UsageCostCoverage, has
 }
 
 export function formatUsageCurrency(amount: number, locale = 'en'): string {
-  return amount.toLocaleString(locale, {
-    style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 2, maximumFractionDigits: 2,
-  })
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 2, maximumFractionDigits: 2,
+    }).format(amount)
+  } catch {
+    return `$${amount.toFixed(2)}`
+  }
 }
 
 export function formatUsageCost(amount: number, coverage?: UsageCostCoverage, hasActivity = true, locale = 'en'): string | null {

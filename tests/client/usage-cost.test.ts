@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { formatUsageCost, formatUsageCurrency, usageCostState } from '../../packages/client/src/utils/usage-cost'
 
 describe('usage cost presentation', () => {
@@ -24,5 +24,26 @@ describe('usage cost presentation', () => {
     expect(formatUsageCost(0.001, known, true, 'fr')?.replace(/\s/g, ' ')).toBe('<0,01 $')
     expect(formatUsageCost(0, { reported: 0, estimated: 0, unknown: 1 }, true, 'fr')).toBeNull()
     expect(formatUsageCurrency(0.001, 'fr').replace(/\s/g, ' ')).toBe('0,00 $')
+  })
+
+  it('formats long floating-point totals when toLocaleString ignores its options', () => {
+    const raw = vi.spyOn(Number.prototype, 'toLocaleString').mockImplementation(function (this: number) { return String(this.valueOf()) })
+    try {
+      expect(formatUsageCost(360.37559642599996)).toBe('$360.38')
+    } finally {
+      raw.mockRestore()
+    }
+  })
+
+  it('retains USD and cost states without Intl', () => {
+    vi.stubGlobal('Intl', undefined)
+    try {
+      expect(formatUsageCost(360.37559642599996)).toBe('$360.38')
+      expect(formatUsageCost(0, { reported: 1, estimated: 0, unknown: 0 })).toBe('$0.00')
+      expect(formatUsageCost(0.001)).toBe('<$0.01')
+      expect(formatUsageCost(0, { reported: 0, estimated: 0, unknown: 1 })).toBeNull()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

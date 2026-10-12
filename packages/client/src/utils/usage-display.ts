@@ -9,11 +9,20 @@ export function formatUsageTokens(value: number, locale = 'en'): string {
     : value >= 1_000_000 ? { divisor: 1_000_000, digits: 2, suffix: 'M' }
       : value >= 1_000 ? { divisor: 1_000, digits: 1, suffix: 'K' }
         : { divisor: 1, digits: 0, suffix: '' }
-  return (value / scale.divisor).toLocaleString(locale, {
-    minimumFractionDigits: scale.digits, maximumFractionDigits: scale.digits, useGrouping: false,
-  }) + scale.suffix
+  const amount = value / scale.divisor
+  try {
+    return new Intl.NumberFormat(locale, {
+      minimumFractionDigits: scale.digits, maximumFractionDigits: scale.digits, useGrouping: false,
+    }).format(amount) + scale.suffix
+  } catch {
+    return amount.toFixed(scale.digits) + scale.suffix
+  }
 }
 
 export function formatUsagePercent(value: number, locale = 'en'): string {
-  return (value / 100).toLocaleString(locale, { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 })
+  try {
+    return new Intl.NumberFormat(locale, { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value / 100)
+  } catch {
+    return `${value.toFixed(1)}%`
+  }
 }

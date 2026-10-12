@@ -76,13 +76,13 @@ export async function getAggregatedUsageStats(profiles: string[], days: number, 
     dayMap.set(key, { date: key, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, sessions: 0, errors: 0, cost: 0, cost_coverage: emptyCostCoverage() })
   }
   for (const d of ledgers.flatMap(ledger => ledger.by_day)) {
-    const existing = dayMap.get(d.date)
-    if (existing) {
-      existing.input_tokens += d.input_tokens; existing.output_tokens += d.output_tokens
-      existing.cache_read_tokens += d.cache_read_tokens; existing.cache_write_tokens += d.cache_write_tokens
-      existing.sessions += d.sessions; existing.errors += d.errors; existing.cost += d.cost
-      addCostCoverage(existing.cost_coverage!, d.cost_coverage)
-    }
+    // Rolling windows can include part of the preceding UTC day as well.
+    const existing = dayMap.get(d.date) || { date: d.date, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, sessions: 0, errors: 0, cost: 0, cost_coverage: emptyCostCoverage() }
+    existing.input_tokens += d.input_tokens; existing.output_tokens += d.output_tokens
+    existing.cache_read_tokens += d.cache_read_tokens; existing.cache_write_tokens += d.cache_write_tokens
+    existing.sessions += d.sessions; existing.errors += d.errors; existing.cost += d.cost
+    addCostCoverage(existing.cost_coverage!, d.cost_coverage)
+    dayMap.set(d.date, existing)
   }
 
   const costCoverage = emptyCostCoverage()
@@ -106,6 +106,6 @@ export async function getAggregatedUsageStats(profiles: string[], days: number, 
     },
     model_usage: [...modelMap.values()].sort((a, b) => (b.input_tokens + b.output_tokens) - (a.input_tokens + a.output_tokens)),
     agent_usage: [...agentMap.values()].sort((a, b) => (b.input_tokens + b.output_tokens) - (a.input_tokens + a.output_tokens)),
-    daily_usage: [...dayMap.values()],
+    daily_usage: [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date)),
   }
 }

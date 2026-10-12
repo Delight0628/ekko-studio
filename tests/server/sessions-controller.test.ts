@@ -2211,6 +2211,35 @@ describe('session conversations controller', () => {
     expect(ctx.body.filter_options).toEqual({ models: ['shared-model'], agents: ['codex', 'hermes'], accounts: [{ id: '1', username: 'ekko' }] })
   })
 
+  it('retains the partial first UTC day in rolling-window charts so they reconcile with totals', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-12T04:00:00Z'))
+    try {
+      const base = getLocalUsageStatsMock()
+      const ledger = (date: string, input: number, cost: number) => {
+        const cost_coverage = { reported: 1, estimated: 0, unknown: 0 }
+        const tokens = { input_tokens: input, output_tokens: 20, cache_read_tokens: 300, cache_write_tokens: 5, sessions: 1 }
+        return { ...base, ...tokens, cost, cost_coverage,
+          by_day: [{ date, ...tokens, errors: 0, cost, cost_coverage }] }
+      }
+      getLocalUsageStatsMock.mockReturnValue(ledger('2026-09-12', 100, 0.02))
+      getUsageStatsFromDbMock.mockResolvedValue(ledger('2026-09-13', 200, 0.03))
+      const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
+      const ctx: any = { query: { days: '30', profile: 'default' }, body: null }
+      await mod.usageStats(ctx)
+      const rows = ctx.body.daily_usage
+      expect(rows[0]).toMatchObject({ date: '2026-09-12', input_tokens: 100, cost: 0.02, cost_coverage: { reported: 1, estimated: 0, unknown: 0 } })
+      expect(rows.at(-1).date).toBe('2026-10-12')
+      expect(rows).toHaveLength(31)
+      for (const key of ['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens']) {
+        expect(rows.reduce((sum: number, row: any) => sum + row[key], 0)).toBe(ctx.body[`total_${key}`])
+      }
+      expect(rows.reduce((sum: number, row: any) => sum + row.cost, 0)).toBeCloseTo(ctx.body.total_cost)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('limits all-Profile usage to assigned Profiles for an administrator', async () => {
     listUserProfilesMock.mockReturnValue([{ profile_name: 'travel' }])
     const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
