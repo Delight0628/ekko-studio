@@ -1,6 +1,7 @@
 import { isNativeCodingAgent } from '../contracts/agents/native-coding-agents'
 import { withRunUsage } from '../public/usage'
 import { businessEvents } from '../services/webhooks/business-events'
+import { publishSessionRemoval } from '../services/notifications/session-removal'
 import { getUsagePricing, saveUsagePricing, validateUsagePricing } from '../services/usage/usage-pricing'
 import { getAggregatedUsageStats } from '../services/usage/usage-stats'
 import { getTodayUsageWindow } from '../services/usage/usage-period'
@@ -1343,6 +1344,7 @@ export async function remove(ctx: any) {
     return
   }
   deleteWorkspaceRunChangesForSession(sessionId)
+  if (existing) publishSessionRemoval(existing, 'deleted')
   ctx.body = { ok: true, deleted: Boolean(existing), hermes }
 }
 
@@ -1418,6 +1420,7 @@ export async function batchRemove(ctx: any) {
       const ok = localDeleteSession(id)
       if (ok) {
         deleteWorkspaceRunChangesForSession(id)
+        publishSessionRemoval(existing!, 'deleted')
         results.deleted++
       } else {
         results.failed++
@@ -1492,6 +1495,7 @@ export async function archive(ctx: any) {
     ctx.body = { error: 'Failed to archive session' }
     return
   }
+  publishSessionRemoval(existing, 'archived')
   ctx.body = { ok: true }
 }
 

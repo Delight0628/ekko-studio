@@ -2466,6 +2466,28 @@ describe('session conversations controller', () => {
     expect(localUpdateSessionMock).not.toHaveBeenCalled()
   })
 
+  it.each(['remove', 'batchRemove', 'archive'] as const)('publishes cleanup after successful %s and never after a rejected mutation', async action => {
+    const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
+    const { businessEvents } = await import('../../packages/server/src/modules/studio/services/webhooks/business-events')
+    getSessionMock.mockReturnValue({id: 'unread-chat', profile: 'default', user_id: '7', source: 'coding_agent'})
+    localDeleteSessionMock.mockReturnValue(true)
+    localSetSessionArchivedMock.mockReturnValue(true)
+    const received: any[] = []
+    const stop = businessEvents.subscribe('test-session-cleanup', event => { received.push(event) })
+    const ctx: any = {params: {id: 'unread-chat'}, request: {body: {ids: ['unread-chat']}}, body: null}
+    try {
+      await mod[action](ctx)
+      expect(received).toHaveLength(1)
+      expect(received[0]).toMatchObject({type: 'chat.session.removed', profile: 'default',
+        subject: {session_id: 'unread-chat'}, payload: {owner_user_id: 7, reason: action === 'archive' ? 'archived' : 'deleted'}})
+      received.length = 0
+      localDeleteSessionMock.mockReturnValue(false)
+      localSetSessionArchivedMock.mockReturnValue(false)
+      await mod[action](ctx)
+      expect(received).toEqual([])
+    } finally {stop()}
+  })
+
   it('deletes a current-profile Hermes history session even when no local Web UI session exists', async () => {
     getActiveProfileNameMock.mockReturnValue('travel')
     getSessionMock.mockReturnValue(null)
