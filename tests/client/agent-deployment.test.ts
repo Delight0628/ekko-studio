@@ -19,9 +19,9 @@ describe('Agent deployment lifecycle', () => {
     vi.stubGlobal('requestAnimationFrame', vi.fn(callback => { frame = callback; return 1 }))
     vi.stubGlobal('cancelAnimationFrame', vi.fn())
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener() {}, removeEventListener() {} })))
-    document.body.innerHTML = `<div data-agent-deployment-surface data-agent-deployment-session="new" data-agent-deployment-active="true">
+    document.body.innerHTML = `<div data-agent-deployment-surface data-agent-deployment-session="new" data-agent-deployment-active="true" data-agent-deployment-status-session="new" data-agent-deployment-status="working">
       <button class="agent-card active"><span class="agent-card-name">Ekko</span></button>
-      <img data-agent-deployment-target="new" style="opacity:.85" />
+      <img data-agent-deployment-image="ready" data-agent-deployment-target="new" style="opacity:.85" />
     </div>`
     surface = document.body.firstElementChild as HTMLElement
     source = surface.querySelector('button')!
@@ -70,6 +70,7 @@ describe('Agent deployment lifecycle', () => {
     prepareAgentDeployment(source)!.start('new')
     tick(50)
     avatar.dataset.agentDeploymentTarget = 'old'
+    surface.dataset.agentDeploymentStatus = 'settled'
     tick(1400)
     expect(overlay()?.dataset.phase).toBe('finishing')
     expect(avatar.style.opacity).toBe('0.85')
@@ -77,12 +78,61 @@ describe('Agent deployment lifecycle', () => {
     expect(overlay()).toBeNull()
   })
 
-  it('has a bounded fallback when the request fails or no thinking avatar appears', () => {
+  it('reveals the page when preparation fails without a thinking avatar', () => {
     avatar.remove()
     prepareAgentDeployment(source)!.start('new')
     tick(50)
-    tick(2100)
-    tick(2280)
+    surface.dataset.agentDeploymentStatus = 'error'
+    tick(1400)
+    // Once exit starts, a late state update must not strand the overlay.
+    surface.dataset.agentDeploymentStatus = 'working'
+    tick(1580)
+    expect(overlay()).toBeNull()
+  })
+
+  it.each(['session', 'image'])('waits beyond the old deadline for %s readiness, with an opaque stage', waiting => {
+    if (waiting === 'session') surface.dataset.agentDeploymentStatus = 'pending'
+    if (waiting === 'image') avatar.dataset.agentDeploymentImage = 'pending'
+    prepareAgentDeployment(source)!.start('new')
+    expect(overlay()?.querySelector<HTMLElement>('.agent-deployment-shade')?.style.opacity).toBe('1')
+    source.remove()
+    tick(50)
+    expect(avatar.style.opacity).toBe('0')
+    tick(3000)
+    vi.advanceTimersByTime(3000)
+    expect(overlay()?.dataset.phase).toBe('waiting')
+    const hovering = overlay()?.querySelector<HTMLElement>('.agent-deployment-hero')?.style.transform
+    tick(3200)
+    expect(overlay()?.querySelector<HTMLElement>('.agent-deployment-hero')?.style.transform).not.toBe(hovering)
+    surface.dataset.agentDeploymentStatus = 'working'
+    avatar.dataset.agentDeploymentImage = 'ready'
+    tick(3400)
+    expect(overlay()?.dataset.phase).toBe('landing')
+    tick(3800)
+    tick(3990)
+    expect(overlay()).toBeNull()
+    expect(avatar.style.opacity).toBe('0.85')
+  })
+
+  it('reveals the session if the avatar image fails instead of waiting indefinitely', () => {
+    avatar.dataset.agentDeploymentImage = 'error'
+    prepareAgentDeployment(source)!.start('new')
+    tick(1400)
+    expect(overlay()?.dataset.phase).toBe('finishing')
+    tick(1580)
+    expect(overlay()).toBeNull()
+    expect(avatar.style.opacity).toBe('0.85')
+  })
+
+  it('restores a replaced target while waiting and cancels navigation', () => {
+    surface.dataset.agentDeploymentStatus = 'pending'
+    prepareAgentDeployment(source)!.start('new')
+    tick(50)
+    avatar.remove()
+    tick(3000)
+    expect(avatar.style.opacity).toBe('0.85')
+    surface.dataset.agentDeploymentActive = 'false'
+    tick(3100)
     expect(overlay()).toBeNull()
   })
 
@@ -108,7 +158,7 @@ describe('Agent deployment lifecycle', () => {
     prepareAgentDeployment(source)!.start('new')
     expect(document.querySelectorAll('.agent-deployment-overlay')).toHaveLength(1)
     expect(avatar.style.opacity).toBe('0.85')
-    vi.advanceTimersByTime(2600)
+    vi.advanceTimersByTime(60000)
     expect(overlay()).toBeNull()
   })
 })

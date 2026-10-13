@@ -73,7 +73,11 @@ onBeforeUnmount(() => cancelAnimationFrame(scrollFrame))
   <div class="live-reasoning-status">
     <div class="thinking-status">
       <img
+        :key="isEkko ? thinkingImage : agent.src"
         :src="isEkko ? thinkingImage : agent.src"
+        data-agent-deployment-image="pending"
+        @load="($event.target as HTMLImageElement).dataset.agentDeploymentImage = 'ready'"
+        @error="($event.target as HTMLImageElement).dataset.agentDeploymentImage = 'error'"
         alt=""
         aria-hidden="true"
         class="thinking-avatar"

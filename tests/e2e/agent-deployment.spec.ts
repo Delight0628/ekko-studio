@@ -44,7 +44,7 @@ for (const locale of ['en', 'tr'] as const) for (const mobile of [false, true]) 
           const h = hero.getBoundingClientRect(), t = target.getBoundingClientRect()
           state.frames.push({ phase: overlay!.dataset.phase, opacity: hero.style.opacity, targetOpacity: target.style.opacity,
             dx: h.x + h.width / 2 - t.x - t.width / 2, dy: h.y + h.height / 2 - t.y - t.height / 2,
-            height: h.height, targetHeight: t.height })
+            height: h.height, targetHeight: t.height, shade: overlay!.querySelector<HTMLElement>('.agent-deployment-shade')!.style.opacity })
         }
         if (performance.now() < state.until) requestAnimationFrame(sample)
       }
@@ -59,6 +59,7 @@ for (const locale of ['en', 'tr'] as const) for (const mobile of [false, true]) 
     await expect(page.locator('.thinking-status-label')).toHaveText(messages[locale].chat.thinkingInProgress)
     await expect(page.locator('.agent-deployment-overlay')).toHaveCount(0, { timeout: 4000 })
     const frames = await page.evaluate(() => (window as any).deploymentFrames.frames)
+    expect(frames.filter((f: any) => f.phase === 'summoning').every((f: any) => f.shade === '1')).toBe(true)
     expect(frames.some((f: any) => f.phase === 'landing' && f.targetOpacity === '0')).toBe(true)
     const landing = frames.find((f: any) => f.phase === 'landing' && f.targetOpacity !== '0' && f.opacity === '1')
     expect(landing, JSON.stringify(frames.slice(-12))).toBeDefined()
@@ -81,3 +82,33 @@ test('reduced motion sends the first message without a deployment overlay', asyn
   await expect(page.locator('.thinking-avatar')).toBeVisible()
   expect(await page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.emitted.filter((item: any) => item.event === 'run').length)).toBe(1)
 })
+
+for (const outcome of ['load', 'error'] as const) {
+  test(`deployment waits for the real avatar image before ${outcome}`, async ({ page }) => {
+    let releaseImage!: () => void
+    const imageGate = new Promise<void>(resolve => { releaseImage = resolve })
+    await openDraft(page, true, 'tr')
+    await page.route(/thinking[^/]*\.gif/, async route => {
+      await imageGate
+      if (outcome === 'load') await route.continue()
+      else await route.abort()
+    })
+    await page.locator('.new-chat-page textarea').fill('Deploy with a slow avatar')
+    await page.getByRole('button', { name: messages.tr.chat.send, exact: true }).click()
+    const target = page.locator('[data-agent-deployment-target]:not([data-agent-deployment-target=""])')
+    try {
+      await expect(target).toHaveAttribute('data-agent-deployment-image', 'pending')
+      await page.waitForTimeout(3100)
+      await expect(page.locator('.agent-deployment-overlay')).toHaveAttribute('data-phase', 'waiting')
+      expect(await target.evaluate(el => (el as HTMLElement).style.opacity)).toBe('0')
+      expect(await page.locator('.agent-deployment-shade').evaluate(el => (el as HTMLElement).style.opacity)).toBe('1')
+      // The request has already been dispatched while the visual waits.
+      expect(await page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.emitted.filter((item: any) => item.event === 'run').length)).toBe(1)
+      if (outcome === 'load') await page.screenshot({ path: '/tmp/studio-agent-deployment-waiting.png' })
+      releaseImage()
+      await expect(target).toHaveAttribute('data-agent-deployment-image', outcome === 'load' ? 'ready' : 'error')
+      await expect(page.locator('.agent-deployment-overlay')).toHaveCount(0, { timeout: 3000 })
+      expect(await target.evaluate(el => (el as HTMLElement).style.opacity)).toBe('')
+    } finally { releaseImage() }
+  })
+}

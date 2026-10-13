@@ -3109,7 +3109,9 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
         >
           <div ref="chatMainContentRef" class="chat-main-content" data-agent-deployment-surface
             :data-agent-deployment-session="chatStore.activeSessionId || ''"
-            :data-agent-deployment-active="currentMode === 'chat' && !showNewChatPage">
+            :data-agent-deployment-active="currentMode === 'chat' && !showNewChatPage"
+            :data-agent-deployment-status-session="chatStore.activeSessionId || ''"
+            :data-agent-deployment-status="chatStore.isLoadingMessages ? 'pending' : chatStore.isRunActive ? 'working' : 'settled'">
             <section v-if="showNewChatPage" class="new-chat-page" :aria-label="t('chat.newChat')">
               <div class="new-chat-intro">
                 <h1>{{ t('chat.newChatCardTitle') }}</h1>
