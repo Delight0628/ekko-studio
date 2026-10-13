@@ -83,17 +83,25 @@ test('reduced motion sends the first message without a deployment overlay', asyn
   expect(await page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.emitted.filter((item: any) => item.event === 'run').length)).toBe(1)
 })
 
-for (const outcome of ['load', 'error'] as const) {
-  test(`deployment waits for the real avatar image before ${outcome}`, async ({ page }) => {
+for (const mobile of [false, true]) for (const outcome of ['load', 'error'] as const) {
+  test(`deployment centres a scrolled card before avatar ${outcome} (${mobile ? 'mobile' : 'desktop'})`, async ({ page }) => {
     let releaseImage!: () => void
     const imageGate = new Promise<void>(resolve => { releaseImage = resolve })
-    await openDraft(page, true, 'tr')
+    await openDraft(page, mobile, 'tr')
     await page.route(/thinking[^/]*\.gif/, async route => {
       await imageGate
       if (outcome === 'load') await route.continue()
       else await route.abort()
     })
     await page.locator('.new-chat-page textarea').fill('Deploy with a slow avatar')
+    await page.locator('.agent-card-viewport').evaluate(el => {
+      (el as HTMLElement).style.scrollSnapType = 'none'
+      el.scrollLeft += 60
+    })
+    await expect.poll(() => page.locator('.agent-card.active').evaluate(el => {
+      const card = el.getBoundingClientRect(), row = el.closest('.agent-card-viewport')!.getBoundingClientRect()
+      return Math.abs(card.x + card.width / 2 - row.x - row.width / 2)
+    })).toBeGreaterThan(30)
     await page.getByRole('button', { name: messages.tr.chat.send, exact: true }).click()
     const target = page.locator('[data-agent-deployment-target]:not([data-agent-deployment-target=""])')
     try {
@@ -104,7 +112,15 @@ for (const outcome of ['load', 'error'] as const) {
       expect(await page.locator('.agent-deployment-shade').evaluate(el => (el as HTMLElement).style.opacity)).toBe('1')
       // The request has already been dispatched while the visual waits.
       expect(await page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.emitted.filter((item: any) => item.event === 'run').length)).toBe(1)
-      if (outcome === 'load') await page.screenshot({ path: '/tmp/studio-agent-deployment-waiting.png' })
+      const centreError = await page.locator('.agent-deployment-hero').evaluate(el => {
+        const h = el.getBoundingClientRect(), board = document.querySelector('[data-agent-deployment-surface]')!.getBoundingClientRect()
+        const top = Math.max(0, board.top), bottom = Math.min(innerHeight, board.bottom)
+        const left = Math.max(0, board.left), right = Math.min(innerWidth, board.right)
+        return { x: h.x + h.width / 2 - (left + right) / 2, y: h.y + h.height / 2 - (top + bottom) / 2 }
+      })
+      expect(Math.abs(centreError.x)).toBeLessThan(2)
+      expect(Math.abs(centreError.y)).toBeLessThan(4)
+      if (outcome === 'load') await page.screenshot({ path: `/tmp/studio-agent-deployment-centred-${mobile ? 'mobile' : 'desktop'}.png` })
       releaseImage()
       await expect(target).toHaveAttribute('data-agent-deployment-image', outcome === 'load' ? 'ready' : 'error')
       await expect(page.locator('.agent-deployment-overlay')).toHaveCount(0, { timeout: 3000 })

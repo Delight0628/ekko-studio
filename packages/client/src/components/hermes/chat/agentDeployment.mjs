@@ -165,8 +165,18 @@ function captureDeployment(source) {
     if ((!surface && seenSession) || (!seenSession && elapsed > 10000)) { cancel(); return; }
     const board = (surface || sourceSurface)?.getBoundingClientRect() || { left: 0, top: 0, width: win.innerWidth, height: win.innerHeight };
     Object.assign(shade.style, { left: `${board.left}px`, top: `${board.top}px`, width: `${board.width}px`, height: `${board.height}px` });
-    const cx = clamp(sourceCenter.x, board.left + rect.width / 2, board.left + board.width - rect.width / 2);
-    const cy = clamp(sourceCenter.y - rect.height * .297, board.top + rect.height * .6, board.top + board.height - rect.height * .6);
+    // The source can be anywhere after carousel scrolling. It is only the
+    // launch point; summoning settles at the visible chat area's centre.
+    // Re-measure each frame so keyboard/container resizing moves the stage.
+    const viewport = win.visualViewport;
+    const viewportLeft = viewport?.offsetLeft || 0;
+    const viewportTop = viewport?.offsetTop || 0;
+    const visibleLeft = Math.max(board.left, viewportLeft);
+    const visibleTop = Math.max(board.top, viewportTop);
+    const visibleRight = Math.min(board.left + board.width, viewportLeft + (viewport?.width || win.innerWidth));
+    const visibleBottom = Math.min(board.top + board.height, viewportTop + (viewport?.height || win.innerHeight));
+    const cx = (visibleLeft + Math.max(visibleLeft, visibleRight)) / 2;
+    const cy = (visibleTop + Math.max(visibleTop, visibleBottom)) / 2;
     Object.assign(glow.style, { left: `${cx - 190}px`, top: `${cy - 190}px` });
     Object.assign(floor.style, { left: `${cx - rect.width * .88}px`, top: `${cy + rect.height * .58}px` });
     Object.assign(wave.style, { left: `${cx - rect.width * .71}px`, top: `${cy - rect.width * .71}px` });
@@ -187,7 +197,7 @@ function captureDeployment(source) {
     const poses = [
       [0, { ...sourceCenter, scale: 1 }],
       [120, { x: sourceCenter.x, y: sourceCenter.y + 3, scale: .96, rx: 3 }],
-      [480, { x: sourceCenter.x - 10, y: sourceCenter.y - 25, scale: 1.06, r: -7, rx: -8, ry: -13 }],
+      [480, { x: lerp(sourceCenter.x, cx, .55), y: lerp(sourceCenter.y, cy, .55) - 25, scale: 1.06, r: -7, rx: -8, ry: -13 }],
       [950, { x: cx, y: cy - 18, scale: 1.07, r: 4, rx: -4, ry: 11 }],
       [1150, { x: cx, y: cy, scale: 1 }],
       [1400, { x: cx, y: cy, scale: 1 }],

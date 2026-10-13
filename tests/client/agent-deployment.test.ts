@@ -14,6 +14,8 @@ describe('Agent deployment lifecycle', () => {
 
   beforeEach(() => {
     vi.useFakeTimers()
+    vi.stubGlobal('innerWidth', 800)
+    vi.stubGlobal('innerHeight', 844)
     vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
     vi.spyOn(performance, 'now').mockReturnValue(100)
     vi.stubGlobal('requestAnimationFrame', vi.fn(callback => { frame = callback; return 1 }))
@@ -37,6 +39,36 @@ describe('Agent deployment lifecycle', () => {
     vi.unstubAllGlobals()
     vi.useRealTimers()
     document.body.innerHTML = ''
+  })
+
+  const heroCenter = () => {
+    const transform = overlay()!.querySelector<HTMLElement>('.agent-deployment-hero')!.style.transform
+    const position = transform.match(/translate3d\(([-.\d]+)px,([-.\d]+)px,0\)/)!
+    return { x: Number(position[1]) + 85, y: Number(position[2]) + 130 }
+  }
+
+  it.each([[20, 90], [450, 600], [260, 350]])('moves a card at %s,%s to the chat centre', (left, top) => {
+    surface.getBoundingClientRect = () => bounds(80, 60, 640, 700)
+    source.getBoundingClientRect = () => bounds(left, top, 170, 260)
+    surface.dataset.agentDeploymentStatus = 'pending'
+    prepareAgentDeployment(source)!.start('new')
+    expect(heroCenter()).toEqual({ x: left + 85, y: top + 130 })
+    source.remove()
+    tick(1150)
+    expect(heroCenter()).toEqual({ x: 400, y: 410 })
+  })
+
+  it('recentres while waiting when the native container or visible viewport changes', () => {
+    surface.dataset.agentDeploymentStatus = 'pending'
+    prepareAgentDeployment(source)!.start('new')
+    tick(1400)
+    expect(heroCenter()).toEqual({ x: 195, y: 422 })
+    surface.getBoundingClientRect = () => bounds(0, 60, 390, 420)
+    tick(1400)
+    expect(heroCenter()).toEqual({ x: 195, y: 270 })
+    vi.stubGlobal('visualViewport', { width: 390, height: 360, offsetLeft: 0, offsetTop: 20 })
+    tick(1400)
+    expect(heroCenter()).toEqual({ x: 195, y: 220 })
   })
 
   it('survives source unmount, lands on the actual avatar, then restores its style', () => {
