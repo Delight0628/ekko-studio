@@ -1604,7 +1604,7 @@ test('restores named resumed tool traces from assistant tool calls after session
   expect(api.unexpectedRequests).toEqual([])
 })
 
-test('restores per-turn usage cards on resume and reload, including a summary-only reply', async ({ page }) => {
+for (const showCost of [true, false]) test(`restores usage history with Show Cost ${showCost ? 'enabled' : 'disabled'}`, async ({ page }) => {
   const sessionId = 'session-history-run-usage'
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   await page.addInitScript((sid) => {
@@ -1627,7 +1627,7 @@ test('restores per-turn usage cards on resume and reload, including a summary-on
       ] },
     }
   }, sessionId)
-  const api = await mockHermesApi(page, { sessions: [{
+  const api = await mockHermesApi(page, { channelConfig: { display: { show_cost: showCost } }, sessions: [{
     id: sessionId, source: 'api_server', model: 'test-model', title: 'Run usage history', preview: 'First answer.',
     started_at: 1, ended_at: 4, last_active: 4, message_count: 4, tool_call_count: 0,
     input_tokens: 33475, output_tokens: 386, cache_read_tokens: 32640, cache_write_tokens: 0,
@@ -1639,6 +1639,11 @@ test('restores per-turn usage cards on resume and reload, including a summary-on
   const cards = page.locator('.run-usage-card')
   for (const reload of [false, true]) {
     if (reload) await page.reload()
+    if (!showCost) {
+      await expect(page.getByText('First answer.', { exact: true })).toBeVisible()
+      await expect(cards).toHaveCount(0)
+      continue
+    }
     await expect(cards).toHaveCount(2)
     await expect(cards.first().locator('.run-usage-value').first()).toHaveText('32')
     await expect(cards.last().locator('.run-usage-value').first()).toHaveText('354')
