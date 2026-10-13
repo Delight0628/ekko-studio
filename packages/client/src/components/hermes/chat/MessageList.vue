@@ -729,6 +729,7 @@ defineExpose({
         <Transition name="fade">
         <div v-if="isRunIndicatorActive" class="streaming-indicator">
           <LiveReasoningStatus
+            :deployment-session-id="chatStore.activeSessionId || ''"
             :agent="assistantAgent"
             :reasoning="liveReasoningDetail?.reasoning"
             :reasoning-id="liveReasoningDetail?.messageId"

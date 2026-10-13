@@ -52,6 +52,7 @@ import FolderPicker from "./FolderPicker.vue";
 import StarIcon from "@/components/common/StarIcon.vue";
 import ChatInput from "./ChatInput.vue";
 import NewChatAgentCards from "./NewChatAgentCards.vue";
+import { prepareAgentDeployment, type AgentDeploymentController } from "./agentDeployment.mjs";
 import RealtimeVoiceStage from "./RealtimeVoiceStage.vue";
 import ConversationMonitorPane from "./ConversationMonitorPane.vue";
 import MessageList from "./MessageList.vue";
@@ -1371,6 +1372,7 @@ async function submitNewChat(text: string, attachments?: Attachment[]): Promise<
   if (!canConfirmNewChat.value || !showNewChatPage.value) return false;
   const sequence = newChatOptionsLoadSequence;
   newChatLoading.value = true;
+  let deployment: AgentDeploymentController | null = null;
   try {
     if (newChatAgent.value === "hermes") {
       try {
@@ -1428,6 +1430,7 @@ async function submitNewChat(text: string, attachments?: Attachment[]): Promise<
         : newChatAgent.value === "ekko-agent"
           ? "ekko-agent"
         : "hermes";
+    deployment = prepareAgentDeployment(chatMainContentRef.value?.querySelector('.agent-card.active'));
     const session = chatStore.newChat({
       profile: newChatProfile.value,
       provider: isGlobalCodingAgent ? undefined : newChatProvider.value,
@@ -1447,6 +1450,7 @@ async function submitNewChat(text: string, attachments?: Attachment[]): Promise<
     });
     // Send the first message before changing the route so it belongs to this session.
     void chatStore.sendMessage(text, attachments);
+    deployment?.start(session.id);
     closeNewChatPage();
     if (newChatWorkspace.value) {
       void workspaceComposable.recordWorkspaceUsage(newChatWorkspace.value)
@@ -1460,6 +1464,9 @@ async function submitNewChat(text: string, attachments?: Attachment[]): Promise<
     showNewChatPage.value = false;
     if (isMobile.value) showSessions.value = false;
     return true;
+  } catch (error) {
+    deployment?.cancel();
+    throw error;
   } finally {
     newChatLoading.value = false;
   }
@@ -3100,7 +3107,9 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
           @dragleave="handleChatDragLeave"
           @drop="handleChatDrop"
         >
-          <div ref="chatMainContentRef" class="chat-main-content">
+          <div ref="chatMainContentRef" class="chat-main-content" data-agent-deployment-surface
+            :data-agent-deployment-session="chatStore.activeSessionId || ''"
+            :data-agent-deployment-active="currentMode === 'chat' && !showNewChatPage">
             <section v-if="showNewChatPage" class="new-chat-page" :aria-label="t('chat.newChat')">
               <div class="new-chat-intro">
                 <h1>{{ t('chat.newChatCardTitle') }}</h1>

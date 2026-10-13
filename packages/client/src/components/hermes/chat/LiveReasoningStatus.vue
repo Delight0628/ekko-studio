@@ -9,6 +9,7 @@ const props = withDefaults(defineProps<{
   reasoningId?: string | number | null
   elapsed: string
   agent?: ChatAgentAvatar
+  deploymentSessionId?: string
 }>(), {
   agent: () => ({ label: 'Hermes', src: '/coding-agents/hermes.png' }),
 })
@@ -76,6 +77,7 @@ onBeforeUnmount(() => cancelAnimationFrame(scrollFrame))
         alt=""
         aria-hidden="true"
         class="thinking-avatar"
+        :data-agent-deployment-target="deploymentSessionId || ''"
         :class="isEkko ? 'thinking-avatar--animated' : 'thinking-avatar--logo'"
       >
       <div class="thinking-status-copy">
