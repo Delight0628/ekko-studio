@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import '../../packages/server/src/bootstrap/coding-agent-adapters'
+import { AnthropicMessagesModelClient } from '../../packages/ekko-agent/src/model/providers/anthropic'
 import {
   anthropicMessagesUrl,
   chatCompletionsUrl,
@@ -26,6 +27,22 @@ import { getRecordedUsageTotals, getUsage } from '../../packages/server/src/modu
 import { getChatRunServer, setChatRunServer } from '../../packages/server/src/modules/studio/services/chat-run/server-registry'
 
 describe('agent runner endpoint resolver', () => {
+  it.each([
+    'https://api.anthropic.com',
+    'https://relay.example',
+    'https://relay.example/v1/',
+    'https://relay.example/v1/messages',
+    'https://api.z.ai/api/anthropic',
+    'https://api.minimax.io/anthropic',
+    'https://relay.example/tenant',
+    'https://relay.example/api/v4',
+  ])('keeps Ekko and Coding Agent Anthropic targets consistent for %s', baseUrl => {
+    const ekko = new AnthropicMessagesModelClient({
+      id: 'custom:relay', type: 'anthropic', requestStyle: 'anthropic-messages', baseUrl,
+    })
+    expect(ekko.requestTarget()).toBe(anthropicMessagesUrl(baseUrl))
+  })
+
   it('adds v1 for provider hosts without an API root path', () => {
     expect(chatCompletionsUrl('https://api.deepseek.com')).toBe('https://api.deepseek.com/v1/chat/completions')
     expect(responsesUrl('https://api.openai.com')).toBe('https://api.openai.com/v1/responses')
