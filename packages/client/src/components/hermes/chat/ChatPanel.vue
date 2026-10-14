@@ -3128,7 +3128,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--bg-card)"/><circle cx="15" cy="17" r="2" fill="var(--bg-card)"/></svg>
                     </NButton>
                     <NPopover v-model:show="showNewChatCategory" trigger="click" placement="bottom-start"
-                      :disabled="newChatLoading" :style="{ width: 'min(280px, calc(100vw - 32px))', boxSizing: 'border-box' }">
+                      :disabled="newChatLoading" :style="{ width: isMobile ? '180px' : '280px', maxWidth: 'calc(100vw - 32px)', boxSizing: 'border-box' }">
                       <template #trigger>
                         <NButton ref="newChatCategoryTriggerRef" quaternary circle size="small" class="new-chat-config-icon" :disabled="newChatLoading"
                           :title="`${t('chat.category')}: ${newChatCategoryOptions.find(option => option.value === (newChatCategoryId ?? 0))?.label || t('chat.uncategorized')}`"
