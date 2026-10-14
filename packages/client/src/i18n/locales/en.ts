@@ -3853,7 +3853,7 @@ export default {
     new_0_7_35_5: 'Improved cross-device synchronization of deleted and archived sessions and unread state (#3380)',
     new_0_7_35_6: 'Fixed token usage reporting for Coding Agents using compatible model endpoints so automatic compaction can track context usage correctly (#3334)',
     new_0_7_35_7: 'Anthropic-compatible requests now use model output limits to reduce premature truncation of long replies and tool calls (#3334)',
-    new_0_7_35_8: 'Fixed custom Anthropic URL handling in Ekko Agent for root URLs, versioned paths, and complete message endpoints (#3384)',
+    new_0_7_35_8: 'Fixed custom Anthropic URL handling in Ekko for root URLs, versioned paths, and complete message endpoints (#3384)',
     new_0_7_34_1: 'Coding Agents can select native models and reasoning effort in chats, group chats, and workflows, and remember the selected configuration (#3354, #3360)',
     new_0_7_34_2: 'Unified model selection dialogs with provider and model columns, improving search, scrolling, and small-screen layouts (#3355)',
     new_0_7_34_3: 'Added account and Profile filters, model and Agent usage breakdowns, and improved mobile layouts to the usage overview (#3363)',

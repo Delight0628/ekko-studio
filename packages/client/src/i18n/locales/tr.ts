@@ -35,7 +35,7 @@ export default {
     new_0_7_35_5: 'Silinen ve arşivlenen sohbetlerin ve okunmamış durumunun cihazlar arasında eşitlenmesi iyileştirildi (#3380)',
     new_0_7_35_6: 'Uyumlu model uç noktalarını kullanan Coding Agent’ların token kullanım bildirimi düzeltildi; otomatik sıkıştırmanın bağlam kullanımını doğru izlemesi sağlandı (#3334)',
     new_0_7_35_7: 'Anthropic uyumlu istekler artık modelin çıktı sınırlarını kullanarak uzun yanıtların ve araç çağrılarının erken kesilmesini azaltır (#3334)',
-    new_0_7_35_8: 'Ekko Agent’ta özel Anthropic URL’lerinin işlenmesi kök adresleri, sürümlü yolları ve tam mesaj uç noktalarını destekleyecek şekilde düzeltildi (#3384)',
+    new_0_7_35_8: 'Ekko’da özel Anthropic URL’lerinin işlenmesi kök adresleri, sürümlü yolları ve tam mesaj uç noktalarını destekleyecek şekilde düzeltildi (#3384)',
     new_0_7_34_1: 'Coding Agent’lar sohbetlerde, grup sohbetlerinde ve iş akışlarında yerel modelleri ve akıl yürütme düzeyini seçebilir ve seçilen yapılandırmayı hatırlar (#3354, #3360)',
     new_0_7_34_2: 'Model seçim pencereleri sağlayıcı ve model sütunlarıyla birleştirildi; arama, kaydırma ve küçük ekran düzenleri iyileştirildi (#3355)',
     new_0_7_34_3: 'Kullanım özetine hesap ve Profile filtreleri, model ve Agent kullanım dağılımları eklendi; mobil düzenler iyileştirildi (#3363)',
