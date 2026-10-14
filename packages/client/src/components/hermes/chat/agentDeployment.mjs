@@ -1,4 +1,4 @@
-// Kept identical to the App renderjs implementation. Only this view-layer
+// Shares choreography with the App renderjs implementation. Only this view-layer
 // module touches the DOM; sending and session state remain with their owners.
 const activeDeployments = new WeakMap();
 const clamp = (n, low, high) => Math.max(low, Math.min(high, n));
@@ -41,8 +41,8 @@ function captureDeployment(source) {
   if (!source?.isConnected) return null;
   const doc = source.ownerDocument;
   const win = doc.defaultView;
-  const motion = win.matchMedia?.('(prefers-reduced-motion: reduce)');
-  if (doc.hidden || motion?.matches || typeof win.requestAnimationFrame !== 'function') return null;
+  // Match NewChatAgentCards: system motion preferences do not hide or slow deployment.
+  if (doc.hidden || typeof win.requestAnimationFrame !== 'function') return null;
   const rect = source.getBoundingClientRect();
   if (rect.width < 1 || rect.height < 1) return null;
   activeDeployments.get(doc)?.cancel();
@@ -117,7 +117,6 @@ function captureDeployment(source) {
     win.cancelAnimationFrame(frame);
     win.clearTimeout(timer);
     doc.removeEventListener('visibilitychange', onVisibility);
-    motion?.removeEventListener?.('change', cancel);
     restoreTarget();
     overlay.remove();
     if (activeDeployments.get(doc) === controller) activeDeployments.delete(doc);
@@ -282,7 +281,6 @@ function captureDeployment(source) {
       started = win.performance.now();
       activeDeployments.set(doc, controller);
       doc.addEventListener('visibilitychange', onVisibility);
-      motion?.addEventListener?.('change', cancel);
       // Normal completion follows real readiness; this is only orphan cleanup.
       timer = win.setTimeout(cancel, 60000);
       paintHero({ ...sourceCenter, scale: 1 });

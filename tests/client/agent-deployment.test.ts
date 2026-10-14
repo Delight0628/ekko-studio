@@ -71,7 +71,8 @@ describe('Agent deployment lifecycle', () => {
     expect(heroCenter()).toEqual({ x: 195, y: 220 })
   })
 
-  it('survives source unmount, lands on the actual avatar, then restores its style', () => {
+  it.each([false, true])('survives source unmount, lands and restores its style with reduced motion %s', reducedMotion => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: reducedMotion, addEventListener() {}, removeEventListener() {} })))
     prepareAgentDeployment(source)!.start('new')
     source.remove()
     tick(50)
@@ -177,10 +178,23 @@ describe('Agent deployment lifecycle', () => {
     expect(avatar.style.opacity).toBe('0.85')
   })
 
-  it('skips reduced motion and capture failures without blocking submission', () => {
-    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
-    expect(prepareAgentDeployment(source)).toBeNull()
-    vi.stubGlobal('matchMedia', vi.fn(() => { throw new Error('Unavailable view layer') }))
+  it('completes an active deployment when the system motion preference changes', () => {
+    const motion = Object.assign(new EventTarget(), { matches: false })
+    vi.stubGlobal('matchMedia', vi.fn(() => motion))
+    prepareAgentDeployment(source)!.start('new')
+    tick(50)
+    motion.matches = true
+    motion.dispatchEvent(new Event('change'))
+    tick(1400)
+    expect(overlay()?.dataset.phase).toBe('landing')
+    tick(1800)
+    expect(avatar.style.opacity).toBe('0.85')
+    tick(1990)
+    expect(overlay()).toBeNull()
+  })
+
+  it('handles capture failures without blocking submission', () => {
+    vi.spyOn(source, 'cloneNode').mockImplementation(() => { throw new Error('Unavailable view layer') })
     expect(prepareAgentDeployment(source)).toBeNull()
   })
 

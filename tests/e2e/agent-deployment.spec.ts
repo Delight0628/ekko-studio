@@ -26,10 +26,15 @@ async function openDraft(page: Page, mobile: boolean, locale: 'en' | 'tr' = 'en'
   await expect(page.locator('.page-loading-overlay:visible')).toHaveCount(0)
 }
 
-for (const locale of ['en', 'tr'] as const) for (const mobile of [false, true]) for (const agent of ['Ekko', 'Codex']) {
-  test(`${agent} deployment lands in the thinking avatar (${locale}, ${mobile ? 'mobile' : 'desktop'})`, async ({ page }) => {
+for (const { locale, reducedMotion } of [
+  { locale: 'en', reducedMotion: 'no-preference' },
+  { locale: 'tr', reducedMotion: 'no-preference' },
+  { locale: 'en', reducedMotion: 'reduce' },
+] as const) for (const mobile of [false, true]) for (const agent of ['Ekko', 'Codex']) {
+  test(`${agent} deployment lands in the thinking avatar (${locale}, ${mobile ? 'mobile' : 'desktop'}, ${reducedMotion})`, async ({ page }) => {
     const errors: string[] = []
     page.on('pageerror', error => errors.push(String(error)))
+    await page.emulateMedia({ reducedMotion })
     await openDraft(page, mobile, locale)
     if (agent === 'Codex') await selectNewChatAgent(page, agent)
     // Record geometry through the real route change and live status rendering.
@@ -71,17 +76,6 @@ for (const locale of ['en', 'tr'] as const) for (const mobile of [false, true]) 
     expect(errors).toEqual([])
   })
 }
-
-test('reduced motion sends the first message without a deployment overlay', async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' })
-  await openDraft(page, false)
-  await page.locator('.new-chat-page textarea').fill('Deploy without motion')
-  await page.getByRole('button', { name: 'Send', exact: true }).click()
-  await expect(page).toHaveURL(/#\/hermes\/session\//)
-  await expect(page.locator('.agent-deployment-overlay')).toHaveCount(0)
-  await expect(page.locator('.thinking-avatar')).toBeVisible()
-  expect(await page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.emitted.filter((item: any) => item.event === 'run').length)).toBe(1)
-})
 
 for (const mobile of [false, true]) for (const outcome of ['load', 'error'] as const) {
   test(`deployment centres a scrolled card before avatar ${outcome} (${mobile ? 'mobile' : 'desktop'})`, async ({ page }) => {
