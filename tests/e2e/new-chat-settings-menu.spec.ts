@@ -14,11 +14,20 @@ async function expectMenuUncovered(menu: Locator) {
   })).toEqual({ left: true, top: true, right: true, bottom: true })
 }
 
+async function expectWideCategory(category: Locator, viewportWidth: number) {
+  await expect.poll(() => category.evaluate(element => {
+    const bounds = element.closest('.n-popover')!.getBoundingClientRect()
+    return { width: Math.round(bounds.width), left: bounds.left >= 15, right: bounds.right <= innerWidth - 15 }
+  })).toEqual({ width: Math.min(320, viewportWidth - 32), left: true, right: true })
+}
+
 for (const viewport of [
   { name: 'desktop light', width: 1280, height: 720, theme: 'light' },
   { name: 'desktop dark', width: 1280, height: 900, theme: 'dark' },
   { name: 'mobile light', width: 320, height: 568, theme: 'light' },
   { name: 'mobile dark', width: 390, height: 844, theme: 'dark' },
+  { name: 'wide mobile light', width: 440, height: 956, theme: 'light' },
+  { name: 'wide mobile dark', width: 440, height: 956, theme: 'dark' },
   { name: 'short mobile dark', width: 320, height: 360, theme: 'dark' },
 ]) test(`chat settings menus remain uncovered and selectable on ${viewport.name}`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width: viewport.width, height: viewport.height })
@@ -43,6 +52,7 @@ for (const viewport of [
   expect(await categoryButton.evaluate((element) => element.previousElementSibling?.getAttribute('aria-label'))).toBe('Chat settings')
   await categoryButton.click()
   const category = page.getByRole('dialog', { name: 'Category', exact: true })
+  if (viewport.width <= 768) await expectWideCategory(category, viewport.width)
   await category.locator('.n-base-selection').click()
   await expect(menu).toBeVisible()
   await expectMenuUncovered(menu)
@@ -81,7 +91,7 @@ for (const viewport of [
   await expect(page.locator('.new-chat-page')).toBeVisible()
 })
 
-for (const width of [320, 390]) test(`Hermes category menu fits a ${width}px viewport without shifting the page`, async ({ page }) => {
+for (const width of [320, 390, 440]) test(`Hermes category menu fits a ${width}px viewport without shifting the page`, async ({ page }) => {
   await page.setViewportSize({ width, height: 844 })
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   await page.addInitScript(() => localStorage.setItem('hermes_new_chat_agent_v1', 'hermes'))
@@ -92,12 +102,29 @@ for (const width of [320, 390]) test(`Hermes category menu fits a ${width}px vie
   await page.getByRole('button', { name: 'New Chat', exact: true }).click()
   await page.locator('.new-chat-config-actions').getByRole('button', { name: 'Category', exact: true }).click()
   const category = page.getByRole('dialog', { name: 'Category', exact: true })
+  await expectWideCategory(category, width)
+  const categoryButton = page.locator('.new-chat-config-actions').getByRole('button', { name: 'Category', exact: true })
+  await categoryButton.click()
+  await expect(category).toBeHidden()
+  await categoryButton.click()
+  await expectWideCategory(category, width)
+  if (width === 440) {
+    for (const resizedWidth of [320, 390, 440]) {
+      await page.setViewportSize({ width: resizedWidth, height: 844 })
+      await expectWideCategory(category, resizedWidth)
+    }
+  }
   await category.getByRole('textbox', { name: 'Category', exact: true }).click()
   const menu = page.locator('.n-base-select-menu:visible')
   await expectMenuUncovered(menu)
   expect(await page.evaluate(() => ({ scrollX, overflow: document.documentElement.scrollWidth > innerWidth }))).toEqual({ scrollX: 0, overflow: false })
   await menu.locator('.n-base-select-option').filter({ hasText: /^Work$/ }).click()
   await expect(category).toContainText('Work')
+  await page.locator('.new-chat-intro').click()
+  await expect(category).toBeHidden()
+  await expect(page.locator('.new-chat-page')).toBeVisible()
+  await categoryButton.click()
+  await expectWideCategory(category, width)
   await category.getByRole('textbox', { name: 'Category', exact: true }).click()
   await menu.locator('.n-base-select-option').filter({ hasText: /^Uncategorized$/ }).click()
   await expect(page.locator('.new-chat-config-actions').getByRole('button', { name: 'Category', exact: true })).toHaveAttribute('title', 'Category: Uncategorized')

@@ -500,6 +500,8 @@ onMounted(() => {
   window.addEventListener(OPEN_SUBAGENT_STREAM_EVENT, handleOpenSubagentStreamRequest);
   window.addEventListener("resize", handleToolPanelViewportResize);
   window.addEventListener("keydown", handleNewChatEscape);
+  window.addEventListener("resize", updateNewChatCategoryAnchor);
+  window.addEventListener("scroll", updateNewChatCategoryAnchor, true);
   handleToolPanelViewportResize();
   if (profilesStore.profiles.length === 0) {
     void profilesStore.fetchProfiles();
@@ -553,6 +555,8 @@ onUnmounted(() => {
   window.removeEventListener(OPEN_SUBAGENT_STREAM_EVENT, handleOpenSubagentStreamRequest);
   window.removeEventListener("resize", handleToolPanelViewportResize);
   window.removeEventListener("keydown", handleNewChatEscape);
+  window.removeEventListener("resize", updateNewChatCategoryAnchor);
+  window.removeEventListener("scroll", updateNewChatCategoryAnchor, true);
   stopToolResize();
   sessionFadeAnimation?.cancel();
   workspacePreviewRequestSeq += 1;
@@ -830,6 +834,8 @@ const showNewChatPage = ref(false);
 const showNewChatSettings = ref(false);
 const showNewChatCategory = ref(false);
 const newChatCategoryTriggerRef = ref<InstanceType<typeof NButton> | null>(null);
+const newChatCategoryAnchor = ref({ x: 0, y: 0 });
+
 const showNewChatPresetMode = ref(false);
 const newChatComposerRevision = ref(0);
 const newChatPreviousToolPanel = ref(false);
@@ -837,6 +843,34 @@ const newChatModelLabel = computed(() => isNewChatGlobalCodingAgent.value
   ? nativeModelDisplayName(newChatNativeSelection.value.model)
   : newChatModel.value ? appStore.displayModelName(newChatModel.value, newChatProvider.value)
     : newChatHasNoModels.value ? t("models.noModels") : t("models.selectModel"));
+
+function updateNewChatCategoryAnchor() {
+  if (!showNewChatCategory.value) return;
+  const trigger = newChatCategoryTriggerRef.value?.$el as HTMLElement | undefined;
+  if (!trigger) return;
+  const bounds = trigger.getBoundingClientRect();
+  const viewportWidth = document.documentElement.clientWidth;
+  const width = Math.min(isMobile.value ? 320 : 280, viewportWidth - 32);
+  // A wide mobile menu needs a viewport-safe center rather than the icon's left edge.
+  const x = isMobile.value
+    ? Math.max(16 + width / 2, Math.min(bounds.left + bounds.width / 2, viewportWidth - 16 - width / 2))
+    : Math.max(16, Math.min(bounds.left, viewportWidth - 16 - width));
+  const y = bounds.bottom;
+  if (newChatCategoryAnchor.value.x !== x || newChatCategoryAnchor.value.y !== y) {
+    newChatCategoryAnchor.value = { x, y };
+  }
+}
+
+function handleNewChatCategoryShow(show: boolean) {
+  showNewChatCategory.value = show;
+  if (show) updateNewChatCategoryAnchor();
+}
+
+function handleNewChatCategoryClickOutside(event: MouseEvent) {
+  const trigger = newChatCategoryTriggerRef.value?.$el as HTMLElement | undefined;
+  if (event.target instanceof Node && trigger?.contains(event.target)) return;
+  showNewChatCategory.value = false;
+}
 
 function closeNewChatPage() {
   if (showNewChatPage.value) persistNewChatForm();
@@ -3127,16 +3161,16 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
                       :aria-label="t('chat.newChatSettings')" :aria-expanded="showNewChatSettings" @click="showNewChatSettings = true">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--bg-card)"/><circle cx="15" cy="17" r="2" fill="var(--bg-card)"/></svg>
                     </NButton>
-                    <NPopover v-model:show="showNewChatCategory" trigger="click" placement="bottom-start"
-                      :disabled="newChatLoading" :style="{ width: isMobile ? '180px' : '280px', maxWidth: 'calc(100vw - 32px)', boxSizing: 'border-box' }">
-                      <template #trigger>
-                        <NButton ref="newChatCategoryTriggerRef" quaternary circle size="small" class="new-chat-config-icon" :disabled="newChatLoading"
-                          :title="`${t('chat.category')}: ${newChatCategoryOptions.find(option => option.value === (newChatCategoryId ?? 0))?.label || t('chat.uncategorized')}`"
-                          :aria-label="t('chat.category')" :aria-expanded="showNewChatCategory" aria-haspopup="dialog"
-                          aria-controls="new-chat-category-picker">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13 13 20a2 2 0 0 1-2.83 0L3 12.83V3h9.83L20 10.17a2 2 0 0 1 0 2.83Z"/><circle cx="7.5" cy="7.5" r="1"/></svg>
-                        </NButton>
-                      </template>
+                    <NButton ref="newChatCategoryTriggerRef" quaternary circle size="small" class="new-chat-config-icon" :disabled="newChatLoading"
+                      :title="`${t('chat.category')}: ${newChatCategoryOptions.find(option => option.value === (newChatCategoryId ?? 0))?.label || t('chat.uncategorized')}`"
+                      :aria-label="t('chat.category')" :aria-expanded="showNewChatCategory" aria-haspopup="dialog"
+                      aria-controls="new-chat-category-picker" @click="handleNewChatCategoryShow(!showNewChatCategory)">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13 13 20a2 2 0 0 1-2.83 0L3 12.83V3h9.83L20 10.17a2 2 0 0 1 0 2.83Z"/><circle cx="7.5" cy="7.5" r="1"/></svg>
+                    </NButton>
+                    <NPopover :show="showNewChatCategory" trigger="manual" :placement="isMobile ? 'bottom' : 'bottom-start'"
+                      :x="newChatCategoryAnchor.x" :y="newChatCategoryAnchor.y" :show-arrow="!isMobile"
+                      @clickoutside="handleNewChatCategoryClickOutside"
+                      :disabled="newChatLoading" :style="{ width: isMobile ? '320px' : '280px', maxWidth: 'calc(100vw - 32px)', boxSizing: 'border-box' }">
                       <div id="new-chat-category-picker" role="dialog" :aria-label="t('chat.category')">
                         <div class="new-chat-field">
                           <span class="new-chat-label">{{ t("chat.category") }}</span>
