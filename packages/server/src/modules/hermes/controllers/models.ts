@@ -14,7 +14,7 @@ import { readAppConfig, writeAppConfig, providerDisplayLabel, type ModelVisibili
 import { listUserProfiles } from '../../studio/public/users'
 import { readModelContextRecord, upsertModelContextRecord } from '../../studio/public/provider-context'
 import { getModelContextLength } from '../services/models/context'
-import { applyCatalogModelMetadata } from '../services/models/metadata'
+import { createCatalogModelMetadataEnricher } from '../services/models/metadata'
 import { readProviderModelCatalogCache,
   refreshConfiguredProviderModelCatalogs,
   resolveProviderCatalogModels,
@@ -378,6 +378,7 @@ async function buildAvailableForProfile(
   profile: string,
   modelCatalogCache: ProviderModelCatalogCache,
   appConfig: Awaited<ReturnType<typeof readAppConfig>>,
+  applyCatalogModelMetadata: ReturnType<typeof createCatalogModelMetadataEnricher>,
 ): Promise<{
   profile: string
   default: string
@@ -568,8 +569,11 @@ async function buildAvailableForProfile(
 export async function getAvailableModelGroupsForProfile(profile: string): Promise<AvailableGroup[]> {
   const appConfig = await readAppConfig()
   const modelVisibility = normalizeModelVisibility(appConfig.modelVisibility)
+  const applyCatalogModelMetadata = createCatalogModelMetadataEnricher(
+    group => filterModelsForProvider(group.provider, group.models, modelVisibility),
+  )
   const modelCatalogCache = await readProviderModelCatalogCache()
-  const result = await buildAvailableForProfile(profile || 'default', modelCatalogCache, appConfig)
+  const result = await buildAvailableForProfile(profile || 'default', modelCatalogCache, appConfig, applyCatalogModelMetadata)
   return applyModelVisibility(result.groups, modelVisibility)
 }
 
@@ -580,11 +584,14 @@ export async function getAvailable(ctx: any) {
       const appConfig = await readAppConfig()
       const modelAliases = normalizeAliases(appConfig.modelAliases)
       const modelVisibility = normalizeModelVisibility(appConfig.modelVisibility)
+      const applyCatalogModelMetadata = createCatalogModelMetadataEnricher(
+        group => filterModelsForProvider(group.provider, group.models, modelVisibility),
+      )
       const customModels = normalizeCustomModels(appConfig.customModels)
       const modelCatalogCache = await readProviderModelCatalogCache()
       const visibleProfiles = visibleProfileNamesForUser(ctx)
       const profileResults = await Promise.all(
-        visibleProfiles.map(profile => buildAvailableForProfile(profile, modelCatalogCache, appConfig)),
+        visibleProfiles.map(profile => buildAvailableForProfile(profile, modelCatalogCache, appConfig, applyCatalogModelMetadata)),
       )
       const mergedGroups = mergeAvailableGroups(profileResults.flatMap(result => result.groups))
       const groupsWithAliases = applyModelAliases(mergedGroups, modelAliases)
@@ -626,9 +633,12 @@ export async function getAvailable(ctx: any) {
     const appConfigForProfile = await readAppConfig()
     const modelAliasesForProfile = normalizeAliases(appConfigForProfile.modelAliases)
     const modelVisibilityForProfile = normalizeModelVisibility(appConfigForProfile.modelVisibility)
+    const applyCatalogModelMetadata = createCatalogModelMetadataEnricher(
+      group => filterModelsForProvider(group.provider, group.models, modelVisibilityForProfile),
+    )
     const customModelsForProfile = normalizeCustomModels(appConfigForProfile.customModels)
     const modelCatalogCacheForProfile = await readProviderModelCatalogCache()
-    const profileResult = await buildAvailableForProfile(requestedProfile, modelCatalogCacheForProfile, appConfigForProfile)
+    const profileResult = await buildAvailableForProfile(requestedProfile, modelCatalogCacheForProfile, appConfigForProfile, applyCatalogModelMetadata)
     const profileGroupsWithAliases = applyModelAliases(profileResult.groups, modelAliasesForProfile)
     const visibleProfileGroups = applyModelVisibility(profileGroupsWithAliases, modelVisibilityForProfile)
     const visibleProfileDefault = resolveVisibleDefault(profileResult.default, profileResult.default_provider, visibleProfileGroups)
