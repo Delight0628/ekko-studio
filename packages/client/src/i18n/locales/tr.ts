@@ -27,6 +27,35 @@ const writeApprovalMessages = {
 }
 
 export default {
+  changelog: {
+    new_0_7_35_1: 'Agent kartlarından sohbetteki düşünme avatarlarına geçiş animasyonları eklendi; azaltılmış hareket ayarında görünürlük ve tema arka planları iyileştirildi (#3378, #3386)',
+    new_0_7_35_2: 'Türkçe arayüz desteği eklendi (#3338)',
+    new_0_7_35_3: 'Maliyet gösterimi kapatıldığında sohbet kullanım kartlarının görünmeye devam etmesi düzeltildi (#3381)',
+    new_0_7_35_4: 'Edge TTS ses hizmeti uç noktasıyla uyumluluk güncellendi (#3381)',
+    new_0_7_35_5: 'Silinen ve arşivlenen sohbetlerin ve okunmamış durumunun cihazlar arasında eşitlenmesi iyileştirildi (#3380)',
+    new_0_7_35_6: 'Uyumlu model uç noktalarını kullanan Coding Agent’ların token kullanım bildirimi düzeltildi; otomatik sıkıştırmanın bağlam kullanımını doğru izlemesi sağlandı (#3334)',
+    new_0_7_35_7: 'Anthropic uyumlu istekler artık modelin çıktı sınırlarını kullanarak uzun yanıtların ve araç çağrılarının erken kesilmesini azaltır (#3334)',
+    new_0_7_35_8: 'Ekko Agent’ta özel Anthropic URL’lerinin işlenmesi kök adresleri, sürümlü yolları ve tam mesaj uç noktalarını destekleyecek şekilde düzeltildi (#3384)',
+    new_0_7_34_1: 'Coding Agent’lar sohbetlerde, grup sohbetlerinde ve iş akışlarında yerel modelleri ve akıl yürütme düzeyini seçebilir ve seçilen yapılandırmayı hatırlar (#3354, #3360)',
+    new_0_7_34_2: 'Model seçim pencereleri sağlayıcı ve model sütunlarıyla birleştirildi; arama, kaydırma ve küçük ekran düzenleri iyileştirildi (#3355)',
+    new_0_7_34_3: 'Kullanım özetine hesap ve Profile filtreleri, model ve Agent kullanım dağılımları eklendi; mobil düzenler iyileştirildi (#3363)',
+    new_0_7_34_4: 'Maliyet, token ve yüzde gösterim hassasiyeti ile kayan zaman aralıklarında eğilim grafikleri ve toplamlar arasındaki tutarsızlıklar düzeltildi (#3373)',
+    new_0_7_34_5: 'Yerel sunucuyu veya çalışma ortamını başlatmadan kendi barındırdığınız Web UI’a bağlanmak için masaüstüne uzak sunucu modu eklendi (#3366)',
+    new_0_7_34_6: 'Agent kartlarında fare tekerleğiyle gezinme düzeltildi ve liste kenarlarındaki solma efektleri iyileştirildi (#3351)',
+    new_0_7_34_7: 'Model düşünme etiketini kapatmadığında düşünme içeriğinin sohbet yanıtlarına karışması düzeltildi (#3365)',
+    new_0_7_34_8: 'Çok sayıda öğe içeren sohbet kategorisi alt menülerinin kaydırılamaması düzeltildi (#3374)',
+    new_0_7_34_9: 'Yönetilen MCP bağlantılarının ilgisiz kimlik doğrulama belirteçlerini devralmasından kaynaklanan bağlantı sorunları düzeltildi (#3359)',
+    new_0_7_34_10: 'Özel sağlayıcı model keşif bilgilerinin bilinmeyen yapılandırma olarak bildirilmesi düzeltildi ve yinelenen uyarılar azaltıldı (#3375)',
+    new_0_7_33_1: 'Yeni Sohbet artık Agent kartları, ortak sohbet yazma alanı ve oturum ayarları içeren duyarlı bir sayfa kullanır (#3333)',
+    new_0_7_33_2: 'Yeni sohbetler, sonraki sohbetleri oluştururken son modeli, çalışma dizinini, başlatma modunu ve akıl yürütme seçeneklerini hatırlar (#3333)',
+    new_0_7_33_3: 'Agent kartlarına altın kenarlıklar ve yeşim parıltısı efektleri eklendi; kart içi animasyon hızı platformlar arasında eşitlendi (#3336, #3344)',
+    new_0_7_33_4: 'Agent kartlarının döngü sınırlarında boyut atlaması ve fare liste dışında bırakıldığında sürüklemenin devam etmesi düzeltildi (#3335, #3340)',
+    new_0_7_33_5: 'Uzun sayı, simge veya boşluk dizilerinin neden olduğu token hesaplama takılmaları ve yanıt vermeyen sohbetler düzeltildi (#3325)',
+    new_0_7_33_6: 'Araç çağrıları ve gerçek model kullanımıyla bağlam tahminleri ve otomatik sıkıştırma iyileştirildi; sıkıştırma sınırını aşan araç gruplarının sıkıştırılması düzeltildi (#3329)',
+    new_0_7_33_7: 'Bağımlılıkların hata ayıklama çıktılarının Coding Agent sohbetlerini kesintiye uğratması düzeltildi; DSH ve diğer ACP Agent’larla uyumluluk iyileştirildi (#3327)',
+    new_0_7_33_8: 'Hermes çekirdek sürümleri arasında açıklama sorusu ve yanıt geri çağrılarının uyumluluğu düzeltildi (#3330)',
+  },
+
   profiles: {
     model: 'Model',
   },

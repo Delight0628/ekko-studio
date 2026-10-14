@@ -3846,6 +3846,14 @@ export default {
 
   // Changelog
   changelog: {
+    new_0_7_35_1: 'Added transitions from Agent cards to thinking avatars in chat, with improved visibility under reduced motion and matching theme backgrounds (#3378, #3386)',
+    new_0_7_35_2: 'Added Turkish interface support (#3338)',
+    new_0_7_35_3: 'Fixed chat usage cards remaining visible when Show Cost is disabled (#3381)',
+    new_0_7_35_4: 'Updated compatibility with the Edge TTS speech service endpoint (#3381)',
+    new_0_7_35_5: 'Improved cross-device synchronization of deleted and archived sessions and unread state (#3380)',
+    new_0_7_35_6: 'Fixed token usage reporting for Coding Agents using compatible model endpoints so automatic compaction can track context usage correctly (#3334)',
+    new_0_7_35_7: 'Anthropic-compatible requests now use model output limits to reduce premature truncation of long replies and tool calls (#3334)',
+    new_0_7_35_8: 'Fixed custom Anthropic URL handling in Ekko Agent for root URLs, versioned paths, and complete message endpoints (#3384)',
     new_0_7_34_1: 'Coding Agents can select native models and reasoning effort in chats, group chats, and workflows, and remember the selected configuration (#3354, #3360)',
     new_0_7_34_2: 'Unified model selection dialogs with provider and model columns, improving search, scrolling, and small-screen layouts (#3355)',
     new_0_7_34_3: 'Added account and Profile filters, model and Agent usage breakdowns, and improved mobile layouts to the usage overview (#3363)',
@@ -3864,13 +3872,5 @@ export default {
     new_0_7_33_6: 'Improved context estimates and automatic compression using tool calls and actual model usage; fixed compression of tool groups crossing the compression boundary (#3329)',
     new_0_7_33_7: 'Fixed Coding Agent chats being interrupted by dependency debug output, improving DSH and other ACP Agent compatibility (#3327)',
     new_0_7_33_8: 'Fixed clarification question and answer callback compatibility across Hermes kernel versions (#3330)',
-    new_0_7_32_1: 'Added region screenshots and annotation tools to desktop chats and group chats, with configurable global shortcuts and capture support for Windows, macOS, and Linux (#3312)',
-    new_0_7_32_2: 'Fixed screenshot overlay failures leaving chat windows hidden; the original window state is now restored when capture ends or fails (#3318)',
-    new_0_7_32_3: 'New chats remember the last selected Agent, including after a refresh (#3320)',
-    new_0_7_32_4: 'Favorite and recent workspace folders are now saved per account and available across browsers (#3317)',
-    new_0_7_32_5: 'Fixed missing token usage for Coding Agents using vLLM and other streaming Chat Completions providers (#3314)',
-    new_0_7_32_6: 'Improved Hermes chat recovery after reconnects, fixed runs remaining busy after completion or stop, and ensured queued messages continue (#3321)',
-    new_0_7_32_7: 'Fixed Linux desktop Open at Login and improved error messages and diagnostics for desktop startup failures (#3307, #3308)',
-    new_0_7_32_8: 'Removed the outdated group chat upgrade notice (#3306)',
   },
 }
