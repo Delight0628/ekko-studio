@@ -8,14 +8,15 @@ async function expectMenuUncovered(menu: Locator) {
     return [bounds.top + 12, (bounds.top + bounds.bottom) / 2, bounds.bottom - 12].map(y =>
       element.contains(document.elementFromPoint((bounds.left + bounds.right) / 2, y)))
   })).toEqual([true, true, true])
-  expect(await menu.evaluate(element => {
+  await expect.poll(() => menu.evaluate(element => {
     const bounds = element.getBoundingClientRect()
-    return bounds.left >= 0 && bounds.top >= 0 && bounds.right <= innerWidth && bounds.bottom <= innerHeight
-  })).toBe(true)
+    return { left: bounds.left >= 0, top: bounds.top >= 0, right: bounds.right <= innerWidth, bottom: bounds.bottom <= innerHeight }
+  })).toEqual({ left: true, top: true, right: true, bottom: true })
 }
 
 for (const viewport of [
   { name: 'desktop light', width: 1280, height: 720, theme: 'light' },
+  { name: 'desktop dark', width: 1280, height: 900, theme: 'dark' },
   { name: 'mobile light', width: 320, height: 568, theme: 'light' },
   { name: 'mobile dark', width: 390, height: 844, theme: 'dark' },
   { name: 'short mobile dark', width: 320, height: 360, theme: 'dark' },
@@ -33,21 +34,34 @@ for (const viewport of [
   await page.goto('/#/hermes/chat')
   if (viewport.width <= 768) await page.getByRole('button', { name: 'Menu', exact: true }).click()
   await page.getByRole('button', { name: 'New Chat', exact: true }).click()
-  await page.getByRole('button', { name: 'Chat settings', exact: true }).click()
   const settings = page.getByRole('dialog', { name: 'Chat settings', exact: true })
   const field = (name: string) => settings.locator('.new-chat-field').filter({ hasText: new RegExp(`^${name}`) })
   const menu = page.locator('.n-base-select-menu:visible')
 
-  await field('Category').locator('.n-base-selection').click()
+  const categoryButton = page.locator('.new-chat-config-actions').getByRole('button', { name: 'Category', exact: true })
+  const settingsButton = page.locator('.new-chat-config-actions').getByRole('button', { name: 'Chat settings', exact: true })
+  expect(await categoryButton.evaluate((element) => element.previousElementSibling?.getAttribute('aria-label'))).toBe('Chat settings')
+  await categoryButton.click()
+  const category = page.getByRole('dialog', { name: 'Category', exact: true })
+  await category.locator('.n-base-selection').click()
   await expect(menu).toBeVisible()
-  await page.screenshot({ path: testInfo.outputPath('category-menu.png'), animations: 'disabled' })
   await expectMenuUncovered(menu)
+  await page.screenshot({ path: testInfo.outputPath('category-menu.png'), animations: 'disabled' })
   await menu.hover()
   await page.mouse.wheel(0, 180)
   await menu.locator('.n-base-select-option').filter({ hasText: /^Category 06$/ }).click()
-  await expect(field('Category')).toContainText('Category 06')
+  await expect(category).toContainText('Category 06')
+  await expect(categoryButton).toHaveAttribute('title', 'Category: Category 06')
   await expect(menu).toHaveCount(0)
 
+  await page.keyboard.press('Escape')
+  await expect(category).toBeHidden()
+  await expect(page.locator('.new-chat-page')).toBeVisible()
+  await expect(categoryButton).toHaveAttribute('aria-expanded', 'false')
+  await expect(categoryButton).toBeFocused()
+  await page.screenshot({ path: testInfo.outputPath('category-toolbar.png'), animations: 'disabled' })
+  await settingsButton.click()
+  await expect(settings.locator('.new-chat-field').filter({ hasText: /^Category/ })).toHaveCount(0)
   await field('Protocol').locator('.n-base-selection').click()
   await expectMenuUncovered(menu)
   await page.screenshot({ path: testInfo.outputPath('protocol-menu.png'), animations: 'disabled' })

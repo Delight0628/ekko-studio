@@ -294,7 +294,7 @@ test('creates a category in the new chat selector and sends its id with the firs
   await page.goto('/#/hermes/chat')
   await page.getByRole('button', { name: 'New Chat' }).click()
 
-  await page.getByRole('button', { name: 'Chat settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Category', exact: true }).click()
   const categoryField = page.locator('.new-chat-field').filter({ hasText: /^Category/ })
   await categoryField.locator('.n-base-selection').click()
   await page.keyboard.type('Client Work')
@@ -305,7 +305,8 @@ test('creates a category in the new chat selector and sends its id with the firs
   await expect(page.locator('.n-base-select-option:visible').filter({ hasText: /^Client Work$/ })).toHaveCount(1)
   await page.keyboard.press('Escape')
 
-  await page.getByRole('dialog', { name: 'Chat settings', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Category', exact: true })).toBeHidden()
+  await expect(page.locator('.new-chat-page')).toBeVisible()
   const input = page.getByPlaceholder('Type a message... (Enter to send, Shift+Enter for new line)')
   await input.fill('Prepare the weekly summary')
   await page.getByRole('button', { name: 'Send' }).click()

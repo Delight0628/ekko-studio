@@ -41,6 +41,7 @@ import {
   NSelect,
   NTooltip,
   NPopconfirm,
+  NPopover,
   useMessage,
   type DropdownOption,
 } from "naive-ui";
@@ -827,6 +828,8 @@ const headerTitle = computed(() =>
 
 const showNewChatPage = ref(false);
 const showNewChatSettings = ref(false);
+const showNewChatCategory = ref(false);
+const newChatCategoryTriggerRef = ref<InstanceType<typeof NButton> | null>(null);
 const showNewChatPresetMode = ref(false);
 const newChatComposerRevision = ref(0);
 const newChatPreviousToolPanel = ref(false);
@@ -849,6 +852,7 @@ function closeNewChatPage() {
     workspaceIsDraft.value = false;
   }
   showNewChatSettings.value = false;
+  showNewChatCategory.value = false;
   showNewChatPresetMode.value = false;
   newChatOptionsLoadSequence++;
 }
@@ -860,6 +864,12 @@ function cancelNewChatPage() {
 }
 
 function handleNewChatEscape(event: KeyboardEvent) {
+  if (event.key === "Escape" && showNewChatCategory.value) {
+    showNewChatCategory.value = false;
+    void nextTick(() => (newChatCategoryTriggerRef.value?.$el as HTMLElement | undefined)?.focus());
+    event.preventDefault();
+    return;
+  }
   if (event.key !== "Escape" || !showNewChatPage.value || showSessionModelPicker.value || showSessionModelModeModal.value || showWorkspaceModal.value || showNewChatSettings.value || showNewChatPresetMode.value) return;
   if (event.target instanceof Element && event.target.closest('.n-modal')) return;
   cancelNewChatPage();
@@ -2749,22 +2759,6 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
                 @update:value="handleNewChatProfileChange"
               />
             </label>
-            <label class="new-chat-field">
-              <span class="new-chat-label">{{ t("chat.category") }}</span>
-              <NSelect
-                v-bind="newChatSettingsSelectProps"
-                :key="newChatCategorySelectRevision"
-                :value="newChatCategoryId ?? 0"
-                :options="newChatCategoryOptions"
-                :placeholder="t('chat.categoryPlaceholder')"
-                :loading="sessionCategoriesLoading || newChatCategoryCreating"
-                :disabled="newChatLoading || sessionCategoriesLoading || newChatCategoryCreating"
-                filterable
-                tag
-                @update:value="handleNewChatCategoryChange"
-              />
-              <span class="new-chat-field-hint">{{ t("chat.categoryCreateHint") }}</span>
-            </label>
           </div>
           <div v-if="(isNewChatCodingAgent && effectiveNewChatAgentMode === 'scoped') || newChatNeedsBaseUrl || newChatNeedsApiKey" class="new-chat-settings-group">
             <label v-if="isNewChatCodingAgent && effectiveNewChatAgentMode === 'scoped'" class="new-chat-field">
@@ -3133,6 +3127,37 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
                       :aria-label="t('chat.newChatSettings')" :aria-expanded="showNewChatSettings" @click="showNewChatSettings = true">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--bg-card)"/><circle cx="15" cy="17" r="2" fill="var(--bg-card)"/></svg>
                     </NButton>
+                    <NPopover v-model:show="showNewChatCategory" trigger="click" placement="bottom-start"
+                      :disabled="newChatLoading" :style="{ width: 'min(280px, calc(100vw - 32px))', boxSizing: 'border-box' }">
+                      <template #trigger>
+                        <NButton ref="newChatCategoryTriggerRef" quaternary circle size="small" class="new-chat-config-icon" :disabled="newChatLoading"
+                          :title="`${t('chat.category')}: ${newChatCategoryOptions.find(option => option.value === (newChatCategoryId ?? 0))?.label || t('chat.uncategorized')}`"
+                          :aria-label="t('chat.category')" :aria-expanded="showNewChatCategory" aria-haspopup="dialog"
+                          aria-controls="new-chat-category-picker">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13 13 20a2 2 0 0 1-2.83 0L3 12.83V3h9.83L20 10.17a2 2 0 0 1 0 2.83Z"/><circle cx="7.5" cy="7.5" r="1"/></svg>
+                        </NButton>
+                      </template>
+                      <div id="new-chat-category-picker" role="dialog" :aria-label="t('chat.category')">
+                        <div class="new-chat-field">
+                          <span class="new-chat-label">{{ t("chat.category") }}</span>
+                          <NSelect
+                            v-bind="newChatSettingsSelectProps"
+                            :to="false"
+                            :input-props="{ 'aria-label': t('chat.category') }"
+                            :key="newChatCategorySelectRevision"
+                            :value="newChatCategoryId ?? 0"
+                            :options="newChatCategoryOptions"
+                            :placeholder="t('chat.categoryPlaceholder')"
+                            :loading="sessionCategoriesLoading || newChatCategoryCreating"
+                            :disabled="newChatLoading || sessionCategoriesLoading || newChatCategoryCreating"
+                            filterable
+                            tag
+                            @update:value="handleNewChatCategoryChange"
+                          />
+                          <span class="new-chat-field-hint">{{ t("chat.categoryCreateHint") }}</span>
+                        </div>
+                      </div>
+                    </NPopover>
                     <div v-if="isNewChatExternalCodingAgent && !isGlobalOnlyCodingAgent(newChatAgent)"
                       class="new-chat-launch-toggle" role="radiogroup" :aria-label="t('codingAgents.launchModeScope')"
                       @keydown="handleNewChatLaunchModeKeydown">
