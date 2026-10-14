@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { NButton, NCheckbox, NCheckboxGroup, NModal, useMessage } from 'naive-ui'
+import { NButton, NCheckbox, NCheckboxGroup, NInput, NModal, useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import type { AvailableModelGroup } from '@/api/hermes/system'
 import { useModelsStore } from '@/stores/hermes/models'
@@ -18,6 +18,13 @@ const selectedVisibleModels = ref([...props.provider.models])
 const visibilitySaving = ref(false)
 const modelAlias = (model: string) => appStore.getModelAlias(model, props.provider.provider)
 const modelDisplayName = (model: string) => appStore.displayModelName(model, props.provider.provider)
+const search = ref('')
+const filteredModels = computed(() => {
+  const query = search.value.trim().toLowerCase()
+  if (!query) return allModels.value
+  return allModels.value.filter(model => model.toLowerCase().includes(query)
+    || modelDisplayName(model).toLowerCase().includes(query))
+})
 
 async function handleVisibilitySave() {
   if (selectedVisibleModels.value.length === 0) {
@@ -61,10 +68,18 @@ function clearVisibility() {
     <div class="visibility-count">
       {{ t('models.visibilitySelectedCount', { selected: selectedVisibleModels.length, total: allModels.length }) }}
     </div>
+    <NInput
+      v-model:value="search"
+      class="visibility-search"
+      :placeholder="t('models.searchPlaceholder')"
+      :input-props="{ 'aria-label': t('models.searchPlaceholder') }"
+      clearable
+    />
     <div class="visibility-list">
+      <p v-if="filteredModels.length === 0" class="visibility-empty" role="status">{{ t('models.noResults') }}</p>
       <NCheckboxGroup v-model:value="selectedVisibleModels">
         <NCheckbox
-          v-for="model in allModels"
+          v-for="model in filteredModels"
           :key="model"
           :value="model"
           class="visibility-model"
@@ -114,6 +129,16 @@ function clearVisibility() {
   border: 1px solid $border-light;
   border-radius: $radius-sm;
   padding: 8px;
+}
+
+.visibility-search {
+  margin-bottom: 10px;
+}
+
+.visibility-empty {
+  margin: 16px 0;
+  color: $text-muted;
+  text-align: center;
 }
 
 .visibility-model {

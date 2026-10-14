@@ -651,6 +651,8 @@ export default {
     writeApprovalUnsupported: 'Bu Hermes Aracısı sürümü yazma onaylarını desteklemiyor. Bu özelliği kullanmak için Hermes Aracısını yükseltin.',
   },
   models: {
+    searchPlaceholder: 'Modellerde ara...',
+    noResults: 'Sonuç yok',
     manageVisibleModels: "Görünür modelleri yönet",
     manageVisibleModelsFor: "{name} için görünür modelleri yönet",
     visibilityHint: "Model seçicilerde ve bu sayfada gösterilecek modelleri seçin. Kullanılmayan modelleri gizlemek yüklemeyi hızlandırabilir.",

@@ -6,11 +6,11 @@ describe('model catalog notice translations', () => {
   it.each(supportedLocales)('renders the whole notice and visibility flow in %s without fallback', async locale => {
     const messages = await loadLocaleMessages(locale)
     const i18n = createI18n({ legacy: false, locale, fallbackLocale: false, messages: { [locale]: messages } })
-    const keys = ['largeCatalogTitle', 'largeCatalogHint', 'largeCatalogProviderCount', 'largeCatalogLater', 'manageVisibleModels', 'manageVisibleModelsFor', 'visibilityHint', 'visibilitySelectedCount', 'visibilitySelectOne', 'visibilitySaved', 'visibilitySaveFailed', 'showAllModels', 'clearVisibleModels']
+    const keys = ['largeCatalogTitle', 'largeCatalogHint', 'largeCatalogProviderCount', 'largeCatalogLater', 'manageVisibleModels', 'manageVisibleModelsFor', 'visibilityHint', 'visibilitySelectedCount', 'visibilitySelectOne', 'visibilitySaved', 'visibilitySaveFailed', 'showAllModels', 'clearVisibleModels', 'searchPlaceholder', 'noResults']
     for (const key of keys) {
       expect(messages.models[key], `${locale}: ${key}`).toBeTypeOf('string')
       const text = i18n.global.t(`models.${key}`, { name: 'OpenRouter', count: 464, selected: 4, total: 464 })
-      expect(text).not.toContain('models.')
+      expect(text).not.toBe(`models.${key}`)
       expect(text).not.toMatch(/\{\w+\}/)
       expect(text.trim()).not.toBe('')
     }

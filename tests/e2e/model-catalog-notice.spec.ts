@@ -6,9 +6,9 @@ function provider(id: string, count: number, total = count) {
   return { ...TEST_MODEL_GROUP, provider: id, label: id, models: available_models.slice(0, count), available_models }
 }
 
-async function setup(page: Page, groups: ReturnType<typeof provider>[]) {
+async function setup(page: Page, groups: ReturnType<typeof provider>[], aliases: Record<string, Record<string, string>> = {}) {
   await authenticate(page, TEST_ACCESS_KEY)
-  const api = await mockHermesApi(page, { modelGroups: groups })
+  const api = await mockHermesApi(page, { modelGroups: groups, modelAliases: aliases })
   const visibility: Record<string, { mode: string; models: string[] }> = {}
   const writes: any[] = []
   let defaultModel = groups[0]?.models[0] || ''
@@ -36,9 +36,68 @@ async function setup(page: Page, groups: ReturnType<typeof provider>[]) {
     await route.fulfill({ json: {
       groups: current, allProviders: groups, default: defaultModel,
       default_provider: defaultProvider, model_visibility: visibility,
+      model_aliases: aliases,
     } })
   })
   return { api, writes }
+}
+
+for (const mobile of [false, true]) {
+  test(`visibility search preserves selections across filters and saves (${mobile ? 'mobile' : 'desktop'})`, async ({ page }) => {
+    if (mobile) await page.setViewportSize({ width: 390, height: 844 })
+    const aliases = { OpenRouter: { 'OpenRouter-model-100': 'Research Claude', 'OpenRouter-model-463': '实验室助手' } }
+    const { api, writes } = await setup(page, [provider('OpenRouter', 2, 464)], aliases)
+    await page.goto('/#/hermes/models')
+    await page.getByRole('button', { name: 'Manage visible models', exact: true }).click()
+    const editor = page.getByRole('dialog')
+    const search = editor.getByRole('textbox', { name: 'Search models...' })
+    await search.fill('  research CLAUDE  ')
+    await expect(editor.getByRole('checkbox')).toHaveCount(1)
+    await expect(editor).toContainText('OpenRouter-model-100')
+    await editor.getByRole('checkbox').check()
+    await expect(editor).toContainText('3 of 464 models selected')
+    await page.screenshot({ path: test.info().outputPath('visibility-search.png'), animations: 'disabled' })
+
+    await search.fill('MODEL-463')
+    await expect(editor.getByRole('checkbox')).toHaveCount(1)
+    await expect(editor).toContainText('实验室助手')
+    await editor.getByRole('checkbox').check()
+    await search.fill('no-such-model')
+    await expect(editor.getByRole('status')).toHaveText('No results')
+    await expect(editor.getByRole('checkbox')).toHaveCount(0)
+    await expect(editor).toContainText('4 of 464 models selected')
+
+    await search.fill('')
+    await expect(editor.getByRole('checkbox')).toHaveCount(464)
+    await expect(editor.getByRole('checkbox', { name: 'OpenRouter-model-0', exact: true })).toBeChecked()
+    await editor.getByRole('checkbox', { name: 'OpenRouter-model-1', exact: true }).uncheck()
+    await search.fill('实验室')
+    await expect(editor.getByRole('checkbox')).toHaveCount(1)
+    await expect(editor.getByRole('checkbox')).toBeChecked()
+    await editor.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(editor).toHaveCount(0)
+    expect(writes).toEqual([{ provider: 'OpenRouter', mode: 'include', models: ['OpenRouter-model-0', 'OpenRouter-model-100', 'OpenRouter-model-463'] }])
+
+    await page.reload()
+    await page.getByRole('button', { name: 'Manage visible models', exact: true }).click()
+    await expect(search).toHaveValue('')
+    await expect(editor.getByRole('checkbox', { name: 'OpenRouter-model-0', exact: true })).toBeChecked()
+    await expect(editor.getByRole('checkbox', { name: 'OpenRouter-model-1', exact: true })).not.toBeChecked()
+    await search.fill('Research Claude')
+    await expect(editor.getByRole('checkbox')).toBeChecked()
+
+    // Bulk actions still apply to the complete catalog, as they do in the App.
+    await editor.getByRole('button', { name: 'Show all models', exact: true }).click()
+    await expect(editor).toContainText('464 of 464 models selected')
+    await editor.getByRole('button', { name: 'Clear selection', exact: true }).click()
+    await search.fill('OpenRouter-model-0')
+    await expect(editor.getByRole('checkbox')).not.toBeChecked()
+    await editor.getByRole('checkbox').check()
+    await editor.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(editor).toHaveCount(0)
+    expect(writes[1]).toEqual({ provider: 'OpenRouter', mode: 'include', models: ['OpenRouter-model-0'] })
+    expect(api.unexpectedRequests).toEqual([])
+  })
 }
 
 for (const mobile of [false, true]) {
