@@ -49,7 +49,6 @@ function captureDeployment(source) {
 
   const sourceSurface = source.closest('[data-agent-deployment-surface]');
   const sourceCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-  const dark = Boolean(source.closest('.dark,.theme-dark'));
   const overlay = doc.createElement('div');
   overlay.className = 'agent-deployment-overlay';
   overlay.setAttribute('aria-hidden', 'true');
@@ -62,7 +61,7 @@ function captureDeployment(source) {
     overlay.appendChild(el);
     return el;
   }
-  const shade = layer('agent-deployment-shade', { background: dark ? '#121615' : '#fafafa', opacity: '1' });
+  const shade = layer('agent-deployment-shade', { background: 'var(--bg-main-surface)', opacity: '1' });
   const glow = layer('agent-deployment-glow', { width: '380px', height: '380px', borderRadius: '50%',
     background: 'radial-gradient(ellipse,#ecd18655,#8eac9b1a 45%,transparent 70%)', opacity: '0' });
   const floor = layer('agent-deployment-summon', { width: `${rect.width * 1.76}px`, height: `${rect.width * .56}px`,
