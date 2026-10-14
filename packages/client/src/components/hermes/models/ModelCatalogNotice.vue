@@ -1,0 +1,70 @@
+<script setup lang="ts">
+import { NButton, NModal } from 'naive-ui'
+import { useI18n } from 'vue-i18n'
+import type { AvailableModelGroup } from '@/api/hermes/system'
+import { usePageLoadingState } from '@/composables/usePageLoading'
+
+defineProps<{ show: boolean; providers: AvailableModelGroup[] }>()
+const emit = defineEmits<{ 'update:show': [value: boolean]; manage: [provider: string] }>()
+const { t } = useI18n()
+const pageLoading = usePageLoadingState()
+</script>
+
+<template>
+  <NModal
+    :show="show && !pageLoading"
+    preset="card"
+    :title="t('models.largeCatalogTitle')"
+    :style="{ width: 'min(560px, calc(100vw - 32px))' }"
+    @update:show="emit('update:show', $event)"
+  >
+    <div data-testid="large-model-catalog-notice">
+      <p class="large-catalog-hint">{{ t('models.largeCatalogHint') }}</p>
+      <ul class="large-catalog-list">
+        <li v-for="provider in providers" :key="provider.provider">
+          <span>{{ t('models.largeCatalogProviderCount', { name: provider.label, count: provider.models.length }) }}</span>
+          <NButton size="small" @click="emit('manage', provider.provider)">
+            {{ t('models.manageVisibleModels') }}
+          </NButton>
+        </li>
+      </ul>
+    </div>
+    <template #footer>
+      <NButton @click="emit('update:show', false)">{{ t('models.largeCatalogLater') }}</NButton>
+    </template>
+  </NModal>
+</template>
+
+<style scoped lang="scss">
+@use '@/styles/variables' as *;
+
+.large-catalog-hint {
+  margin: 0 0 16px;
+  color: $text-secondary;
+  line-height: 1.6;
+}
+
+.large-catalog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+
+  li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 0;
+    border-bottom: 1px solid $border-light;
+  }
+
+  span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+</style>

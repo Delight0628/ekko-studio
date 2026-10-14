@@ -10,6 +10,8 @@ import CombinationModelsPanel from '@/components/hermes/models/CombinationModels
 import JevSettingsPanel from '@/components/hermes/models/JevSettingsPanel.vue'
 import ProvidersPanel from '@/components/hermes/models/ProvidersPanel.vue'
 import ProviderFormModal from '@/components/hermes/models/ProviderFormModal.vue'
+import ProviderVisibilityModal from '@/components/hermes/models/ProviderVisibilityModal.vue'
+import ModelCatalogNotice from '@/components/hermes/models/ModelCatalogNotice.vue'
 import VoiceSettings from '@/components/hermes/settings/VoiceSettings.vue'
 import { useModelsStore } from '@/stores/hermes/models'
 import { useAppStore } from '@/stores/hermes/app'
@@ -25,6 +27,13 @@ const message = useMessage()
 const route = useRoute()
 const router = useRouter()
 const showModal = ref(false)
+const showLargeCatalogNotice = ref(false)
+const visibilityProviderId = ref('')
+const largeCatalogProviders = computed(() => modelsStore.providers.filter(provider => provider.models.length > 100))
+const visibilityProvider = computed(() => {
+  const providerId = visibilityProviderId.value
+  return modelsStore.providers.find(provider => provider.provider === providerId)
+})
 const profiles = ref<HermesProfile[]>([])
 const selectedProfile = ref(typeof route.query.modelProfile === 'string' ? route.query.modelProfile : profilesStore.activeProfileName || 'default')
 const profileOptions = computed(() => profiles.value.map(profile => ({ label: profile.name, value: profile.name })))
@@ -68,13 +77,26 @@ function handleTabUpdate(tab: ModelsTab) {
 async function loadProvidersForProfile() {
   const currentLoad = ++loadId
   profileLoading.value = true
+  showLargeCatalogNotice.value = false
+  visibilityProviderId.value = ''
   try {
     try { await checkCopilotToken() } catch { /* ignore */ }
     if (currentLoad !== loadId) return
+    const previousProviders = modelsStore.providers
     await modelsStore.fetchProviders()
+    // Only prompt for a successfully loaded catalog, not a stale Profile after
+    // a failed request. Refreshes and saves do not reopen a dismissed notice.
+    if (currentLoad === loadId && modelsStore.providers !== previousProviders) {
+      showLargeCatalogNotice.value = largeCatalogProviders.value.length > 0
+    }
   } finally {
     if (currentLoad === loadId) profileLoading.value = false
   }
+}
+
+function manageLargeCatalog(provider: string) {
+  showLargeCatalogNotice.value = false
+  visibilityProviderId.value = provider
 }
 
 onMounted(async () => {
@@ -226,6 +248,18 @@ async function handleRefreshModelCache() {
       v-if="showModal && !profileLoading"
       @close="handleModalClose"
       @saved="handleSaved"
+    />
+    <ModelCatalogNotice
+      v-if="largeCatalogProviders.length > 0 && !profileLoading && !showModal"
+      v-model:show="showLargeCatalogNotice"
+      :providers="largeCatalogProviders"
+      @manage="manageLargeCatalog"
+    />
+    <ProviderVisibilityModal
+      v-if="visibilityProvider && !profileLoading"
+      :key="`${selectedProfile}:${visibilityProvider.provider}`"
+      :provider="visibilityProvider"
+      @close="visibilityProviderId = ''"
     />
   </PageLoading>
 </template>

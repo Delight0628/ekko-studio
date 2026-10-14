@@ -651,6 +651,10 @@ export default {
     writeApprovalUnsupported: 'Bu Hermes Aracısı sürümü yazma onaylarını desteklemiyor. Bu özelliği kullanmak için Hermes Aracısını yükseltin.',
   },
   models: {
+    largeCatalogTitle: 'Çok fazla görünür model',
+    largeCatalogHint: 'Aşağıdaki sağlayıcıların 100’den fazla görünür modeli var. Bu, sayfaların yüklenmesini yavaşlatabilir. Yalnızca kullandığınız modelleri tutmak için görünür modelleri yönetin.',
+    largeCatalogProviderCount: '{name}: {count} görünür model',
+    largeCatalogLater: 'Daha sonra',
     refreshModels: 'Modelleri yenile',
     restoreModels: 'Önceki modelleri geri yükle',
     refreshModelsConfirmTitle: 'Model listesi değişikliklerini onayla',

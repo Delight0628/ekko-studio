@@ -7,10 +7,8 @@ interface CatalogModelGroup {
   model_meta?: Record<string, { reasoning?: boolean; reasoning_efforts?: string[] }>
 }
 
-const MAX_MODEL_METADATA_SCANS_PER_PROVIDER = 100
-
 // Keep one enricher per response so profiles and allProviders share the same
-// scan budget, including misses. Never reuse results across endpoint URLs.
+// lookup results, including misses. Never reuse results across endpoint URLs.
 export function createCatalogModelMetadataEnricher(
   selectModels: (group: CatalogModelGroup) => string[] = group => group.models,
 ) {
@@ -28,7 +26,6 @@ export function createCatalogModelMetadataEnricher(
       for (const id of selectModels(group)) {
         const key = JSON.stringify([group.base_url, id])
         if (!scanned.has(key)) {
-          if (scanned.size >= MAX_MODEL_METADATA_SCANS_PER_PROVIDER) continue
           scanned.set(key, resolveCatalogModel(catalog, { provider: group.provider, baseUrl: group.base_url, model: id }))
         }
         const model = scanned.get(key)?.model

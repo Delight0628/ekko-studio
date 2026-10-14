@@ -22,16 +22,16 @@ beforeEach(() => {
   resolveCatalogModel.mockImplementation((_catalog, query) => ({ model: { id: query.model, reasoning: true } }))
 })
 
-describe('bounded catalog metadata scans', () => {
-  it('scans at most 100 models while retaining the complete list and existing metadata', () => {
+describe('visible catalog metadata scans', () => {
+  it('resolves all 3,000 selected models while retaining existing metadata', () => {
     const model_meta = { 'model-2999': { alias: 'Last model', preview: true, disabled: true } }
     const [result] = createCatalogModelMetadataEnricher()([{ ...group, model_meta }])
 
-    expect(resolveCatalogModel).toHaveBeenCalledTimes(100)
+    expect(resolveCatalogModel).toHaveBeenCalledTimes(3000)
     expect(result.models).toEqual(models)
     expect(result.model_meta['model-99']).toMatchObject({ reasoning: true, reasoning_efforts: ['low', 'high'] })
-    expect(result.model_meta['model-100']).toBeUndefined()
-    expect(result.model_meta['model-2999']).toEqual(model_meta['model-2999'])
+    expect(result.model_meta['model-100']).toMatchObject({ reasoning: true })
+    expect(result.model_meta['model-2999']).toMatchObject({ ...model_meta['model-2999'], reasoning: true })
     expect(model_meta).toEqual({ 'model-2999': { alias: 'Last model', preview: true, disabled: true } })
   })
 
@@ -46,28 +46,28 @@ describe('bounded catalog metadata scans', () => {
     expect(Object.keys(result.model_meta!)).toEqual(['model-2999'])
   })
 
-  it('shares the cap and cached hits across profiles and repeated response sections', () => {
+  it('reuses cached hits across profiles and repeated response sections without limiting models', () => {
     const enrich = createCatalogModelMetadataEnricher()
     enrich([{ ...group, models: models.slice(0, 70) }])
     enrich([{ ...group, models: models.slice(50, 150) }])
     const [repeated] = enrich([group])
 
-    expect(resolveCatalogModel).toHaveBeenCalledTimes(100)
-    expect(Object.keys(repeated.model_meta!)).toHaveLength(100)
+    expect(resolveCatalogModel).toHaveBeenCalledTimes(3000)
+    expect(Object.keys(repeated.model_meta!)).toHaveLength(3000)
     enrich([{ ...group, provider: 'custom:other' }])
-    expect(resolveCatalogModel).toHaveBeenCalledTimes(200)
+    expect(resolveCatalogModel).toHaveBeenCalledTimes(6000)
   })
 
-  it('counts and reuses misses, including duplicate model IDs', () => {
+  it('reuses misses, including duplicate model IDs', () => {
     resolveCatalogModel.mockReturnValue(undefined)
     const enrich = createCatalogModelMetadataEnricher()
     enrich([{ ...group, models: [...models.slice(0, 50), ...models.slice(0, 50)] }])
     enrich([group, group])
 
-    expect(resolveCatalogModel).toHaveBeenCalledTimes(100)
+    expect(resolveCatalogModel).toHaveBeenCalledTimes(3000)
   })
 
-  it('keeps endpoint-dependent metadata separate within one provider budget', () => {
+  it('keeps endpoint-dependent metadata separate for the same provider', () => {
     resolveCatalogModel.mockImplementation((_catalog, query) => ({
       model: { reasoning: query.baseUrl === group.base_url },
     }))
@@ -77,21 +77,21 @@ describe('bounded catalog metadata scans', () => {
       { ...group, base_url: 'https://other.test/v1', models: models.slice(0, 60) },
     ])
 
-    expect(resolveCatalogModel).toHaveBeenCalledTimes(100)
+    expect(resolveCatalogModel).toHaveBeenCalledTimes(120)
     expect(first.model_meta?.['model-0'].reasoning).toBe(true)
     expect(second.model_meta?.['model-0'].reasoning).toBe(false)
-    expect(second.model_meta?.['model-40']).toBeUndefined()
+    expect(second.model_meta?.['model-59'].reasoning).toBe(false)
   })
 
-  it('starts a fresh budget and catalog snapshot for each response', () => {
+  it('starts a fresh cache and catalog snapshot for each response', () => {
     createCatalogModelMetadataEnricher()([group])
     const nextCatalog = { refreshed: true }
     getModelCatalog.mockReturnValue(nextCatalog)
     resolveCatalogModel.mockReturnValue({ model: { reasoning: false } })
     const [next] = createCatalogModelMetadataEnricher()([group])
 
-    expect(resolveCatalogModel).toHaveBeenCalledTimes(200)
-    expect(resolveCatalogModel.mock.calls[100][0]).toBe(nextCatalog)
+    expect(resolveCatalogModel).toHaveBeenCalledTimes(6000)
+    expect(resolveCatalogModel.mock.calls[3000][0]).toBe(nextCatalog)
     expect(next.model_meta?.['model-0'].reasoning).toBe(false)
   })
 

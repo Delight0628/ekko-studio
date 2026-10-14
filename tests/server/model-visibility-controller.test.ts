@@ -278,7 +278,7 @@ describe('models controller — model visibility', () => {
     }
   })
 
-  it.each(['all', 'include', 'stale'])('caps scans across profiles and allProviders with an %s visibility rule', async mode => {
+  it.each(['all', 'include', 'stale'])('resolves all visible models across profiles and allProviders with an %s visibility rule', async mode => {
     const models = Array.from({ length: 3000 }, (_, index) => `model-${index}`)
     const selected = mode === 'include' ? models.slice(2800) : models
     mockListProfileNamesFromDisk.mockReturnValue(['default', 'research'])
@@ -293,10 +293,10 @@ describe('models controller — model visibility', () => {
     await ctrl.getAvailable(ctx)
 
     const scans = mockResolveCatalogModel.mock.calls.filter(([, query]) => query.provider === 'deepseek')
-    expect(scans.map(([, query]) => query.model)).toEqual(selected.slice(0, 100))
+    expect(scans.map(([, query]) => query.model)).toEqual(selected)
     expect(ctx.body.groups[0].models).toEqual(selected)
     expect(ctx.body.groups[0].available_models).toEqual(models)
-    expect(Object.keys(ctx.body.groups[0].model_meta)).toHaveLength(100)
+    expect(Object.keys(ctx.body.groups[0].model_meta)).toHaveLength(selected.length)
     expect(ctx.body.allProviders.find((entry: any) => entry.provider === 'deepseek').models).toEqual(models)
   })
 
