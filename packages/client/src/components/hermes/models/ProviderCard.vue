@@ -10,6 +10,7 @@ import { getStoredUserRole } from '@/api/client'
 import ProviderEditorModal from './ProviderEditorModal.vue'
 import ProviderVisibilityModal from './ProviderVisibilityModal.vue'
 import { useI18n } from 'vue-i18n'
+import { useModelCatalogNotice } from '@/composables/useModelCatalogNotice'
 
 const props = defineProps<{ provider: AvailableModelGroup }>()
 
@@ -65,6 +66,7 @@ const aliasInput = ref('')
 const showVisibilityModal = ref(false)
 const defaultingProvider = ref(false)
 const defaultingModel = ref<string | null>(null)
+const catalogChanged = useModelCatalogNotice(() => showEditorModal.value || showAliasListModal.value || showAliasModal.value || showVisibilityModal.value || deleting.value || refreshingModels.value || restoringModels.value || defaultingProvider.value || defaultingModel.value !== null)
 
 const sourceProvider = computed(() => modelsStore.allProviders.find(g => g.provider === props.provider.provider))
 const allModels = computed(() => props.provider.available_models?.length ? props.provider.available_models : (sourceProvider.value?.models?.length ? sourceProvider.value.models : props.provider.models))
@@ -139,6 +141,7 @@ async function saveAlias() {
   if (!aliasModel.value || !aliasProvider.value) return
   try {
     await appStore.setModelAlias(aliasModel.value, aliasProvider.value, aliasInput.value)
+    catalogChanged()
     showAliasModal.value = false
   } catch (e: any) {
     message.error(e.message || t('models.aliasSaveFailed'))

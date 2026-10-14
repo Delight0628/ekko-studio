@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { usePageLoadingTask } from '@/composables/usePageLoading'
+import { useModelCatalogNotice } from '@/composables/useModelCatalogNotice'
 import { NSpin, NAlert, NButton, NForm, NInput, NInputNumber, NPopconfirm, NSelect, NSpace, NSwitch, useMessage } from 'naive-ui'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
@@ -14,6 +15,7 @@ const settings = ref<JevSettings | null>(null)
 const apiKey = ref('')
 const loading = ref(true)
 const busy = ref(false)
+const catalogChanged = useModelCatalogNotice(() => busy.value)
 const error = ref('')
 const testResult = ref<{ model: string; durationMs: number } | null>(null)
 const routingStatus = computed(() => !settings.value?.groupMessageRoutingEnabled ? 'jev.groupRoutingDisabled' : !settings.value.hasApiKey ? 'common.notConfigured' : 'jev.groupRoutingReady')
@@ -64,7 +66,7 @@ async function perform(action: 'save' | 'delete' | 'test') {
         : await saveJevSettings(profile, { groupSummaryReviewEnabled, groupSummaryReviewMinConfidence, groupSummaryRevisionEnabled, groupSummaryReviewTimeoutMs, workflowQualityEnabled, workflowQualityMinConfidence, workflowQualityTimeoutMs, groupMessageRoutingEnabled, groupHandoffReviewEnabled, groupLoopDetectionEnabled, groupMessageRoutingMinConfidence, groupMessageRoutingMode, groupMessageRoutingTimeoutMs, browserMatchEnabled, browserMatchCandidateLimit, browserMatchMinConfidence, browserMatchTimeoutMs, browserVerifyEnabled, browserVerifyMinConfidence, browserVerifyTimeoutMs, baseUrl, model, timeoutMs, ekkoSkillsEnabled, ekkoSkillsCandidateLimit, ekkoSkillsMinConfidence, ekkoSkillsTimeoutMs, ekkoMemoryEnabled, ekkoMemoryKindRoutingEnabled, ekkoMemoryRelevanceFilterEnabled, ekkoMemoryRerankEnabled,
           ekkoMemoryWriteReviewEnabled, ekkoMemoryCandidateLimit, ekkoMemoryRecallMinConfidence, ekkoMemoryFilterMinConfidence, ekkoMemoryMinConfidence, ekkoMemoryTimeoutMs,
           ...(apiKey.value.trim() ? { apiKey: apiKey.value.trim() } : {}) })
-      if (!disposed) { settings.value = result; apiKey.value = ''; message.success(t(action === 'delete' ? 'jev.deleted' : 'common.saved')) }
+      if (!disposed) { settings.value = result; apiKey.value = ''; message.success(t(action === 'delete' ? 'jev.deleted' : 'common.saved')); catalogChanged() }
     }
   } catch (err) { if (!disposed) error.value = errorKey(err) }
   finally { busy.value = false }

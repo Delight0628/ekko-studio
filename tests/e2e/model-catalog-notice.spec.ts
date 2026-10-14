@@ -11,6 +11,16 @@ async function setup(page: Page, groups: ReturnType<typeof provider>[]) {
   const api = await mockHermesApi(page, { modelGroups: groups })
   const visibility: Record<string, { mode: string; models: string[] }> = {}
   const writes: any[] = []
+  let defaultModel = groups[0]?.models[0] || ''
+  let defaultProvider = groups[0]?.provider || ''
+  await page.route('**/api/hermes/provider-models/cache/refresh', route => route.fulfill({ json: { success: true } }))
+  await page.route('**/api/hermes/config/model', async route => {
+    const body = route.request().postDataJSON()
+    defaultModel = body.default
+    defaultProvider = body.provider
+    await route.fulfill({ json: { success: true } })
+  })
+  await page.route('**/api/hermes/model-alias', route => route.fulfill({ json: { success: true } }))
   await page.route('**/api/hermes/model-visibility', async route => {
     const body = route.request().postDataJSON()
     writes.push(body)
@@ -20,11 +30,12 @@ async function setup(page: Page, groups: ReturnType<typeof provider>[]) {
   await page.route('**/api/hermes/available-models*', async route => {
     const current = groups.map(group => ({
       ...group,
-      models: visibility[group.provider]?.mode === 'include' ? visibility[group.provider].models : group.models,
+      models: visibility[group.provider]?.mode === 'include' ? visibility[group.provider].models
+        : visibility[group.provider]?.mode === 'all' ? group.available_models : group.models,
     }))
     await route.fulfill({ json: {
-      groups: current, allProviders: groups, default: current[0]?.models[0] || '',
-      default_provider: current[0]?.provider || '', model_visibility: visibility,
+      groups: current, allProviders: groups, default: defaultModel,
+      default_provider: defaultProvider, model_visibility: visibility,
     } })
   })
   return { api, writes }
@@ -51,7 +62,9 @@ for (const mobile of [false, true]) {
     await editor.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(editor).toHaveCount(0)
     expect(writes).toEqual([{ provider: 'Gateway A', mode: 'include', models: ['Gateway A-model-100'] }])
-    await expect(notice).toHaveCount(0)
+    await expect(notice).toBeVisible()
+    await expect(notice.locator('li')).toHaveCount(1)
+    await expect(notice).toContainText('Gateway B: 150 visible models')
 
     await page.reload()
     await expect(notice).toBeVisible()
@@ -73,7 +86,7 @@ test('100 visible models and a filtered large catalog do not prompt', async ({ p
   await expect(page.getByTestId('large-model-catalog-notice')).toHaveCount(0)
 })
 
-test('dismissal lasts for the page visit and another visit shows the reminder again', async ({ page }) => {
+test('refreshing and returning to the page both recheck a dismissed reminder', async ({ page }) => {
   await setup(page, [provider('Gateway', 101)])
   await page.goto('/#/hermes/models')
   const notice = page.getByTestId('large-model-catalog-notice')
@@ -81,7 +94,8 @@ test('dismissal lasts for the page visit and another visit shows the reminder ag
   await page.getByRole('button', { name: 'Later', exact: true }).click()
   await page.getByRole('button', { name: 'Refresh model cache', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Gateway', exact: true })).toBeVisible()
-  await expect(notice).toHaveCount(0)
+  await expect(notice).toBeVisible()
+  await page.getByRole('button', { name: 'Later', exact: true }).click()
   await page.goto('/#/hermes/history')
   await expect(page.locator('.models-view')).toHaveCount(0)
   await page.goto('/#/hermes/models')
@@ -98,4 +112,148 @@ test('a failed Profile catalog request does not warn about the previous Profile'
   await expect(page.getByTestId('models-profile-select')).toContainText('research')
   await expect(page.getByTestId('models-profile-select')).not.toHaveClass(/n-select--disabled/)
   await expect(page.getByTestId('large-model-catalog-notice')).toHaveCount(0)
+})
+
+for (const locale of [
+  { id: 'zh', title: '可见模型较多', manage: '管理可见模型', count: '已选择 101 / 101 个模型', clear: '取消全选' },
+  { id: 'tr', title: 'Çok fazla görünür model', manage: 'Görünür modelleri yönet', count: '101 modelden 101 tanesi seçildi', clear: 'Seçimi temizle' },
+  { id: 'ar', title: 'نماذج ظاهرة كثيرة', manage: 'إدارة النماذج الظاهرة', count: 'تم اختيار 101 من أصل 101 نموذجًا', clear: 'مسح التحديد' },
+]) {
+  test(`the common warning dialog and visibility editor are localized in ${locale.id}`, async ({ page }) => {
+    await setup(page, [provider('OpenRouter', 101)])
+    await page.addInitScript(id => localStorage.setItem('hermes_locale', id), locale.id)
+    await page.goto('/#/hermes/models')
+    const notice = page.getByTestId('large-model-catalog-notice')
+    await expect(notice).toBeVisible()
+    await expect(page.locator('.n-dialog')).toContainText(locale.title)
+    await expect(notice).not.toContainText('models.')
+    await page.screenshot({ path: test.info().outputPath(`notice-${locale.id}.png`), animations: 'disabled' })
+    await notice.getByRole('button', { name: locale.manage, exact: true }).click()
+    const editor = page.getByRole('dialog')
+    await expect(editor).toContainText(locale.count)
+    await expect(editor.getByRole('button', { name: locale.clear, exact: true })).toBeVisible()
+    await expect(editor).not.toContainText('models.')
+  })
+}
+
+test('showing all models rechecks a previously filtered provider after saving', async ({ page }) => {
+  await setup(page, [provider('Filtered', 2, 150)])
+  await page.goto('/#/hermes/models')
+  await page.getByRole('button', { name: 'Manage visible models', exact: true }).click()
+  const editor = page.getByRole('dialog')
+  await editor.getByRole('button', { name: 'Show all models', exact: true }).click()
+  await expect(page.getByTestId('large-model-catalog-notice')).toHaveCount(0)
+  await editor.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByTestId('large-model-catalog-notice')).toContainText('Filtered: 150 visible models')
+  await expect(page.getByRole('dialog')).toHaveCount(1)
+})
+
+test('adding a provider checks the refreshed catalog after the add form closes', async ({ page }) => {
+  const groups = [provider('Existing', 101)]
+  await setup(page, groups)
+  await page.route('**/api/hermes/config/providers', async route => {
+    groups.push(provider('Added', 464))
+    await route.fulfill({ json: { success: true } })
+  })
+  await page.goto('/#/hermes/models')
+  await page.getByRole('button', { name: 'Later', exact: true }).click()
+  await page.getByRole('button', { name: 'Add Provider', exact: true }).click()
+  const form = page.getByRole('dialog')
+  await form.getByRole('button', { name: 'Custom', exact: true }).click()
+  await form.getByPlaceholder('e.g. https://api.example.com/v1').fill('https://provider.example.test/v1')
+  await form.getByPlaceholder('sk-...').fill('fixture-key')
+  await form.getByRole('button', { name: 'Fetch', exact: true }).click()
+  await expect(form).toContainText('proxy-model-a')
+  await form.getByRole('button', { name: 'Add', exact: true }).click()
+  const notice = page.getByTestId('large-model-catalog-notice')
+  await expect(notice).toContainText('Added: 464 visible models')
+  await expect(notice.locator('li')).toHaveCount(2)
+  await expect(page.getByRole('dialog')).toHaveCount(1)
+})
+
+test('editing a provider rechecks after the editor closes', async ({ page }) => {
+  await setup(page, [provider('test-provider', 101)])
+  await page.goto('/#/hermes/models')
+  await page.getByRole('button', { name: 'Later', exact: true }).click()
+  await page.getByRole('button', { name: 'Edit', exact: true }).click()
+  const editor = page.locator('.provider-editor-modal')
+  await editor.getByLabel('Display name').fill('Edited Provider')
+  await editor.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(editor).toHaveCount(0)
+  await expect(page.getByTestId('large-model-catalog-notice')).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(1)
+})
+
+test('default-model and alias changes recheck, while a failed alias save does not', async ({ page }) => {
+  await setup(page, [provider('Gateway', 101)])
+  await page.goto('/#/hermes/models')
+  const notice = page.getByTestId('large-model-catalog-notice')
+  const later = page.getByRole('button', { name: 'Later', exact: true })
+  await later.click()
+  await page.locator('.default-model-select').click()
+  await page.locator('.n-base-select-option').filter({ hasText: /^Gateway-model-1$/ }).click()
+  await expect(notice).toBeVisible()
+  await later.click()
+  await page.locator('.model-tag-button').first().click()
+  const editor = page.getByRole('dialog')
+  await editor.getByPlaceholder('Leave empty to use original model ID').fill('My model')
+  await editor.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(notice).toBeVisible()
+  await later.click()
+  await page.route('**/api/hermes/model-alias', route => route.fulfill({ status: 503, json: { error: 'Unavailable' } }))
+  await page.locator('.model-tag-button').first().click()
+  await editor.getByPlaceholder('Leave empty to use original model ID').fill('Unsaved name')
+  await editor.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByText('API Error 503: Unavailable', { exact: true })).toBeVisible()
+  await expect(notice).toHaveCount(0)
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(notice).toHaveCount(0)
+})
+
+for (const operation of ['refresh', 'restore'] as const) {
+  test(`${operation} provider models checks the resulting catalog`, async ({ page }) => {
+    const groups = [{ ...provider('Gateway', 2), model_refreshable: true, model_restore_available: true }]
+    await setup(page, groups)
+    await page.route(`**/api/hermes/config/providers/Gateway/models/${operation}`, async route => {
+      const previous = groups[0].models
+      Object.assign(groups[0], provider('Gateway', 150))
+      await route.fulfill({ json: { success: true, applied: true, models: groups[0].models, previous_models: previous, unavailable_models: [], restore_available: true, requires_confirmation: false, diff: { added: [], removed: [], unchanged: [] } } })
+    })
+    await page.goto('/#/hermes/models')
+    await page.getByRole('button', { name: operation === 'refresh' ? 'Refresh models' : 'Restore previous models', exact: true }).click()
+    await expect(page.getByTestId('large-model-catalog-notice')).toContainText('Gateway: 150 visible models')
+  })
+}
+
+test('removing a provider only warns about remaining oversized providers', async ({ page }) => {
+  const groups = [provider('custom:removed', 101), provider('Remaining', 150)]
+  await setup(page, groups)
+  let removed = false
+  let finishReload!: () => void
+  const pendingReload = new Promise<void>(resolve => { finishReload = resolve })
+  await page.route('**/api/hermes/available-models', async route => {
+    if (removed) await pendingReload
+    await route.fallback()
+  })
+  await page.route('**/api/hermes/config/providers/custom%3Aremoved*', async route => {
+    removed = true
+    groups.shift()
+    await route.fulfill({ json: { success: true } })
+  })
+  await page.goto('/#/hermes/models')
+  await page.getByRole('button', { name: 'Later', exact: true }).click()
+  const card = page.locator('.provider-card').filter({ has: page.getByRole('heading', { name: 'custom:removed', exact: true }) })
+  await card.getByRole('button', { name: 'Delete', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click()
+  const notice = page.getByTestId('large-model-catalog-notice')
+  try {
+    await expect(card).toHaveCount(0)
+    await expect(notice).toHaveCount(0)
+    await expect(page.getByRole('dialog')).toHaveCount(1)
+  } finally {
+    finishReload()
+  }
+  await expect(notice).toBeVisible()
+  await expect(notice.locator('li')).toHaveCount(1)
+  await expect(notice).toContainText('Remaining: 150 visible models')
 })

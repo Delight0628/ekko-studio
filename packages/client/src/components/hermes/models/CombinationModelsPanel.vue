@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { modelReasoningEfforts, DEFAULT_REASONING_EFFORTS } from '@/utils/model-reasoning-effort'
 import { usePageLoadingTask } from '@/composables/usePageLoading'
+import { useModelCatalogNotice } from '@/composables/useModelCatalogNotice'
 import { NSpin, NButton, NInput, NInputNumber, NModal, NSelect, NSwitch, useMessage } from 'naive-ui'
 import { computed, onMounted, ref, watch } from 'vue'
 
@@ -25,6 +26,7 @@ const editingName = ref('')
 const formName = ref('')
 const formPreset = ref<MoaPreset>(createEmptyPreset())
 const showModelPicker = ref(false)
+const catalogChanged = useModelCatalogNotice(() => showEditor.value || showModelPicker.value || saving.value)
 const pickerTarget = ref<{ kind: 'reference' | 'aggregator'; index?: number } | null>(null)
 const pickerSearch = ref('')
 const { isGroupCollapsed: isModelPickerGroupCollapsed, toggleGroup: toggleModelPickerGroup } = useCollapsedProviderGroups()
@@ -257,6 +259,7 @@ function handleCustomModelSubmit() {
 
 async function removeCustomModel(model: string, provider: string) {
   await appStore.removeCustomModel(model, provider)
+  catalogChanged()
 }
 
 async function persist(next: MoaConfig) {

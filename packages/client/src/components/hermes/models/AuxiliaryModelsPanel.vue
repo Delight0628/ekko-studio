@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { modelReasoningEfforts, DEFAULT_REASONING_EFFORTS } from '@/utils/model-reasoning-effort'
 import { usePageLoadingTask } from '@/composables/usePageLoading'
+import { useModelCatalogNotice } from '@/composables/useModelCatalogNotice'
 import { NSpin, NButton, NInput, NInputNumber, NModal, NSelect, useMessage } from 'naive-ui'
 import { computed, onMounted, ref, watch } from 'vue'
 
@@ -32,6 +33,7 @@ const auxiliary = ref<AuxiliaryModelsConfig>({})
 const delegation = ref<DelegationModelConfig>({})
 const showEditor = ref(false)
 const showDelegationEditor = ref(false)
+const catalogChanged = useModelCatalogNotice(() => showEditor.value || showDelegationEditor.value || saving.value || savingDelegation.value)
 const editingTask = ref<AuxiliaryModelTask | null>(null)
 const hydratingForm = ref(false)
 const hydratingDelegationForm = ref(false)
@@ -236,6 +238,7 @@ async function saveDelegation() {
     delegation.value = saved.delegation
     showDelegationEditor.value = false
     message.success(t('models.delegationSaved'))
+    catalogChanged()
   } catch (e: any) {
     message.error(e.message || t('models.delegationSaveFailed'))
   } finally {
@@ -249,6 +252,7 @@ async function clearDelegation() {
     const saved = await saveDelegationModel({})
     delegation.value = saved.delegation
     message.success(t('models.delegationSaved'))
+    catalogChanged()
   } catch (e: any) {
     message.error(e.message || t('models.delegationSaveFailed'))
   } finally {
@@ -334,6 +338,7 @@ async function saveTask() {
     auxiliary.value = saved.auxiliary
     showEditor.value = false
     message.success(t('models.auxiliarySaved'))
+    catalogChanged()
   } catch (e: any) {
     message.error(e.message || t('models.auxiliarySaveFailed'))
   } finally {
@@ -353,6 +358,7 @@ async function clearTask(task: AuxiliaryModelTask) {
     const saved = await saveAuxiliaryModels(next)
     auxiliary.value = saved.auxiliary
     message.success(t('models.auxiliarySaved'))
+    catalogChanged()
   } catch (e: any) {
     message.error(e.message || t('models.auxiliarySaveFailed'))
   } finally {

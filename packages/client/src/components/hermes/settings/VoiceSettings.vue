@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { usePageLoadingTask } from '@/composables/usePageLoading'
+import { useModelCatalogNotice } from '@/composables/useModelCatalogNotice'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { NButton, NInput, NSelect, useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
@@ -40,6 +41,7 @@ const testText = ref(t('settings.voice.testTextDefault'))
 const showAddModal = ref(false)
 const addModalKind = ref<VoiceApiKind>('tts')
 const showConfigurator = ref(false)
+const catalogChanged = useModelCatalogNotice(() => showAddModal.value || showConfigurator.value)
 const editingConnection = ref<VoiceApiConnection | null>(null)
 const sttRecorder = usePcmStreamRecorder({ voiceActivityThreshold: 0.02 })
 const cardTestStates = ref<Record<string, VoiceApiCardTestState>>({})
@@ -102,6 +104,7 @@ async function handleAddSaved(data: VoiceApiFormSavedPayload) {
       secrets: data.secrets,
     })
     hermesConfigRevision.value += 1
+    catalogChanged()
     showAddModal.value = false
     message.success(t('settings.voice.ttsSaved'))
   } catch (err) {
@@ -118,6 +121,7 @@ async function handleConfigSave(conn: VoiceApiConnection, payload: VoiceApiSaveP
   try {
     await voiceApi.saveConnection(conn.kind, conn.provider, payload)
     hermesConfigRevision.value += 1
+    catalogChanged()
     showConfigurator.value = false
     message.success(t('settings.voice.ttsSaved'))
   } catch (err) {
@@ -129,6 +133,7 @@ async function handleRemove(conn: VoiceApiConnection) {
   try {
     await voiceApi.deleteSecret(conn.kind, conn.provider)
     hermesConfigRevision.value += 1
+    catalogChanged()
     setCardTestState(conn.id, 'idle')
     message.success(t('settings.voice.ttsCleared'))
   } catch (err) {
@@ -139,22 +144,26 @@ async function handleRemove(conn: VoiceApiConnection) {
 async function handleSetActive(conn: VoiceApiConnection) {
   await voiceApi.setActiveConnection(conn.kind, conn.id)
   hermesConfigRevision.value += 1
+  catalogChanged()
 }
 
 async function handleActiveTtsUpdate(id: string) {
   await voiceApi.setActiveConnection('tts', id)
   hermesConfigRevision.value += 1
+  catalogChanged()
 }
 
 async function handleActiveSttUpdate(id: string) {
   await voiceApi.setActiveConnection('stt', id)
   hermesConfigRevision.value += 1
+  catalogChanged()
 }
 
 async function handleActivateStudio(kind: VoiceApiKind) {
   const id = kind === 'tts' ? voiceApi.activeTtsId.value : voiceApi.activeSttId.value
   await voiceApi.setActiveConnection(kind, id)
   hermesConfigRevision.value += 1
+  catalogChanged()
 }
 
 function ttsOptionsFor(connection: VoiceApiConnection): Record<string, unknown> {

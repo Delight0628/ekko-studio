@@ -59,7 +59,7 @@ function clearVisibility() {
   >
     <p class="visibility-hint">{{ t('models.visibilityHint') }}</p>
     <div class="visibility-count">
-      {{ selectedVisibleModels.length }}/{{ allModels.length }} {{ t('models.count') }}
+      {{ t('models.visibilitySelectedCount', { selected: selectedVisibleModels.length, total: allModels.length }) }}
     </div>
     <div class="visibility-list">
       <NCheckboxGroup v-model:value="selectedVisibleModels">
@@ -136,6 +136,7 @@ function clearVisibility() {
 
 .visibility-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-top: 14px;

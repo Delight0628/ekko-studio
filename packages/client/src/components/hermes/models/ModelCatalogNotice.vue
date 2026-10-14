@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { NButton, NModal } from 'naive-ui'
+import { computed } from 'vue'
+import { NButton, NModal, useDialogReactiveList } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import type { AvailableModelGroup } from '@/api/hermes/system'
 import { usePageLoadingState } from '@/composables/usePageLoading'
@@ -8,14 +9,19 @@ defineProps<{ show: boolean; providers: AvailableModelGroup[] }>()
 const emit = defineEmits<{ 'update:show': [value: boolean]; manage: [provider: string] }>()
 const { t } = useI18n()
 const pageLoading = usePageLoadingState()
+const dialogs = useDialogReactiveList()
+const confirmationOpen = computed(() => dialogs.value.length > 0)
 </script>
 
 <template>
   <NModal
-    :show="show && !pageLoading"
-    preset="card"
+    :show="show && !pageLoading && !confirmationOpen"
+    preset="dialog"
+    type="warning"
     :title="t('models.largeCatalogTitle')"
     :style="{ width: 'min(560px, calc(100vw - 32px))' }"
+    :negative-text="t('models.largeCatalogLater')"
+    @negative-click="emit('update:show', false)"
     @update:show="emit('update:show', $event)"
   >
     <div data-testid="large-model-catalog-notice">
@@ -29,9 +35,6 @@ const pageLoading = usePageLoadingState()
         </li>
       </ul>
     </div>
-    <template #footer>
-      <NButton @click="emit('update:show', false)">{{ t('models.largeCatalogLater') }}</NButton>
-    </template>
   </NModal>
 </template>
 

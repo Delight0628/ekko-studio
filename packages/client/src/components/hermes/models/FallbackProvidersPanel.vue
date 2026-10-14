@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { usePageLoadingTask } from '@/composables/usePageLoading'
+import { useModelCatalogNotice } from '@/composables/useModelCatalogNotice'
 import { NSpin, NButton, useMessage } from 'naive-ui'
 import { computed, onMounted, ref, watch } from 'vue'
 
@@ -25,6 +26,7 @@ const saving = ref(false)
 const chain = ref<FallbackProviderEntry[]>([])
 const savedChain = ref('')
 const showPicker = ref(false)
+const catalogChanged = useModelCatalogNotice(() => showPicker.value || saving.value)
 const draggingIndex = ref<number | null>(null)
 const rowRefs = ref<(HTMLElement | null)[]>([])
 
@@ -113,6 +115,7 @@ async function save() {
     chain.value = [...response.fallback_providers]
     savedChain.value = JSON.stringify(chain.value)
     message.success(t('models.fallbackSaved'))
+    catalogChanged()
   } catch (error: any) {
     message.error(error?.message || t('models.fallbackSaveFailed'))
   } finally {

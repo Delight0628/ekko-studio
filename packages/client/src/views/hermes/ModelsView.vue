@@ -18,6 +18,7 @@ import { useAppStore } from '@/stores/hermes/app'
 import { useProfilesStore } from '@/stores/hermes/profiles'
 import { fetchProfiles, type HermesProfile } from '@/api/hermes/profiles'
 import { checkCopilotToken } from '@/api/hermes/copilot-auth'
+import { provideModelCatalogNotice } from '@/composables/useModelCatalogNotice'
 
 const { t } = useI18n()
 const modelsStore = useModelsStore()
@@ -40,6 +41,20 @@ const profileOptions = computed(() => profiles.value.map(profile => ({ label: pr
 const profileLoading = ref(true)
 let profilesReady = false
 let loadId = 0
+let catalogLoaded = false
+const catalogBusy = provideModelCatalogNotice(checkLargeCatalog)
+
+function checkLargeCatalog() {
+  if (catalogLoaded) showLargeCatalogNotice.value = largeCatalogProviders.value.length > 0
+}
+
+watch(() => modelsStore.providers, () => {
+  if (!profileLoading.value) {
+    catalogLoaded = true
+    checkLargeCatalog()
+  }
+})
+watch(() => [modelsStore.defaultModel, modelsStore.defaultProvider], checkLargeCatalog)
 
 function handleProfileUpdate(profile: string) {
   if (profileLoading.value || !profiles.value.some(item => item.name === profile)) return
@@ -77,6 +92,7 @@ function handleTabUpdate(tab: ModelsTab) {
 async function loadProvidersForProfile() {
   const currentLoad = ++loadId
   profileLoading.value = true
+  catalogLoaded = false
   showLargeCatalogNotice.value = false
   visibilityProviderId.value = ''
   try {
@@ -84,10 +100,10 @@ async function loadProvidersForProfile() {
     if (currentLoad !== loadId) return
     const previousProviders = modelsStore.providers
     await modelsStore.fetchProviders()
-    // Only prompt for a successfully loaded catalog, not a stale Profile after
-    // a failed request. Refreshes and saves do not reopen a dismissed notice.
+    // Do not warn using another Profile's stale catalog after a failed load.
     if (currentLoad === loadId && modelsStore.providers !== previousProviders) {
-      showLargeCatalogNotice.value = largeCatalogProviders.value.length > 0
+      catalogLoaded = true
+      checkLargeCatalog()
     }
   } finally {
     if (currentLoad === loadId) profileLoading.value = false
@@ -250,7 +266,7 @@ async function handleRefreshModelCache() {
       @saved="handleSaved"
     />
     <ModelCatalogNotice
-      v-if="largeCatalogProviders.length > 0 && !profileLoading && !showModal"
+      v-if="largeCatalogProviders.length > 0 && !profileLoading && !modelsStore.loading && !modelsStore.refreshingModelCache && !showModal && !visibilityProvider && !catalogBusy"
       v-model:show="showLargeCatalogNotice"
       :providers="largeCatalogProviders"
       @manage="manageLargeCatalog"

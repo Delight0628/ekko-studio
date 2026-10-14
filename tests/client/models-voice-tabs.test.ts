@@ -41,7 +41,7 @@ vi.mock('vue-i18n', () => ({
 }))
 
 vi.mock('naive-ui', async () => {
-  const { defineComponent, h } = await import('vue')
+  const { defineComponent, h, ref } = await import('vue')
   return {
     NButton: defineComponent({
       name: 'NButton',
@@ -52,8 +52,8 @@ vi.mock('naive-ui', async () => {
     }),
     NSelect: defineComponent({ name: 'NSelect', props: ['value', 'options'], emits: ['update:value'], setup: () => () => h('select') }),
     NModal: defineComponent({
-      name: 'NModal', props: ['show', 'title'], emits: ['update:show'],
-      setup: (props, { slots }) => () => props.show ? h('div', { role: 'dialog' }, [slots.default?.(), slots.footer?.()]) : null,
+      name: 'NModal', props: ['show', 'title', 'negativeText'], emits: ['update:show', 'negative-click'],
+      setup: (props, { slots, emit }) => () => props.show ? h('div', { role: 'dialog' }, [slots.default?.(), slots.footer?.(), props.negativeText && h('button', { onClick: () => emit('negative-click') }, props.negativeText)]) : null,
     }),
     NSpin: defineComponent({
       name: 'NSpin',
@@ -77,6 +77,7 @@ vi.mock('naive-ui', async () => {
       },
     }),
     useMessage: () => ({ success: vi.fn(), error: vi.fn() }),
+    useDialogReactiveList: () => ref([]),
   }
 })
 
@@ -230,6 +231,27 @@ describe('Models voice settings tabs', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="large-model-catalog-notice"]').exists()).toBe(false)
     wrapper.getComponent({ name: 'ProviderFormModal' }).vm.$emit('close')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="large-model-catalog-notice"]').exists()).toBe(true)
+  })
+
+  it('rechecks a changed catalog after an add-provider save without opening over the form', async () => {
+    routeState.query = { addProvider: '1' }
+    modelsStore.fetchProviders.mockImplementation(async () => { modelsStore.providers = [] })
+    const wrapper = mount(ModelsView)
+    await flushPromises()
+    modelsStore.providers = [{ provider: 'added', label: 'Added', models: Array(101).fill('model') }]
+    await flushPromises()
+    expect(wrapper.find('[data-testid="large-model-catalog-notice"]').exists()).toBe(false)
+    wrapper.getComponent({ name: 'ProviderFormModal' }).vm.$emit('saved', true)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="large-model-catalog-notice"]').exists()).toBe(true)
+  })
+
+  it('recovers detection after a failed initial catalog load is refreshed successfully', async () => {
+    const wrapper = mount(ModelsView)
+    await flushPromises()
+    modelsStore.providers = [{ provider: 'recovered', label: 'Recovered', models: Array(101).fill('model') }]
     await flushPromises()
     expect(wrapper.find('[data-testid="large-model-catalog-notice"]').exists()).toBe(true)
   })
