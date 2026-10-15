@@ -100,9 +100,13 @@ export async function testTosPlatform({
     }
     receipt.appId = app.id
     const versions = await api(`/apps/${app.id}/versions`)
-    if (versions.some(version => version.status === 0)) throw new Error('Application already has a version under review')
-
     if (missing.length) gh(['release', 'upload', releaseTag, ...missing, '--repo', repo])
+    const reviewing = versions.filter(version => version.status === 0)
+    if (reviewing.length) {
+      receipt.validationSkipped = 'application_under_review'
+      receipt.existingReview = reviewing.map(({ id, version, status }) => ({ id, version, status }))
+      return receipt
+    }
     const task = await api(`/apps/${app.id}/versions`, {
       tag: report.version,
       browser_download_url: `${repoUrl}/releases/download/${releaseTag}/${filename}`,

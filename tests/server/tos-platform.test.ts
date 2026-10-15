@@ -62,7 +62,9 @@ async function fixture({
       value = { developer: { id: 1, name: 'Example' }, token: { scopes: ['app:write', 'version:write'] } }
     } else if (path === '/v1/apps' && options.method === 'POST') value = app
     else if (path === '/v1/apps') value = existing ? [app] : []
-    else if (path.endsWith('/versions') && options.method === 'GET') value = reviewing ? [{ status: 0 }] : []
+    else if (path.endsWith('/versions') && options.method === 'GET') {
+      value = reviewing ? [{ id: 'old-review', version: 'old-test-tag', status: 0 }] : []
+    }
     else if (path.endsWith('/versions')) value = { task_id: '660e8400-e29b-41d4-a716-446655440000' }
     else if (path.endsWith('/result')) {
       value = { version_number: '1.2.3', platform: 'x86_64', file_hash: mismatch ? 'wrong' : hash, file_size: bytes.length, icon: 'large-image' }
@@ -140,11 +142,21 @@ describe('TOS platform parsing integration', () => {
 
   it.each([
     { appMismatch: true, message: 'Existing application' },
-    { reviewing: true, message: 'already has a version under review' },
   ])('refuses conflicting registration/review: $message', async ({ message, ...options }) => {
     const f = await fixture(options)
     await expect(testTosPlatform(f)).rejects.toThrow(message)
     expect(f.gh.mock.calls.some(([args]) => args[0] === 'release')).toBe(false)
+  })
+
+  it('attaches assets but explicitly skips parsing when a Version is already reviewing', async () => {
+    const f = await fixture({ reviewing: true })
+    const receipt = await testTosPlatform(f)
+    expect(receipt.validationSkipped).toBe('application_under_review')
+    expect(receipt.validationPassed).toBeUndefined()
+    expect(receipt.existingReview).toEqual([{ id: 'old-review', version: 'old-test-tag', status: 0 }])
+    expect(f.gh.mock.calls.some(([args]) => args[0] === 'release' && args[1] === 'upload')).toBe(true)
+    expect(f.request.mock.calls.some(([, options]) => options.method === 'POST')).toBe(false)
+    expect(receipt.reviewSubmitted).toBe(false)
   })
 
   it('treats HTTP 200 with failed task state as failure and preserves diagnostics', async () => {

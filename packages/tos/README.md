@@ -59,6 +59,12 @@ and workflow commits, release URL, application UUID, task
 UUID, parser diagnostics and parsed metadata. A parser failure is a failed job,
 even when HTTP status is 200. Polling is bounded and timed-out task identity is
 preserved for inspection. Passed tasks expire after one hour.
+If an existing Version is already under review, the workflow can still attach
+the assets to the selected Release, but records
+`validationSkipped: application_under_review` instead of starting another
+parse task. This is not a successful parser result. The existing review is
+never withdrawn or altered; retry parsing after it finishes using the same
+verified artifacts. Existing submitted Version labels are not renamed.
 
 This test never calls `/confirm`, never creates a Version in review, and never
 withdraws/deletes existing versions. It does not establish device compatibility
