@@ -639,6 +639,18 @@ function saveGeneratedImages(images: string[], requestedOutputPath?: string): st
   })
 }
 
+function requestedMediaOutputPath(ctx: Context, body: { output_path?: unknown }): string {
+  const path = typeof body.output_path === 'string' ? body.output_path.trim() : ''
+  // Choosing a server filesystem destination is a privileged write, just as
+  // files/write is. Other users can still generate into Studio's media store.
+  if (path && ctx.state.user?.role !== 'super_admin' && !ctx.state.serverTokenAuth) {
+    throw Object.assign(new Error('Only super admins can choose a media output path'), {
+      status: 403, code: 'media_output_path_forbidden',
+    })
+  }
+  return path
+}
+
 export async function apiKeyImageGenerate(ctx: Context) {
   let profile: string
   try {
@@ -651,6 +663,7 @@ export async function apiKeyImageGenerate(ctx: Context) {
 
   try {
     const body = ctx.request.body as any
+    const requestedOutputPath = requestedMediaOutputPath(ctx, body)
     const mode = normalizeImageMode(body.mode)
     const hermesConfig = await readConfigYamlForProfile(profile)
     const generationSettings = auxiliaryImageSettings(hermesConfig, 'image_generation')
@@ -683,7 +696,6 @@ export async function apiKeyImageGenerate(ctx: Context) {
       { generation: generationSettings.model, edit: editSettings.model },
       activeSettings.timeoutMs,
     )
-    const requestedOutputPath = typeof body.output_path === 'string' ? body.output_path.trim() : ''
     const outputPaths = saveGeneratedImages(images, requestedOutputPath || undefined)
     ctx.body = {
       ok: true,
@@ -864,6 +876,7 @@ export async function miniMaxImageToVideo(ctx: Context) {
       timeout_ms?: number
     } | undefined
     const body = input || {}
+    const requestedOutputPath = requestedMediaOutputPath(ctx, body)
     const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : MINIMAX_VIDEO_DEFAULT_MODEL
     const tokenInfo = await resolveMiniMaxToken(profile, body.region)
     if (!tokenInfo.token) {
@@ -888,7 +901,6 @@ export async function miniMaxImageToVideo(ctx: Context) {
     const timeoutMs = Number.isFinite(rawTimeoutMs)
       ? Math.max(10000, Math.min(rawTimeoutMs, 30 * 60 * 1000))
       : DEFAULT_TIMEOUT_MS
-    const requestedOutputPath = typeof body.output_path === 'string' ? body.output_path.trim() : ''
     const requestBody = miniMaxV1ImageRequest(body, prompt, image, model, region)
 
     const started = await requestMiniMaxJson(urls.generateUrl, tokenInfo.token, {
@@ -956,8 +968,10 @@ export async function miniMaxImageToVideo(ctx: Context) {
 
 export async function grokImageToVideo(ctx: Context) {
   let profile: string
+  let requestedOutputPath: string
   try {
     profile = resolveMediaProfile(ctx)
+    requestedOutputPath = requestedMediaOutputPath(ctx, ctx.request.body as any)
   } catch (err: any) {
     ctx.status = err.status || 400
     ctx.body = { error: err.message || String(err), code: err.code || 'invalid_profile' }
@@ -989,7 +1003,6 @@ export async function grokImageToVideo(ctx: Context) {
     const timeoutMs = Number.isFinite(rawTimeoutMs)
       ? Math.max(10000, Math.min(rawTimeoutMs, 30 * 60 * 1000))
       : DEFAULT_TIMEOUT_MS
-    const requestedOutputPath = typeof body.output_path === 'string' ? body.output_path.trim() : ''
 
     const started = await requestXaiJson(XAI_VIDEO_GENERATIONS_URL, tokenInfo.token, {
       method: 'POST',

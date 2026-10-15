@@ -21,6 +21,35 @@ afterEach(() => {
 })
 
 describe('media controller', () => {
+  it.each(['apiKeyImageGenerate', 'miniMaxImageToVideo', 'grokImageToVideo'] as const)(
+    '%s rejects non-super-admin output paths before contacting a provider',
+    async handler => {
+      vi.doMock('../../packages/server/src/modules/studio/public/profile-config', () => ({
+        getActiveProfileName: () => 'default',
+        getProfileDir: () => '/tmp/unused-media-profile',
+        listProfileNamesFromDisk: () => ['default'],
+      }))
+      const controller = await import('../../packages/server/src/modules/studio/controllers/media')
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected provider request'))
+      try {
+        for (const role of ['user', 'admin']) {
+          for (const output_path of ['/tmp/outside-profile.png', '../outside-profile.png']) {
+            const ctx: any = {
+              state: { user: { role, profiles: ['default'] } }, query: {},
+              request: { body: { output_path } }, get: () => '', status: 200,
+            }
+            await controller[handler](ctx)
+            expect(ctx.status).toBe(403)
+            expect(ctx.body.code).toBe('media_output_path_forbidden')
+          }
+        }
+        expect(fetchSpy).not.toHaveBeenCalled()
+      } finally {
+        fetchSpy.mockRestore()
+      }
+    },
+  )
+
   it('uses Hermes Web UI media directory as the default generated video output path', async () => {
     process.env.HERMES_WEB_UI_HOME = '/tmp/hermes-web-ui-test-home'
     const { defaultImageOutputPath, defaultMediaOutputPath } = await import('../../packages/server/src/modules/studio/controllers/media')
