@@ -4529,7 +4529,7 @@ function nodeColor(node: { data: WorkflowAgentNodeData }) {
 
 .workflow-evidence {
   min-height: 100%;
-  background: var(--theme-card-bg, $bg-card);
+  background: var(--workflow-run-panel-bg, $bg-card);
 }
 .workflow-evidence-overview { min-width: 0; padding: calc(14px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1)); border-bottom: var(--border-width, 1px) solid var(--border-light); display: flex; flex-direction: column; gap: calc(8px * var(--spacing-scale, 1)); }
 .workflow-evidence-summary-topline,
@@ -4543,7 +4543,7 @@ function nodeColor(node: { data: WorkflowAgentNodeData }) {
 .workflow-run-budget-compact strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-weight: 500; }
 .workflow-run-evidence-details-trigger { align-self: flex-end; min-height: 36px; padding: 0 calc(2px * var(--spacing-scale, 1)); border: 0; background: transparent; color: var(--accent-primary); display: inline-flex; align-items: center; gap: calc(4px * var(--spacing-scale, 1)); font-size: calc(var(--font-size-base, 14px) * 11 / 14); cursor: pointer; }
 .workflow-run-evidence-details-trigger:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
-.workflow-evidence-tabs { position: sticky; top: 0; z-index: 2; padding: calc(8px * var(--spacing-scale, 1)); border-bottom: var(--border-width, 1px) solid var(--border-light); background: var(--theme-card-bg, $bg-card); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(4px * var(--spacing-scale, 1)); }
+.workflow-evidence-tabs { position: sticky; top: 0; z-index: 2; padding: calc(8px * var(--spacing-scale, 1)); border-bottom: var(--border-width, 1px) solid var(--border-light); background: var(--theme-card-bg, var(--workflow-run-item-bg, $bg-card)); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: calc(4px * var(--spacing-scale, 1)); }
 .workflow-evidence-tabs button { min-width: 0; min-height: 38px; padding: calc(5px * var(--spacing-scale, 1)) calc(3px * var(--spacing-scale, 1)); border: var(--border-width, 1px) solid transparent; border-radius: var(--radius-component, 6px); background: transparent; color: var(--text-muted); font-size: calc(var(--font-size-base, 14px) * 10 / 14); white-space: nowrap; cursor: pointer; }
 .workflow-evidence-tabs button[aria-selected="true"] { border-color: rgba(var(--accent-primary-rgb), 0.24); background: rgba(var(--accent-primary-rgb), 0.1); color: var(--text-primary); }
 .workflow-evidence-tabs button span { display: inline-grid; min-width: 17px; height: 17px; padding: 0 calc(4px * var(--spacing-scale, 1)); place-items: center; border-radius: 999px; background: rgba(var(--accent-primary-rgb), 0.12); }
@@ -4777,13 +4777,20 @@ function nodeColor(node: { data: WorkflowAgentNodeData }) {
   white-space: nowrap;
 }
 
+// The content surface already paints the theme behind the history and details.
+// Avoid an opaque wrapper or a second copy of the translucent card background.
+html:is(.theme-card-bg, .theme-has-custom-background) .workflow-view {
+  --workflow-run-panel-bg: transparent;
+  --workflow-run-item-bg: rgba(var(--text-primary-rgb), 0.04);
+}
+
 .workflow-runs-panel {
   position: relative;
   width: 280px;
   flex: 0 0 280px;
   min-height: 0;
   border-inline-start: var(--border-width, 1px) solid $border-color;
-  background: var(--theme-card-bg, $bg-card);
+  background: var(--workflow-run-panel-bg, $bg-card);
   overflow: hidden;
   overscroll-behavior-x: contain;
   touch-action: pan-y;
@@ -5069,9 +5076,12 @@ function nodeColor(node: { data: WorkflowAgentNodeData }) {
 }
 
 .workflow-run-item {
-  border: var(--border-width, 1px) solid $border-light;
-  border-radius: var(--radius-component, 8px);
-  background: $bg-secondary;
+  border: var(--border-width, 1px) solid var(--theme-card-border, $border-light);
+  border-radius: var(--theme-card-radius, var(--radius-component, 8px));
+  background: var(--theme-card-bg, var(--workflow-run-item-bg, $bg-secondary));
+  -webkit-backdrop-filter: var(--theme-card-filter, none);
+  backdrop-filter: var(--theme-card-filter, none);
+  box-shadow: var(--theme-card-shadow, none);
   color: inherit;
   padding: calc(10px * var(--spacing-scale, 1));
   display: flex;
@@ -5083,12 +5093,16 @@ function nodeColor(node: { data: WorkflowAgentNodeData }) {
 
   &:hover {
     border-color: rgba(var(--accent-primary-rgb), 0.45);
-    background: rgba(var(--accent-primary-rgb), 0.06);
+    background:
+      linear-gradient(rgba(var(--accent-primary-rgb), 0.06), rgba(var(--accent-primary-rgb), 0.06)),
+      var(--theme-card-bg, var(--workflow-run-item-bg, transparent));
   }
 
   &.active {
     border-color: var(--accent-primary);
-    background: rgba(var(--accent-primary-rgb), 0.12);
+    background:
+      linear-gradient(rgba(var(--accent-primary-rgb), 0.12), rgba(var(--accent-primary-rgb), 0.12)),
+      var(--theme-card-bg, var(--workflow-run-item-bg, transparent));
   }
 }
 
