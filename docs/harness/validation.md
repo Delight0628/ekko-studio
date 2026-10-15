@@ -89,8 +89,9 @@ combinations are retained in the full suite.
 
 `scripts/ci-test-scope.mjs` expands browser coverage for shared theme/layout code,
 browser fixtures and theme tests; it includes real TOS packaging tests for TOS,
-packaging/build workflow or shared dependency changes. Missing diff history fails
-open to full validation. Both workflows run full suites daily at 19:00 UTC
+packaging/release workflows, CLI entries, managed MCP launch configuration or
+shared dependency changes. Missing diff history defaults to full validation.
+Both workflows run full suites daily at 19:00 UTC
 (03:00 Asia/Shanghai), and support manual `core`/`full` runs, defaulting to full.
 New browser files remain in core unless explicitly listed as extended.
 

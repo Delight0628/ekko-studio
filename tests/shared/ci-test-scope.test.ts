@@ -21,7 +21,14 @@ describe('CI test scope', () => {
     expect(selectTestScope('pull_request', {}, [file]).e2e).toBe('full')
   })
 
-  it.each(['packages/tos/icon.svg', 'scripts/pack-tos-deb.mjs', 'scripts/build-server.mjs', 'tests/server/tos-packaging.test.ts'])('includes real packaging checks for %s', file => {
+  it.each([
+    'packages/tos/icon.svg', 'scripts/pack-tos-deb.mjs', 'scripts/build-server.mjs',
+    'tests/server/tos-packaging.test.ts', 'bin/ekko-studio-mcp.mjs', 'LICENSE',
+    'packages/server/src/modules/ekko/services/mcp.ts',
+    'packages/server/src/modules/studio/public/config.ts',
+    ...['tos-package-test', 'build', 'docker-publish', 'npm-publish', 'webui-release',
+      'desktop-release', 'desktop-manual-build'].map(name => `.github/workflows/${name}.yml`),
+  ])('includes real packaging checks for %s', file => {
     expect(selectTestScope('push', {}, [file])).toEqual({ e2e: 'core', packaging: true })
   })
 
