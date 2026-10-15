@@ -95,6 +95,9 @@ const md: MarkdownIt = new MarkdownItConstructor({
 // Preserve literal quote characters from user and assistant messages while
 // retaining typographer's other replacements (for example, dashes and ellipses).
 md.disable('smartquotes')
+// Bare source filenames such as DESIGN.md overlap real domain suffixes.
+// Explicit URLs and email addresses still use markdown-it's linkifier.
+md.linkify.set({ fuzzyLink: false })
 
 md.use(markdownItKatex, {
   katex,

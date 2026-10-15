@@ -35,6 +35,12 @@ async function render(content: string): Promise<string> {
 }
 
 describe('message direction follows the message, not the interface', () => {
+  it('keeps bare source filenames as text while linking explicit URLs and emails', async () => {
+    const html = await render('DESIGN.md backup.sh main.py https://example.com test@example.com')
+    expect(html).not.toMatch(/href="http:\/\/(?:DESIGN\.md|backup\.sh|main\.py)/)
+    expect(html).toContain('href="https://example.com"')
+    expect(html).toContain('href="mailto:test@example.com"')
+  })
   it('marks every block so its own text decides the direction', async () => {
     const html = await render([
       'خلصت الجزء الأول ورفعته على السيرفر.',
