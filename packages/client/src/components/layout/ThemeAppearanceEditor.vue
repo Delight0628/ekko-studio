@@ -65,6 +65,7 @@ function input(event: Event) { return (event.target as HTMLInputElement).value }
         <option v-for="region in THEME_REGIONS" :key="region" :value="region">{{ labels(region) }}</option>
       </select>
     </label>
+    <slot v-if="scope === 'global'" name="global" />
     <div class="appearance-grid">
       <div v-for="key in colorFields" :key="key" class="appearance-setting">
         <label :for="`theme-${scope}-${key}`">{{ labels(key) }}</label>

@@ -4,6 +4,8 @@ Theme settings belong to the signed-in Studio user. They are independent of
 Agent profiles and remain available after switching profiles. Each named theme
 includes brightness, Ink/Comic style, appearance overrides and its wallpaper.
 Legacy device preferences are retained until the first edit or theme creation.
+Brightness, style, font size, text color and selection color live in the appearance
+editor's **Global** scope alongside the other global controls.
 
 ## Configuration and inheritance
 

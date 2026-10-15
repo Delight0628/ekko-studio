@@ -36,9 +36,11 @@ for (const brightness of ['light', 'dark']) {
     // input previews immediately, including internal divider/button borders.
     await opacity.fill('0.1')
     await expect(library).toHaveCSS('border-top-color', 'rgba(102, 136, 170, 0.1)')
-    await expect(divider).toHaveCSS('border-top-color', /rgba\(.+, 0\.1\)/)
     await expect(create.locator('.n-button__border')).toHaveCSS('border-top-color', 'rgba(102, 136, 170, 0.1)')
     await opacity.dispatchEvent('change')
+    await page.getByTestId('theme-scope').selectOption('global')
+    await expect(divider).toHaveCSS('border-top-color', /rgba\(.+, 0\.1\)/)
+    await page.getByTestId('theme-scope').selectOption('card')
     await page.getByRole('button', { name: 'Reset Background opacity', exact: true }).click()
     await expect(library).toHaveCSS('border-top-color', 'rgba(102, 136, 170, 0.3)')
     await page.reload()

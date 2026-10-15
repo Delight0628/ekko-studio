@@ -167,111 +167,6 @@ async function handleReset() {
       <section class="theme-card">
         <div class="section-heading">
           <div>
-            <h3>{{ t('theme.appearance') }}</h3>
-            <p>{{ t('theme.appearanceHint') }}</p>
-          </div>
-        </div>
-
-        <div class="theme-setting">
-          <div>
-            <label>{{ t('theme.mode') }}</label>
-            <p>{{ t('theme.modeHint') }}</p>
-          </div>
-          <NSelect
-            :value="brightness"
-            :options="brightnessOptions"
-            size="small"
-            class="theme-select"
-            @update:value="value => savePatch({ brightness: value as BrightnessMode })"
-          />
-        </div>
-
-        <div class="theme-setting">
-          <div>
-            <label>{{ t('theme.style') }}</label>
-            <p>{{ t('theme.styleHint') }}</p>
-          </div>
-          <NSelect
-            :value="style"
-            :options="styleOptions"
-            size="small"
-            class="theme-select"
-            @update:value="value => savePatch({ style: value as ThemeStyle })"
-          />
-        </div>
-
-        <div class="theme-setting">
-          <div>
-            <label>{{ t('theme.fontSize') }}</label>
-            <p>{{ t('theme.fontSizeHint') }}</p>
-          </div>
-          <NInputNumber
-            :value="fontSize"
-            :min="MIN_THEME_FONT_SIZE"
-            :max="MAX_THEME_FONT_SIZE"
-            :step="1"
-            size="small"
-            class="font-size-input"
-            @update:value="handleFontSizeChange"
-          >
-            <template #suffix>px</template>
-          </NInputNumber>
-        </div>
-
-        <div class="theme-setting">
-          <div>
-            <label>{{ t('theme.textColor') }}</label>
-            <p>{{ t('theme.textColorHint') }}</p>
-          </div>
-          <div class="color-control">
-            <input
-              type="color"
-              :value="resolvedTextColor"
-              :aria-label="t('theme.textColor')"
-              @input="previewTextColor"
-              @change="saveTextColor"
-            />
-            <code>{{ resolvedTextColor }}</code>
-            <NButton
-              v-if="textColor"
-              size="tiny"
-              text
-              @click="savePatch({ textColor: null })"
-            >
-              {{ t('common.reset') }}
-            </NButton>
-          </div>
-        </div>
-
-        <div class="theme-setting">
-          <div>
-            <label>{{ t('theme.accentColor') }}</label>
-            <p>{{ t('theme.accentColorHint') }}</p>
-          </div>
-          <div class="color-control">
-            <input
-              type="color"
-              :value="resolvedAccentColor"
-              :aria-label="t('theme.accentColor')"
-              @input="previewAccentColor"
-              @change="saveAccentColor"
-            />
-            <code>{{ resolvedAccentColor }}</code>
-            <NButton
-              v-if="accentColor"
-              size="tiny"
-              text
-              @click="savePatch({ accentColor: null })"
-            >
-              {{ t('common.reset') }}
-            </NButton>
-          </div>
-        </div>
-      </section>
-
-      <section class="theme-card">
-        <div class="section-heading">
-          <div>
             <h3>{{ t('theme.background') }}</h3>
             <p>{{ t('theme.backgroundHint') }}</p>
           </div>
@@ -308,7 +203,107 @@ async function handleReset() {
         :model-value="appearance"
         @preview="value => previewThemeSettings({ appearance: value })"
         @save="value => savePatch({ appearance: value })"
-      />
+      >
+        <template #global>
+          <div class="theme-global-settings">
+            <div class="theme-setting">
+              <div>
+                <label>{{ t('theme.mode') }}</label>
+                <p>{{ t('theme.modeHint') }}</p>
+              </div>
+              <NSelect
+                :value="brightness"
+                :options="brightnessOptions"
+                size="small"
+                class="theme-select"
+                @update:value="value => savePatch({ brightness: value as BrightnessMode })"
+              />
+            </div>
+
+            <div class="theme-setting">
+              <div>
+                <label>{{ t('theme.style') }}</label>
+                <p>{{ t('theme.styleHint') }}</p>
+              </div>
+              <NSelect
+                :value="style"
+                :options="styleOptions"
+                size="small"
+                class="theme-select"
+                @update:value="value => savePatch({ style: value as ThemeStyle })"
+              />
+            </div>
+
+            <div class="theme-setting">
+              <div>
+                <label>{{ t('theme.fontSize') }}</label>
+                <p>{{ t('theme.fontSizeHint') }}</p>
+              </div>
+              <NInputNumber
+                :value="fontSize"
+                :min="MIN_THEME_FONT_SIZE"
+                :max="MAX_THEME_FONT_SIZE"
+                :step="1"
+                size="small"
+                class="font-size-input"
+                @update:value="handleFontSizeChange"
+              >
+                <template #suffix>px</template>
+              </NInputNumber>
+            </div>
+
+            <div class="theme-setting">
+              <div>
+                <label>{{ t('theme.textColor') }}</label>
+                <p>{{ t('theme.textColorHint') }}</p>
+              </div>
+              <div class="color-control">
+                <input
+                  type="color"
+                  :value="resolvedTextColor"
+                  :aria-label="t('theme.textColor')"
+                  @input="previewTextColor"
+                  @change="saveTextColor"
+                />
+                <code>{{ resolvedTextColor }}</code>
+                <NButton
+                  v-if="textColor"
+                  size="tiny"
+                  text
+                  @click="savePatch({ textColor: null })"
+                >
+                  {{ t('common.reset') }}
+                </NButton>
+              </div>
+            </div>
+
+            <div class="theme-setting">
+              <div>
+                <label>{{ t('theme.accentColor') }}</label>
+                <p>{{ t('theme.accentColorHint') }}</p>
+              </div>
+              <div class="color-control">
+                <input
+                  type="color"
+                  :value="resolvedAccentColor"
+                  :aria-label="t('theme.accentColor')"
+                  @input="previewAccentColor"
+                  @change="saveAccentColor"
+                />
+                <code>{{ resolvedAccentColor }}</code>
+                <NButton
+                  v-if="accentColor"
+                  size="tiny"
+                  text
+                  @click="savePatch({ accentColor: null })"
+                >
+                  {{ t('common.reset') }}
+                </NButton>
+              </div>
+            </div>
+          </div>
+        </template>
+      </ThemeAppearanceEditor>
 
       <section class="theme-preview">
         <div class="preview-copy">
@@ -380,6 +375,10 @@ async function handleReset() {
     color: $text-muted;
     font-size: calc(var(--font-size-base, 14px) * 12 / 14);
   }
+}
+
+.theme-global-settings {
+  margin-bottom: calc(20px * var(--spacing-scale, 1));
 }
 
 .theme-setting {
