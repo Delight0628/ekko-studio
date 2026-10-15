@@ -5,7 +5,7 @@ import { resolve, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const API = 'https://api-developer.terra-master.com'
-const APP_ID = 'com-hermeswebui-studio'
+const APP_ID = 'com.hermeswebui.studio'
 
 // Deliberately no confirm/withdraw/delete endpoint: this tool only parses packages.
 export async function testTosPlatform({

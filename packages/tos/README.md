@@ -19,9 +19,9 @@ Download **tos7-x86_64-test** from the run's **Artifacts** section; artifacts
 are retained for 7 days. The download contains:
 
 ```text
-com-hermeswebui-studio_<version>_x86_64.deb
-com-hermeswebui-studio_<version>_x86_64.deb.sha256
-com-hermeswebui-studio_<version>_x86_64.deb.verification.json
+com.hermeswebui.studio_<version>_x86_64.deb
+com.hermeswebui.studio_<version>_x86_64.deb.sha256
+com.hermeswebui.studio_<version>_x86_64.deb.verification.json
 ```
 
 The build job uses read-only repository permissions. Ordinary PR runs and manual
@@ -66,7 +66,7 @@ directory containing `package.json`, `bin/`, `dist/` and `node_modules/`:
 
 ```bash
 npm run pack:tos -- --webui-dir /absolute/path/to/staged/webui --output /absolute/path/to/output
-npm run verify:tos -- /absolute/path/to/output/com-hermeswebui-studio_0.7.35_x86_64.deb
+npm run verify:tos -- /absolute/path/to/output/com.hermeswebui.studio_0.7.35_x86_64.deb
 ```
 
 The packager bundles a private Node.js 24 and npm/npx, and refuses other runtime
@@ -82,27 +82,27 @@ Use these fields when creating the TOS application:
 
 | Field | Value |
 | --- | --- |
-| ID | `com-hermeswebui-studio` |
+| ID | `com.hermeswebui.studio` |
 | Type | Deb |
 | Architecture | x86_64 |
 | Repository | The public repository whose Release contains the TOS asset |
 
-The official guide restricts IDs to lowercase letters, digits and hyphens.
-The desktop ID `com.hermeswebui.studio` contains dots and is not the TOS ID.
-Existing registrations using that ID must be reconciled with the platform;
-do not submit this package against a different ID.
+Use the existing registered application ID `com.hermeswebui.studio` exactly.
+The package directory, language filename, SVG filename and upload script all
+use that same dotted ID. The earlier hyphenated test ID is no longer the target.
+The Debian package and systemd service remain named `ekko-studio-tos`.
 Select the **TOS** Deb asset, not `Ekko.Studio-*-amd64.deb`.
 
 The metadata is inside `data.tar` at:
 
 ```text
-usr/local/com-hermeswebui-studio/
+usr/local/com.hermeswebui.studio/
   config.ini
-  com-hermeswebui-studio.lang
-  images/icons/com-hermeswebui-studio.svg
+  com.hermeswebui.studio.lang
+  images/icons/com.hermeswebui.studio.svg
   bin/ekko-studio
   init.d/ekko-studio-tos.service
-  nginx/com-hermeswebui-studio.conf
+  nginx/com.hermeswebui.studio.conf
   webui.bz2
   depends/bin/node
   depends/lib/node_modules/npm/
@@ -143,7 +143,7 @@ host `/home` and arbitrary NAS shares are not exposed automatically.
 
 ### Runtime file manifest
 
-Paths are application-visible paths under `/usr/local/com-hermeswebui-studio/`.
+Paths are application-visible paths under `/usr/local/com.hermeswebui.studio/`.
 TOS maps them onto the installation volume. No `/Volume*` pattern is used in
 machine-read configuration.
 

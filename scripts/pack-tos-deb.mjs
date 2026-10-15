@@ -217,7 +217,9 @@ export function packTosDeb({ webuiDir, nodeRoot = dirname(dirname(process.execPa
   outputDir = resolve(outputDir)
   const settings = JSON.parse(readFileSync(join(templates, 'config.json'), 'utf8'))
   verifyTosIcon(readFileSync(join(templates, 'icon.svg'), 'utf8'))
-  if (!/^[a-z][a-z0-9-]{0,49}$/.test(settings.id)) throw new Error('TOS id must contain lowercase letters, digits and hyphens only')
+  if (settings.id.length > 50 || !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/.test(settings.id)) {
+    throw new Error('TOS id must use lowercase alphanumeric segments separated by dots or hyphens (max 50 characters)')
+  }
   for (const file of ['package.json', 'bin/hermes-web-ui.mjs', 'bin/ekko-studio-mcp.mjs', 'dist/server/index.js', 'dist/client/index.html', 'node_modules']) {
     requireFile(join(webuiDir, file))
   }

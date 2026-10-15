@@ -13,16 +13,16 @@ afterEach(async () => {
 async function fixture({ status = 2, mismatch = false, existing = true, appMismatch = false, reviewing = false, httpError = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'tos-platform-'))
   directories.push(directory)
-  const filename = 'com-hermeswebui-studio_1.2.3_x86_64.deb'
+  const filename = 'com.hermeswebui.studio_1.2.3_x86_64.deb'
   const bytes = Buffer.from('verified package fixture')
   const hash = createHash('sha256').update(bytes).digest('hex')
   await writeFile(join(directory, filename), bytes)
   await writeFile(join(directory, `${filename}.sha256`), `${hash}  ${filename}\n`)
   await writeFile(join(directory, `${filename}.verification.json`), JSON.stringify({
-    id: 'com-hermeswebui-studio', version: '1.2.3', platform: 'x86_64', beta: true, filename, sha256: hash,
+    id: 'com.hermeswebui.studio', version: '1.2.3', platform: 'x86_64', beta: true, filename, sha256: hash,
   }))
   const app = {
-    id: '550e8400-e29b-41d4-a716-446655440000', app_id: 'com-hermeswebui-studio',
+    id: '550e8400-e29b-41d4-a716-446655440000', app_id: 'com.hermeswebui.studio',
     kind: 'deb', platform: 'x86_64', repo: `https://github.com/${appMismatch ? 'other/repo' : 'example/studio'}`,
   }
   const env = {
