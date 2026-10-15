@@ -90,12 +90,11 @@ export function sanitizeThemeBackgroundName(value: string): string {
   return (name || 'background').slice(0, 255)
 }
 
-export async function replaceThemeBackground(
+export async function stageThemeBackground(
   userIdValue: unknown,
   originalName: string,
   data: Buffer,
-  expectedId?: unknown,
-): Promise<UserThemeRecord> {
+) {
   const userId = normalizeUserId(userIdValue)
   if (!data.length) throw new ThemeBackgroundValidationError('Background image is empty')
   if (data.length > MAX_THEME_BACKGROUND_BYTES) {
@@ -106,29 +105,44 @@ export async function replaceThemeBackground(
     throw new ThemeBackgroundValidationError('Use a PNG, JPEG, WebP, or GIF image', 415)
   }
 
-  assertActiveTheme(userId, expectedId)
-  const current = getUserTheme(userId)
-  const targetId = current.activePresetId
   const directory = userThemeDirectory(userId)
   const filename = `${randomBytes(16).toString('hex')}${imageType.extension}`
   const finalPath = storedBackgroundPath(userId, filename)
   const temporaryPath = join(directory, `.${filename}.tmp`)
   await mkdir(directory, { recursive: true })
-  await writeFile(temporaryPath, data, { mode: 0o600 })
-  await rename(temporaryPath, finalPath)
+  try {
+    await writeFile(temporaryPath, data, { mode: 0o600, flag: 'wx' })
+    await rename(temporaryPath, finalPath)
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => undefined)
+    throw error
+  }
+  return {
+    background: { filename, originalName: sanitizeThemeBackgroundName(originalName), mime: imageType.mime },
+    discard: () => unlink(finalPath).catch(() => undefined),
+  }
+}
+
+export async function replaceThemeBackground(
+  userIdValue: unknown,
+  originalName: string,
+  data: Buffer,
+  expectedId?: unknown,
+): Promise<UserThemeRecord> {
+  const userId = normalizeUserId(userIdValue)
+  assertActiveTheme(userId, expectedId)
+  const current = getUserTheme(userId)
+  const targetId = current.activePresetId
+  const staged = await stageThemeBackground(userId, originalName, data)
 
   try {
-    const saved = saveUserThemeBackground(userId, {
-      filename,
-      originalName: sanitizeThemeBackgroundName(originalName),
-      mime: imageType.mime,
-    }, targetId)
-    if (current.backgroundFilename && current.backgroundFilename !== filename) {
+    const saved = saveUserThemeBackground(userId, staged.background, targetId)
+    if (current.backgroundFilename && current.backgroundFilename !== staged.background.filename) {
       await removeUnusedBackground(userId, current.backgroundFilename)
     }
     return saved
   } catch (error) {
-    await unlink(finalPath).catch(() => undefined)
+    await staged.discard()
     throw error
   }
 }

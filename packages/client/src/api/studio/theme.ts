@@ -134,3 +134,17 @@ export function activateThemePreset(id: string): Promise<ThemeLibraryChange> {
 export function deleteThemePreset(id: string): Promise<ThemeLibraryChange> {
   return request(`/api/theme/presets/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
+
+type ThemePreferences = { brightness: string; style: string }
+
+export function importThemeArchive(file: File, preferences: ThemePreferences): Promise<ThemeLibraryChange> {
+  return request(`/api/theme/presets/import?${new URLSearchParams(preferences)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/zip' }, body: file,
+  })
+}
+
+export async function exportThemeArchive(id: string, preferences: ThemePreferences): Promise<Blob> {
+  const response = await themeFetch(`/api/theme/presets/${encodeURIComponent(id)}/export?${new URLSearchParams(preferences)}`)
+  if (!response.ok) throw new Error(`Failed to export theme (${response.status})`)
+  return response.blob()
+}

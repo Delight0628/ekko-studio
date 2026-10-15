@@ -1,4 +1,6 @@
 import type { Context } from 'koa'
+import { MAX_THEME_ARCHIVE_BYTES } from '../../../../../shared/theme-archive'
+import { importThemeArchive, exportThemeArchive } from '../services/theme/archive'
 import {
   listThemePresets, createThemePreset, renameThemePreset, activateThemePreset, deleteThemePreset,
   getUserTheme,
@@ -168,7 +170,7 @@ async function presetAction(ctx: Context, operation: (id: number) => unknown) {
   if (!id) { ctx.status = 401; ctx.body = { error: 'Unauthorized' }; return }
   try { ctx.body = await operation(id) }
   catch (error) {
-    if (!(error instanceof UserThemeValidationError)) throw error
+    if (!(error instanceof UserThemeValidationError || error instanceof ThemeBackgroundValidationError)) throw error
     ctx.status = error.status
     ctx.body = { error: error.message }
   }
@@ -194,4 +196,28 @@ export async function activatePreset(ctx: Context) {
 
 export async function deletePreset(ctx: Context) {
   await presetAction(ctx, id => deleteThemePreset(id, ctx.params.id))
+}
+
+export async function importPreset(ctx: Context) {
+  await presetAction(ctx, async id => {
+    if (!ctx.is('application/zip', 'application/octet-stream')) throw new UserThemeValidationError('Expected a ZIP file', 415)
+    const chunks: Buffer[] = []
+    let size = 0
+    for await (const chunk of ctx.req) {
+      size += chunk.length
+      if (size > MAX_THEME_ARCHIVE_BYTES) throw new UserThemeValidationError('Theme ZIP exceeds the 12 MB limit', 413)
+      chunks.push(chunk)
+    }
+    return importThemeArchive(id, Buffer.concat(chunks), ctx.query)
+  })
+}
+
+export async function exportPreset(ctx: Context) {
+  await presetAction(ctx, async id => {
+    const archive = await exportThemeArchive(id, ctx.params.id, ctx.query)
+    ctx.type = 'application/zip'
+    ctx.attachment(`${archive.name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')}.zip`)
+    ctx.set('Cache-Control', 'no-store')
+    return archive.data
+  })
 }

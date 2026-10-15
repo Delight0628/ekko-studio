@@ -1,4 +1,5 @@
 import type { Page, Request, Route } from '@playwright/test'
+import AdmZip from 'adm-zip'
 import type { ThemeAppearance } from '../../packages/shared/theme-appearance'
 
 export const TEST_ACCESS_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwidXNlcm5hbWUiOiJwbGF5d3JpZ2h0Iiwicm9sZSI6InN1cGVyX2FkbWluIiwidHlwZSI6ImFjY2VzcyIsImF1ZCI6Imhlcm1lcy13ZWItdWkiLCJpYXQiOjE3NjAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMH0.playwright-signature'
@@ -348,6 +349,33 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
       if (!themePresets.length) {
         theme.activePresetId = 'theme-0'
         themePresets.push({ ...structuredClone(theme), id: 'theme-0', name: '' })
+      }
+      if (pathname.endsWith('/export')) {
+        const preset = themePresets.find(item => item.id === pathname.split('/')[4])!
+        const zip = new AdmZip()
+        const background = preset.background ? { file: 'background.png', name: preset.background.name } : null
+        if (background) zip.addFile(background.file, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2V9sAAAAASUVORK5CYII=', 'base64'))
+        zip.addFile('theme.json', Buffer.from(JSON.stringify({
+          format: 'ekko-studio-theme', version: 1, name: preset.name || 'Theme', background,
+          settings: { brightness: preset.brightness || 'system', style: preset.style || 'ink',
+            fontSize: preset.fontSize, textColor: preset.textColor, accentColor: preset.accentColor,
+            appearance: preset.appearance || { global: {}, regions: {} } },
+        })))
+        await route.fulfill({ contentType: 'application/zip', body: zip.toBuffer() })
+        return
+      }
+      if (pathname.endsWith('/import')) {
+        try {
+          const manifest = JSON.parse(new AdmZip(request.postDataBuffer()!).readAsText('theme.json'))
+          const created = { ...manifest.settings, id: `theme-${nextThemeId++}`, name: manifest.name,
+            background: manifest.background ? { name: manifest.background.name, mime: 'image/png', updatedAt: Date.now() } : null,
+            updatedAt: Date.now() }
+          created.activePresetId = created.id
+          themePresets.push(created)
+          theme = settingsOf(created)
+          await route.fulfill(jsonResponse(library()))
+        } catch { await route.fulfill(jsonResponse({ error: 'Invalid theme ZIP archive' }, 400)) }
+        return
       }
       const body = JSON.parse(request.postData() || '{}')
       const id = pathname.split('/')[4]

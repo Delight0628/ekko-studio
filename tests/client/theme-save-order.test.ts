@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({
   fetchThemePresets: vi.fn(), createThemePreset: vi.fn(), renameThemePreset: vi.fn(), activateThemePreset: vi.fn(), deleteThemePreset: vi.fn(),
   updateThemeSettings: vi.fn(), fetchThemeSettings: vi.fn(), fetchThemeBackgroundBlob: vi.fn(),
   clearThemeBackgroundCache: vi.fn(), deleteThemeBackground: vi.fn(), uploadThemeBackground: vi.fn(),
+  importThemeArchive: vi.fn(), exportThemeArchive: vi.fn(),
 }))
 vi.mock('@/api/studio/theme', () => api)
 const defaults: UserThemeSettings = { fontSize: 14, textColor: null, accentColor: null, appearance: { global: {}, regions: {} }, background: null, updatedAt: 0 }
@@ -185,5 +186,82 @@ describe('theme preview and persistence ordering', () => {
     request.resolve(defaults)
     await loading
     expect(theme.fontSize.value).toBe(20)
+  })
+
+  it('waits for pending edits before export and blocks theme changes while creating the ZIP', async () => {
+    const pendingSave = deferred<UserThemeSettings>()
+    const pendingExport = deferred<Blob>()
+    api.updateThemeSettings.mockReturnValueOnce(pendingSave.promise)
+    api.exportThemeArchive.mockReturnValueOnce(pendingExport.promise)
+    const theme = (await import('@/composables/useTheme')).useTheme()
+    theme.activateUserTheme(1, { ...defaults, activePresetId: 'day', brightness: 'dark', style: 'comic' })
+    const saving = theme.saveThemeCustomization({ fontSize: 18 })
+    const exporting = theme.exportPreset('day')
+    await flushPromises()
+    expect(api.exportThemeArchive).not.toHaveBeenCalled()
+    await expect(theme.switchPreset('night')).rejects.toThrow(/in progress/)
+    pendingSave.resolve({ ...defaults, activePresetId: 'day', fontSize: 18, brightness: 'dark', style: 'comic' })
+    await saving; await flushPromises()
+    expect(api.exportThemeArchive).toHaveBeenCalledWith('day', { brightness: 'dark', style: 'comic' })
+    const blob = new Blob(['zip'])
+    pendingExport.resolve(blob)
+    expect(await exporting).toBe(blob)
+    expect(theme.presetBusy.value).toBe(false)
+    expect(theme.activePresetId.value).toBe('day')
+  })
+
+  it('does not export stale settings after a failed pending save or across account changes', async () => {
+    const pendingSave = deferred<UserThemeSettings>()
+    api.updateThemeSettings.mockReturnValueOnce(pendingSave.promise)
+    const theme = (await import('@/composables/useTheme')).useTheme()
+    theme.activateUserTheme(1, { ...defaults, activePresetId: 'day' })
+    const saving = theme.saveThemeCustomization({ fontSize: 18 })
+    const exporting = theme.exportPreset('day')
+    const saveFailure = expect(saving).rejects.toThrow('offline')
+    const exportFailure = expect(exporting).rejects.toThrow('offline')
+    pendingSave.reject(new Error('offline'))
+    await saveFailure; await exportFailure
+    expect(api.exportThemeArchive).not.toHaveBeenCalled()
+    const request = deferred<Blob>()
+    api.exportThemeArchive.mockReturnValueOnce(request.promise)
+    const next = theme.exportPreset('day')
+    await flushPromises()
+    theme.activateUserTheme(2, { ...defaults, activePresetId: 'other' })
+    const accountFailure = expect(next).rejects.toThrow('account changed')
+    request.resolve(new Blob(['old account ZIP']))
+    await accountFailure
+    expect(theme.activePresetId.value).toBe('other')
+  })
+
+  it('imports through the library queue and retains the current theme on failure', async () => {
+    const theme = (await import('@/composables/useTheme')).useTheme()
+    theme.activateUserTheme(1, { ...defaults, activePresetId: 'day', brightness: 'light', style: 'ink' })
+    const file = new File(['zip'], 'theme.zip')
+    api.importThemeArchive.mockRejectedValueOnce(new Error('invalid archive'))
+    await expect(theme.importPreset(file)).rejects.toThrow('invalid archive')
+    expect(theme.activePresetId.value).toBe('day')
+    const blob = new Blob(['zip'])
+    api.exportThemeArchive.mockResolvedValueOnce(blob)
+    expect(await theme.exportPreset('day')).toBe(blob)
+    const imported = { ...defaults, activePresetId: 'imported', brightness: 'dark' as const, style: 'comic' as const, fontSize: 18 }
+    api.importThemeArchive.mockResolvedValueOnce({ activeId: 'imported', theme: imported, themes: [{ ...imported, id: 'imported', name: 'Night' }] })
+    await theme.importPreset(file)
+    expect(api.importThemeArchive).toHaveBeenLastCalledWith(file, { brightness: 'light', style: 'ink' })
+    expect(theme.activePresetId.value).toBe('imported')
+    expect(theme.isDark.value).toBe(true)
+    expect(theme.fontSize.value).toBe(18)
+    expect(theme.presetBusy.value).toBe(false)
+  })
+
+  it('allows export retries after a failed download', async () => {
+    const theme = (await import('@/composables/useTheme')).useTheme()
+    theme.activateUserTheme(1, { ...defaults, activePresetId: 'day' })
+    api.exportThemeArchive.mockRejectedValueOnce(new Error('offline'))
+    await expect(theme.exportPreset('day')).rejects.toThrow('offline')
+    expect(theme.presetBusy.value).toBe(false)
+    const blob = new Blob(['zip'])
+    api.exportThemeArchive.mockResolvedValueOnce(blob)
+    expect(await theme.exportPreset('day')).toBe(blob)
+    expect(api.exportThemeArchive).toHaveBeenCalledTimes(2)
   })
 })

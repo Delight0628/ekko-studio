@@ -1603,6 +1603,35 @@ for (const operation of [openapi.paths['/api/theme'].put, openapi.paths['/api/th
   operation.responses['409'] = { description: 'The supplied presetId is no longer the active theme. Reload before editing.' }
 }
 
+const themeArchivePreferences = [
+  { name: 'brightness', in: 'query', required: false, schema: { type: 'string', enum: ['system', 'light', 'dark'] }, description: 'Legacy device brightness. Used only when the stored theme has no mode.' },
+  { name: 'style', in: 'query', required: false, schema: { type: 'string', enum: ['ink', 'comic'] }, description: 'Legacy device style. Used only when the stored theme has no style.' },
+]
+const themeZipExport = openapi.paths['/api/theme/presets/{id}/export'].get
+themeZipExport.summary = 'Export an owned theme as a ZIP file'
+themeZipExport.description = 'Downloads an ekko-studio-theme version 1 ZIP containing theme.json and the optional background image. Includes the theme name, modes and all global/regional settings; excludes user IDs, server file paths and preset IDs. Legacy device mode/style query values are fallback values only.'
+themeZipExport.parameters = [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }, ...themeArchivePreferences]
+themeZipExport.responses = {
+  '200': { description: 'Theme ZIP download', content: { 'application/zip': { schema: { type: 'string', format: 'binary' } } } },
+  '400': { description: 'Invalid fallback mode or style' }, '401': { $ref: '#/components/responses/Unauthorized' },
+  '404': { description: 'Theme is not owned by the authenticated user' }, '409': { description: 'The saved background file is missing' },
+}
+const themeZipImport = openapi.paths['/api/theme/presets/import'].post
+themeZipImport.summary = 'Import and activate a theme ZIP as a new theme'
+themeZipImport.description = 'Accepts the ZIP bytes directly, up to 12 MiB. Validates a version 1 manifest (up to 64 KiB) and optional PNG/JPEG/WebP/GIF background (up to 10 MiB). Rejects unsupported entries, paths, links, encryption, invalid settings and corrupt/oversized expanded data. Creates a new owned theme and activates it atomically; same-name themes remain separate and existing themes are preserved. On initial migration, query preferences preserve the previous device-only mode/style.'
+themeZipImport.parameters = themeArchivePreferences
+themeZipImport.requestBody = { required: true, content: { 'application/zip': { schema: { type: 'string', format: 'binary' } } } }
+themeZipImport.responses = {
+  '200': { description: 'Updated library and active theme', content: { 'application/json': { schema: {
+    type: 'object', required: ['activeId', 'themes', 'theme'], properties: {
+      activeId: { type: 'string' }, themes: { type: 'array', items: { type: 'object' } }, theme: { type: 'object' },
+    },
+  } } } },
+  '400': { description: 'Invalid or unsupported archive, manifest, settings or entries' },
+  '401': { $ref: '#/components/responses/Unauthorized' },
+  '413': { description: 'ZIP or background exceeds the allowed size' }, '415': { description: 'Expected ZIP bytes or a supported background image' },
+}
+
 // Write output
 const outputPath = join(rootDir, 'docs/openapi.json')
 writeFileSync(outputPath, JSON.stringify(openapi, null, 2))

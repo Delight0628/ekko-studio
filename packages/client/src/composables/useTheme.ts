@@ -2,6 +2,7 @@ import { normalizeThemeAppearance, resolveAppearance, THEME_REGIONS } from '@/st
 import { computed, ref, watch } from 'vue'
 import {
   fetchThemePresets, createThemePreset, renameThemePreset, activateThemePreset, deleteThemePreset,
+  importThemeArchive, exportThemeArchive,
   type ThemePreset, type ThemeLibrary, type ThemeLibraryChange,
   clearThemeBackgroundCache,
   deleteThemeBackground as deleteThemeBackgroundApi,
@@ -116,6 +117,14 @@ let loadedBackgroundKey = ''
 let appearanceProperties: string[] = ['--bg-primary', '--text-primary']
 let previewRevision = 0
 let saveQueue: Promise<void> = Promise.resolve()
+let pendingThemeWrite: Promise<void> | null = null
+
+function trackThemeWrite(task: Promise<void>): Promise<void> {
+  pendingThemeWrite = task
+  const clear = () => { if (pendingThemeWrite === task) pendingThemeWrite = null }
+  void task.then(clear, clear)
+  return task
+}
 
 const customization = computed<ThemeCustomization>(() => ({
   fontSize: serverTheme.value.fontSize,
@@ -287,7 +296,7 @@ function saveThemeCustomization(
     }
   })
   saveQueue = save
-  return save
+  return trackThemeWrite(save)
 }
 
 async function syncThemeFromServer(): Promise<void> {
@@ -323,7 +332,7 @@ function changeBackground(request: () => Promise<UserThemeSettings>, remove = fa
     } else await loadBackground(true)
   })
   saveQueue = change
-  return change
+  return trackThemeWrite(change)
 }
 
 function uploadBackground(file: File): Promise<void> {
@@ -390,6 +399,28 @@ function createPreset(name: string, sourceId?: string) {
 function renamePreset(id: string, name: string) { return runLibraryTask(() => renameThemePreset(id, name)) }
 function switchPreset(id: string) { return runLibraryTask(() => activateThemePreset(id)) }
 function removePreset(id: string) { return runLibraryTask(() => deleteThemePreset(id)) }
+function importPreset(file: File) {
+  const preferences = { brightness: brightness.value, style: style.value }
+  return runLibraryTask(() => importThemeArchive(file, preferences))
+}
+function exportPreset(id: string): Promise<Blob> {
+  if (presetBusy.value) return Promise.reject(new Error('Theme operation in progress'))
+  const userId = activeUserId.value
+  const preferences = { brightness: brightness.value, style: style.value }
+  const pendingWrite = pendingThemeWrite
+  presetBusy.value = true
+  // A failed pending save must not silently produce an archive of older settings.
+  const task = saveQueue.catch(() => undefined).then(async () => {
+    await pendingWrite
+    if (userId !== activeUserId.value) throw new Error('Theme account changed')
+    const blob = await exportThemeArchive(id, preferences)
+    if (userId !== activeUserId.value) throw new Error('Theme account changed')
+    return blob
+  }).finally(() => { presetBusy.value = false })
+  // Failed downloads must not prevent a later retry.
+  saveQueue = task.then(() => undefined, () => undefined)
+  return task
+}
 
 applyPreferences()
 void loadBackground()
@@ -439,7 +470,7 @@ export function useTheme() {
   return {
     themePresets, presetBusy,
     activePresetId: computed(() => serverTheme.value.activePresetId),
-    loadThemePresets, createPreset, renamePreset, switchPreset, removePreset,
+    loadThemePresets, createPreset, renamePreset, switchPreset, removePreset, importPreset, exportPreset,
     brightness,
     style,
     isDark,

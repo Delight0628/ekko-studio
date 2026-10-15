@@ -72,4 +72,31 @@ describe('theme library HTTP routes', () => {
     expect(afterDelete.themes).toHaveLength(1)
     expect((await request(`/presets/${original.activeId}`, 'DELETE')).status).toBe(400)
   })
+
+  it('downloads a ZIP and accepts it as an authenticated binary upload', async () => {
+    const original = await (await request('/presets', 'POST', { name: '共享主题', brightness: 'dark', style: 'comic' })).json() as any
+    await request('', 'PUT', { fontSize: 17, textColor: '#ddeeff', appearance: { global: { opacity: 0.4 }, regions: { card: { radius: 12 } } } })
+    expect((await request(`/presets/${original.activeId}/export`, 'GET', undefined, '')).status).toBe(401)
+    expect((await request(`/presets/${original.activeId}/export`, 'GET', undefined, '2')).status).toBe(404)
+    const exported = await request(`/presets/${original.activeId}/export`)
+    expect(exported.status).toBe(200)
+    expect(exported.headers.get('content-type')).toMatch(/application\/zip/)
+    expect(exported.headers.get('content-disposition')).toContain('.zip')
+    expect(exported.headers.get('cache-control')).toBe('no-store')
+    const data = await exported.arrayBuffer()
+    const upload = (user?: string, body = data) => fetch(`${base}/api/theme/presets/import`, {
+      method: 'POST', body, headers: { 'Content-Type': 'application/zip', ...(user ? { 'x-test-user': user } : {}) },
+    })
+    expect((await upload()).status).toBe(401)
+    const imported = await upload('2')
+    expect(imported.status).toBe(200)
+    const result = await imported.json() as any
+    expect(result.activeId).not.toBe(original.activeId)
+    expect(result.theme).toMatchObject({ brightness: 'dark', style: 'comic', fontSize: 17, textColor: '#ddeeff',
+      appearance: { global: { opacity: 0.4 }, regions: { card: { radius: 12 } } } })
+    expect(result.themes).toHaveLength(2)
+    expect((await request('/presets/import', 'POST', {})).status).toBe(415)
+    expect((await upload('2', new ArrayBuffer(10))).status).toBe(400)
+    expect((await (await request('/presets', 'GET', undefined, '2')).json() as any).activeId).toBe(result.activeId)
+  })
 })

@@ -3,10 +3,12 @@ import { computed, onMounted, ref } from 'vue'
 import { NButton, NInput, NModal, NPopconfirm, useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { useTheme } from '@/composables/useTheme'
+import { MAX_THEME_ARCHIVE_BYTES } from '../../../../shared/theme-archive'
 
 const { t } = useI18n()
 const message = useMessage()
-const { themePresets, activePresetId, presetBusy, loadThemePresets, createPreset, renamePreset, switchPreset, removePreset } = useTheme()
+const { themePresets, activePresetId, presetBusy, loadThemePresets, createPreset, renamePreset, switchPreset, removePreset, importPreset, exportPreset } = useTheme()
+const importInput = ref<HTMLInputElement | null>(null)
 const failed = ref(false)
 const dialog = ref<'create' | 'duplicate' | 'rename' | null>(null)
 const name = ref('')
@@ -40,13 +42,44 @@ async function remove() {
   if (!activePresetId.value) return
   try { await removePreset(activePresetId.value) } catch { message.error(t('theme.saveFailed')) }
 }
+async function importFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || presetBusy.value) return
+  if (!/\.zip$/i.test(file.name) || file.size > MAX_THEME_ARCHIVE_BYTES) {
+    message.error(t('theme.presets.archiveFileHint'))
+    return
+  }
+  try { await importPreset(file); message.success(t('theme.presets.imported')) }
+  catch { message.error(t('theme.presets.importFailed')) }
+}
+async function exportFile() {
+  if (!current.value || presetBusy.value) return
+  const { id, name } = current.value
+  try {
+    const blob = await exportPreset(id)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${displayName(name).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')}.zip`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch { message.error(t('theme.presets.exportFailed')) }
+}
 </script>
 
 <template>
   <section class="theme-card theme-library" :aria-busy="presetBusy" data-testid="theme-library">
     <div class="library-heading">
       <div><h3>{{ t('theme.presets.title') }}</h3><p>{{ t('theme.presets.hint') }}</p></div>
-      <NButton size="small" :disabled="presetBusy || failed" data-testid="theme-create" @click="open('create')">{{ t('theme.presets.create') }}</NButton>
+      <div class="library-actions">
+        <input ref="importInput" type="file" accept=".zip,application/zip" hidden data-testid="theme-import-file" @change="importFile" />
+        <NButton size="small" :disabled="presetBusy || failed" data-testid="theme-import" @click="importInput?.click()">{{ t('theme.presets.import') }}</NButton>
+        <NButton size="small" :disabled="presetBusy || failed" data-testid="theme-create" @click="open('create')">{{ t('theme.presets.create') }}</NButton>
+      </div>
     </div>
     <div v-if="failed" role="alert">
       {{ t('theme.presets.loadFailed') }}
@@ -66,6 +99,7 @@ async function remove() {
     </div>
     <div v-if="current" class="preset-actions">
       <span class="editing-name">{{ t('theme.presets.editing', { name: displayName(current.name) }) }}</span>
+      <NButton size="tiny" :disabled="presetBusy" data-testid="theme-export" @click="exportFile">{{ t('theme.presets.export') }}</NButton>
       <NButton size="tiny" :disabled="presetBusy" data-testid="theme-duplicate" @click="open('duplicate')">{{ t('theme.presets.duplicate') }}</NButton>
       <NButton size="tiny" :disabled="presetBusy" data-testid="theme-rename" @click="open('rename')">{{ t('theme.presets.rename') }}</NButton>
       <NPopconfirm :positive-text="t('theme.presets.delete')" :negative-text="t('common.cancel')" @positive-click="remove">
@@ -97,7 +131,7 @@ async function remove() {
   color: var(--text-primary);
   min-width: 0;
 }
-.library-heading, .preset-actions, .dialog-actions { display: flex; align-items: center; gap: calc(10px * var(--spacing-scale, 1)); flex-wrap: wrap; }
+.library-heading, .library-actions, .preset-actions, .dialog-actions { display: flex; align-items: center; gap: calc(10px * var(--spacing-scale, 1)); flex-wrap: wrap; }
 .library-heading { justify-content: space-between; margin-bottom: 16px; }
 h3 { font-size: calc(var(--font-size-base, 14px) * 15 / 14); }
 p { margin-top: 4px; color: var(--text-muted); font-size: calc(var(--font-size-base, 14px) * 12 / 14); }

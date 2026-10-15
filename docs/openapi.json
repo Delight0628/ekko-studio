@@ -25370,6 +25370,104 @@
         }
       }
     },
+    "/api/theme/presets/import": {
+      "post": {
+        "tags": [
+          "Theme"
+        ],
+        "summary": "Import and activate a theme ZIP as a new theme",
+        "description": "Accepts the ZIP bytes directly, up to 12 MiB. Validates a version 1 manifest (up to 64 KiB) and optional PNG/JPEG/WebP/GIF background (up to 10 MiB). Rejects unsupported entries, paths, links, encryption, invalid settings and corrupt/oversized expanded data. Creates a new owned theme and activates it atomically; same-name themes remain separate and existing themes are preserved. On initial migration, query preferences preserve the previous device-only mode/style.",
+        "operationId": "importPreset",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated library and active theme",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "activeId",
+                    "themes",
+                    "theme"
+                  ],
+                  "properties": {
+                    "activeId": {
+                      "type": "string"
+                    },
+                    "themes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "theme": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or unsupported archive, manifest, settings or entries"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "413": {
+            "description": "ZIP or background exceeds the allowed size"
+          },
+          "415": {
+            "description": "Expected ZIP bytes or a supported background image"
+          }
+        },
+        "parameters": [
+          {
+            "name": "brightness",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "system",
+                "light",
+                "dark"
+              ]
+            },
+            "description": "Legacy device brightness. Used only when the stored theme has no mode."
+          },
+          {
+            "name": "style",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ink",
+                "comic"
+              ]
+            },
+            "description": "Legacy device style. Used only when the stored theme has no style."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/zip": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/theme/presets/{id}": {
       "patch": {
         "tags": [
@@ -25501,6 +25599,83 @@
             "schema": {
               "type": "string"
             }
+          }
+        ]
+      }
+    },
+    "/api/theme/presets/{id}/export": {
+      "get": {
+        "tags": [
+          "Theme"
+        ],
+        "summary": "Export an owned theme as a ZIP file",
+        "description": "Downloads an ekko-studio-theme version 1 ZIP containing theme.json and the optional background image. Includes the theme name, modes and all global/regional settings; excludes user IDs, server file paths and preset IDs. Legacy device mode/style query values are fallback values only.",
+        "operationId": "exportPreset",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Theme ZIP download",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid fallback mode or style"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Theme is not owned by the authenticated user"
+          },
+          "409": {
+            "description": "The saved background file is missing"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "brightness",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "system",
+                "light",
+                "dark"
+              ]
+            },
+            "description": "Legacy device brightness. Used only when the stored theme has no mode."
+          },
+          {
+            "name": "style",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ink",
+                "comic"
+              ]
+            },
+            "description": "Legacy device style. Used only when the stored theme has no style."
           }
         ]
       }

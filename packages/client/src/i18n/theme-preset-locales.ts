@@ -13,7 +13,13 @@ export const themePresetMessages = {
     "name": "Theme name",
     "deleteConfirm": "Delete “{name}”? Another theme will become active.",
     "loadFailed": "Could not load themes.",
-    "retry": "Retry"
+    "retry": "Retry",
+    "import": "Import ZIP",
+    "export": "Export ZIP",
+    "imported": "Theme imported and activated.",
+    "importFailed": "Could not import the theme. Check that the ZIP is a valid Studio theme.",
+    "exportFailed": "Could not export the theme. Please try again.",
+    "archiveFileHint": "Choose a ZIP file no larger than 12 MB."
   },
   "zh": {
     "title": "我的主题",
@@ -29,7 +35,13 @@ export const themePresetMessages = {
     "name": "主题名称",
     "deleteConfirm": "删除“{name}”？将切换到另一套主题。",
     "loadFailed": "主题加载失败。",
-    "retry": "重试"
+    "retry": "重试",
+    "import": "导入 ZIP",
+    "export": "导出 ZIP",
+    "imported": "主题已导入并启用。",
+    "importFailed": "主题导入失败，请确认 ZIP 是有效的 Studio 主题文件。",
+    "exportFailed": "主题导出失败，请重试。",
+    "archiveFileHint": "请选择不超过 12 MB 的 ZIP 文件。"
   },
   "zh-TW": {
     "title": "我的主題",
@@ -45,7 +57,13 @@ export const themePresetMessages = {
     "name": "主題名稱",
     "deleteConfirm": "刪除「{name}」？將切換至另一個主題。",
     "loadFailed": "主題載入失敗。",
-    "retry": "重試"
+    "retry": "重試",
+    "import": "匯入 ZIP",
+    "export": "匯出 ZIP",
+    "imported": "主題已匯入並啟用。",
+    "importFailed": "主題匯入失敗，請確認 ZIP 是有效的 Studio 主題檔案。",
+    "exportFailed": "主題匯出失敗，請重試。",
+    "archiveFileHint": "請選擇不超過 12 MB 的 ZIP 檔案。"
   },
   "ja": {
     "title": "マイテーマ",
@@ -61,7 +79,13 @@ export const themePresetMessages = {
     "name": "テーマ名",
     "deleteConfirm": "「{name}」を削除しますか？別のテーマに切り替わります。",
     "loadFailed": "テーマを読み込めませんでした。",
-    "retry": "再試行"
+    "retry": "再試行",
+    "import": "ZIP をインポート",
+    "export": "ZIP をエクスポート",
+    "imported": "テーマをインポートして適用しました。",
+    "importFailed": "テーマをインポートできませんでした。有効な Studio テーマの ZIP を選択してください。",
+    "exportFailed": "テーマをエクスポートできませんでした。もう一度お試しください。",
+    "archiveFileHint": "12 MB 以下の ZIP ファイルを選択してください。"
   },
   "ko": {
     "title": "내 테마",
@@ -77,7 +101,13 @@ export const themePresetMessages = {
     "name": "테마 이름",
     "deleteConfirm": "“{name}”을 삭제할까요? 다른 테마로 전환됩니다.",
     "loadFailed": "테마를 불러오지 못했습니다.",
-    "retry": "다시 시도"
+    "retry": "다시 시도",
+    "import": "ZIP 가져오기",
+    "export": "ZIP 내보내기",
+    "imported": "테마를 가져와 적용했습니다.",
+    "importFailed": "테마를 가져오지 못했습니다. 유효한 Studio 테마 ZIP인지 확인하세요.",
+    "exportFailed": "테마를 내보내지 못했습니다. 다시 시도하세요.",
+    "archiveFileHint": "12 MB 이하의 ZIP 파일을 선택하세요."
   },
   "fr": {
     "title": "Mes thèmes",
@@ -93,7 +123,13 @@ export const themePresetMessages = {
     "name": "Nom du thème",
     "deleteConfirm": "Supprimer « {name} » ? Un autre thème sera activé.",
     "loadFailed": "Impossible de charger les thèmes.",
-    "retry": "Réessayer"
+    "retry": "Réessayer",
+    "import": "Importer un ZIP",
+    "export": "Exporter en ZIP",
+    "imported": "Thème importé et activé.",
+    "importFailed": "Impossible d’importer le thème. Vérifiez que le ZIP contient un thème Studio valide.",
+    "exportFailed": "Impossible d’exporter le thème. Réessayez.",
+    "archiveFileHint": "Choisissez un fichier ZIP de 12 Mo maximum."
   },
   "de": {
     "title": "Meine Designs",
@@ -109,7 +145,13 @@ export const themePresetMessages = {
     "name": "Designname",
     "deleteConfirm": "„{name}“ löschen? Ein anderes Design wird aktiviert.",
     "loadFailed": "Designs konnten nicht geladen werden.",
-    "retry": "Erneut versuchen"
+    "retry": "Erneut versuchen",
+    "import": "ZIP importieren",
+    "export": "ZIP exportieren",
+    "imported": "Design importiert und aktiviert.",
+    "importFailed": "Design konnte nicht importiert werden. Prüfe, ob die ZIP-Datei ein gültiges Studio-Design enthält.",
+    "exportFailed": "Design konnte nicht exportiert werden. Bitte erneut versuchen.",
+    "archiveFileHint": "Wähle eine ZIP-Datei mit höchstens 12 MB."
   },
   "es": {
     "title": "Mis temas",
@@ -125,7 +167,13 @@ export const themePresetMessages = {
     "name": "Nombre del tema",
     "deleteConfirm": "¿Eliminar «{name}»? Se activará otro tema.",
     "loadFailed": "No se pudieron cargar los temas.",
-    "retry": "Reintentar"
+    "retry": "Reintentar",
+    "import": "Importar ZIP",
+    "export": "Exportar ZIP",
+    "imported": "Tema importado y activado.",
+    "importFailed": "No se pudo importar el tema. Comprueba que el ZIP contiene un tema válido de Studio.",
+    "exportFailed": "No se pudo exportar el tema. Inténtalo de nuevo.",
+    "archiveFileHint": "Elige un archivo ZIP de hasta 12 MB."
   },
   "pt": {
     "title": "Meus temas",
@@ -141,7 +189,13 @@ export const themePresetMessages = {
     "name": "Nome do tema",
     "deleteConfirm": "Excluir “{name}”? Outro tema será ativado.",
     "loadFailed": "Não foi possível carregar os temas.",
-    "retry": "Tentar novamente"
+    "retry": "Tentar novamente",
+    "import": "Importar ZIP",
+    "export": "Exportar ZIP",
+    "imported": "Tema importado e ativado.",
+    "importFailed": "Não foi possível importar o tema. Verifique se o ZIP contém um tema válido do Studio.",
+    "exportFailed": "Não foi possível exportar o tema. Tente novamente.",
+    "archiveFileHint": "Escolha um arquivo ZIP de até 12 MB."
   },
   "ru": {
     "title": "Мои темы",
@@ -157,7 +211,13 @@ export const themePresetMessages = {
     "name": "Название темы",
     "deleteConfirm": "Удалить «{name}»? Будет включена другая тема.",
     "loadFailed": "Не удалось загрузить темы.",
-    "retry": "Повторить"
+    "retry": "Повторить",
+    "import": "Импорт ZIP",
+    "export": "Экспорт ZIP",
+    "imported": "Тема импортирована и включена.",
+    "importFailed": "Не удалось импортировать тему. Убедитесь, что ZIP содержит допустимую тему Studio.",
+    "exportFailed": "Не удалось экспортировать тему. Повторите попытку.",
+    "archiveFileHint": "Выберите ZIP-файл размером не более 12 МБ."
   },
   "ar": {
     "title": "سماتي",
@@ -173,7 +233,13 @@ export const themePresetMessages = {
     "name": "اسم السمة",
     "deleteConfirm": "هل تريد حذف «{name}»؟ سيتم تفعيل سمة أخرى.",
     "loadFailed": "تعذر تحميل السمات.",
-    "retry": "إعادة المحاولة"
+    "retry": "إعادة المحاولة",
+    "import": "استيراد ZIP",
+    "export": "تصدير ZIP",
+    "imported": "تم استيراد السمة وتفعيلها.",
+    "importFailed": "تعذر استيراد السمة. تأكد من أن ملف ZIP يحتوي على سمة Studio صالحة.",
+    "exportFailed": "تعذر تصدير السمة. حاول مرة أخرى.",
+    "archiveFileHint": "اختر ملف ZIP لا يزيد حجمه عن 12 ميغابايت."
   },
   "tr": {
     "title": "Temalarım",
@@ -189,6 +255,12 @@ export const themePresetMessages = {
     "name": "Tema adı",
     "deleteConfirm": "“{name}” silinsin mi? Başka bir tema etkinleştirilecek.",
     "loadFailed": "Temalar yüklenemedi.",
-    "retry": "Yeniden dene"
+    "retry": "Yeniden dene",
+    "import": "ZIP içe aktar",
+    "export": "ZIP dışa aktar",
+    "imported": "Tema içe aktarıldı ve etkinleştirildi.",
+    "importFailed": "Tema içe aktarılamadı. ZIP dosyasının geçerli bir Studio teması içerdiğinden emin olun.",
+    "exportFailed": "Tema dışa aktarılamadı. Lütfen yeniden deneyin.",
+    "archiveFileHint": "En fazla 12 MB boyutunda bir ZIP dosyası seçin."
   }
 } as const

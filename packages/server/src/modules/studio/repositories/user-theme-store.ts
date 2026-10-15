@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { normalizeThemeAppearance, type ThemeAppearance } from '../../../../../shared/theme-appearance'
+import type { ThemeArchiveSettings } from '../../../../../shared/theme-archive'
 import { getDb } from '../infrastructure/database'
 import { USER_THEMES_TABLE, USER_THEME_PRESETS_TABLE } from '../infrastructure/database/schemas'
 
@@ -304,6 +305,61 @@ function ensureThemeLibrary(userId: number) {
 function normalizeName(value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > 80) throw new UserThemeValidationError('Theme name must contain 1 to 80 characters')
   return value.trim()
+}
+
+export function normalizeImportedTheme(value: unknown): ThemeArchiveSettings {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new UserThemeValidationError('Invalid theme settings')
+  const settings = value as Record<string, unknown>
+  const keys = ['brightness', 'style', 'fontSize', 'textColor', 'accentColor', 'appearance']
+  if (Object.keys(settings).some(key => !keys.includes(key)) || keys.some(key => !(key in settings))) {
+    throw new UserThemeValidationError('Invalid theme settings fields')
+  }
+  let appearance: ThemeAppearance
+  try { appearance = normalizeThemeAppearance(settings.appearance, true) }
+  catch (error) { throw new UserThemeValidationError((error as Error).message) }
+  return {
+    brightness: normalizeChoice(settings.brightness, ['system', 'light', 'dark'] as const),
+    style: normalizeChoice(settings.style, ['ink', 'comic'] as const),
+    fontSize: normalizeFontSize(settings.fontSize),
+    textColor: normalizeColor(settings.textColor, 'Text color'),
+    accentColor: normalizeColor(settings.accentColor, 'Accent color'),
+    appearance,
+  }
+}
+
+export function importThemePreset(
+  userIdValue: unknown,
+  input: { name: unknown; settings: unknown },
+  background: { filename: string; originalName: string; mime: string } | null,
+  preferences: { brightness?: unknown; style?: unknown } = {},
+) {
+  const userId = normalizeUserId(userIdValue)
+  const name = normalizeName(input.name)
+  const settings = normalizeImportedTheme(input.settings)
+  const brightness = normalizeChoice(preferences.brightness ?? 'system', ['system', 'light', 'dark'] as const)
+  const style = normalizeChoice(preferences.style ?? 'ink', ['ink', 'comic'] as const)
+  const db = requireDb()
+  db.exec('SAVEPOINT theme_import')
+  try {
+    const current = getUserTheme(userId)
+    if (!current.brightness || !current.style) {
+      saveUserTheme(userId, { brightness: current.brightness || brightness, style: current.style || style })
+    }
+    ensureThemeLibrary(userId)
+    const latest = db.prepare(`SELECT MAX(json_extract(settings_json, '$.backgroundUpdatedAt')) AS version FROM ${USER_THEME_PRESETS_TABLE} WHERE user_id = ?`).get(userId) as { version: number | null }
+    const imported = { ...defaultTheme(userId), ...settings,
+      ...(background ? { backgroundFilename: background.filename, backgroundOriginalName: background.originalName,
+        backgroundMime: background.mime, backgroundUpdatedAt: Math.max(Date.now(), current.backgroundUpdatedAt + 1, (latest.version || 0) + 1) } : {}),
+    }
+    const id = insertPreset(imported, name)
+    const result = activateThemePreset(userId, id)
+    db.exec('RELEASE theme_import')
+    return result
+  } catch (error) {
+    db.exec('ROLLBACK TO theme_import')
+    db.exec('RELEASE theme_import')
+    throw error
+  }
 }
 
 export function listThemePresets(userIdValue: unknown) {
