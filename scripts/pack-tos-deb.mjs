@@ -8,6 +8,7 @@ import { parseArgs } from 'node:util'
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const templates = join(repository, 'packages/tos')
+const digestBuffer = Buffer.alloc(1024 * 1024)
 export const TOS_LANGUAGES = ['zh-cn', 'zh-hk', 'en-us', 'fr-fr', 'de-de', 'it-it', 'es-es',
   'hu-hu', 'ja-jp', 'ko-kr', 'pl-pl', 'ru-ru', 'tr-tr', 'pt-pt']
 
@@ -17,6 +18,24 @@ function run(command, args) {
 
 function requireFile(path) {
   if (!existsSync(path)) throw new Error(`Missing packaging input: ${path}`)
+}
+
+function fileDigest(path, algorithm) {
+  const hash = createHash(algorithm)
+  const fd = openSync(path, 'r')
+  try {
+    let length
+    while ((length = readSync(fd, digestBuffer, 0, digestBuffer.length, null))) hash.update(digestBuffer.subarray(0, length))
+  } finally { closeSync(fd) }
+  return hash.digest('hex')
+}
+
+function* regularFiles(root) {
+  for (const entry of readdirSync(root, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const path = join(root, entry.name)
+    if (entry.isDirectory()) yield* regularFiles(path)
+    else if (entry.isFile()) yield path
+  }
 }
 
 function render(name, values) {
@@ -104,7 +123,9 @@ export function verifyTosDeb(deb) {
     const defaults = JSON.parse(readFileSync(join(templates, 'config.json'), 'utf8'))
     const app = join(temporary, 'usr/local', defaults.id)
     const config = JSON.parse(readFileSync(join(app, 'config.ini'), 'utf8'))
-    if (config.id !== defaults.id || config.application_type !== 'deb' || config.platform !== 'x86_64'
+    if (config.id !== defaults.id || config.package !== defaults.package || config.system_id !== defaults.system_id
+      || config.user !== defaults.user || config.icon !== `/images/icons/${defaults.id}.svg`
+      || config.application_type !== 'deb' || config.platform !== 'x86_64'
       || config.open_path !== true || 'type' in config || config.user === 'root' || !config.beta) {
       throw new Error('Invalid TOS application identity or external-open configuration')
     }
@@ -145,12 +166,23 @@ export function verifyTosDeb(deb) {
     if (!payload.some(path => path === 'webui/index.html')) throw new Error('Missing archived frontend')
     const controls = join(temporary, 'control')
     run('dpkg-deb', ['--control', deb, controls])
+    const sums = new Map(readFileSync(join(controls, 'md5sums'), 'utf8').trim().split('\n').map(line => {
+      const match = /^([a-f0-9]{32})  (.+)$/.exec(line)
+      if (!match) throw new Error('Malformed Debian md5sums')
+      return [match[2], match[1]]
+    }))
+    const files = [...regularFiles(app)]
+    if (sums.size !== files.length) throw new Error('Incomplete Debian md5sums')
+    for (const path of files) {
+      if (sums.get(relative(temporary, path)) !== fileDigest(path, 'md5')) throw new Error(`Debian checksum mismatch: ${path}`)
+    }
     for (const script of ['postinst', 'prerm', 'postrm']) {
       const path = join(controls, script)
       run('bash', ['-n', path])
       if ((lstatSync(path).mode & 0o777) !== 0o755) throw new Error(`Lifecycle script not executable: ${script}`)
     }
-    return { id: config.id, version, platform: config.platform, beta: config.beta, elfFilesChecked: checkTosAbi(app) }
+    return { id: config.id, version, platform: config.platform, beta: config.beta,
+      md5FilesChecked: files.length, elfFilesChecked: checkTosAbi(app) }
   } finally {
     rmSync(temporary, { recursive: true, force: true })
   }
@@ -232,6 +264,9 @@ Description: Ekko Studio Web service for TerraMaster TOS 7
     for (const script of ['postinst', 'prerm', 'postrm']) {
       writeFileSync(join(control, script), render(`${script}.in`, values), { mode: 0o755 })
     }
+    // dpkg-deb --build does not run debhelper's dh_md5sums.
+    writeFileSync(join(control, 'md5sums'), [...regularFiles(app)]
+      .map(path => `${fileDigest(path, 'md5')}  ${relative(stage, path)}\n`).join(''))
     checkTosAbi(app)
     mkdirSync(outputDir, { recursive: true })
     const filename = `${settings.id}_${pkg.version}_x86_64.deb`
@@ -239,7 +274,7 @@ Description: Ekko Studio Web service for TerraMaster TOS 7
     if (existsSync(deb)) throw new Error(`Refusing to overwrite ${deb}`)
     run('dpkg-deb', ['--root-owner-group', '-Zgzip', '-z6', '--build', stage, deb])
     const verification = verifyTosDeb(deb)
-    const sha256 = createHash('sha256').update(readFileSync(deb)).digest('hex')
+    const sha256 = fileDigest(deb, 'sha256')
     writeFileSync(`${deb}.sha256`, `${sha256}  ${filename}\n`)
     const report = { ...verification, filename, sha256, nodeVersion: run(node, ['--version']).trim(), tosDeviceTested: false }
     writeFileSync(`${deb}.verification.json`, JSON.stringify(report, null, 2) + '\n')

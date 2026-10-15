@@ -70,11 +70,15 @@ describe.runIf(process.platform === 'linux' && process.arch === 'x64')('TOS Debi
     const deb = join(output, result.filename)
     expect(result).toMatchObject({ id: 'com-hermeswebui-studio', version: '99.0.0', beta: true, tosDeviceTested: false })
     expect(result.elfFilesChecked).toBeGreaterThan(0)
+    expect(result.md5FilesChecked).toBeGreaterThan(0)
     expect(readFileSync(`${deb}.sha256`, 'utf8')).toBe(
       `${createHash('sha256').update(readFileSync(deb)).digest('hex')}  ${result.filename}\n`,
     )
     const unpacked = join(root, 'unpacked')
     execFileSync('dpkg-deb', ['--extract', deb, unpacked])
+    const controls = join(root, 'control')
+    execFileSync('dpkg-deb', ['--control', deb, controls])
+    execFileSync('md5sum', ['--check', join(controls, 'md5sums')], { cwd: unpacked, stdio: 'pipe' })
     const app = join(unpacked, 'usr/local', result.id)
     const config = JSON.parse(readFileSync(join(app, 'config.ini'), 'utf8'))
     expect(config).toMatchObject({ open_path: true, path: 'http://${ip}:8648', application_type: 'deb', platform: 'x86_64' })
@@ -131,6 +135,13 @@ describe.runIf(process.platform === 'linux' && process.arch === 'x64')('TOS Debi
       await exited
     }
     expect(child.exitCode).toBe(0)
+    // A byte change must fail verification even when Deb/TOS identities still match.
+    const alteredStage = join(root, 'altered')
+    execFileSync('dpkg-deb', ['--raw-extract', deb, alteredStage])
+    writeFileSync(join(alteredStage, 'usr/local', result.id, 'README.md'), 'modified without updating checksums')
+    const alteredDeb = join(root, 'altered.deb')
+    execFileSync('dpkg-deb', ['-Zgzip', '--build', alteredStage, alteredDeb])
+    expect(() => verifyTosDeb(alteredDeb)).toThrow('checksum mismatch')
     expect(JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')).version).toBe('99.0.0')
   }, 120_000)
 

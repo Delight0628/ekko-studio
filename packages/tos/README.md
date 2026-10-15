@@ -34,7 +34,9 @@ npm run verify:tos -- /absolute/path/to/output/com-hermeswebui-studio_0.7.35_x86
 
 The packager bundles a private Node.js 24 and npm/npx, and refuses other runtime
 architectures, broken/external symlinks or ELF requirements newer than glibc
-2.35. It neither prunes nor modifies the source checkout. A standard Node.js
+2.35. It explicitly generates `DEBIAN/md5sums` and checks every packaged regular
+file after extraction, alongside the separate SHA-256 asset. It neither prunes
+nor modifies the source checkout. A standard Node.js
 distribution root can be selected with `--node-root`.
 
 ## Developer Platform registration
