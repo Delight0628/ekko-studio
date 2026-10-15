@@ -14,6 +14,9 @@ describe('api docs controller', () => {
     expect(ctx.set).toHaveBeenCalledWith('Cache-Control', 'no-store')
     expect(ctx.body.openapi).toBe('3.0.3')
     expect(ctx.body.paths['/api/openapi.json']).toBeTruthy()
+    const providerCatalog = ctx.body.paths['/api/hermes/provider-models'].get
+    expect(providerCatalog.parameters).toContainEqual(expect.objectContaining({ name: 'provider', in: 'query', required: true }))
+    expect(providerCatalog.responses['200'].content['application/json'].schema.required).toContain('visible_models')
     expect(ctx.body.paths['/api/coding-agents/models'].get.parameters).toEqual([
       expect.objectContaining({ name: 'agent', in: 'query', required: false }),
       expect.objectContaining({ name: 'refresh', in: 'query', schema: { type: 'boolean', default: false } }),

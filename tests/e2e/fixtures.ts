@@ -810,6 +810,15 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
     }
 
     if (pathname === '/api/hermes/provider-models') {
+      if (request.method() === 'GET') {
+        const provider = url.searchParams.get('provider') || ''
+        const group = (options.modelGroups ?? [TEST_MODEL_GROUP]).find(group => group.provider === provider)
+        await route.fulfill(jsonResponse({
+          provider, models: group?.available_models || group?.models || [],
+          visible_models: group?.models || [], model_aliases: options.modelAliases?.[provider] || {},
+        }))
+        return
+      }
       await route.fulfill(jsonResponse({ models: ['proxy-model-a', 'proxy-model-b'] }))
       return
     }

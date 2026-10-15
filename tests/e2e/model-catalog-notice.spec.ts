@@ -28,15 +28,27 @@ async function setup(page: Page, groups: ReturnType<typeof provider>[], aliases:
     await route.fulfill({ json: { success: true, model_visibility: visibility } })
   })
   await page.route('**/api/hermes/available-models*', async route => {
-    const current = groups.map(group => ({
+    const current = groups.map(({ available_models, ...group }) => ({
       ...group,
+      model_count: available_models.length,
       models: visibility[group.provider]?.mode === 'include' ? visibility[group.provider].models
-        : visibility[group.provider]?.mode === 'all' ? group.available_models : group.models,
+        : visibility[group.provider]?.mode === 'all' ? available_models : group.models,
     }))
     await route.fulfill({ json: {
-      groups: current, allProviders: groups, default: defaultModel,
+      groups: current, allProviders: groups.map(({ available_models, ...group }) => ({ ...group, models: [], model_count: available_models.length })), default: defaultModel,
       default_provider: defaultProvider, model_visibility: visibility,
       model_aliases: aliases,
+    } })
+  })
+  await page.route('**/api/hermes/provider-models?*', async route => {
+    const providerId = new URL(route.request().url()).searchParams.get('provider')
+    const group = groups.find(group => group.provider === providerId)
+    if (!group) { await route.fulfill({ status: 404, json: { error: 'Provider not found' } }); return }
+    await route.fulfill({ json: {
+      provider: providerId, models: group.available_models,
+      visible_models: visibility[group.provider]?.mode === 'include' ? visibility[group.provider].models
+        : visibility[group.provider]?.mode === 'all' ? group.available_models : group.models,
+      model_aliases: aliases[group.provider] || {},
     } })
   })
   return { api, writes }
@@ -99,6 +111,31 @@ for (const mobile of [false, true]) {
     expect(api.unexpectedRequests).toEqual([])
   })
 }
+
+test('loads a full Provider catalog only on demand and blocks saves until a failed read is retried', async ({ page }) => {
+  const { writes } = await setup(page, [provider('Gateway', 1, 3000)])
+  let catalogReads = 0
+  await page.route('**/api/hermes/provider-models?*', async route => {
+    catalogReads++
+    if (catalogReads === 1) await route.fulfill({ status: 502, json: { error: 'Catalog unavailable' } })
+    else await route.fallback()
+  })
+  await page.goto('/#/hermes/models')
+  await expect(page.getByRole('heading', { name: 'Gateway', exact: true })).toBeVisible()
+  expect(catalogReads).toBe(0)
+  await page.getByRole('button', { name: 'Manage visible models', exact: true }).click()
+  const editor = page.getByRole('dialog')
+  await expect(editor.getByRole('alert')).toContainText('Catalog unavailable')
+  await expect(editor.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
+  expect(writes).toEqual([])
+  await editor.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(editor.getByRole('checkbox')).toHaveCount(3000)
+  await editor.getByRole('checkbox', { name: 'Gateway-model-2999', exact: true }).check()
+  await editor.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(editor).toHaveCount(0)
+  expect(writes).toEqual([{ provider: 'Gateway', mode: 'include', models: ['Gateway-model-0', 'Gateway-model-2999'] }])
+  expect(catalogReads).toBe(2)
+})
 
 for (const mobile of [false, true]) {
   test(`large catalogs open the visibility editor and persist the selection (${mobile ? 'mobile' : 'desktop'})`, async ({ page }) => {

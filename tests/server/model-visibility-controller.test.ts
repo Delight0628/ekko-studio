@@ -236,7 +236,7 @@ describe('models controller — model visibility', () => {
     expect(ctx.body.groups[0]).toMatchObject({
       provider: 'deepseek',
       models: ['deepseek-reasoner'],
-      available_models: ['deepseek-chat', 'deepseek-reasoner'],
+      model_count: 2,
     })
     expect(ctx.body.default).toBe('deepseek-reasoner')
     expect(ctx.body.default_provider).toBe('deepseek')
@@ -265,15 +265,20 @@ describe('models controller — model visibility', () => {
     const scans = mockResolveCatalogModel.mock.calls.filter(([, query]) => query.provider === 'deepseek')
     expect(scans.map(([, query]) => query.model)).toEqual(visible)
     expect(groups[0].models).toEqual(visible)
-    expect(groups[0].available_models).toEqual(models)
+    if (surface === 'runtime') expect(groups[0].available_models).toEqual(models)
+    else {
+      expect(groups[0].available_models).toBeUndefined()
+      expect(groups[0].model_count).toBe(3000)
+    }
     expect(Object.keys(groups[0].model_meta).sort()).toEqual(visible)
     expect(groups[0].model_meta['model-2999'].reasoning_efforts).toEqual(['low', 'high'])
     if (surface !== 'runtime') {
       expect(ctx.body.default).toBe('model-2999')
       expect(groups[0].model_meta['model-2999'].alias).toBe('My model')
       const preset = ctx.body.allProviders.find((entry: any) => entry.provider === 'deepseek')
-      expect(preset.models).toEqual(models)
-      expect(Object.keys(preset.model_meta).sort()).toEqual(visible)
+      expect(preset.models).toEqual([])
+      expect(preset.model_count).toBe(3000)
+      expect(preset.model_meta).toBeUndefined()
       for (const profile of ctx.body.profiles) expect(profile.groups[0].model_meta['model-2999'].reasoning).toBe(true)
     }
   })
@@ -295,9 +300,67 @@ describe('models controller — model visibility', () => {
     const scans = mockResolveCatalogModel.mock.calls.filter(([, query]) => query.provider === 'deepseek')
     expect(scans.map(([, query]) => query.model)).toEqual(selected)
     expect(ctx.body.groups[0].models).toEqual(selected)
-    expect(ctx.body.groups[0].available_models).toEqual(models)
+    expect(ctx.body.groups[0].available_models).toBeUndefined()
+    expect(ctx.body.groups[0].model_count).toBe(3000)
     expect(Object.keys(ctx.body.groups[0].model_meta)).toHaveLength(selected.length)
-    expect(ctx.body.allProviders.find((entry: any) => entry.provider === 'deepseek').models).toEqual(models)
+    expect(ctx.body.allProviders.find((entry: any) => entry.provider === 'deepseek').models).toEqual([])
+  })
+
+  it.each(['aggregate', 'profile'])('keeps the %s response small when thousands of hidden models have aliases and custom IDs', async surface => {
+    const models = Array.from({ length: 3000 }, (_, index) => `model-${index}`)
+    mockResolveProviderCatalogModels.mockImplementation((_cache, provider, _url, defaults) => provider === 'deepseek' ? models : defaults)
+    mockReadAppConfig.mockResolvedValue({
+      modelVisibility: { deepseek: { mode: 'include', models: ['model-2999'] } },
+      modelAliases: { deepseek: Object.fromEntries(models.map(id => [id, `Alias ${id}`])) },
+      customModels: { deepseek: models },
+    })
+    const ctx = makeCtx()
+    if (surface === 'profile') ctx.query.profile = 'research'
+    await ctrl.getAvailable(ctx)
+    expect(ctx.body.groups[0]).toMatchObject({ models: ['model-2999'], model_count: 3001 })
+    expect(ctx.body.model_aliases).toEqual({ deepseek: { 'model-2999': 'Alias model-2999' } })
+    expect(ctx.body.custom_models).toEqual({ deepseek: ['model-2999'] })
+    expect(JSON.stringify(ctx.body)).not.toContain('"model-2000"')
+    expect(Buffer.byteLength(JSON.stringify(ctx.body))).toBeLessThan(6000)
+
+    const catalogCtx = makeCtx()
+    catalogCtx.query = { provider: 'deepseek', profile: 'research' }
+    mockResolveCatalogModel.mockClear()
+    await ctrl.getProviderModelCatalog(catalogCtx)
+    expect(catalogCtx.body.models).toHaveLength(3001)
+    expect(catalogCtx.body.visible_models).toEqual(['model-2999'])
+    expect(catalogCtx.body.model_aliases['model-2000']).toBe('Alias model-2000')
+    expect(catalogCtx.body.api_key).toBeUndefined()
+    expect(mockResolveCatalogModel).not.toHaveBeenCalled()
+    expect(mockFetchProviderModels).not.toHaveBeenCalled()
+  })
+
+  it('loads a preset catalog before the Provider has credentials', async () => {
+    mockReadFile.mockResolvedValue('')
+    const ctx = makeCtx()
+    ctx.query = { provider: 'deepseek', profile: 'research' }
+    await ctrl.getProviderModelCatalog(ctx)
+    expect(ctx.body).toEqual({ provider: 'deepseek', models: ['deepseek-chat', 'deepseek-reasoner'], visible_models: ['deepseek-chat', 'deepseek-reasoner'], model_aliases: {} })
+    expect(mockReadConfigYamlForProfile).toHaveBeenCalledWith('research')
+  })
+
+  it('keeps full custom Provider catalogs scoped to the requested Profile', async () => {
+    mockReadFile.mockResolvedValue('')
+    mockReadConfigYamlForProfile.mockImplementation(async profile => ({ custom_providers: [{ name: 'local', base_url: `https://${profile}.example/v1`, model: `${profile}-model` }] }))
+    for (const profile of ['default', 'research']) {
+      const ctx = makeCtx()
+      ctx.query = { provider: 'custom:local', profile }
+      await ctrl.getProviderModelCatalog(ctx)
+      expect(ctx.body.models).toEqual([`${profile}-model`])
+    }
+  })
+
+  it.each([undefined, ['deepseek'], 'missing-provider'])('rejects missing, invalid or unknown catalog Provider %s', async provider => {
+    const ctx = makeCtx()
+    ctx.query = { provider }
+    await ctrl.getProviderModelCatalog(ctx)
+    expect(ctx.status).toBe(provider === 'missing-provider' ? 404 : 400)
+    expect(ctx.body.models).toBeUndefined()
   })
 
   it('uses updated visibility on the next request without reusing hidden metadata', async () => {
@@ -352,7 +415,7 @@ describe('models controller — model visibility', () => {
     expect(ctx.body.groups[0]).toMatchObject({
       provider: 'deepseek',
       models: ['deepseek-chat', 'deepseek-reasoner', 'gemma-4-26b-a4b-it'],
-      available_models: ['deepseek-chat', 'deepseek-reasoner', 'gemma-4-26b-a4b-it'],
+      model_count: 3,
     })
     expect(ctx.body.custom_models).toEqual({
       deepseek: ['gemma-4-26b-a4b-it', 'deepseek-chat'],
@@ -415,7 +478,7 @@ describe('models controller — model visibility', () => {
       expect.objectContaining({
         provider: 'deepseek',
         models: ['deepseek-live', 'deepseek-new'],
-        available_models: ['deepseek-live', 'deepseek-new'],
+        model_count: 2,
       }),
     ]))
     expect(mockFetchProviderModels).not.toHaveBeenCalled()
@@ -441,14 +504,13 @@ describe('models controller — model visibility', () => {
     const ctx = makeCtx()
     await ctrl.getAvailable(ctx)
 
-    for (const surface of [ctx.body.groups, ctx.body.allProviders]) {
-      expect(surface).toEqual(expect.arrayContaining([
+    expect(ctx.body.groups).toEqual(expect.arrayContaining([
         expect.objectContaining({
           provider: 'deepseek',
           models: ['deepseek-chat', 'deepseek-reasoner'],
         }),
-      ]))
-    }
+    ]))
+    expect(ctx.body.allProviders.find((group: any) => group.provider === 'deepseek')).toMatchObject({ models: [], model_count: 2 })
     expect(JSON.stringify(ctx.body)).not.toContain('deepseek-old-fallback')
   })
 
@@ -662,7 +724,7 @@ describe('models controller — model visibility', () => {
         provider: 'openrouter',
         label: 'OpenRouter',
         models: ['openrouter/auto'],
-        available_models: ['openrouter/auto'],
+        model_count: 1,
       }),
     ]))
   })
@@ -828,7 +890,7 @@ describe('models controller — model visibility', () => {
         label: 'LM Studio',
         base_url: 'http://127.0.0.1:1234/v1',
         models: ['eee'],
-        available_models: ['eee'],
+        model_count: 1,
       }),
     ]))
     expect(ctx.body.default).toBe('eee')
@@ -908,7 +970,7 @@ describe('models controller — model visibility', () => {
     expect(ctx.body.groups[0]).toMatchObject({
       provider: 'deepseek',
       models: ['deepseek-chat', 'deepseek-reasoner'],
-      available_models: ['deepseek-chat', 'deepseek-reasoner'],
+      model_count: 2,
     })
   })
 
@@ -946,7 +1008,7 @@ describe('models controller — model visibility', () => {
       expect.objectContaining({
         provider: 'Custom',
         models: ['custom-b'],
-        available_models: ['custom-a', 'custom-b'],
+        model_count: 2,
       }),
     ])
     expect(ctx.body.default).toBe('custom-b')

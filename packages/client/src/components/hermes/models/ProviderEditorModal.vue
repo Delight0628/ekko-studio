@@ -29,6 +29,7 @@ const dialog = useDialog()
 const modelsStore = useModelsStore()
 
 const detail = ref<ProviderEditorDetail | null>(null)
+const catalogModels = ref<string[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const testing = ref(false)
@@ -82,7 +83,7 @@ const API_MODE_OPTIONS = [
 ]
 
 const knownModelIds = computed(() => new Set(
-  props.provider.available_models?.length ? props.provider.available_models : props.provider.models,
+  catalogModels.value,
 ))
 const modelIds = computed(() => {
   const unique = new Set(knownModelIds.value)
@@ -118,7 +119,12 @@ function resetDraft(next: ProviderEditorDetail) {
 async function loadEditor() {
   loading.value = true
   try {
-    resetDraft(await modelsStore.fetchProviderEditor(props.provider.provider))
+    const [editor, catalog] = await Promise.all([
+      modelsStore.fetchProviderEditor(props.provider.provider),
+      modelsStore.fetchProviderCatalog(props.provider.provider),
+    ])
+    catalogModels.value = catalog.models
+    resetDraft(editor)
   } catch (error: any) {
     message.error(error?.message || t('models.providerEditorLoadFailed'))
     close()

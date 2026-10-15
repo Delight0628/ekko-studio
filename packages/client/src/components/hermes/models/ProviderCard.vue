@@ -68,11 +68,9 @@ const defaultingProvider = ref(false)
 const defaultingModel = ref<string | null>(null)
 const catalogChanged = useModelCatalogNotice(() => showEditorModal.value || showAliasListModal.value || showAliasModal.value || showVisibilityModal.value || deleting.value || refreshingModels.value || restoringModels.value || defaultingProvider.value || defaultingModel.value !== null)
 
-const sourceProvider = computed(() => modelsStore.allProviders.find(g => g.provider === props.provider.provider))
-const allModels = computed(() => props.provider.available_models?.length ? props.provider.available_models : (sourceProvider.value?.models?.length ? sourceProvider.value.models : props.provider.models))
 const visibilityRule = computed(() => appStore.getProviderVisibility(props.provider.provider))
 const isFiltered = computed(() => visibilityRule.value.mode === 'include')
-const visibleCountLabel = computed(() => `${props.provider.models.length}/${allModels.value.length}`)
+const visibleCountLabel = computed(() => `${props.provider.models.length}/${props.provider.model_count ?? props.provider.available_models?.length ?? props.provider.models.length}`)
 const isDefaultProvider = computed(() => modelsStore.defaultProvider === props.provider.provider)
 const defaultModelOptions = computed(() => props.provider.models.map(model => ({
   label: modelDisplayName(model),

@@ -577,6 +577,82 @@ export async function getAvailableModelGroupsForProfile(profile: string): Promis
   return applyModelVisibility(result.groups, modelVisibility)
 }
 
+// Full directories are loaded by the settings editor, never by routine pickers.
+function compactModelGroups(groups: AvailableGroup[]) {
+  return groups.map(({ available_models, model_meta, ...group }) => {
+    const visible = new Set(group.models)
+    return {
+      ...group,
+      model_count: (available_models || group.models).length,
+      ...(model_meta ? { model_meta: Object.fromEntries(Object.entries(model_meta).filter(([id]) => visible.has(id))) } : {}),
+    }
+  })
+}
+
+function compactAvailableResponse<T extends {
+  groups: AvailableGroup[]
+  allProviders: AvailableGroup[]
+  profiles: Array<{ groups: AvailableGroup[] }>
+  model_aliases: Record<string, Record<string, string>>
+  custom_models: CustomModels
+}>(body: T) {
+  const groups = compactModelGroups(body.groups)
+  const visibleByProvider = new Map(groups.map(group => [group.provider, new Set(group.models)]))
+  return {
+    ...body,
+    groups,
+    allProviders: body.allProviders.map(({ models, available_models, model_meta, ...provider }) => ({
+      ...provider, models: [], model_count: (available_models || models).length,
+    })),
+    profiles: body.profiles.map(profile => ({ ...profile, groups: compactModelGroups(profile.groups) })),
+    model_aliases: Object.fromEntries(Object.entries(body.model_aliases)
+      .map(([provider, aliases]) => [provider, Object.fromEntries(Object.entries(aliases).filter(([id]) => visibleByProvider.get(provider)?.has(id)))])
+      .filter(([, aliases]) => Object.keys(aliases).length)),
+    custom_models: Object.fromEntries(Object.entries(body.custom_models)
+      .map(([provider, models]) => [provider, models.filter(id => visibleByProvider.get(provider)?.has(id))])
+      .filter(([, models]) => models.length)),
+  }
+}
+
+export async function getProviderModelCatalog(ctx: any) {
+  const provider = typeof ctx.query?.provider === 'string' ? ctx.query.provider.trim() : ''
+  if (!provider) {
+    ctx.status = 400
+    ctx.body = { error: 'Missing provider' }
+    return
+  }
+  try {
+    const profile = requestScopedProfileName(ctx)
+    const appConfig = await readAppConfig()
+    const cache = await readProviderModelCatalogCache()
+    // Catalog editing needs IDs and aliases, not capability scans for thousands of models.
+    const result = await buildAvailableForProfile(profile, cache, appConfig, groups => groups)
+    let group = result.groups.find(group => group.provider === provider)
+    if (!group) {
+      const preset = PROVIDER_PRESETS.find(preset => preset.value === provider)
+      if (preset) group = providerPresetToGroup(preset, resolveProviderCatalogModels(cache, provider, preset.base_url, preset.models, {
+        freeOnly: provider === 'openrouter', hasStaticManifest: preset.builtin === true, profile,
+      }))
+    }
+    if (!group) {
+      ctx.status = 404
+      ctx.body = { error: 'Provider not found' }
+      return
+    }
+    const models = group.available_models || group.models
+    const aliases = normalizeAliases(appConfig.modelAliases)[provider] || {}
+    const catalog = new Set(models)
+    ctx.body = {
+      provider, models,
+      visible_models: filterModelsForProvider(provider, models, normalizeModelVisibility(appConfig.modelVisibility)),
+      model_aliases: Object.fromEntries(Object.entries(aliases).filter(([id]) => catalog.has(id))),
+    }
+  } catch (err: any) {
+    ctx.status = 500
+    ctx.body = { error: err.message }
+  }
+}
+
 export async function getAvailable(ctx: any) {
   try {
     const requestedProfile = requestedProfileName(ctx)
@@ -616,7 +692,7 @@ export async function getAvailable(ctx: any) {
         default: visibleDefault.defaultModel,
         default_provider: visibleDefault.defaultProvider,
         groups: visibleGroups,
-        allProviders: applyCatalogModelMetadata(applyModelAliases(allProvidersBase, modelAliases)),
+        allProviders: allProvidersBase,
         model_aliases: modelAliases,
         model_visibility: modelVisibility,
         custom_models: customModels,
@@ -627,6 +703,7 @@ export async function getAvailable(ctx: any) {
           groups: applyModelVisibility(applyModelAliases(result.groups, modelAliases), modelVisibility),
         })),
       }
+      ctx.body = compactAvailableResponse(ctx.body)
       return
     }
 
@@ -646,13 +723,13 @@ export async function getAvailable(ctx: any) {
       default: visibleProfileDefault.defaultModel,
       default_provider: visibleProfileDefault.defaultProvider,
       groups: visibleProfileGroups,
-      allProviders: applyCatalogModelMetadata(applyModelAliases(PROVIDER_PRESETS.map((p: any) => providerPresetToGroup(
+      allProviders: PROVIDER_PRESETS.map((p: any) => providerPresetToGroup(
         p,
         resolveProviderCatalogModels(modelCatalogCacheForProfile, p.value, p.base_url, p.models, {
           freeOnly: p.value === 'openrouter',
           hasStaticManifest: p.builtin === true,
         }),
-      )), modelAliasesForProfile)),
+      )),
       model_aliases: modelAliasesForProfile,
       model_visibility: modelVisibilityForProfile,
       custom_models: customModelsForProfile,
@@ -663,6 +740,7 @@ export async function getAvailable(ctx: any) {
         groups: visibleProfileGroups,
       }],
     }
+    ctx.body = compactAvailableResponse(ctx.body)
     return
 
     const config = await readConfigYaml()

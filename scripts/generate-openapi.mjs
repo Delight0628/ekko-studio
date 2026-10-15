@@ -1541,6 +1541,27 @@ if (reasoningOperation) {
   reasoningOperation.responses['400'] = { description: 'Invalid effort, mode or native variant/family' }
   reasoningOperation.responses['503'] = { description: 'Native catalog unavailable for validating the paired model change' }
 }
+openapi.paths['/api/hermes/available-models'].get.description = 'Visible models for one Profile or all accessible Profiles. Full catalogs and hidden-model aliases are omitted. Each group has model_count; allProviders contains preset descriptors with empty models. Load a full directory on demand with GET /api/hermes/provider-models.'
+openapi.paths['/api/hermes/provider-models'].get = {
+  tags: ['Models'], operationId: 'getProviderModelCatalog', summary: 'Read the full model directory for one Provider',
+  description: 'Settings-only on-demand catalog, including hidden models and their aliases. Reads configured/cached models for the authorized Profile, with preset fallback. Does not probe upstream endpoints or scan capability metadata. Credentials are never returned.',
+  security: [{ BearerAuth: [] }],
+  parameters: [
+    { name: 'provider', in: 'query', required: true, schema: { type: 'string' } },
+    { name: 'profile', in: 'query', required: false, schema: { type: 'string' }, description: 'Authorized Profile; required here or in x-hermes-profile.' },
+  ],
+  responses: {
+    '200': { description: 'Complete Provider directory and current visible models', content: { 'application/json': { schema: {
+      type: 'object', required: ['provider', 'models', 'visible_models', 'model_aliases'], properties: {
+        provider: { type: 'string' }, models: { type: 'array', items: { type: 'string' } },
+        visible_models: { type: 'array', items: { type: 'string' } },
+        model_aliases: { type: 'object', additionalProperties: { type: 'string' } },
+      },
+    } } } },
+    '400': { description: 'Missing Provider or Profile' }, '403': { description: 'Profile access denied' },
+    '404': { description: 'Provider not found' },
+  },
+}
 openapi.paths['/api/coding-agents/models'] = { get: {
   tags: ['Coding Agents'], operationId: 'getCodingAgentModels', summary: 'Discover native models for one or all Coding Agents',
   description: 'Reads native CLI/account/config model directories on this Studio server, independently of Hermes Profiles. No chat prompts are sent. Each agent has its own discovery status; an individual failure does not fail the aggregate request. Successful results cache for 60 seconds and failures for 5 seconds. Refresh bypasses the cache while sharing in-flight requests. Builtin/configured entries do not prove account access. Raw native errors and credentials are never returned.',

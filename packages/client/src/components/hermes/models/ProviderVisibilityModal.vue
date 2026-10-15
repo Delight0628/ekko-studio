@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { NButton, NCheckbox, NCheckboxGroup, NInput, NModal, useMessage } from 'naive-ui'
+import { computed, ref, watch } from 'vue'
+import { NButton, NCheckbox, NCheckboxGroup, NInput, NModal, NSpin, useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import type { AvailableModelGroup } from '@/api/hermes/system'
 import { useModelsStore } from '@/stores/hermes/models'
@@ -12,12 +12,15 @@ const { t } = useI18n()
 const message = useMessage()
 const modelsStore = useModelsStore()
 const appStore = useAppStore()
-const sourceProvider = computed(() => modelsStore.allProviders.find(g => g.provider === props.provider.provider))
-const allModels = computed(() => props.provider.available_models?.length ? props.provider.available_models : (sourceProvider.value?.models?.length ? sourceProvider.value.models : props.provider.models))
+const allModels = ref<string[]>([])
+const catalogAliases = ref<Record<string, string>>({})
+const catalogLoading = ref(true)
+const catalogLoaded = ref(false)
+const catalogError = ref('')
 const selectedVisibleModels = ref([...props.provider.models])
 const visibilitySaving = ref(false)
-const modelAlias = (model: string) => appStore.getModelAlias(model, props.provider.provider)
-const modelDisplayName = (model: string) => appStore.displayModelName(model, props.provider.provider)
+const modelAlias = (model: string) => catalogAliases.value[model] || appStore.getModelAlias(model, props.provider.provider)
+const modelDisplayName = (model: string) => modelAlias(model) || model
 const search = ref('')
 const filteredModels = computed(() => {
   const query = search.value.trim().toLowerCase()
@@ -26,7 +29,31 @@ const filteredModels = computed(() => {
     || modelDisplayName(model).toLowerCase().includes(query))
 })
 
+let catalogRequest = 0
+async function loadCatalog() {
+  const request = ++catalogRequest
+  catalogLoading.value = true
+  catalogLoaded.value = false
+  catalogError.value = ''
+  allModels.value = []
+  catalogAliases.value = {}
+  try {
+    const catalog = await modelsStore.fetchProviderCatalog(props.provider.provider)
+    if (request !== catalogRequest) return
+    allModels.value = catalog.models
+    catalogAliases.value = catalog.model_aliases
+    selectedVisibleModels.value = [...catalog.visible_models]
+    catalogLoaded.value = true
+  } catch (error: any) {
+    if (request === catalogRequest) catalogError.value = error?.message || t('models.providerEditorLoadFailed')
+  } finally {
+    if (request === catalogRequest) catalogLoading.value = false
+  }
+}
+watch(() => props.provider, () => { if (!visibilitySaving.value) void loadCatalog() }, { immediate: true })
+
 async function handleVisibilitySave() {
+  if (!catalogLoaded.value || catalogLoading.value || visibilitySaving.value) return
   if (selectedVisibleModels.value.length === 0) {
     message.error(t('models.visibilitySelectOne'))
     return
@@ -75,32 +102,35 @@ function clearVisibility() {
       :input-props="{ 'aria-label': t('models.searchPlaceholder') }"
       clearable
     />
-    <div class="visibility-list">
-      <p v-if="filteredModels.length === 0" class="visibility-empty" role="status">{{ t('models.noResults') }}</p>
-      <NCheckboxGroup v-model:value="selectedVisibleModels">
-        <NCheckbox
-          v-for="model in filteredModels"
-          :key="model"
-          :value="model"
-          class="visibility-model"
-        >
-          <code>{{ modelDisplayName(model) }}</code>
-          <code v-if="modelAlias(model)" class="visibility-model-id">{{ model }}</code>
-        </NCheckbox>
-      </NCheckboxGroup>
-    </div>
+    <p v-if="catalogError" role="alert">{{ catalogError }} <NButton size="small" @click="loadCatalog">{{ t('common.retry') }}</NButton></p>
+    <NSpin :show="catalogLoading">
+      <div class="visibility-list" :aria-busy="catalogLoading">
+        <p v-if="catalogLoaded && filteredModels.length === 0" class="visibility-empty" role="status">{{ t('models.noResults') }}</p>
+        <NCheckboxGroup v-model:value="selectedVisibleModels" :disabled="!catalogLoaded || visibilitySaving">
+          <NCheckbox
+            v-for="model in filteredModels"
+            :key="model"
+            :value="model"
+            class="visibility-model"
+          >
+            <code>{{ modelDisplayName(model) }}</code>
+            <code v-if="modelAlias(model)" class="visibility-model-id">{{ model }}</code>
+          </NCheckbox>
+        </NCheckboxGroup>
+      </div>
+    </NSpin>
     <div class="visibility-actions">
-      <NButton size="small" quaternary :disabled="visibilitySaving" @click="resetVisibility">
+      <NButton size="small" quaternary :disabled="visibilitySaving || !catalogLoaded" @click="resetVisibility">
         {{ t('models.showAllModels') }}
       </NButton>
-      <NButton size="small" quaternary :disabled="visibilitySaving" @click="clearVisibility">
+      <NButton size="small" quaternary :disabled="visibilitySaving || !catalogLoaded" @click="clearVisibility">
         {{ t('models.clearVisibleModels') }}
       </NButton>
       <div class="visibility-action-spacer" />
       <NButton size="small" :disabled="visibilitySaving" @click="emit('close')">
         {{ t('common.cancel') }}
       </NButton>
-      <NButton size="small" type="primary" :loading="visibilitySaving" @click="handleVisibilitySave">
+      <NButton size="small" type="primary" :loading="visibilitySaving" :disabled="!catalogLoaded" @click="handleVisibilitySave">
         {{ t('common.save') }}
       </NButton>
     </div>

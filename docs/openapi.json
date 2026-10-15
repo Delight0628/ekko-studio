@@ -6521,7 +6521,7 @@
           "Models"
         ],
         "summary": "Get available-models",
-        "description": "GET /api/hermes/available-models",
+        "description": "Visible models for one Profile or all accessible Profiles. Full catalogs and hidden-model aliases are omitted. Each group has model_count; allProviders contains preset descriptors with empty models. Load a full directory on demand with GET /api/hermes/provider-models.",
         "operationId": "getAvailable",
         "security": [
           {
@@ -10839,6 +10839,88 @@
       }
     },
     "/api/hermes/provider-models": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "operationId": "getProviderModelCatalog",
+        "summary": "Read the full model directory for one Provider",
+        "description": "Settings-only on-demand catalog, including hidden models and their aliases. Reads configured/cached models for the authorized Profile, with preset fallback. Does not probe upstream endpoints or scan capability metadata. Credentials are never returned.",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Authorized Profile; required here or in x-hermes-profile."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Complete Provider directory and current visible models",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "provider",
+                    "models",
+                    "visible_models",
+                    "model_aliases"
+                  ],
+                  "properties": {
+                    "provider": {
+                      "type": "string"
+                    },
+                    "models": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "visible_models": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "model_aliases": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing Provider or Profile"
+          },
+          "403": {
+            "description": "Profile access denied"
+          },
+          "404": {
+            "description": "Provider not found"
+          }
+        }
+      },
       "post": {
         "tags": [
           "Models"
