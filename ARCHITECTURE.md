@@ -102,6 +102,13 @@ Hermes runtime assets are built separately by
 pins an upstream Hermes version, Git ref, and full commit; version overrides
 must supply the ref and commit together.
 
+For releases that declare placeholder package metadata (`0.0.0`), the runtime
+requires the matching `v<version>` source tag and uses upstream's install-stamp
+writer without changing tracked files. Installation and relocation checks read
+the canonical Hermes identity. Manual dispatches can override `python_version`
+and `python_build_tag` together; Hermes 0.22.2 uses Python 3.14.7 from the
+python-build-standalone `20260901` release.
+
 The portable Node.js included in runtime assets is pinned independently from
 the GitHub Actions runner. Manual runtime dispatches take a target release tag;
 when the release does not exist, the upload step creates it with the workflow's
