@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto'
 import { mkdir, readFile, rename, rm, unlink, writeFile } from 'fs/promises'
 import { basename, join } from 'path'
+import { MAX_THEME_BACKGROUND_BYTES } from '../../../../../../shared/theme-archive'
 import { config } from '../../public/config'
 import {
   assertActiveTheme,
@@ -22,8 +23,6 @@ export {
   toUserThemePayload,
   UserThemeValidationError,
 }
-
-export const MAX_THEME_BACKGROUND_BYTES = 10 * 1024 * 1024
 
 const THEME_ASSET_ROOT = join(config.appHome, 'theme-backgrounds')
 
@@ -98,7 +97,7 @@ export async function stageThemeBackground(
   const userId = normalizeUserId(userIdValue)
   if (!data.length) throw new ThemeBackgroundValidationError('Background image is empty')
   if (data.length > MAX_THEME_BACKGROUND_BYTES) {
-    throw new ThemeBackgroundValidationError('Background image exceeds the 10 MB limit', 413)
+    throw new ThemeBackgroundValidationError('Background image exceeds the 30 MB limit', 413)
   }
   const imageType = detectImageType(data)
   if (!imageType) {
@@ -111,6 +110,7 @@ export async function stageThemeBackground(
   const temporaryPath = join(directory, `.${filename}.tmp`)
   await mkdir(directory, { recursive: true })
   try {
+    // Keep the original bytes so animated backgrounds retain frames and timing.
     await writeFile(temporaryPath, data, { mode: 0o600, flag: 'wx' })
     await rename(temporaryPath, finalPath)
   } catch (error) {

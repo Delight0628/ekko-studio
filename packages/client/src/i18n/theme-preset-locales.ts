@@ -19,7 +19,7 @@ export const themePresetMessages = {
     "imported": "Theme imported and activated.",
     "importFailed": "Could not import the theme. Check that the ZIP is a valid Studio theme.",
     "exportFailed": "Could not export the theme. Please try again.",
-    "archiveFileHint": "Choose a ZIP file no larger than 12 MB."
+    "archiveFileHint": "Choose a ZIP file no larger than 32 MB."
   },
   "zh": {
     "title": "我的主题",
@@ -41,7 +41,7 @@ export const themePresetMessages = {
     "imported": "主题已导入并启用。",
     "importFailed": "主题导入失败，请确认 ZIP 是有效的 Studio 主题文件。",
     "exportFailed": "主题导出失败，请重试。",
-    "archiveFileHint": "请选择不超过 12 MB 的 ZIP 文件。"
+    "archiveFileHint": "请选择不超过 32 MB 的 ZIP 文件。"
   },
   "zh-TW": {
     "title": "我的主題",
@@ -63,7 +63,7 @@ export const themePresetMessages = {
     "imported": "主題已匯入並啟用。",
     "importFailed": "主題匯入失敗，請確認 ZIP 是有效的 Studio 主題檔案。",
     "exportFailed": "主題匯出失敗，請重試。",
-    "archiveFileHint": "請選擇不超過 12 MB 的 ZIP 檔案。"
+    "archiveFileHint": "請選擇不超過 32 MB 的 ZIP 檔案。"
   },
   "ja": {
     "title": "マイテーマ",
@@ -85,7 +85,7 @@ export const themePresetMessages = {
     "imported": "テーマをインポートして適用しました。",
     "importFailed": "テーマをインポートできませんでした。有効な Studio テーマの ZIP を選択してください。",
     "exportFailed": "テーマをエクスポートできませんでした。もう一度お試しください。",
-    "archiveFileHint": "12 MB 以下の ZIP ファイルを選択してください。"
+    "archiveFileHint": "32 MB 以下の ZIP ファイルを選択してください。"
   },
   "ko": {
     "title": "내 테마",
@@ -107,7 +107,7 @@ export const themePresetMessages = {
     "imported": "테마를 가져와 적용했습니다.",
     "importFailed": "테마를 가져오지 못했습니다. 유효한 Studio 테마 ZIP인지 확인하세요.",
     "exportFailed": "테마를 내보내지 못했습니다. 다시 시도하세요.",
-    "archiveFileHint": "12 MB 이하의 ZIP 파일을 선택하세요."
+    "archiveFileHint": "32 MB 이하의 ZIP 파일을 선택하세요."
   },
   "fr": {
     "title": "Mes thèmes",
@@ -129,7 +129,7 @@ export const themePresetMessages = {
     "imported": "Thème importé et activé.",
     "importFailed": "Impossible d’importer le thème. Vérifiez que le ZIP contient un thème Studio valide.",
     "exportFailed": "Impossible d’exporter le thème. Réessayez.",
-    "archiveFileHint": "Choisissez un fichier ZIP de 12 Mo maximum."
+    "archiveFileHint": "Choisissez un fichier ZIP de 32 Mo maximum."
   },
   "de": {
     "title": "Meine Designs",
@@ -151,7 +151,7 @@ export const themePresetMessages = {
     "imported": "Design importiert und aktiviert.",
     "importFailed": "Design konnte nicht importiert werden. Prüfe, ob die ZIP-Datei ein gültiges Studio-Design enthält.",
     "exportFailed": "Design konnte nicht exportiert werden. Bitte erneut versuchen.",
-    "archiveFileHint": "Wähle eine ZIP-Datei mit höchstens 12 MB."
+    "archiveFileHint": "Wähle eine ZIP-Datei mit höchstens 32 MB."
   },
   "es": {
     "title": "Mis temas",
@@ -173,7 +173,7 @@ export const themePresetMessages = {
     "imported": "Tema importado y activado.",
     "importFailed": "No se pudo importar el tema. Comprueba que el ZIP contiene un tema válido de Studio.",
     "exportFailed": "No se pudo exportar el tema. Inténtalo de nuevo.",
-    "archiveFileHint": "Elige un archivo ZIP de hasta 12 MB."
+    "archiveFileHint": "Elige un archivo ZIP de hasta 32 MB."
   },
   "pt": {
     "title": "Meus temas",
@@ -195,7 +195,7 @@ export const themePresetMessages = {
     "imported": "Tema importado e ativado.",
     "importFailed": "Não foi possível importar o tema. Verifique se o ZIP contém um tema válido do Studio.",
     "exportFailed": "Não foi possível exportar o tema. Tente novamente.",
-    "archiveFileHint": "Escolha um arquivo ZIP de até 12 MB."
+    "archiveFileHint": "Escolha um arquivo ZIP de até 32 MB."
   },
   "ru": {
     "title": "Мои темы",
@@ -217,7 +217,7 @@ export const themePresetMessages = {
     "imported": "Тема импортирована и включена.",
     "importFailed": "Не удалось импортировать тему. Убедитесь, что ZIP содержит допустимую тему Studio.",
     "exportFailed": "Не удалось экспортировать тему. Повторите попытку.",
-    "archiveFileHint": "Выберите ZIP-файл размером не более 12 МБ."
+    "archiveFileHint": "Выберите ZIP-файл размером не более 32 МБ."
   },
   "ar": {
     "title": "سماتي",
@@ -239,7 +239,7 @@ export const themePresetMessages = {
     "imported": "تم استيراد السمة وتفعيلها.",
     "importFailed": "تعذر استيراد السمة. تأكد من أن ملف ZIP يحتوي على سمة Studio صالحة.",
     "exportFailed": "تعذر تصدير السمة. حاول مرة أخرى.",
-    "archiveFileHint": "اختر ملف ZIP لا يزيد حجمه عن 12 ميغابايت."
+    "archiveFileHint": "اختر ملف ZIP لا يزيد حجمه عن 32 ميغابايت."
   },
   "tr": {
     "title": "Temalarım",
@@ -261,6 +261,6 @@ export const themePresetMessages = {
     "imported": "Tema içe aktarıldı ve etkinleştirildi.",
     "importFailed": "Tema içe aktarılamadı. ZIP dosyasının geçerli bir Studio teması içerdiğinden emin olun.",
     "exportFailed": "Tema dışa aktarılamadı. Lütfen yeniden deneyin.",
-    "archiveFileHint": "En fazla 12 MB boyutunda bir ZIP dosyası seçin."
+    "archiveFileHint": "En fazla 32 MB boyutunda bir ZIP dosyası seçin."
   }
 } as const

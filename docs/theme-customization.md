@@ -4,6 +4,11 @@ Theme settings belong to the signed-in Studio user. They are independent of
 Agent profiles and remain available after switching profiles. Each named theme
 includes brightness, Ink/Comic style, appearance overrides and its wallpaper.
 Legacy device preferences are retained until the first edit or theme creation.
+Backgrounds support JPEG, PNG, GIF, WebP and APNG files up to 30 MiB. Animated
+GIF, WebP and APNG play in both the workspace and background preview. Uploads,
+local caching and theme ZIP import/export preserve the original image bytes,
+including every frame, frame delay and loop setting. APNG uses the PNG media
+type and archive filename while retaining its animation.
 Brightness, style, font size, text color and selection color live in the appearance
 editor's **Global** scope alongside the other global controls.
 
@@ -133,7 +138,7 @@ transactional. Every lookup includes the authenticated user ID.
 - `POST /api/theme/presets/import`: upload ZIP bytes (`application/zip`), create
   and activate a new theme, and return the updated library and active settings.
 
-**Import ZIP** accepts a theme archive up to 12 MiB. **Export ZIP** packages the
+**Import ZIP** accepts a theme archive up to 32 MiB. **Export ZIP** packages the
 current theme after pending saves complete. A failed pending save prevents export
 of stale settings. Import creates an independent theme, even when its name matches
 an existing theme, and switches to it. An invalid file leaves the library unchanged.
@@ -143,7 +148,7 @@ The versioned ZIP contains `theme.json` and, when present, `background.png`,
 `format: "ekko-studio-theme"`, `version: 1`, `name`, `settings` (brightness, style,
 fontSize, textColor, accentColor and appearance) and `background` (null or
 `{ file, name }`). It contains no user/preset IDs, server paths or timestamps.
-The manifest is limited to 64 KiB and the background to 10 MiB. Both endpoints
+The manifest is limited to 64 KiB and the background to 30 MiB. Both endpoints
 accept optional `brightness` and `style` query parameters to preserve legacy
 device-only preferences. Import validates paths, file types, sizes, CRCs and
 settings before committing a new snapshot. ZIP entries are read into bounded

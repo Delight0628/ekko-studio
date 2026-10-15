@@ -187,6 +187,10 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
     updatedAt: 0,
     ...options.theme,
   }
+  const defaultThemeBackground = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2V9sAAAAASUVORK5CYII=', 'base64')
+  const themeBackgrounds = new Map<number, Buffer>()
+  const themeImageMimes: Record<string, string> = { gif: 'image/gif', webp: 'image/webp', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', apng: 'image/png' }
+  const themeImageMime = (extension: string) => themeImageMimes[extension] || 'image/png'
   const themePresets: Array<MockThemePayload & { id: string; name: string }> = []
   let nextThemeId = 1
   function syncPreset() {
@@ -353,8 +357,9 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
       if (pathname.endsWith('/export')) {
         const preset = themePresets.find(item => item.id === pathname.split('/')[4])!
         const zip = new AdmZip()
-        const background = preset.background ? { file: 'background.png', name: preset.background.name } : null
-        if (background) zip.addFile(background.file, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2V9sAAAAASUVORK5CYII=', 'base64'))
+        const extension = preset.background?.mime === 'image/jpeg' ? 'jpg' : preset.background?.mime?.split('/')[1] || 'png'
+        const background = preset.background ? { file: `background.${extension}`, name: preset.background.name } : null
+        if (background) zip.addFile(background.file, themeBackgrounds.get(preset.background!.updatedAt) || defaultThemeBackground)
         zip.addFile('theme.json', Buffer.from(JSON.stringify({
           format: 'ekko-studio-theme', version: 1, name: preset.name || 'Theme', background,
           settings: { brightness: preset.brightness || 'system', style: preset.style || 'ink',
@@ -366,10 +371,12 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
       }
       if (pathname.endsWith('/import')) {
         try {
-          const manifest = JSON.parse(new AdmZip(request.postDataBuffer()!).readAsText('theme.json'))
+          const zip = new AdmZip(request.postDataBuffer()!)
+          const manifest = JSON.parse(zip.readAsText('theme.json'))
           const created = { ...manifest.settings, id: `theme-${nextThemeId++}`, name: manifest.name,
-            background: manifest.background ? { name: manifest.background.name, mime: 'image/png', updatedAt: Date.now() } : null,
+            background: manifest.background ? { name: manifest.background.name, mime: themeImageMime(manifest.background.file.split('.').at(-1)), updatedAt: Date.now() } : null,
             updatedAt: Date.now() }
+          if (created.background) themeBackgrounds.set(created.background.updatedAt, zip.readFile(manifest.background.file)!)
           created.activePresetId = created.id
           themePresets.push(created)
           theme = settingsOf(created)
@@ -405,7 +412,15 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
 
     if (pathname === '/api/theme/background') {
       if (request.method() === 'POST' || request.method() === 'DELETE') {
-        theme.background = request.method() === 'DELETE' ? null : { name: 'uploaded.png', mime: 'image/png', updatedAt: Date.now() }
+        if (request.method() === 'DELETE') theme.background = null
+        else {
+          const form = await new Response(new Uint8Array(request.postDataBuffer()!), {
+            headers: { 'Content-Type': request.headers()['content-type']! },
+          }).formData()
+          const file = form.get('background') as File
+          theme.background = { name: file.name, mime: themeImageMime(file.name.split('.').at(-1)!.toLowerCase()), updatedAt: Date.now() }
+          themeBackgrounds.set(theme.background.updatedAt, Buffer.from(await file.arrayBuffer()))
+        }
         syncPreset()
         await route.fulfill(jsonResponse(theme))
         return
@@ -414,10 +429,7 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
         await route.fulfill({
           status: 200,
           contentType: theme.background.mime || 'image/png',
-          body: Buffer.from(
-            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2V9sAAAAASUVORK5CYII=',
-            'base64',
-          ),
+          body: themeBackgrounds.get(theme.background.updatedAt) || defaultThemeBackground,
         })
         return
       }

@@ -60,7 +60,7 @@ for (const width of [1280, 390]) {
     await expect(page.getByTestId('theme-import')).toBeEnabled()
     expect(api.requests.find(request => request.pathname === '/api/theme/presets/import')?.headers['content-type']).toBe('application/zip')
     await page.getByTestId('theme-import-file').setInputFiles({ name: 'theme.json', mimeType: 'application/json', buffer: Buffer.from('{}') })
-    await expect(page.getByText('Choose a ZIP file no larger than 12 MB.')).toBeVisible()
+    await expect(page.getByText('Choose a ZIP file no larger than 32 MB.')).toBeVisible()
     await page.route(/\/api\/theme\/presets\/[^/]+\/export(?:\?.*)?$/, route => route.fulfill({ status: 500, json: { error: 'Export unavailable' } }))
     await page.getByTestId('theme-export').click()
     await expect(page.getByText('Could not export the theme. Please try again.')).toBeVisible()

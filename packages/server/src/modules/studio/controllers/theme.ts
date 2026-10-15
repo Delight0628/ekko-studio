@@ -1,5 +1,5 @@
 import type { Context } from 'koa'
-import { MAX_THEME_ARCHIVE_BYTES } from '../../../../../shared/theme-archive'
+import { MAX_THEME_ARCHIVE_BYTES, MAX_THEME_BACKGROUND_BYTES } from '../../../../../shared/theme-archive'
 import { importThemeArchive, exportThemeArchive } from '../services/theme/archive'
 import {
   listThemePresets, createThemePreset, renameThemePreset, activateThemePreset, deleteThemePreset,
@@ -7,7 +7,6 @@ import {
   saveUserTheme,
   toUserThemePayload,
   UserThemeValidationError,
-  MAX_THEME_BACKGROUND_BYTES,
   readThemeBackground,
   removeThemeBackground,
   replaceThemeBackground,
@@ -83,7 +82,7 @@ export async function uploadThemeBackground(ctx: Context) {
     totalSize += chunk.length
     if (totalSize > MAX_MULTIPART_BYTES) {
       ctx.status = 413
-      ctx.body = { error: 'Background image exceeds the 10 MB limit' }
+      ctx.body = { error: 'Background image exceeds the 30 MB limit' }
       return
     }
     chunks.push(chunk)
@@ -205,7 +204,7 @@ export async function importPreset(ctx: Context) {
     let size = 0
     for await (const chunk of ctx.req) {
       size += chunk.length
-      if (size > MAX_THEME_ARCHIVE_BYTES) throw new UserThemeValidationError('Theme ZIP exceeds the 12 MB limit', 413)
+      if (size > MAX_THEME_ARCHIVE_BYTES) throw new UserThemeValidationError('Theme ZIP exceeds the 32 MB limit', 413)
       chunks.push(chunk)
     }
     return importThemeArchive(id, Buffer.concat(chunks), ctx.query)

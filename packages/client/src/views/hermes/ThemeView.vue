@@ -5,6 +5,7 @@ import ThemeAppearanceEditor from '@/components/layout/ThemeAppearanceEditor.vue
 import { computed, ref } from 'vue'
 import { NButton, NInputNumber, NSelect, useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
+import { MAX_THEME_BACKGROUND_BYTES } from '../../../../shared/theme-archive'
 import {
   MAX_THEME_FONT_SIZE,
   MIN_THEME_FONT_SIZE,
@@ -15,10 +16,10 @@ import {
   type ThemeStyle,
 } from '@/composables/useTheme'
 
-const MAX_BACKGROUND_BYTES = 10 * 1024 * 1024
 const SUPPORTED_BACKGROUND_TYPES = new Set([
   'image/jpeg',
   'image/png',
+  'image/apng',
   'image/webp',
   'image/gif',
 ])
@@ -106,11 +107,14 @@ async function handleBackgroundFile(event: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!SUPPORTED_BACKGROUND_TYPES.has(file.type)) {
+  const type = file.type.toLowerCase()
+  const unknownType = !type || type === 'application/octet-stream'
+  const supportedExtension = /\.(?:png|jpe?g|webp|gif|apng)$/i.test(file.name)
+  if (!SUPPORTED_BACKGROUND_TYPES.has(type) && !(unknownType && supportedExtension)) {
     message.error(t('theme.backgroundTypeError'))
     return
   }
-  if (file.size > MAX_BACKGROUND_BYTES) {
+  if (file.size > MAX_THEME_BACKGROUND_BYTES) {
     message.error(t('theme.backgroundSizeError'))
     return
   }
@@ -175,7 +179,7 @@ async function handleReset() {
               ref="fileInput"
               class="file-input"
               type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif"
+              accept="image/png,image/jpeg,image/webp,image/gif,image/apng,.png,.jpg,.jpeg,.webp,.gif,.apng"
               @change="handleBackgroundFile"
             />
             <NButton size="small" :loading="backgroundBusy" @click="openBackgroundPicker">

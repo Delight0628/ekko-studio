@@ -3,6 +3,9 @@ import type { Server } from 'node:http'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { randomBytes } from 'node:crypto'
+import AdmZip from 'adm-zip'
+import { animatedThemeBackground, animatedThemeFormats } from '../fixtures/animated-theme-background'
 
 describe('theme library HTTP routes', () => {
   let db: any
@@ -72,6 +75,71 @@ describe('theme library HTTP routes', () => {
     expect(afterDelete.themes).toHaveLength(1)
     expect((await request(`/presets/${original.activeId}`, 'DELETE')).status).toBe(400)
   })
+
+  it.each(animatedThemeFormats)('preserves animated $format backgrounds through upload, download and theme ZIPs', async ({ format, mime, storedMime, extension }) => {
+    const initial = await (await request('/presets')).json() as any
+    const image = await animatedThemeBackground(format)
+    const name = `motion.${format}`
+    const form = new FormData()
+    form.append('background', new Blob([new Uint8Array(image)], { type: mime }), name)
+    const uploaded = await fetch(`${base}/api/theme/background?presetId=${initial.activeId}`, {
+      method: 'POST', headers: { 'x-test-user': '1' }, body: form,
+    })
+    expect(uploaded.status).toBe(200)
+    expect((await uploaded.json() as any).background).toMatchObject({ name, mime: storedMime })
+    const downloaded = await request('/background')
+    expect(downloaded.headers.get('content-type')).toBe(storedMime)
+    expect(Buffer.from(await downloaded.arrayBuffer())).toEqual(image)
+
+    const exported = await request(`/presets/${initial.activeId}/export`)
+    const archive = Buffer.from(await exported.arrayBuffer())
+    const zip = new AdmZip(archive)
+    expect(zip.readFile(`background.${extension}`)).toEqual(image)
+    const imported = await fetch(`${base}/api/theme/presets/import`, {
+      method: 'POST', headers: { 'Content-Type': 'application/zip', 'x-test-user': '2' }, body: new Uint8Array(archive),
+    })
+    expect(imported.status).toBe(200)
+    expect((await imported.json() as any).theme.background).toMatchObject({ name, mime: storedMime })
+    const restored = await request('/background', 'GET', undefined, '2')
+    expect(restored.headers.get('content-type')).toBe(storedMime)
+    expect(Buffer.from(await restored.arrayBuffer())).toEqual(image)
+  })
+
+  it('accepts 30 MiB wallpapers and their ZIPs, rejecting larger replacements without changing the theme', async () => {
+    const initial = await (await request('/presets')).json() as any
+    const image = randomBytes(30 * 1024 * 1024)
+    // Trailing data keeps the GIF playable and the exported ZIP above the old size cap.
+    const animation = await animatedThemeBackground('gif')
+    animation.copy(image)
+    async function upload(data: Buffer, name: string) {
+      const form = new FormData()
+      form.append('background', new Blob([new Uint8Array(data)], { type: 'image/gif' }), name)
+      return fetch(`${base}/api/theme/background?presetId=${initial.activeId}`, {
+        method: 'POST', headers: { 'x-test-user': '1' }, body: form,
+      })
+    }
+    const uploaded = await upload(image, 'large.gif')
+    expect(uploaded.status).toBe(200)
+    const saved = await uploaded.json()
+    expect(Buffer.from(await (await request('/background')).arrayBuffer()).equals(image)).toBe(true)
+
+    const oversized = await upload(Buffer.concat([image, Buffer.from([0])]), 'too-large.gif')
+    expect(oversized.status).toBe(413)
+    expect(await oversized.json()).toEqual({ error: 'Background image exceeds the 30 MB limit' })
+    expect(await (await request('')).json()).toEqual(saved)
+
+    const exported = await request(`/presets/${initial.activeId}/export`)
+    expect(exported.status).toBe(200)
+    const archive = Buffer.from(await exported.arrayBuffer())
+    expect(archive.length).toBeGreaterThan(30 * 1024 * 1024)
+    expect(archive.length).toBeLessThan(32 * 1024 * 1024)
+    const imported = await fetch(`${base}/api/theme/presets/import`, {
+      method: 'POST', headers: { 'Content-Type': 'application/zip', 'x-test-user': '2' }, body: new Uint8Array(archive),
+    })
+    expect(imported.status).toBe(200)
+    const restored = await request('/background', 'GET', undefined, '2')
+    expect(Buffer.from(await restored.arrayBuffer()).equals(image)).toBe(true)
+  }, 20_000)
 
   it('downloads a ZIP and accepts it as an authenticated binary upload', async () => {
     const original = await (await request('/presets', 'POST', { name: '共享主题', brightness: 'dark', style: 'comic' })).json() as any

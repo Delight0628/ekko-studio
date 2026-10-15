@@ -1,13 +1,13 @@
 import AdmZip from 'adm-zip'
 import { crc32, inflateRawSync } from 'node:zlib'
 import {
-  MAX_THEME_ARCHIVE_BYTES, MAX_THEME_MANIFEST_BYTES, THEME_ARCHIVE_FORMAT, THEME_ARCHIVE_VERSION,
+  MAX_THEME_ARCHIVE_BYTES, MAX_THEME_BACKGROUND_BYTES, MAX_THEME_MANIFEST_BYTES, THEME_ARCHIVE_FORMAT, THEME_ARCHIVE_VERSION,
   type ThemeArchiveManifest,
 } from '../../../../../../shared/theme-archive'
 import {
   getThemePreset, importThemePreset, listThemePresets, normalizeImportedTheme, UserThemeValidationError,
 } from '../../repositories/user-theme-store'
-import { MAX_THEME_BACKGROUND_BYTES, readThemeBackground, stageThemeBackground } from './user-theme'
+import { readThemeBackground, stageThemeBackground } from './user-theme'
 
 type Preferences = { brightness?: unknown; style?: unknown }
 const invalid = (message = 'Invalid theme ZIP archive') => new UserThemeValidationError(message)
@@ -22,7 +22,7 @@ function readEntry(entry: AdmZip.IZipEntry, limit: number): Buffer {
 }
 
 function parseArchive(data: Buffer) {
-  if (data.length > MAX_THEME_ARCHIVE_BYTES) throw new UserThemeValidationError('Theme ZIP exceeds the 12 MB limit', 413)
+  if (data.length > MAX_THEME_ARCHIVE_BYTES) throw new UserThemeValidationError('Theme ZIP exceeds the 32 MB limit', 413)
   try {
     if (data.length < 22 || data.readUInt32LE(0) !== 0x04034b50) throw invalid()
     const entries = new AdmZip(data).getEntries()

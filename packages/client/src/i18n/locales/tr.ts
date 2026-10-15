@@ -30,6 +30,15 @@ const writeApprovalMessages = {
 
 export default {
   changelog: {
+    new_0_7_36_1: 'Arayüz bölgelerine göre arka plan, opaklık, bulanıklık, köşe, kenarlık ve gölgeler için canlı tema özelleştirmesi eklendi (#3394)',
+    new_0_7_36_2: 'Oluşturma, çoğaltma, değiştirme, içe aktarma, dışa aktarma ve hesap başına kaydetme destekli adlandırılmış temalar eklendi (#3394)',
+    new_0_7_36_3: 'Model görünürlük ayarları artık model seçicilere tutarlı biçimde uygulanıyor; büyük kataloglar için performans uyarıları eklendi (#3392)',
+    new_0_7_36_4: 'Görünür model yönetimine arama eklendi (#3393)',
+    new_0_7_36_5: 'Yeni sohbet kategorisi seçimi yazma alanının araç çubuğuna taşındı (#3389)',
+    new_0_7_36_6: 'Küçük ekranlarda iş akışı çalıştırma kayıtları panelinin tam genişliği doldurmaması ve arka planının saydam olması düzeltildi (#3398)',
+    new_0_7_36_7: 'Grup sohbetlerinde AI mesaj teması eşitlemesi ve mesaj balonları ile tablolarda yinelenen arka plan ve bulanıklık düzeltildi (#3398)',
+    new_0_7_36_8: 'Sürüm yayımlandığında TOS 7 x86_64 test paketlerinin otomatik derlenmesi ve doğrulanması eklendi (#3397)',
+    new_0_7_36_9: '30 MB boyutuna kadar GIF, hareketli WebP ve APNG arka plan desteği iyileştirildi; kaydetme, önbelleğe alma ve tema içe ve dışa aktarmada animasyon korundu',
     new_0_7_35_1: 'Agent kartlarından sohbetteki düşünme avatarlarına geçiş animasyonları eklendi; azaltılmış hareket ayarında görünürlük ve tema arka planları iyileştirildi (#3378, #3386)',
     new_0_7_35_2: 'Türkçe arayüz desteği eklendi (#3338)',
     new_0_7_35_3: 'Maliyet gösterimi kapatıldığında sohbet kullanım kartlarının görünmeye devam etmesi düzeltildi (#3381)',
@@ -48,14 +57,6 @@ export default {
     new_0_7_34_8: 'Çok sayıda öğe içeren sohbet kategorisi alt menülerinin kaydırılamaması düzeltildi (#3374)',
     new_0_7_34_9: 'Yönetilen MCP bağlantılarının ilgisiz kimlik doğrulama belirteçlerini devralmasından kaynaklanan bağlantı sorunları düzeltildi (#3359)',
     new_0_7_34_10: 'Özel sağlayıcı model keşif bilgilerinin bilinmeyen yapılandırma olarak bildirilmesi düzeltildi ve yinelenen uyarılar azaltıldı (#3375)',
-    new_0_7_33_1: 'Yeni Sohbet artık Agent kartları, ortak sohbet yazma alanı ve oturum ayarları içeren duyarlı bir sayfa kullanır (#3333)',
-    new_0_7_33_2: 'Yeni sohbetler, sonraki sohbetleri oluştururken son modeli, çalışma dizinini, başlatma modunu ve akıl yürütme seçeneklerini hatırlar (#3333)',
-    new_0_7_33_3: 'Agent kartlarına altın kenarlıklar ve yeşim parıltısı efektleri eklendi; kart içi animasyon hızı platformlar arasında eşitlendi (#3336, #3344)',
-    new_0_7_33_4: 'Agent kartlarının döngü sınırlarında boyut atlaması ve fare liste dışında bırakıldığında sürüklemenin devam etmesi düzeltildi (#3335, #3340)',
-    new_0_7_33_5: 'Uzun sayı, simge veya boşluk dizilerinin neden olduğu token hesaplama takılmaları ve yanıt vermeyen sohbetler düzeltildi (#3325)',
-    new_0_7_33_6: 'Araç çağrıları ve gerçek model kullanımıyla bağlam tahminleri ve otomatik sıkıştırma iyileştirildi; sıkıştırma sınırını aşan araç gruplarının sıkıştırılması düzeltildi (#3329)',
-    new_0_7_33_7: 'Bağımlılıkların hata ayıklama çıktılarının Coding Agent sohbetlerini kesintiye uğratması düzeltildi; DSH ve diğer ACP Agent’larla uyumluluk iyileştirildi (#3327)',
-    new_0_7_33_8: 'Hermes çekirdek sürümleri arasında açıklama sorusu ve yanıt geri çağrılarının uyumluluğu düzeltildi (#3330)',
   },
 
   profiles: {
@@ -354,7 +355,8 @@ export default {
     modeSystem: 'Sistemi takip et', modeLight: 'Açık', modeDark: 'Koyu', style: 'Stil', styleHint: 'Arayüz karakterini seçin', styleInk: 'Mürekkep', styleComic: 'Çizgi roman',
     fontSize: 'Metin boyutu', fontSizeHint: 'Temel arayüz ve konuşma metni boyutu', textColor: 'Metin rengi', textColorHint: 'İkincil metin tonları otomatik oluşturulur',
     accentColor: 'Seçim rengi', accentColorHint: 'Etkin öğelerde, seçimlerde ve birincil düğmelerde kullanılır', background: 'Arka plan görseli',
-    backgroundHint: 'Kişisel çalışma alanı arka planı yükleyin', backgroundTypeError: 'PNG, JPEG, WebP veya GIF görseli kullanın', backgroundSizeError: 'Arka plan görselleri en fazla 10 MB olabilir',
+    backgroundHint: 'Bir görsel veya hareketli duvar kâğıdı yükleyin', backgroundTypeError: 'PNG, JPEG, WebP, GIF veya APNG görseli kullanın', backgroundSizeError: 'Arka plan görselleri en fazla 30 MB olabilir',
+    backgroundNote: 'GIF, hareketli WebP ve APNG desteklenir (en fazla 30 MB). Hesabınızla kaydedilir; tema içe ve dışa aktarmada animasyon korunur.',
     backgroundUploaded: 'Arka plan görseli güncellendi', backgroundUploadFailed: 'Arka plan görseli yüklenemedi', backgroundRemoved: 'Arka plan görseli kaldırıldı',
     backgroundRemoveFailed: 'Arka plan görseli kaldırılamadı', backgroundReplace: 'Görseli değiştir', backgroundUpload: 'Görsel yükle', backgroundRemove: 'Kaldır',
     backgroundEmpty: 'Arka plan görseli yok', preview: 'Önizleme', previewTitle: 'Çalışma alanınız, atmosferiniz', previewText: 'Metin ve seçim renkleri arayüz genelinde güncellenir', previewAction: 'Seçili işlem',
