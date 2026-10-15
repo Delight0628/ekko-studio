@@ -6,6 +6,10 @@ on:
       tag:
         description: "Existing release tag to attach the Web UI artifact to"
         required: true
+      include_tos:
+        description: "Also build the TOS 7 x86_64 Deb test package (tag must include the TOS packager)"
+        type: boolean
+        default: false
   release:
     types: [published]
 
@@ -83,6 +87,22 @@ jobs:
 
           echo "asset=${asset}" >> "$GITHUB_OUTPUT"
           echo "manifest=${manifest}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and verify TOS 7 Deb
+        if: github.event_name == 'workflow_dispatch' && inputs.include_tos
+        run: npm run pack:tos -- --webui-dir /tmp/hermes-web-ui-package/webui --output release/tos
+
+      - name: Upload TOS 7 Deb to release
+        if: github.event_name == 'workflow_dispatch' && inputs.include_tos
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: |
+            release/tos/*.deb
+            release/tos/*.deb.sha256
+            release/tos/*.deb.verification.json
 
       - name: Upload Web UI artifact to release
         uses: softprops/action-gh-release@v2

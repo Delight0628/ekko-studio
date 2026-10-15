@@ -1,0 +1,145 @@
+import { execFileSync, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { once } from 'node:events'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { parse } from 'yaml'
+import { checkTosAbi, packTosDeb, TOS_LANGUAGES, verifyTosDeb } from '../../scripts/pack-tos-deb.mjs'
+
+const directories: string[] = []
+afterEach(() => directories.splice(0).forEach(path => rmSync(path, { recursive: true, force: true })))
+
+function temporary() {
+  const path = mkdtempSync(join(tmpdir(), 'studio-tos-test-'))
+  directories.push(path)
+  return path
+}
+
+function put(root: string, path: string, content: string) {
+  const destination = join(root, path)
+  mkdirSync(dirname(destination), { recursive: true })
+  writeFileSync(destination, content)
+}
+
+describe('TOS release target', () => {
+  it('is opt-in and uploads its own Deb, checksum and verification assets', () => {
+    const workflow = parse(readFileSync(resolve('.github/workflows/webui-release.yml'), 'utf8'))
+    expect(workflow.on.workflow_dispatch.inputs.include_tos.default).toBe(false)
+    const steps = workflow.jobs.webui.steps
+    const build = steps.find((step: any) => step.name === 'Build and verify TOS 7 Deb')
+    expect(build.if).toBe("github.event_name == 'workflow_dispatch' && inputs.include_tos")
+    expect(steps.indexOf(build)).toBeGreaterThan(steps.findIndex((step: any) => step.name === 'Keep production dependencies only'))
+    const upload = steps.find((step: any) => step.name === 'Upload TOS 7 Deb to release')
+    expect(upload.if).toBe(build.if)
+    expect(upload.with.make_latest).toBe(false)
+    expect(upload.with.fail_on_unmatched_files).toBe(true)
+    expect(upload.with.files.trim().split('\n')).toEqual([
+      'release/tos/*.deb', 'release/tos/*.deb.sha256', 'release/tos/*.deb.verification.json',
+    ])
+  })
+})
+
+describe.runIf(process.platform === 'linux' && process.arch === 'x64')('TOS Debian artifact', () => {
+  it('contains TOS metadata and a portable runtime, and launches without Electron', async () => {
+    const root = temporary()
+    const source = join(root, 'source')
+    put(source, 'package.json', JSON.stringify({ name: 'ekko-studio', version: '99.0.0' }))
+    put(source, 'bin/hermes-web-ui.mjs', '/* CLI fixture */')
+    put(source, 'dist/client/index.html', '<html>Ekko Studio fixture</html>')
+    put(source, 'dist/server/index.js', `
+      const server = require('node:http').createServer((_req, res) => res.end(JSON.stringify({
+        ok: true, major: Number(process.versions.node.split('.')[0]), uid: process.getuid(),
+      })));
+      server.listen(0, '127.0.0.1', () => console.log(server.address().port));
+      process.on('SIGTERM', () => server.close());
+    `)
+    put(source, 'node_modules/fixture-tool/bin/cli.js', '/* relative symlink fixture */')
+    put(source, 'node_modules/agent-browser/bin/agent-browser-linux-x64', 'kept native target')
+    put(source, 'node_modules/agent-browser/bin/agent-browser-linux-arm64', 'foreign target')
+    put(source, 'node_modules/node-pty/prebuilds/win32-x64/pty.node', 'foreign target')
+    mkdirSync(join(source, 'node_modules/.bin'))
+    symlinkSync('../fixture-tool/bin/cli.js', join(source, 'node_modules/.bin/fixture-tool'))
+    const output = join(root, 'output')
+    const result = packTosDeb({ webuiDir: source, outputDir: output })
+    const deb = join(output, result.filename)
+    expect(result).toMatchObject({ id: 'com-hermeswebui-studio', version: '99.0.0', beta: true, tosDeviceTested: false })
+    expect(result.elfFilesChecked).toBeGreaterThan(0)
+    expect(readFileSync(`${deb}.sha256`, 'utf8')).toBe(
+      `${createHash('sha256').update(readFileSync(deb)).digest('hex')}  ${result.filename}\n`,
+    )
+    const unpacked = join(root, 'unpacked')
+    execFileSync('dpkg-deb', ['--extract', deb, unpacked])
+    const app = join(unpacked, 'usr/local', result.id)
+    const config = JSON.parse(readFileSync(join(app, 'config.ini'), 'utf8'))
+    expect(config).toMatchObject({ open_path: true, path: 'http://${ip}:8648', application_type: 'deb', platform: 'x86_64' })
+    expect(config.type).toBeUndefined()
+    expect(config.user).not.toBe('root')
+    const languages = readFileSync(join(app, `${result.id}.lang`), 'utf8')
+    for (const language of TOS_LANGUAGES) expect(languages).toContain(`[${language}]\n`)
+    const icon = readFileSync(join(app, 'images/icons', `${result.id}.svg`), 'utf8')
+    expect(icon).toContain('<svg')
+    expect(icon).not.toContain('<image')
+    expect(readlinkSync(join(app, 'depends/webui/node_modules/.bin/fixture-tool'))).toBe('../fixture-tool/bin/cli.js')
+    expect(readlinkSync(join(app, 'depends/bin/npm'))).toBe('../lib/node_modules/npm/bin/npm-cli.js')
+    expect(existsSync(join(app, 'depends/webui/node_modules/agent-browser/bin/agent-browser-linux-arm64'))).toBe(false)
+    expect(existsSync(join(app, 'depends/webui/node_modules/agent-browser/bin/agent-browser-linux-x64'))).toBe(true)
+    expect(existsSync(join(app, 'depends/webui/node_modules/node-pty/prebuilds/win32-x64'))).toBe(false)
+    expect(existsSync(join(source, 'node_modules/agent-browser/bin/agent-browser-linux-arm64'))).toBe(true)
+
+    // Exercise the actual packaged launcher and runtime under an unprivileged uid.
+    chmodSync(root, 0o755)
+    const child = spawn(join(app, 'bin/ekko-studio'), [], {
+      ...(process.getuid?.() === 0 ? { uid: 65534, gid: 65534 } : {}),
+      env: { PATH: process.env.PATH },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const exited = once(child, 'exit')
+    try {
+      const port = await new Promise<number>((resolvePort, reject) => {
+        const timer = setTimeout(() => reject(new Error('Packaged service did not start')), 10_000)
+        child.once('error', error => { clearTimeout(timer); reject(error) })
+        child.stdout.once('data', data => { clearTimeout(timer); resolvePort(Number(String(data).trim())) })
+        child.once('exit', code => { clearTimeout(timer); reject(new Error(`Packaged service exited: ${code}`)) })
+      })
+      const response = await fetch(`http://127.0.0.1:${port}`)
+      expect(await response.json()).toMatchObject({ ok: true, major: 24 })
+      expect((await (await fetch(`http://127.0.0.1:${port}`)).json()).uid).not.toBe(0)
+    } finally {
+      child.kill('SIGTERM')
+      await exited
+    }
+    expect(child.exitCode).toBe(0)
+    expect(JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')).version).toBe('99.0.0')
+  }, 120_000)
+
+  it('rejects an incomplete Web UI build', () => {
+    const root = temporary()
+    expect(() => packTosDeb({ webuiDir: root, outputDir: join(root, 'output') })).toThrow('Missing packaging input')
+  })
+
+  it('rejects native code carrying a newer glibc version', () => {
+    const root = temporary()
+    put(root, 'future.c', 'int future(void) { return 1; }\n')
+    put(root, 'versions.map', 'GLIBC_2.36 { global: future; };\n')
+    execFileSync('gcc', ['-shared', '-fPIC', join(root, 'future.c'),
+      `-Wl,--version-script=${join(root, 'versions.map')}`, '-o', join(root, 'libfuture.so')])
+    expect(() => checkTosAbi(root)).toThrow('requires GLIBC_2.36')
+  })
+
+  it('rejects symlinks into the build machine', () => {
+    const root = temporary()
+    symlinkSync('/etc/passwd', join(root, 'external'))
+    expect(() => checkTosAbi(root)).toThrow('external package symlink')
+  })
+
+  it('rejects an ordinary desktop Deb that lacks TOS metadata', () => {
+    const root = temporary()
+    put(root, 'stage/DEBIAN/control', 'Package: desktop-fixture\nVersion: 1.0.0\nArchitecture: amd64\nMaintainer: Test <test@example.com>\nDescription: Desktop fixture\n')
+    put(root, 'stage/usr/share/applications/desktop.desktop', '[Desktop Entry]\nName=Desktop\n')
+    const deb = join(root, 'desktop.deb')
+    execFileSync('dpkg-deb', ['--build', join(root, 'stage'), deb])
+    expect(() => verifyTosDeb(deb)).toThrow('config.ini')
+  })
+})
