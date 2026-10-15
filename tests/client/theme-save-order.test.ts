@@ -136,6 +136,23 @@ describe('theme preview and persistence ordering', () => {
     expect(localStorage.getItem('hermes_brightness')).toBe('light')
   })
 
+  it('keeps legacy device mode changes authoritative until preferences are saved to a theme', async () => {
+    localStorage.setItem('hermes_api_key', `header.${btoa(JSON.stringify({ sub: 1 }))}.signature`)
+    localStorage.setItem('hermes_brightness', 'light')
+    const theme = (await import('@/composables/useTheme')).useTheme()
+    theme.activateUserTheme(1, defaults)
+    expect(JSON.parse(localStorage.getItem('hermes_theme_customization_v1:1')!).brightness).toBeUndefined()
+    localStorage.setItem('hermes_brightness', 'dark')
+    localStorage.setItem('hermes_style', 'comic')
+    vi.resetModules()
+    const reloaded = (await import('@/composables/useTheme')).useTheme()
+    expect(reloaded.isDark.value).toBe(true)
+    expect(reloaded.isComic.value).toBe(true)
+    reloaded.activateUserTheme(1, { ...defaults, brightness: 'light', style: 'ink' })
+    expect(reloaded.isDark.value).toBe(false)
+    expect(reloaded.isComic.value).toBe(false)
+  })
+
   it('keeps the current theme if switching fails and ignores a previous account library response', async () => {
     const theme = (await import('@/composables/useTheme')).useTheme()
     theme.activateUserTheme(1, { ...defaults, activePresetId: 'day', fontSize: 16 })

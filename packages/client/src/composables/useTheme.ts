@@ -100,10 +100,12 @@ const style = ref<ThemeStyle>(localStorage.getItem(STYLE_KEY) === 'comic' ? 'com
 const isDark = ref(false)
 const isComic = ref(false)
 const activeUserId = ref<number | null>(storedUserId())
-const serverTheme = ref<UserThemeSettings>({ brightness: brightness.value, style: style.value, ...loadCachedTheme(activeUserId.value) })
+const serverTheme = ref<UserThemeSettings>(loadCachedTheme(activeUserId.value))
 const themePresets = ref<ThemePreset[]>([])
 const presetBusy = ref(false)
 let committedTheme = serverTheme.value
+let committedBrightness = serverTheme.value.brightness || brightness.value
+let committedStyle = serverTheme.value.style || style.value
 const backgroundImageUrl = ref<string | null>(null)
 const backgroundImageName = computed(() => serverTheme.value.background?.name || '')
 const hasBackgroundImage = computed(() => !!backgroundImageUrl.value)
@@ -233,8 +235,10 @@ function updatePresetSummary(settings: UserThemeSettings) {
 
 function applyThemeSettings(settings: UserThemeSettings, userId = activeUserId.value) {
   if (userId) activeUserId.value = userId
-  serverTheme.value = { brightness: brightness.value, style: style.value, ...normalizeServerTheme(settings) }
+  serverTheme.value = normalizeServerTheme(settings)
   committedTheme = serverTheme.value
+  committedBrightness = serverTheme.value.brightness || brightness.value
+  committedStyle = serverTheme.value.style || style.value
   updatePresetSummary(committedTheme)
   persistThemeCache()
   applyPreferences()
@@ -264,6 +268,8 @@ function saveThemeCustomization(
       const saved = normalizeServerTheme(await updateThemeSettings(snapshot))
       if (userId !== activeUserId.value) return
       committedTheme = saved
+      committedBrightness = saved.brightness || snapshot.brightness || brightness.value
+      committedStyle = saved.style || snapshot.style || style.value
       updatePresetSummary(saved)
       persistThemeCache(saved)
       // A completed request must not replace a newer slider/color preview.
@@ -274,9 +280,7 @@ function saveThemeCustomization(
       }
     } catch (error) {
       if (userId === activeUserId.value && revision === previewRevision) {
-        serverTheme.value = committedTheme
-        persistThemeCache()
-        applyPreferences()
+        restoreCommittedTheme()
       }
       throw error
     }
@@ -348,6 +352,15 @@ function applyPreferences() {
   applyClasses()
 }
 
+function restoreCommittedTheme() {
+  serverTheme.value = committedTheme
+  brightness.value = committedBrightness
+  style.value = committedStyle
+  persistThemeCache()
+  applyPreferences()
+  void loadBackground()
+}
+
 function runLibraryTask(operation: () => Promise<ThemeLibrary | ThemeLibraryChange>): Promise<void> {
   if (presetBusy.value) return Promise.reject(new Error('Theme switch in progress'))
   const userId = activeUserId.value
@@ -361,7 +374,7 @@ function runLibraryTask(operation: () => Promise<ThemeLibrary | ThemeLibraryChan
     const active = 'theme' in result ? result.theme : result.themes.find(item => item.id === result.activeId)
     if (active) applyThemeSettings({ ...active, activePresetId: result.activeId })
   }).catch(error => {
-    if (userId === activeUserId.value) applyThemeSettings(committedTheme)
+    if (userId === activeUserId.value) restoreCommittedTheme()
     throw error
   }).finally(() => { presetBusy.value = false })
   saveQueue = task
