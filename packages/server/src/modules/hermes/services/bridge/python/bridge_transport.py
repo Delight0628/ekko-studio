@@ -180,6 +180,7 @@ class WorkerProcess:
             sessions = response.get("sessions") or []
             active = (
                 response.get("running") is True or response.get("status") == "running"
+                or bool(response.get("running_count"))
                 or bool(response.get("pending_count")) or bool(response.get("notifications"))
                 or any(isinstance(s, dict) and (s.get("running") or s.get("running_count")) for s in sessions)
             )

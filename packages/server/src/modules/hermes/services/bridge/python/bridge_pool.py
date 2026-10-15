@@ -3062,7 +3062,18 @@ class AgentPool:
     def list_sessions(self) -> dict[str, Any]:
         with self._lock:
             sessions = list(self._sessions.values())
+        running_processes = 0
+        try:
+            from tools.process_registry import process_registry
+
+            running_processes = sum(
+                1 for process in process_registry.list_sessions()
+                if process.get("status") == "running"
+            )
+        except ImportError:
+            pass
         return {
+            **({"running_count": running_processes} if running_processes else {}),
             "sessions": [
                 {
                     "session_id": s.session_id,

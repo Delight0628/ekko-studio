@@ -34,6 +34,10 @@ worker.active_requests = 1
 broker._gc_idle_workers()
 assert not stopped
 worker.active_requests = 0
+response = {'running_count': 1}
+broker._last_gc = 0
+broker._gc_idle_workers()
+assert not stopped and worker.last_used_at == 4000
 response = {'sessions': [{'running_count': 1}]}
 worker.request({'action': 'background_poll'})
 assert worker.last_used_at == 4000

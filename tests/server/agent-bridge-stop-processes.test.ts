@@ -19,5 +19,6 @@ sys.modules['tools.process_registry'] = registry
 assert AgentPool()._stop_session_processes('stopped-session') == 1
 assert queries == [{'session_key':'stopped-session'}]
 assert killed == ['owned']
+assert AgentPool().list_sessions()['running_count'] == 1
 `], { cwd: process.cwd(), encoding: 'utf8', timeout: 10_000 })
 })

@@ -496,6 +496,16 @@ class BridgeBroker:
                 and key not in busy and not getattr(worker, "active_requests", 0)
             ]
         for key in idle:
+            worker = self._workers.get(key)
+            if worker is None:
+                continue
+            try:
+                # A parent turn may have ended while a terminal background
+                # process is still running. Probe before retiring its worker.
+                worker.request({"action": "list"}, timeout=2)
+            except Exception:
+                # Failure to establish idleness is not permission to stop work.
+                continue
             with self._lock:
                 worker = self._workers.get(key)
                 if (
