@@ -70,6 +70,31 @@ describe('workspace diff tracker', () => {
     expect(source.match(/windowsHide: true/g)).toHaveLength(4)
   })
 
+  it.each(['writer', 'observer'])('does not attribute ambiguous shared edits when %s finishes first', async first => {
+    const { startWorkspaceRunCheckpoint: start, completeWorkspaceRunCheckpoint: finish } =
+      await import('../../packages/server/src/modules/studio/services/chat-run/workspace-diff-tracker')
+    for (const sessionId of ['writer', 'observer']) start({ sessionId, runId: sessionId, workspace: repo })
+    writeFileSync(join(repo, 'written-by-other.txt'), 'Only the writer touched this\n')
+    const second = first === 'writer' ? 'observer' : 'writer'
+    expect(finish({ sessionId: first, runId: first, workspace: repo })).toBeNull()
+    expect(finish({ sessionId: second, runId: second, workspace: repo })).toBeNull()
+    start({ sessionId: 'later', runId: 'later', workspace: repo })
+    writeFileSync(join(repo, 'later.txt'), 'A nonoverlapping change\n')
+    expect(finish({ sessionId: 'later', runId: 'later', workspace: repo })?.files.map(file => file.path)).toEqual(['later.txt'])
+  })
+
+  it('does not suppress independent workspaces with matching relative filenames', async () => {
+    const other = join(root, 'other')
+    mkdirSync(other)
+    const { startWorkspaceRunCheckpoint: start, completeWorkspaceRunCheckpoint: finish } =
+      await import('../../packages/server/src/modules/studio/services/chat-run/workspace-diff-tracker')
+    start({ sessionId: 'one', runId: 'one', workspace: repo })
+    start({ sessionId: 'two', runId: 'two', workspace: other })
+    for (const dir of [repo, other]) writeFileSync(join(dir, 'new.txt'), 'new\n')
+    expect(finish({ sessionId: 'one', runId: 'one', workspace: repo })?.files.map(file => file.path)).toContain('new.txt')
+    expect(finish({ sessionId: 'two', runId: 'two', workspace: other })?.files.map(file => file.path)).toContain('new.txt')
+  })
+
   it('records only files changed during the run when the repo was already dirty', async () => {
     const {
       completeWorkspaceRunCheckpoint,
