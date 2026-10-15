@@ -962,7 +962,7 @@ export async function miniMaxImageToVideo(ctx: Context) {
     }
   } catch (err: any) {
     ctx.status = err.status || 500
-    ctx.body = { error: err.message || String(err) }
+    ctx.body = { error: err.message || String(err), ...(err.code ? { code: err.code } : {}) }
   }
 }
 
