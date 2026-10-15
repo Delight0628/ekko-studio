@@ -675,6 +675,15 @@ export class AgentBridgeClient {
     })
   }
 
+  cancelBoundaryInterrupt(sessionId: string, expectedRunId: string, profile?: string): Promise<AgentBridgeResponse> {
+    return this.request({
+      action: 'cancel_boundary_interrupt',
+      session_id: sessionId,
+      expected_run_id: expectedRunId,
+      ...(profile ? { profile } : {}),
+    })
+  }
+
   goalPause(sessionId: string, reason: string, profile?: string): Promise<AgentBridgeGoalPause> {
     return this.request<AgentBridgeGoalPause>({
       action: 'goal_pause',

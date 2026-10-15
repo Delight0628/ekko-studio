@@ -2307,6 +2307,10 @@ export class ChatRunSocket {
     const control = state.queueInsertion
     if (!control) return
     state.queueInsertion = undefined
+    if (reason === 'queued_message_removed' && control.runtime === 'hermes' && control.runId) {
+      void this.bridge.cancelBoundaryInterrupt(sessionId, control.runId, state.profile)
+        .catch(err => logger.warn(err, '[chat-run-socket] failed to recall queue boundary for %s', sessionId))
+    }
     this.emitQueueInsertionUpdate(sessionId, control, 'cancelled', reason)
   }
 
@@ -2384,7 +2388,14 @@ export class ChatRunSocket {
         : await this.bridge.requestBoundaryInterrupt(sessionId, control.runId, state.profile)
 
       const current = this.sessionMap.get(sessionId)?.queueInsertion
-      if (!current || current.generation !== generation) return
+      if (!current || current.generation !== generation) {
+        // Cancellation may race the asynchronous request acknowledgement.
+        if (!current && control.runtime === 'hermes' && control.runId
+          && (result.status === 'accepted' || result.status === 'already_pending')) {
+          await this.bridge.cancelBoundaryInterrupt(sessionId, control.runId, state.profile)
+        }
+        return
+      }
       if (result.status !== 'accepted' && result.status !== 'already_pending') {
         this.clearQueueInsertion(sessionId, state, result.status === 'unsupported'
           ? String('reason' in result && result.reason ? result.reason : 'runtime_unsupported')

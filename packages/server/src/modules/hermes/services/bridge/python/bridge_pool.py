@@ -2289,6 +2289,25 @@ class AgentPool:
             })
         return len(terminal_queues) + len(gateway_approvals)
 
+    def cancel_boundary_interrupt(self, session_id: str, expected_run_id: str | None = None) -> dict[str, Any]:
+        with self._lock:
+            session = self._sessions.get(session_id)
+        if session is None:
+            return {"status": "not_running", "session_id": session_id}
+        with session.lock:
+            run_id = session.current_run_id
+            if not expected_run_id or run_id != expected_run_id:
+                return {"status": "run_mismatch", "session_id": session_id}
+            # Model cancellation may already have escaped the worker thread.
+            # Only a still-running tool batch has a safely recallable boundary.
+            if session.boundary_reached_run_id == run_id or session.boundary_phase != "tool_batch":
+                return {"status": "too_late", "session_id": session_id}
+            if session.boundary_pending_run_id != run_id:
+                return {"status": "not_pending", "session_id": session_id}
+            session.boundary_pending_run_id = None
+            self._clear_completed_boundary_interrupt(session.agent)
+            return {"status": "cancelled", "session_id": session_id, "run_id": run_id}
+
     def request_boundary_interrupt(
         self,
         session_id: str,
