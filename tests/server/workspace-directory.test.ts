@@ -65,6 +65,8 @@ describe('workspace directory creation', () => {
 
     usePlatform('linux')
     expect(normalizeDirectoryTarget('/tmp/workspace')).toBe('/tmp/workspace')
+    expect(normalizeDirectoryTarget('/tmp/workspace ')).toBe('/tmp/workspace ')
+    expect(normalizeDirectoryTarget(' workspace ')).toBe(' workspace ')
     expect(isWindowsDriveRoot('D:')).toBe(false)
   })
 

@@ -22,9 +22,9 @@ export function isWindowsDriveRoot(target: string): boolean {
 
 /** Turn a bare drive letter into the canonical drive root, so `D:` cannot resolve to a drive-relative directory. */
 export function normalizeDirectoryTarget(target: string): string {
-  const raw = String(target || '').trim()
+  const raw = String(target || '')
   if (!isWindowsDriveRoot(raw)) return raw
-  return `${raw.slice(0, 2)}\\`
+  return `${raw.trim().slice(0, 2)}\\`
 }
 
 /**
@@ -37,12 +37,12 @@ export function normalizeDirectoryTarget(target: string): string {
  * too — otherwise selecting a drive root as the workspace fails every run
  * before it starts.
  */
-export async function ensureDirectory(target: string): Promise<string> {
+export async function ensureDirectory(target: string, options: { mode?: number } = {}): Promise<string> {
   const directory = normalizeDirectoryTarget(target)
   if (!directory) return directory
   if (isWindowsDriveRoot(directory)) return directory
   try {
-    await mkdir(directory, { recursive: true })
+    await mkdir(directory, { ...options, recursive: true })
   } catch (error) {
     if (!isExistingDirectoryError(error)) throw error
     if (!await isDirectory(directory)) throw error

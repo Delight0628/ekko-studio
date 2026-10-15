@@ -22,9 +22,9 @@ export function isWindowsDriveRoot(target: string): boolean {
 
 /** Turn a bare drive letter into the canonical drive root, so `D:` cannot resolve to a drive-relative directory. */
 export function normalizeDirectoryTarget(target: string): string {
-  const raw = String(target || '').trim()
+  const raw = String(target || '')
   if (!isWindowsDriveRoot(raw)) return raw
-  return `${raw.slice(0, 2)}\\`
+  return `${raw.trim().slice(0, 2)}\\`
 }
 
 /**

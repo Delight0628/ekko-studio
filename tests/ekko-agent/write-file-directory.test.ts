@@ -56,6 +56,17 @@ describe('write_file parent directory creation', () => {
     await expect(readFile(target, 'utf8')).resolves.toBe('hello')
   })
 
+  it.skipIf(process.platform === 'win32')('preserves trailing spaces in a new parent directory name', async () => {
+    const target = path.join(root, 'notes ', 'file.txt')
+    const result = await new WriteFileTool().execute(
+      { path: target, content: 'hello' },
+      { workspaceRoot: root, cwd: root },
+    )
+
+    expect(result.ok).toBe(true)
+    await expect(readFile(target, 'utf8')).resolves.toBe('hello')
+  })
+
   it('writes when the parent directory already exists but mkdir reports EPERM', async () => {
     const parent = path.join(root, 'notes')
     await ensureDirectory(parent)
