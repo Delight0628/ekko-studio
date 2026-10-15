@@ -475,7 +475,7 @@ export async function remove(ctx: any) {
           delete config.model.base_url
           delete config.model.api_key
         } else {
-          config.model = {}
+          config.model = preservedModelKeys(config.model)
         }
       }
       return { data: config, result: true }
@@ -498,3 +498,4 @@ export async function remove(ctx: any) {
     ctx.status = 500; ctx.body = { error: err.message }
   }
 }
+import { preservedModelKeys } from '../services/models/model-section'
