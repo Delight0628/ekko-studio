@@ -489,13 +489,22 @@ class BridgeBroker:
             return
         self._last_gc = now
         with self._lock:
+            busy = set(self._running_run_worker_key.values())
             idle = [
                 key for key, worker in self._workers.items()
                 if worker.running and now - worker.last_used_at > self.IDLE_TIMEOUT_SECONDS
+                and key not in busy and not getattr(worker, "active_requests", 0)
             ]
         for key in idle:
             with self._lock:
-                worker = self._workers.pop(key, None)
+                worker = self._workers.get(key)
+                if (
+                    worker is None or now - worker.last_used_at <= self.IDLE_TIMEOUT_SECONDS
+                    or key in self._running_run_worker_key.values()
+                    or getattr(worker, "active_requests", 0)
+                ):
+                    continue
+                self._workers.pop(key, None)
             if worker:
                 worker.stop()
 
