@@ -125,19 +125,19 @@ onMounted(() => {
         </NAlert>
 
         <div v-if="manifest" class="summary-grid">
-          <div class="summary-card">
+          <div class="summary-card" data-theme-surface="card">
             <span>{{ t('petdex.summary.total') }}</span>
             <strong>{{ manifest.total }}</strong>
           </div>
-          <div class="summary-card">
+          <div class="summary-card" data-theme-surface="card">
             <span>{{ t('petdex.summary.visible') }}</span>
             <strong>{{ filteredPets.length }}</strong>
           </div>
-          <div class="summary-card">
+          <div class="summary-card" data-theme-surface="card">
             <span>{{ t('petdex.summary.kinds') }}</span>
             <strong>{{ kindOptions.length }}</strong>
           </div>
-          <div class="summary-card wide">
+          <div class="summary-card wide" data-theme-surface="card">
             <span>{{ t('petdex.summary.generatedAt') }}</span>
             <strong>{{ generatedAt || '-' }}</strong>
           </div>
@@ -149,7 +149,7 @@ onMounted(() => {
         </div>
 
         <div v-if="visiblePets.length" class="pet-grid">
-          <article v-for="pet in visiblePets" :key="pet.slug" class="pet-card">
+          <article v-for="pet in visiblePets" :key="pet.slug" class="pet-card" data-theme-surface="card">
             <div class="pet-preview">
               <div class="pet-frame" :style="{ backgroundImage: `url(${pet.previewUrl || pet.spritesheetUrl})` }" />
             </div>
@@ -233,7 +233,7 @@ onMounted(() => {
 .summary-card {
   border: var(--border-width, 1px) solid var(--border-color);
   border-radius: var(--radius-component, 8px);
-  background: var(--bg-secondary);
+  background: var(--theme-card-bg, var(--theme-card-wallpaper-bg, var(--bg-secondary)));
   padding: calc(12px * var(--spacing-scale, 1)) calc(14px * var(--spacing-scale, 1));
   display: flex;
   flex-direction: column;
@@ -271,7 +271,7 @@ onMounted(() => {
   min-width: 0;
   border: var(--border-width, 1px) solid var(--border-color);
   border-radius: var(--radius-component, 8px);
-  background: var(--bg-secondary);
+  background: var(--theme-card-bg, var(--theme-card-wallpaper-bg, var(--bg-secondary)));
   overflow: hidden;
 }
 
@@ -338,7 +338,7 @@ onMounted(() => {
   margin-top: 10px;
 
   a {
-    color: var(--primary-color);
+    color: var(--link-color, var(--accent-primary));
     font-size: calc(var(--font-size-base, 14px) * 12 / 14);
     text-decoration: none;
 

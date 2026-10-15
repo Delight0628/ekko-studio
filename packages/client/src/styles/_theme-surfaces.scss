@@ -118,7 +118,7 @@ html:is(.theme-card-bg, .theme-has-custom-background) :is(.app-download-meta spa
 }
 
 // Structural wrappers must not add another copy of the same translucent layer.
-html.theme-content-bg .app-layout { background-color: transparent; }
+html.theme-content-bg :is(.app-layout, .petdex-view) { background-color: transparent; }
 html:is(.theme-content-bg, .theme-has-custom-background) .workflow-main :is(.workflow-canvas, .workflow-flow) {
   background: transparent;
   backdrop-filter: none;
