@@ -1,11 +1,13 @@
 // Native and teleported surfaces share the same regional tokens. Classes are
 // enabled only for explicitly configured properties, preserving preset defaults.
 $overlay-surfaces: '.n-modal, .n-dialog, .n-drawer-content, .n-popover:not(.n-tooltip), .n-dropdown-menu, .n-base-select-menu, .n-cascader-menu, .n-notification, .slash-command-dropdown, .mention-dropdown, .annotation-popover';
+// Native tables share their containing card; Naive tables own one wrapper fill.
+$table-surfaces: '.n-data-table-wrapper, .n-table, .plugins-table-wrap, .relay-usage-card, .daily-trend, .runtime-section, .usage-panel, .markdown-body table';
 $regions: (
   chrome: '.studio-frame-surface, .desktop-titlebar:not(.desktop-titlebar--flush)',
   sidebar: '.sidebar, .hermes-config-sidebar, .ekko-config-sidebar, .coding-agent-config-sidebar, .session-list, .room-sidebar, .agent-avatar-rail, .workflow-sidebar',
   content: '.app-main--card, .chat-main-content, .group-chat-surface, .workflow-main, .connections-panel, .agent-manager-panel, .models-view, .voice-stage',
-  card: '[data-theme-surface="card"], .theme-card, .settings-card, .provider-card, .profile-card, .model-card, .run-card, .run-usage-card, .job-card, .mcp-card, .kanban-task-card, .platform-card, .stat-card, .task-plan-card, .workflow-agent-node, .n-card:not(.n-modal), .n-descriptions-table-wrapper, .theme-appearance-editor',
+  card: '#{$table-surfaces}, [data-theme-surface="card"], .theme-card, .settings-card, .provider-card, .profile-card, .model-card, .run-card, .run-usage-card, .job-card, .mcp-card, .kanban-task-card, .platform-card, .stat-card, .task-plan-card, .workflow-agent-node, .n-card:not(.n-modal), .n-descriptions-table-wrapper, .theme-appearance-editor',
   input: '[data-theme-surface="input"], .input-wrapper, .context-usage-row, .n-input, .n-base-selection, .search-input, .profile-display, .model-trigger',
   overlay: $overlay-surfaces,
   userMessage: '.message.user .message-bubble:not(.agent-error), .group-message.self .msg-content:not(.agent-error)',
@@ -106,6 +108,62 @@ html.theme-has-custom-background {
 
 html:is(.theme-card-bg, .theme-has-custom-background) :is(.app-download-meta span, .app-platform-icon, .api-relay-features span) {
   background: rgba(var(--text-primary-rgb), 0.04);
+}
+
+html.theme-has-custom-background :is(#{$table-surfaces}, .n-descriptions-table-wrapper) {
+  background: var(--theme-card-bg, var(--theme-card-wallpaper-bg));
+}
+
+html:is(.theme-card-bg, .theme-has-custom-background) {
+  // Naive paints the same color on tables, row groups, rows and cells. Only
+  // cells should paint state tints over the wrapper, avoiding compounded alpha.
+  .n-data-table :is(.n-data-table-table, .n-data-table-thead, .n-data-table-tr, .n-data-table-tr:hover) {
+    background-color: transparent;
+  }
+  // Fixed columns blur scrolling content without filtering their own controls.
+  // Use the side not occupied by Naive's fixed-column shadow pseudo-element.
+  .n-data-table :is(.n-data-table-td--fixed-left, .n-data-table-th--fixed-left)::before,
+  .n-data-table :is(.n-data-table-td--fixed-right, .n-data-table-th--fixed-right)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    // Keep scrolling text out of the fixed controls even when card blur is zero.
+    -webkit-backdrop-filter: blur(12px) saturate(1.1);
+    backdrop-filter: blur(12px) saturate(1.1);
+  }
+  :is(.plugins-table, .worker-table, .relay-usage-table, .trend-table table, .markdown-body table) > thead > tr > th,
+  .skills-table .table-head {
+    background: rgba(var(--text-primary-rgb), 0.04);
+  }
+  :is(.plugins-table, .worker-table, .relay-usage-table, .trend-table table, .markdown-body table) > tbody > tr:hover,
+  .skills-table .skills-row:not(.table-head):hover {
+    background: rgba(var(--text-primary-rgb), 0.08);
+  }
+  .relay-usage-sources li { background: rgba(var(--text-primary-rgb), 0.04); }
+}
+
+// Filtering the table wrapper prevents fixed cells from blurring the scrolling
+// text behind them. Paint the card effect on a sibling, as for content surfaces.
+html.theme-customized.theme-card-filter :is(.n-data-table-wrapper, .settings-card:has(.n-data-table), .n-card:not(.n-modal):has(.n-data-table)) {
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    border-radius: inherit;
+    background: var(--theme-card-bg, var(--theme-card-wallpaper-bg, var(--bg-card)));
+    -webkit-backdrop-filter: var(--theme-card-filter);
+    backdrop-filter: var(--theme-card-filter);
+  }
 }
 
 .message.user, .group-message.self {

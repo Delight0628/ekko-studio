@@ -360,9 +360,6 @@ onMounted(() => {
 
   :deep(.n-data-table) {
     height: 100%;
-    --n-td-color: var(--bg-card);
-    --n-th-color: var(--bg-secondary);
-    --n-border-color: var(--border-color);
     --n-td-text-color: var(--text-primary);
     --n-th-text-color: var(--text-secondary);
   }

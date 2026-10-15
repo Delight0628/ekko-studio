@@ -106,4 +106,32 @@ describe('appearance inheritance and native adapters', () => {
       expect(getThemeOverrides(dark, false, defaults).Descriptions?.tdColor).toBeUndefined()
     }
   })
+
+  it('keeps table cells translucent in normal, modal and popover contexts, and restores presets', () => {
+    for (const dark of [false, true]) {
+      for (const wallpaper of [false, true]) {
+        const configured = getThemeOverrides(dark, false, { ...defaults, appearance: {
+          global: { opacity: 0.6 }, regions: { card: { opacity: 0, borderColor: '#6688aa', radius: 16 } },
+        } }, wallpaper)
+        const glass = getThemeOverrides(dark, false, defaults, true)
+        for (const overrides of [configured, glass]) {
+          for (const suffix of ['', 'Modal', 'Popover'] as const) {
+            expect(overrides.DataTable?.[`tdColor${suffix}`]).toBe('transparent')
+            expect(overrides.Table?.[`tdColor${suffix}`]).toBe('transparent')
+            expect(overrides.DataTable?.[`thColor${suffix}`]).toBe('rgba(var(--text-primary-rgb), 0.04)')
+            expect(overrides.DataTable?.[`tdColorHover${suffix}`]).toBe('rgba(var(--text-primary-rgb), 0.08)')
+            expect(overrides.DataTable?.[`tdColorSorting${suffix}`]).toBe('rgba(var(--text-primary-rgb), 0.04)')
+            expect(overrides.DataTable?.[`tdColorStriped${suffix}`]).toBe('rgba(var(--text-primary-rgb), 0.025)')
+            expect(overrides.DataTable?.[`thColorSorting${suffix}`]).toBe('rgba(var(--text-primary-rgb), 0.08)')
+          }
+        }
+        expect(configured.DataTable).toMatchObject({ borderRadius: '16px', borderColor: 'rgba(102, 136, 170, 0)' })
+        expect(glass.Descriptions?.tdColor).toBe('rgba(var(--bg-card-rgb), 0.72)')
+        const reset = getThemeOverrides(dark, false, defaults)
+        expect(reset.DataTable?.tdColor).toBeUndefined()
+        expect(reset.DataTable?.thColor).toBeUndefined()
+        expect(reset.Table?.tdColor).toBeUndefined()
+      }
+    }
+  })
 })

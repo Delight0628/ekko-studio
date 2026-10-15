@@ -322,20 +322,20 @@ export function getThemeOverrides(
   }
   result.Card = { ...result.Card, ...surface('card') }
   const cardSurface = surface('card')
-  const tagBackground = cardSurface.color || (hasCustomBackground ? 'rgba(var(--bg-card-rgb), 0.72)' : undefined)
+  const cardBackground = cardSurface.color || (hasCustomBackground ? 'rgba(var(--bg-card-rgb), 0.72)' : undefined)
   result.Tag = {
     ...result.Tag,
     // Default tags have separate fills for bordered and borderless variants.
     // Leave semantic and checkable-state colors to Naive UI.
-    ...(tagBackground ? { color: tagBackground, colorBordered: tagBackground } : {}),
+    ...(cardBackground ? { color: cardBackground, colorBordered: cardBackground } : {}),
     ...(cardSurface.borderColor || global.borderWidth !== undefined ? {
       border: `${global.borderWidth ?? 1}px solid ${cardSurface.borderColor || resolved.border}`,
     } : {}),
   }
   result.Descriptions = {
     ...result.Descriptions,
-    ...(cardSurface.color ? {
-      tdColor: cardSurface.color, tdColorModal: cardSurface.color, tdColorPopover: cardSurface.color,
+    ...(cardBackground ? {
+      tdColor: cardBackground, tdColorModal: cardBackground, tdColorPopover: cardBackground,
       // The wrapper owns the surface; headers add only a translucent tint.
       thColor: 'rgba(var(--text-primary-rgb), 0.04)',
       thColorModal: 'rgba(var(--text-primary-rgb), 0.04)',
@@ -348,11 +348,41 @@ export function getThemeOverrides(
       borderColorPopover: cardSurface.borderColor,
     } : {}),
   }
-  // Naive's default table theme composites divider colors into opaque colors.
-  // Supply the resolved alpha directly for table grids and overlay dividers.
-  if (cardSurface.borderColor) result.DataTable = { ...result.DataTable,
-    borderColor: cardSurface.borderColor, borderColorModal: cardSurface.borderColor,
-    borderColorPopover: cardSurface.borderColor, actionDividerColor: cardSurface.borderColor,
+  // Naive composites table states into opaque colors. Paint the surface once on
+  // the wrapper and let cells add only a state tint, including in modal/popover tables.
+  const tableSurface = {
+    ...(cardBackground ? {
+      tdColor: 'transparent', tdColorModal: 'transparent', tdColorPopover: 'transparent',
+      thColor: 'rgba(var(--text-primary-rgb), 0.04)',
+      thColorModal: 'rgba(var(--text-primary-rgb), 0.04)',
+      thColorPopover: 'rgba(var(--text-primary-rgb), 0.04)',
+      tdColorStriped: 'rgba(var(--text-primary-rgb), 0.025)',
+      tdColorStripedModal: 'rgba(var(--text-primary-rgb), 0.025)',
+      tdColorStripedPopover: 'rgba(var(--text-primary-rgb), 0.025)',
+    } : {}),
+    ...(cardSurface.borderRadius ? { borderRadius: cardSurface.borderRadius } : {}),
+    ...(cardSurface.borderColor ? {
+      borderColor: cardSurface.borderColor, borderColorModal: cardSurface.borderColor,
+      borderColorPopover: cardSurface.borderColor,
+    } : {}),
+  }
+  result.Table = { ...result.Table, ...tableSurface }
+  result.DataTable = { ...result.DataTable, ...tableSurface,
+    ...(cardBackground ? {
+      tdColorHover: 'rgba(var(--text-primary-rgb), 0.08)',
+      tdColorHoverModal: 'rgba(var(--text-primary-rgb), 0.08)',
+      tdColorHoverPopover: 'rgba(var(--text-primary-rgb), 0.08)',
+      tdColorSorting: 'rgba(var(--text-primary-rgb), 0.04)',
+      tdColorSortingModal: 'rgba(var(--text-primary-rgb), 0.04)',
+      tdColorSortingPopover: 'rgba(var(--text-primary-rgb), 0.04)',
+      thColorHover: 'rgba(var(--text-primary-rgb), 0.08)',
+      thColorHoverModal: 'rgba(var(--text-primary-rgb), 0.08)',
+      thColorHoverPopover: 'rgba(var(--text-primary-rgb), 0.08)',
+      thColorSorting: 'rgba(var(--text-primary-rgb), 0.08)',
+      thColorSortingModal: 'rgba(var(--text-primary-rgb), 0.08)',
+      thColorSortingPopover: 'rgba(var(--text-primary-rgb), 0.08)',
+    } : {}),
+    ...(cardSurface.borderColor ? { actionDividerColor: cardSurface.borderColor } : {}),
   }
   result.Modal = { ...result.Modal, ...surface('overlay') }
   result.Drawer = { ...result.Drawer, ...surface('overlay') }

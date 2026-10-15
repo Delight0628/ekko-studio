@@ -19,7 +19,7 @@ overrides for eight regions:
 | `chrome` | Navigation rail, title bar, page header |
 | `sidebar` | Page, session, room and workflow sidebars, plus the group member avatar rail |
 | `content` | Main page, chat and workflow surfaces |
-| `card` | Settings, models, profiles, tasks and other cards |
+| `card` | Settings, models, profiles, tasks, tables and other cards |
 | `input` | Composer, text inputs, selections, connection view selectors and switch tracks |
 | `overlay` | Dialogs, drawers, popovers, menus and notifications |
 | `userMessage` | User message bubbles |
@@ -79,6 +79,16 @@ card appearance changes do not change the alignment of nested tool messages.
   fills. When card blur is configured, outer content surfaces paint their own
   background/filter on a pseudo-element so they do not isolate the cards from
   the wallpaper. Blur remains visually hidden behind fully opaque surfaces.
+- Data tables, simple Naive tables, description tables, native plugin/usage/runtime
+  tables, skill statistics and Markdown tables use the card region. Standalone
+  tables paint on their wrapper; native tables inside a card reuse that card's
+  surface. Headers, striped rows, sorting and hover states add translucent tints
+  instead of preset white/black fills. Data table row groups and rows stay
+  transparent to avoid applying the same alpha several times, including virtual,
+  modal/popover and empty tables. Fixed columns keep a separate 12px backdrop blur
+  for legibility when scrolling, even if card blur is zero. Table and enclosing
+  settings-card blur paint on sibling layers so they do not block this effect.
+  External HTML/Office documents retain their authored table styling.
 - Existing pixel spacing/font sizes and radii use optional variables with their
   previous values as fallbacks, preserving the default preset geometry.
 - `useTheme.ts` applies previews synchronously and serializes saves. Older
