@@ -73,9 +73,9 @@ export async function handleAbort(
       if (item.backgroundDelegationId && item.backgroundClaimId) {
         // Releasing a claim requeues it, undoing the user's Stop.
         try {
-          await bridge.completeBackgroundNotification?.(
+          void Promise.resolve(bridge.completeBackgroundNotification?.(
             sessionId, item.profile || state.profile, item.backgroundDelegationId, item.backgroundClaimId,
-          )
+          )).catch((err: unknown) => logger.warn(err, '[chat-run-socket] failed to acknowledge stopped background wake'))
         } catch (err) {
           logger.warn(err, '[chat-run-socket] failed to acknowledge stopped background wake')
         }

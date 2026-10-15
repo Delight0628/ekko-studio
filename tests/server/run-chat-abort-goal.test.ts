@@ -89,7 +89,9 @@ describe('run chat abort goal handling', () => {
     const run = vi.fn()
     const bridge = {
       interrupt: vi.fn(async () => ({ synced: true })), goalPause: vi.fn(),
-      completeBackgroundNotification: vi.fn(), releaseBackgroundNotification: vi.fn(),
+      // A slow acknowledgement must not delay marking/interruption of the
+      // active run, otherwise a completion can start another turn first.
+      completeBackgroundNotification: vi.fn(() => new Promise(() => {})), releaseBackgroundNotification: vi.fn(),
     }
     await handleAbort(nsp as any, socket as any, 'session-1', sessions, bridge, run)
     await markAbortCompleted(nsp as any, socket as any, 'session-1', 'r', sessions, run)
@@ -97,6 +99,7 @@ describe('run chat abort goal handling', () => {
     expect(state.queue).toEqual([])
     expect(bridge.completeBackgroundNotification).toHaveBeenCalledWith('session-1', 'work', 'd', 'c')
     expect(bridge.releaseBackgroundNotification).not.toHaveBeenCalled()
+    expect(bridge.interrupt).toHaveBeenCalledOnce()
     expect(run).not.toHaveBeenCalled()
   })
 
