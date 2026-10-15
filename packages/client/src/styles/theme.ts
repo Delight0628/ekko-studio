@@ -343,7 +343,8 @@ export function getThemeOverrides(
   }
   result.Modal = { ...result.Modal, ...surface('overlay') }
   result.Drawer = { ...result.Drawer, ...surface('overlay') }
-  result.Popover = { ...result.Popover, ...surface('overlay') }
+  // Popover is also Tooltip's peer. Scope its surface to non-tooltip DOM nodes
+  // in _theme-surfaces.scss so inverted tooltip colors remain readable.
   result.Dropdown = { ...result.Dropdown, ...surface('overlay') }
   result.Dialog = { ...result.Dialog, ...surface('overlay') }
   result.Notification = { ...result.Notification, ...surface('overlay') }

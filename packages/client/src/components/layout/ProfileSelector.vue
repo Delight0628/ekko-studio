@@ -490,6 +490,10 @@ onMounted(() => {
   min-width: 0;
 }
 
+html:is(.theme-overlay-bg, .theme-has-custom-background) .profile-runtime-item {
+  background: var(--theme-card-bg, rgba(var(--text-primary-rgb), 0.04));
+}
+
 .profile-runtime-avatar {
   background: $bg-secondary;
 }

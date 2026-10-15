@@ -54,6 +54,9 @@ card appearance changes do not change the alignment of nested tool messages.
 - `styles/theme.ts` uses the same resolver for Naive UI overrides.
 - `styles/_theme-surfaces.scss` maps region properties to native and teleported
   surfaces. Property classes exist only while the corresponding override is set.
+  Wallpaper defaults cover the same overlay list, including the account popover,
+  Profile dialog and select menus. Select labels/tags stay transparent over their
+  themed wrapper so they cannot hide or double the configured background alpha.
   New card surfaces can opt in with `data-theme-surface="card"`; description
   tables also use the card region, with translucent headers instead of opaque
   fills. When card blur is configured, outer content surfaces paint their own
