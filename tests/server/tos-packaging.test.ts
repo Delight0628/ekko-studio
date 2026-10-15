@@ -26,22 +26,63 @@ function put(root: string, path: string, content: string) {
   writeFileSync(destination, content)
 }
 
-describe('TOS release target', () => {
-  it('is opt-in and uploads its own Deb, checksum and verification assets', () => {
-    const workflow = parse(readFileSync(resolve('.github/workflows/webui-release.yml'), 'utf8'))
-    expect(workflow.on.workflow_dispatch.inputs.include_tos.default).toBe(false)
-    const steps = workflow.jobs.webui.steps
+describe('standalone TOS test workflow', () => {
+  const workflow = parse(readFileSync(resolve('.github/workflows/tos-package-test.yml'), 'utf8'))
+
+  it('only runs manually or for TOS-related PRs with read-only repository permissions', () => {
+    expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch', 'pull_request'])
+    expect(workflow.on.pull_request.paths).toEqual([
+      '.github/workflows/tos-package-test.yml', 'packages/tos/**',
+      'scripts/pack-tos-deb.mjs', 'tests/server/tos-packaging.test.ts',
+    ])
+    expect(workflow.permissions).toEqual({ contents: 'read' })
+    expect(workflow.jobs.tos['runs-on']).toBe('ubuntu-22.04')
+    const checkout = workflow.jobs.tos.steps.find((step: any) => step.uses === 'actions/checkout@v4')
+    expect(checkout.with.ref).toBe('${{ github.sha }}')
+  })
+
+  it('builds after production staging and keeps outputs in Actions artifacts', () => {
+    const steps = workflow.jobs.tos.steps
     const build = steps.find((step: any) => step.name === 'Build and verify TOS 7 Deb')
-    expect(build.if).toBe("github.event_name == 'workflow_dispatch' && inputs.include_tos")
-    expect(steps.indexOf(build)).toBeGreaterThan(steps.findIndex((step: any) => step.name === 'Keep production dependencies only'))
-    const upload = steps.find((step: any) => step.name === 'Upload TOS 7 Deb to release')
-    expect(upload.if).toBe(build.if)
-    expect(upload.with.make_latest).toBe(false)
-    expect(upload.with.fail_on_unmatched_files).toBe(true)
-    expect(upload.with.files.trim().split('\n')).toEqual([
+    const pruneIndex = steps.findIndex((step: any) => step.name === 'Keep production dependencies only')
+    const sharpIndex = steps.findIndex((step: any) => step.name === 'Verify image processing runtime')
+    const stageIndex = steps.findIndex((step: any) => step.name === 'Stage production Web UI')
+    expect(sharpIndex).toBeGreaterThan(pruneIndex)
+    expect(stageIndex).toBeGreaterThan(sharpIndex)
+    expect(steps.indexOf(build)).toBeGreaterThan(stageIndex)
+    const upload = steps.find((step: any) => step.uses === 'actions/upload-artifact@v4')
+    expect(upload.with['if-no-files-found']).toBe('error')
+    expect(upload.with['retention-days']).toBe(7)
+    expect(upload.with.path.trim().split('\n')).toEqual([
       'release/tos/*.deb', 'release/tos/*.deb.sha256', 'release/tos/*.deb.verification.json',
     ])
+    expect(steps.some((step: any) => String(step.uses || '').includes('action-gh-release'))).toBe(false)
+    expect(steps.some((step: any) => /\bgh release\b/.test(String(step.run || '')))).toBe(false)
   })
+
+  it.runIf(process.platform === 'linux')('executes the staging step and exports the packaged input directory', () => {
+    const stage = workflow.jobs.tos.steps.find((step: any) => step.name === 'Stage production Web UI')
+    const root = temporary()
+    const source = join(root, 'source')
+    for (const path of ['package.json', 'package-lock.json', 'bin/entry.mjs', 'dist/client/index.html', 'node_modules/fixture/index.js']) {
+      put(source, path, 'staged production input')
+    }
+    const githubEnv = join(root, 'github-env')
+    execFileSync('bash', ['-e', '-o', 'pipefail', '-c', stage.run], {
+      cwd: source, env: { ...process.env, RUNNER_TEMP: root, GITHUB_ENV: githubEnv },
+    })
+    const staged = join(root, 'ekko-tos-webui')
+    expect(readFileSync(githubEnv, 'utf8')).toBe(`TOS_WEBUI_DIR=${staged}\n`)
+    expect(readFileSync(join(staged, 'dist/client/index.html'), 'utf8')).toBe('staged production input')
+    expect(readFileSync(join(staged, 'node_modules/fixture/index.js'), 'utf8')).toBe('staged production input')
+  })
+
+  it.each(['webui-release.yml', 'desktop-release.yml', 'desktop-manual-build.yml'])(
+    'keeps TOS orchestration out of %s', filename => {
+      const source = readFileSync(resolve('.github/workflows', filename), 'utf8')
+      expect(source).not.toMatch(/include_tos|pack:tos|release\/tos|tos-package-test/)
+    },
+  )
 })
 
 describe.runIf(process.platform === 'linux' && process.arch === 'x64')('TOS Debian artifact', () => {

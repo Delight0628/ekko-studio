@@ -5,22 +5,30 @@ Electron or the Linux desktop Deb. The first target is **x86_64 / amd64**.
 Packages are marked `beta: true` until their lifecycle and data retention are verified on a TNAS.
 Generating or uploading a package is not App Center approval.
 
-## Build and publish
+## Standalone test workflow
 
-In **Publish Web UI Artifact to Release**, use **Run workflow**, select an
-existing release tag that includes this packager, and enable **include_tos**.
-The Ubuntu 22.04 job builds the Web UI, prunes development dependencies,
-verifies Sharp, and builds the TOS package from that same staged payload.
-An older tag without `scripts/pack-tos-deb.mjs` cannot build this target.
-The existing desktop and automatic Web UI release targets remain available.
+Use the independent **Test TOS 7 Deb Package** workflow
+(`.github/workflows/tos-package-test.yml`). TOS-related pull requests run it
+independently so the package can be tested before merging. It also supports a
+manual `workflow_dispatch` trigger. After the workflow is available on the default
+branch, choose **Run workflow** and select a branch that includes the packager.
+The job checks out the exact dispatch commit, builds on Ubuntu 22.04, prunes
+development dependencies, verifies Sharp and packages the staged production Web UI.
 
-The workflow attaches these additional release assets:
+Download **tos7-x86_64-test** from the run's **Artifacts** section; artifacts
+are retained for 7 days. The download contains:
 
 ```text
 com-hermeswebui-studio_<version>_x86_64.deb
 com-hermeswebui-studio_<version>_x86_64.deb.sha256
 com-hermeswebui-studio_<version>_x86_64.deb.verification.json
 ```
+
+This workflow uses read-only repository permissions. It does not create or
+modify GitHub Releases, upload to a registry, submit to the TOS Developer
+Platform, or run as part of the main Web UI/desktop release workflows.
+The TOS Developer Platform only reads Release assets; any eventual publication
+is a separate step after acceptance and explicit authorization.
 
 Local packaging requires Linux x64, Node.js 24 with its full npm distribution,
 `dpkg-deb`, `readelf` (binutils), tar and bzip2. Build native dependencies on
