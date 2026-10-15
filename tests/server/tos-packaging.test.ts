@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
-import { checkTosAbi, packTosDeb, TOS_LANGUAGES, verifyTosDeb } from '../../scripts/pack-tos-deb.mjs'
+import { checkTosAbi, packTosDeb, TOS_LANGUAGES, verifyTosDeb, verifyTosIcon } from '../../scripts/pack-tos-deb.mjs'
 
 const directories: string[] = []
 afterEach(() => {
@@ -25,6 +25,26 @@ function put(root: string, path: string, content: string) {
   mkdirSync(dirname(destination), { recursive: true })
   writeFileSync(destination, content)
 }
+
+describe('TOS platform SVG constraints', () => {
+  const wrap = (content: string) => `<svg xmlns="http://www.w3.org/2000/svg">${content}</svg>`
+  it('accepts the exact-contour desktop icon within platform limits', () => {
+    expect(() => verifyTosIcon(readFileSync('packages/tos/icon.svg', 'utf8'))).not.toThrow()
+  })
+  it('rejects oversized and overly complex SVGs before uploading', () => {
+    expect(() => verifyTosIcon(wrap(`<!--${'x'.repeat(50_000)}-->`))).toThrow('50 KB')
+    expect(() => verifyTosIcon(wrap('<path/>'.repeat(50)))).toThrow('50 nodes')
+  })
+  it.each([
+    '<path>', '<script/>', '<path onload="bad()"/>',
+    '<path href="java&#x73;cript:bad()"/>', '<image href="data:example"/>',
+  ])('rejects malformed or unsafe SVG: %s', content => {
+    expect(() => verifyTosIcon(wrap(content))).toThrow()
+  })
+  it('rejects XML directives', () => {
+    expect(() => verifyTosIcon(`<!DOCTYPE svg>${wrap('')}`)).toThrow('directives')
+  })
+})
 
 describe('standalone TOS test workflow', () => {
   const workflow = parse(readFileSync(resolve('.github/workflows/tos-package-test.yml'), 'utf8'))

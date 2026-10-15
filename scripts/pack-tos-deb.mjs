@@ -16,6 +16,29 @@ function run(command, args) {
   return execFileSync(command, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
 }
 
+export function verifyTosIcon(icon) {
+  if (Buffer.byteLength(icon) > 50_000) throw new Error('TOS SVG icon exceeds 50 KB')
+  // ElementTree validates XML and resolves attribute entities before checks.
+  // Reject directives before parsing; only ordinary SVG XML is needed here.
+  const xml = icon.replace(/<!--[\s\S]*?-->/g, '')
+  if (/<!|<\?(?!xml\s)/i.test(xml)) throw new Error('TOS SVG icon contains forbidden XML directives')
+  execFileSync('python3', ['-c', `
+import sys, xml.etree.ElementTree as E
+root = E.fromstring(sys.stdin.read())
+elements = list(root.iter())
+assert root.tag == '{http://www.w3.org/2000/svg}svg', 'TOS icon must be an SVG vector'
+assert len(elements) <= 50, 'TOS SVG icon exceeds 50 nodes'
+for element in elements:
+    tag = element.tag.rsplit('}', 1)[-1].lower()
+    assert tag not in ('script', 'foreignobject', 'iframe', 'object', 'embed', 'image'), 'Unsafe TOS SVG element'
+    for key, value in element.attrib.items():
+        key = key.rsplit('}', 1)[-1].lower()
+        assert not key.startswith('on'), 'Unsafe TOS SVG event attribute'
+        if key == 'href':
+            assert not value.strip().lower().startswith(('javascript:', 'vbscript:', 'file:', 'ftp:', 'about:', 'blob:')), 'Unsafe TOS SVG href'
+`], { input: xml, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] })
+}
+
 function requireFile(path) {
   if (!existsSync(path)) throw new Error(`Missing packaging input: ${path}`)
 }
@@ -159,7 +182,7 @@ export function verifyTosDeb(deb) {
       throw new Error('TOS managed MCP must use the packaged script and Node runtime')
     }
     const icon = readFileSync(join(app, config.icon.replace(/^\//, '')), 'utf8')
-    if (!/^\s*<svg\b/.test(icon) || /<image\b/.test(icon)) throw new Error('TOS icon must be an SVG vector')
+    verifyTosIcon(icon)
     const version = JSON.parse(readFileSync(join(app, 'depends/webui/package.json'), 'utf8')).version
     if (config.version !== version) throw new Error('Web UI and TOS versions differ')
     const payload = run('tar', ['-tjf', join(app, 'webui.bz2')]).split('\n')
@@ -193,6 +216,7 @@ export function packTosDeb({ webuiDir, nodeRoot = dirname(dirname(process.execPa
   webuiDir = resolve(webuiDir)
   outputDir = resolve(outputDir)
   const settings = JSON.parse(readFileSync(join(templates, 'config.json'), 'utf8'))
+  verifyTosIcon(readFileSync(join(templates, 'icon.svg'), 'utf8'))
   if (!/^[a-z][a-z0-9-]{0,49}$/.test(settings.id)) throw new Error('TOS id must contain lowercase letters, digits and hyphens only')
   for (const file of ['package.json', 'bin/hermes-web-ui.mjs', 'bin/ekko-studio-mcp.mjs', 'dist/server/index.js', 'dist/client/index.html', 'node_modules']) {
     requireFile(join(webuiDir, file))

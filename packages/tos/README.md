@@ -60,7 +60,7 @@ API reference: `terramaster-tos/tos-app-pkg-tools`, `Developer/agent-api/README.
 reviewed at commit `9dc7e43da051b3e4a8e704764ff57e72fc7309fc`.
 
 Local packaging requires Linux x64, Node.js 24 with its full npm distribution,
-`dpkg-deb`, `readelf` (binutils), tar and bzip2. Build native dependencies on
+`dpkg-deb`, `readelf` (binutils), Python 3 (SVG validation), tar and bzip2. Build native dependencies on
 Ubuntu 22.04 (TOS 7's glibc 2.35 baseline). Provide a production-only Web UI
 directory containing `package.json`, `bin/`, `dist/` and `node_modules/`:
 
@@ -111,7 +111,10 @@ usr/local/com-hermeswebui-studio/
 
 `config.ini` is JSON. All 14 TOS language sections have nonempty name,
 publisher and description values; English fallback is used where untranslated.
-The vector icon is derived from the existing desktop icon.
+The vector icon is derived from the existing desktop icon, with scanline
+rectangles merged into exact contours (identical rendered pixels). Packaging
+checks valid XML, a maximum of 50 KB / 50 elements, and excludes unsafe SVG
+elements, event handlers, URL schemes and XML directives before uploading.
 
 ## Runtime and data
 
