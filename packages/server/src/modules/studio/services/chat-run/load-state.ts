@@ -77,9 +77,9 @@ export async function loadSessionStateFromDb(sid: string, _sessionMap: Map<strin
         ? 'coding_agent'
         : 'hermes'
     const totals = getRecordedUsageTotals(sid, usageSource)
-    const pageUsage = estimateUsageTokensFromMessages(messages)
     const latestUsage = getUsage(sid)
     const hasPersistedUsage = !!latestUsage || totals.inputTokens > 0 || totals.outputTokens > 0
+    const pageUsage = hasPersistedUsage ? totals : estimateUsageTokensFromMessages(messages)
     inputTokens = hasPersistedUsage ? totals.inputTokens : pageUsage.inputTokens
     outputTokens = hasPersistedUsage ? totals.outputTokens : pageUsage.outputTokens
     // Cursor reports aggregate turn usage, not a current context snapshot.

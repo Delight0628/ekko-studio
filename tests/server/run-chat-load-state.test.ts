@@ -142,9 +142,19 @@ describe('loadSessionStateFromDb', () => {
 
     expect(buildDbHistoryMock).not.toHaveBeenCalled()
     expect(buildSnapshotAwareHistoryMock).not.toHaveBeenCalled()
+    expect(estimateUsageTokensFromMessagesMock).not.toHaveBeenCalled()
     expect(state.inputTokens).toBe(28_000)
     expect(state.outputTokens).toBe(2_000)
     expect(state.contextTokens).toBe(9_000)
+  })
+
+  it('estimates page usage only when no persisted usage exists', async () => {
+    getUsageMock.mockReturnValue(null)
+    getRecordedUsageTotalsMock.mockReturnValue({ inputTokens: 0, outputTokens: 0 })
+    const { loadSessionStateFromDb } = await import('../../packages/server/src/modules/studio/services/chat-run/load-state')
+    const state = await loadSessionStateFromDb('session-1', new Map())
+    expect(estimateUsageTokensFromMessagesMock).toHaveBeenCalledOnce()
+    expect(state.inputTokens).toBe(28_000)
   })
 
   it('restores the persisted tool-result anchor for a Hermes background delegation', async () => {
