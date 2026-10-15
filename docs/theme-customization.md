@@ -15,7 +15,7 @@ overrides for eight regions:
 | Region | Surfaces |
 | --- | --- |
 | `chrome` | Navigation rail, title bar, page header |
-| `sidebar` | Navigation, session, room and workflow sidebars |
+| `sidebar` | Page, session, room and workflow sidebars, plus the group member avatar rail |
 | `content` | Main page, chat and workflow surfaces |
 | `card` | Settings, models, profiles, tasks and other cards |
 | `input` | Composer, text inputs and selections |

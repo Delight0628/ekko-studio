@@ -727,6 +727,7 @@ useKeyboard();
   :deep(.chat-panel > .session-list),
   :deep(.history-panel > .page-loading-content > .session-list),
   :deep(.group-chat-panel > .room-sidebar),
+  :deep(.agent-avatar-rail),
   :deep(.workflow-view > .page-loading-content > .workflow-sidebar) {
     background-color: var(--theme-sidebar-bg, var(--glass-sidebar-bg));
     -webkit-backdrop-filter: var(--theme-sidebar-filter, blur(12px) saturate(110%));

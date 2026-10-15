@@ -2242,7 +2242,7 @@ function handleClarifyKeydown(event: KeyboardEvent) {
         <!-- Main chat area -->
         <div
             class="chat-main"
-            :class="{ 'chat-main--sidebar-collapsed': !showSidebar }"
+            :class="{ 'chat-main--sidebar-collapsed': !showSidebar, 'chat-main--with-room': hasRoom }"
             @dragover="handleChatDragOver"
             @dragenter="handleChatDragEnter"
             @dragleave="handleChatDragLeave"
@@ -3999,6 +3999,12 @@ export default defineComponent({ components: { CreateRoomForm } })
     &--sidebar-collapsed {
         margin-inline-start: 10px;
     }
+
+    // The member rail and conversation paint their own regional surfaces.
+    // Do not tint the sidebar rail with another content background beneath it.
+    &--with-room {
+        background-color: transparent;
+    }
 }
 
 .group-chat-content-wrapper {
@@ -4022,7 +4028,7 @@ export default defineComponent({ components: { CreateRoomForm } })
     overflow: hidden;
     box-sizing: border-box;
     border-inline-end: var(--border-width, 1px) solid $border-color;
-    background: rgba(var(--bg-main-surface-rgb), 0.55);
+    background: var(--theme-sidebar-bg, $bg-sidebar-surface);
 }
 
 .agent-avatar-rail-trigger {

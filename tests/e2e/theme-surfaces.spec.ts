@@ -1,6 +1,84 @@
 import { expect, test } from '@playwright/test'
 import sharp from 'sharp'
-import { authenticate, mockHermesApi } from './fixtures'
+import { authenticate, mockChatSocket, mockHermesApi } from './fixtures'
+
+for (const brightness of ['light', 'dark']) {
+  for (const wallpaper of [false, true]) {
+    test(`group member rail follows sidebar appearance in ${brightness} mode with wallpaper ${wallpaper}`, async ({ page }) => {
+      await authenticate(page)
+      await mockChatSocket(page)
+      const api = await mockHermesApi(page, { theme: {
+        brightness,
+        ...(wallpaper ? { background: { name: 'solid.png', mime: 'image/png', updatedAt: 1 } } : {}),
+        appearance: {
+          global: { opacity: 0.4 },
+          regions: {
+            sidebar: { backgroundColor: '#8caacc', opacity: 0.65, blur: 12, radius: 6, borderColor: '#6688aa', shadow: 0 },
+            content: { backgroundColor: '#cc2244', opacity: 0.9 },
+          },
+        },
+      } })
+      if (wallpaper) {
+        const image = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#204060' } }).png().toBuffer()
+        await page.route('**/api/theme/background?*', route => route.fulfill({ contentType: 'image/png', body: image }))
+      }
+      const room = { id: 'theme-room', name: 'Theme Room', canManage: true, createdAt: 1, lastActiveAt: 1 }
+      await page.route('**/api/studio/group-chat/rooms', route => route.fulfill({ json: { rooms: [room] } }))
+      await page.route(/\/api\/studio\/group-chat\/rooms\/theme-room(?:\?.*)?$/, route => route.fulfill({ json: {
+        room, messages: [], agents: [], members: [], total: 0, hasMore: false,
+      } }))
+      await page.route('**/api/studio/group-chat/rooms/theme-room/agent-link-requests', route => route.fulfill({ json: { requests: [] } }))
+      await page.route('**/api/studio/group-chat/rooms/theme-room/summary', route => route.fulfill({ json: {
+        summary: { roomId: room.id, summary: '', status: 'idle' }, review: null, anchor: null,
+      } }))
+      const roomPath = '/#/hermes/group-chat/room/theme-room'
+      await page.goto(roomPath)
+      const rail = page.locator('.agent-avatar-rail')
+      const sidebar = page.locator('.room-sidebar')
+      await expect(rail).toBeVisible()
+      const expectMatchingSurfaces = async (opacity: number) => {
+        for (const surface of [rail, sidebar]) {
+          await expect(surface).toHaveCSS('background-color', `rgba(140, 170, 204, ${opacity})`)
+          await expect(surface).toHaveCSS('backdrop-filter', 'blur(12px) saturate(1.1)')
+          await expect(surface).toHaveCSS('border-radius', '6px')
+          await expect(surface).toHaveCSS('border-right-color', 'rgb(102, 136, 170)')
+          await expect(surface).toHaveCSS('box-shadow', 'none')
+        }
+        // A content tint beneath the avatar rail must not change its visible color.
+        await expect.poll(async () => {
+          const screenshot = await page.screenshot({ animations: 'disabled' })
+          const samples = await Promise.all([rail, sidebar].map(async surface => {
+            const box = (await surface.boundingBox())!
+            return sharp(await sharp(screenshot).extract({
+              left: Math.round(box.x + 10), top: Math.round(box.y + box.height * 0.6), width: 2, height: 2,
+            }).toBuffer()).stats()
+          }))
+          return Math.max(...samples[0].channels.slice(0, 3).map((channel, index) => Math.abs(channel.mean - samples[1].channels[index].mean)))
+        }).toBeLessThanOrEqual(1)
+      }
+      await expectMatchingSurfaces(0.65)
+      await expect(rail).toHaveCSS('width', '72px')
+      await page.goto('/#/hermes/theme')
+      await page.getByTestId('theme-scope').selectOption('sidebar')
+      await page.getByRole('button', { name: 'Reset Background opacity', exact: true }).click()
+      await page.goto(roomPath)
+      await expectMatchingSurfaces(0.4)
+      await page.reload()
+      await expectMatchingSurfaces(0.4)
+      await page.goto('/#/hermes/theme')
+      await page.getByRole('button', { name: 'Restore defaults', exact: true }).click()
+      await page.goto(roomPath)
+      const presetColor = wallpaper
+        ? brightness === 'dark' ? 'rgba(26, 26, 26, 0.78)' : 'rgba(255, 255, 255, 0.78)'
+        : brightness === 'dark' ? 'rgb(26, 26, 26)' : 'rgb(255, 255, 255)'
+      for (const surface of [rail, sidebar]) {
+        await expect(surface).toHaveCSS('background-color', presetColor)
+        await expect(surface).toHaveCSS('backdrop-filter', wallpaper ? 'blur(12px) saturate(1.1)' : 'none')
+      }
+      expect(api.unexpectedRequests).toEqual([])
+    })
+  }
+}
 
 for (const brightness of ['light', 'dark']) {
   for (const wallpaper of [false, true]) {
