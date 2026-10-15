@@ -51,12 +51,15 @@ describe('theme preview and persistence ordering', () => {
     api.updateThemeSettings.mockRejectedValueOnce(new Error('offline'))
     const theme = (await import('@/composables/useTheme')).useTheme()
     theme.activateUserTheme(1, defaults)
-    const saving = theme.saveThemeCustomization({ appearance: { global: { opacity: 0.2, radius: 22 }, regions: {} } })
+    const saving = theme.saveThemeCustomization({ appearance: { global: { opacity: 0.2, radius: 22, chatWidth: 600 }, regions: {} } })
     expect(document.documentElement.style.getPropertyValue('--theme-card-radius')).toBe('22px')
+    expect(document.documentElement.classList.contains('theme-chat-width')).toBe(true)
     await expect(saving).rejects.toThrow('offline')
     expect(theme.appearance.value).toEqual({ global: {}, regions: {} })
     expect(document.documentElement.style.getPropertyValue('--theme-card-radius')).toBe('')
     expect(document.documentElement.classList.contains('theme-card-bg')).toBe(false)
+    expect(document.documentElement.classList.contains('theme-chat-width')).toBe(false)
+    expect(document.documentElement.style.getPropertyValue('--chat-max-width')).toBe('')
   })
 
   it('ignores the previous account response after switching accounts', async () => {

@@ -159,6 +159,7 @@ function applyCustomization() {
   for (const [name, value] of Object.entries(appearance.variables)) root.style.setProperty(name, value)
   root.classList.toggle('theme-customized', Object.keys(appearance.appearance.global).length > 0 || Object.keys(appearance.appearance.regions).length > 0)
   root.classList.toggle('theme-custom-background-color', !!appearance.appearance.global.backgroundColor)
+  root.classList.toggle('theme-chat-width', appearance.appearance.global.chatWidth !== undefined)
   for (const region of THEME_REGIONS) {
     for (const property of ['bg', 'filter', 'radius', 'border', 'shadow']) {
       root.classList.toggle(`theme-${region}-${property}`, appearance.variables[`--theme-${region}-${property}`] !== undefined)

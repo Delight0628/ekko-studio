@@ -80,11 +80,14 @@ html.theme-customized {
   .message-bubble, .markdown-body { line-height: var(--line-height, 1.65); }
   .n-input__border, .n-input__state-border, .n-base-selection__border, .n-base-selection__state-border,
   .n-button__border, .n-button__state-border { border-width: var(--border-width, 1px); }
-  .message-list > .message, .virtual-message-list .message, .group-message-shell {
-    max-width: min(100%, var(--chat-max-width, 100%));
-    margin-inline: auto;
-  }
   .markdown-body a { color: var(--link-color, var(--accent-primary)); }
+}
+
+// Size the conversation column, not nested messages inside tool/run cards.
+// Surface-only edits must preserve the existing message alignment.
+html.theme-chat-width .virtual-row {
+  max-width: min(100%, var(--chat-max-width));
+  margin-inline: auto;
 }
 
 // Voice illustrations keep their own colors; the surrounding text and controls

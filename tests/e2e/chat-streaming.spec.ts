@@ -93,6 +93,75 @@ test('sends a chat run and renders streamed Socket.IO response events', async ({
   expect(api.unexpectedRequests).toEqual([])
 })
 
+for (const width of [1280, 390]) {
+  test(`card customization preserves tool message alignment at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await authenticate(page)
+    const api = await mockHermesApi(page)
+    await mockChatSocket(page)
+    await page.goto('/#/hermes/chat')
+    await sendChatMessage(page, 'Check the tool layout')
+    const { run } = await waitForRun(page)
+    await page.evaluate((sid) => {
+      const socket = (window as any).__PW_CHAT_SOCKET__.latest
+      const context = { session_id: sid, run_id: 'theme-layout' }
+      socket.__trigger('run.started', { ...context, event: 'run.started' })
+      socket.__trigger('tool.started', { ...context, event: 'tool.started', tool_call_id: 'layout-tool', tool: 'read_file', arguments: { path: 'layout.txt' } })
+      socket.__trigger('tool.completed', { ...context, event: 'tool.completed', tool_call_id: 'layout-tool', tool: 'read_file', output: 'Ready' })
+      socket.__trigger('run.completed', { ...context, event: 'run.completed', output: 'Layout checked.' })
+      ;(window as any).__PW_CHAT_SOCKET_RESUMES__ = { [sid]: { session_id: sid, isWorking: false, events: [] } }
+    }, run.session_id)
+    const runCard = page.locator('.tool-run-card[data-run-id="theme-layout"]')
+    const tool = runCard.locator('.message.tool')
+    const toolInset = () => tool.evaluate(element => element.getBoundingClientRect().left - element.parentElement!.getBoundingClientRect().left)
+    const openTools = async () => {
+      await expect(page.locator('.chat-view')).toHaveAttribute('aria-busy', 'false')
+      const header = runCard.locator('.tool-run-header')
+      if (await header.getAttribute('aria-expanded') !== 'true') await header.click()
+      await expect(header).toHaveAttribute('aria-expanded', 'true')
+      await expect(tool).toBeVisible()
+    }
+    await openTools()
+    const initialInset = await toolInset()
+
+    await page.goto('/#/hermes/theme')
+    await page.getByTestId('theme-scope').selectOption('card')
+    await page.getByTestId('theme-card-opacity').fill('0.4')
+    await page.getByTestId('theme-card-opacity').dispatchEvent('change')
+    await expect(page.locator('html')).toHaveClass(/theme-card-bg/)
+    await page.goto('/#/hermes/chat')
+    await openTools()
+    expect(await toolInset()).toBeCloseTo(initialInset, 1)
+    await tool.locator('.tool-line').click()
+    await expect(tool.locator('.tool-details')).toContainText('Ready')
+    expect(await toolInset()).toBeCloseTo(initialInset, 1)
+
+    await page.goto('/#/hermes/theme')
+    await page.getByTestId('theme-global-chatWidth').fill('600')
+    await page.getByTestId('theme-global-chatWidth').dispatchEvent('change')
+    await page.goto('/#/hermes/chat')
+    await openTools()
+    expect(await toolInset()).toBeCloseTo(initialInset, 1)
+    const rows = page.locator('.message-list-shell .virtual-row')
+    const rowWidths = await rows.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().width))
+    expect(rowWidths.length).toBeGreaterThanOrEqual(3)
+    for (const rowWidth of rowWidths) {
+      expect(rowWidth).toBeLessThanOrEqual(600)
+      expect(rowWidth).toBeCloseTo(rowWidths[0], 1)
+    }
+    if (width === 1280) expect(rowWidths[0]).toBe(600)
+    await page.screenshot({ path: `/tmp/studio-themed-tool-alignment-${width}.png` })
+
+    await page.goto('/#/hermes/theme')
+    await page.getByRole('button', { name: 'Reset Chat width', exact: true }).click()
+    await page.goto('/#/hermes/chat')
+    await openTools()
+    expect(await toolInset()).toBeCloseTo(initialInset, 1)
+    if (width === 1280) expect((await rows.first().boundingBox())!.width).toBeGreaterThan(600)
+    expect(api.unexpectedRequests).toEqual([])
+  })
+}
+
 test('freezes the current reasoning between the thinking animation and its tool call', async ({ page }) => {
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   const api = await mockHermesApi(page)
