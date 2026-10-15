@@ -76,6 +76,8 @@ card appearance changes do not change the alignment of nested tool messages.
   surface own custom page backgrounds. Promotion/download, cloud route and Petdex
   cards use a translucent wallpaper fallback, and small badges/icons add only a
   tint. QR code backgrounds stay opaque for scanning.
+  The card attribute supplies this wallpaper fallback centrally, including for
+  new cards that only declare a shared preset background in their scoped CSS.
   Description tables use translucent headers instead of opaque
   fills. When card blur is configured, outer content surfaces paint their own
   background/filter on a pseudo-element so they do not isolate the cards from
@@ -178,6 +180,8 @@ all preset records and the account's wallpaper directory.
 When adding a surface, reference its region token with a preset fallback. Do
 not set `opacity` on a container to implement surface transparency. If a library
 renders into a canvas or isolated document, provide an explicit theme adapter.
+The required authoring rules, mechanical checks, legacy inventory and scoped
+exception format are in [the frontend UI harness](harness/frontend-ui.md).
 
 ## Validation
 

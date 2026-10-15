@@ -290,3 +290,49 @@ for (const brightness of ['light', 'dark']) {
     expect(api.unexpectedRequests).toEqual([])
   })
 }
+
+for (const brightness of ['light', 'dark']) {
+  test(`native card opt-in owns wallpaper defaults without a local fallback in ${brightness} mode`, async ({ page }) => {
+    await authenticate(page)
+    const api = await mockHermesApi(page, { theme: {
+      brightness, background: { name: 'wall.png', mime: 'image/png', updatedAt: 1 },
+    } })
+    const card = page.locator('.app-connections-panel > .cloud-route-setting')
+    async function openCard() {
+      await page.goto('/#/hermes/connections?view=list')
+      await expect(card).toBeVisible()
+      // Model the documented contract: a native card with just a preset fill.
+      // Regional/wallpaper behavior must come from the shared surface attribute.
+      await page.addStyleTag({ content: '.cloud-route-setting.cloud-route-setting { background: var(--bg-card); }' })
+    }
+    await openCard()
+    const wallpaper = brightness === 'light' ? 'rgba(255, 255, 255, 0.72)' : 'rgba(42, 42, 42, 0.72)'
+    await expect(card).toHaveCSS('background-color', wallpaper)
+    await card.evaluate(element => element.removeAttribute('data-theme-surface'))
+    await expect(card).toHaveCSS('background-color', brightness === 'light' ? 'rgb(255, 255, 255)' : 'rgb(42, 42, 42)')
+    await card.evaluate(element => element.setAttribute('data-theme-surface', 'card'))
+    await expect(card).toHaveCSS('background-color', wallpaper)
+    await page.goto('/#/hermes/theme')
+    await page.getByTestId('theme-global-backgroundColor').fill('#223344')
+    await page.getByTestId('theme-global-opacity').fill('0.4')
+    await page.getByTestId('theme-global-opacity').dispatchEvent('change')
+    await openCard()
+    await expect(card).toHaveCSS('background-color', 'rgba(34, 51, 68, 0.4)')
+    await page.goto('/#/hermes/theme')
+    await page.getByTestId('theme-scope').selectOption('card')
+    await page.getByTestId('theme-card-opacity').fill('0')
+    await page.getByTestId('theme-card-opacity').dispatchEvent('change')
+    await openCard()
+    await expect(card).toHaveCSS('background-color', 'rgba(34, 51, 68, 0)')
+    await expect(card).toHaveCSS('opacity', '1')
+    await page.goto('/#/hermes/theme')
+    await page.getByRole('button', { name: 'Restore defaults', exact: true }).click()
+    await openCard()
+    await expect(card).toHaveCSS('background-color', wallpaper)
+    await page.goto('/#/hermes/theme')
+    await page.getByRole('button', { name: 'Remove', exact: true }).click()
+    await openCard()
+    await expect(card).toHaveCSS('background-color', brightness === 'light' ? 'rgb(255, 255, 255)' : 'rgb(42, 42, 42)')
+    expect(api.unexpectedRequests).toEqual([])
+  })
+}
