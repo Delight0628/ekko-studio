@@ -70,11 +70,12 @@ card appearance changes do not change the alignment of nested tool messages.
   Disabled/loading selections keep that surface; muted text/icons and disabled
   interaction still indicate their state without flashing a preset background.
   New card surfaces can opt in with `data-theme-surface="card"`; description
-  tables, the shared promotion hero, download platform cards and Petdex summary/pet
-  cards use this scope. Petdex keeps its preview checkerboard transparent and lets
-  the parent content surface own custom page backgrounds.
-  Promotion/download and Petdex cards use a translucent wallpaper fallback, and small
-  badges/icons add only a tint. QR code backgrounds stay opaque for scanning.
+  tables, the shared promotion hero, download platform cards, cloud route cards
+  (list and scan dialog), and Petdex summary/pet cards use this scope.
+  Petdex keeps its preview checkerboard transparent and lets the parent content
+  surface own custom page backgrounds. Promotion/download, cloud route and Petdex
+  cards use a translucent wallpaper fallback, and small badges/icons add only a
+  tint. QR code backgrounds stay opaque for scanning.
   Description tables use translucent headers instead of opaque
   fills. When card blur is configured, outer content surfaces paint their own
   background/filter on a pseudo-element so they do not isolate the cards from

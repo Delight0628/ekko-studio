@@ -659,7 +659,7 @@ onUnmounted(() => {
     </NAlert>
 
     <template v-if="panelView === 'list'">
-      <div class="cloud-route-setting">
+      <div class="cloud-route-setting" data-theme-surface="card">
         <div class="cloud-route-copy">
           <strong>{{ t('connections.app.routeTitle') }}</strong>
           <span>{{ t('connections.app.routeDescription') }}</span>
@@ -941,7 +941,7 @@ onUnmounted(() => {
 
       <NTabPane name="cloud" :tab="t('connections.app.cloudConnection')">
         <div class="connection-pane">
-          <div class="cloud-route-setting cloud-route-setting--qr">
+          <div class="cloud-route-setting cloud-route-setting--qr" data-theme-surface="card">
             <div class="cloud-route-copy">
               <strong>{{ t('connections.app.routeTitle') }}</strong>
               <span>{{ t('connections.app.qrRouteDescription') }}</span>
@@ -1024,7 +1024,7 @@ onUnmounted(() => {
   gap: calc(16px * var(--spacing-scale, 1));
   border: var(--border-width, 1px) solid $border-light;
   border-radius: var(--radius-component, 10px);
-  background: rgba(var(--bg-card-rgb), 0.7);
+  background: var(--theme-card-bg, var(--theme-card-wallpaper-bg, rgba(var(--bg-card-rgb), 0.7)));
 }
 
 .cloud-route-setting--qr {
