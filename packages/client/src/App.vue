@@ -534,6 +534,8 @@ useKeyboard();
     min-width: 0;
     display: flex;
     align-items: center;
+    border: 0;
+    box-shadow: none;
     -webkit-app-region: drag;
 
     > :deep(:not(.header-sidebar-control):not(.desktop-titlebar)) {
@@ -665,10 +667,6 @@ useKeyboard();
 }
 
 .app-shell--custom-background {
-  .studio-page-header {
-    box-shadow: inset 0 -1px 0 var(--glass-divider-color);
-  }
-
   &.app-shell--navigation-rail {
     .app-box::before {
       inset: 0;

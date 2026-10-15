@@ -2,6 +2,35 @@ import { expect, test } from '@playwright/test'
 import sharp from 'sharp'
 import { authenticate, mockHermesApi } from './fixtures'
 
+for (const customized of [false, true]) {
+  test(`keeps shell page headers borderless with ${customized ? 'custom' : 'preset'} wallpaper styling`, async ({ page }) => {
+    await authenticate(page)
+    const api = await mockHermesApi(page, { theme: {
+      background: { name: 'wallpaper.png', mime: 'image/png', updatedAt: 1 },
+      ...(customized ? { appearance: {
+        global: { borderWidth: 4, borderColor: '#ff0000', shadow: 2 },
+        regions: { chrome: { backgroundColor: '#ccddee', opacity: 0.5, shadow: 2 } },
+      } } : {}),
+    } })
+    await page.goto('/#/hermes/theme')
+    await expect(page.locator('.app-shell')).toHaveClass(/app-shell--custom-background/)
+    const header = page.locator('.studio-page-header--shell-sidebar')
+    await expect(header).toBeVisible()
+    for (const side of ['top', 'right', 'bottom', 'left']) {
+      await expect(header).toHaveCSS(`border-${side}-width`, '0px')
+    }
+    await expect(header).toHaveCSS('box-shadow', 'none')
+    await expect(header).toHaveCSS('height', '40px')
+    if (customized) {
+      await expect(header).toHaveCSS('background-color', 'rgba(204, 221, 238, 0.5)')
+      await expect(page.locator('.theme-card').first()).toHaveCSS('border-top-width', '4px')
+      await expect(page.locator('.theme-card').first()).not.toHaveCSS('box-shadow', 'none')
+      await expect(page.locator('.studio-navigation-rail')).not.toHaveCSS('box-shadow', 'none')
+    }
+    expect(api.unexpectedRequests).toEqual([])
+  })
+}
+
 for (const contentBlur of [0, 8]) {
   test(`card blur changes the rendered wallpaper with content blur ${contentBlur}px`, async ({ page }) => {
     await authenticate(page)
