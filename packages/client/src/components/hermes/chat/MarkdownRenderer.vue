@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import 'katex/dist/katex.min.css'
+import { stripToolCallMarkup } from '../../../../../shared/tool-call-markup'
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, unref, watch, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMessage } from 'naive-ui'
@@ -251,7 +252,7 @@ function hasExtension(path: string, extensions: Set<string>): boolean {
 }
 
 const renderedHtml = computed(() => {
-  let html = md.render(repairNestedMarkdownFences(props.content))
+  let html = md.render(repairNestedMarkdownFences(stripToolCallMarkup(props.content)))
   if (props.deferImages) html = html.replace(/<img\b[^>]*>/gi, '')
 
   // Add IDs to headings for anchor links
