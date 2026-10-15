@@ -57,6 +57,8 @@ card appearance changes do not change the alignment of nested tool messages.
   Wallpaper defaults cover the same overlay list, including the account popover,
   Profile dialog and select menus. Select labels/tags stay transparent over their
   themed wrapper so they cannot hide or double the configured background alpha.
+  Disabled/loading selections keep that surface; muted text/icons and disabled
+  interaction still indicate their state without flashing a preset background.
   New card surfaces can opt in with `data-theme-surface="card"`; description
   tables also use the card region, with translucent headers instead of opaque
   fills. When card blur is configured, outer content surfaces paint their own

@@ -20,13 +20,16 @@ html.theme-has-custom-background :is(#{$overlay-surfaces}) {
   backdrop-filter: var(--theme-overlay-filter, blur(8px) saturate(1.1));
 }
 
-html.theme-has-custom-background :is(.n-base-selection:not(.n-base-selection--disabled), .profile-display, .model-trigger) {
+html.theme-has-custom-background :is(.n-base-selection, .profile-display, .model-trigger) {
   background: var(--theme-input-bg, rgba(var(--bg-card-rgb), 0.72));
 }
 
 // A selection paints on both its wrapper and label/tags. Only the wrapper
 // should own the translucent surface, including while the menu is open.
-html:is(.theme-input-bg, .theme-has-custom-background) .n-base-selection:not(.n-base-selection--disabled) {
+// Loading often disables selects: keep that same background while Naive UI
+// continues to dim their text/icons and prevent interaction.
+html:is(.theme-input-bg, .theme-has-custom-background) .n-base-selection:not(.n-base-selection--disabled),
+html:is(.theme-input-bg, .theme-has-custom-background) .n-base-selection.n-base-selection--disabled {
   > .n-base-selection-label, > .n-base-selection-tags { background-color: transparent; }
 }
 
