@@ -263,6 +263,53 @@ test('loads and saves the signed-in user theme without profile scoping', async (
 })
 
 for (const brightness of ['light', 'dark'] as const) {
+  test(`sidebar toggle follows the primary text color in ${brightness} mode`, async ({ page }) => {
+    await authenticate(page)
+    const api = await mockHermesApi(page, { theme: {
+      brightness, textColor: '#5588bb', accentColor: '#bb8855',
+      appearance: { version: 1, global: { secondaryTextColor: '#668866' }, regions: {} },
+    } })
+    await page.goto('/#/hermes/theme')
+    const toggle = page.locator('.studio-page-header .header-sidebar-toggle')
+    const icon = toggle.locator('svg')
+    const title = page.locator('.studio-page-header .header-title')
+    await expect(title).toHaveCSS('color', 'rgb(85, 136, 187)')
+    await expect(icon).toHaveCSS('stroke', 'rgb(85, 136, 187)')
+    await toggle.hover()
+    await expect(icon).toHaveCSS('stroke', 'rgb(85, 136, 187)')
+    await toggle.focus()
+    await expect(icon).toHaveCSS('stroke', 'rgb(85, 136, 187)')
+    await page.mouse.down()
+    await expect(icon).toHaveCSS('stroke', 'rgb(85, 136, 187)')
+    await page.mouse.up()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    // The icon updates during preview, before the edit is saved.
+    const color = page.getByLabel('Text color', { exact: true })
+    await color.evaluate(element => {
+      const input = element as HTMLInputElement
+      input.value = '#bb5577'
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await expect(icon).toHaveCSS('stroke', 'rgb(187, 85, 119)')
+    await expect(title).toHaveCSS('color', 'rgb(187, 85, 119)')
+    expect(api.requests.some(request => request.method === 'PUT' && request.pathname === '/api/theme')).toBe(false)
+    await color.dispatchEvent('change')
+    await expect.poll(() => api.requests.some(request => request.method === 'PUT'
+      && request.pathname === '/api/theme'
+      && JSON.parse(request.postData || '{}').textColor === '#bb5577')).toBe(true)
+    await page.reload()
+    await expect(icon).toHaveCSS('stroke', 'rgb(187, 85, 119)')
+    await page.locator('.theme-setting').filter({ has: color }).getByRole('button', { name: 'Reset', exact: true }).click()
+    const presetText = brightness === 'dark' ? 'rgb(224, 224, 224)' : 'rgb(26, 26, 26)'
+    await expect(icon).toHaveCSS('stroke', presetText)
+    await expect(title).toHaveCSS('color', presetText)
+    await page.screenshot({ path: `/tmp/studio-sidebar-icon-${brightness}.png`, animations: 'disabled' })
+    expect(api.unexpectedRequests).toEqual([])
+  })
+
   test(`keeps the selected theme style after reload in ${brightness} mode`, async ({ page }) => {
     await authenticate(page)
     await page.addInitScript((mode) => {

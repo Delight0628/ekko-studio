@@ -19,6 +19,7 @@ const target = usePageHeaderTarget()
       v-bind="$attrs"
       style="padding-inline: 0"
       quaternary
+      color="var(--text-primary)"
       size="small"
       circle
       :title="expanded ? t('sidebar.collapse') : t('sidebar.expand')"
