@@ -15,6 +15,10 @@ const blocks = [
   ['<function_calls>', '</function_calls>'],
   ['<invoke name=', '</invoke>'],
   ['<｜DSML｜function_calls>', '</｜DSML｜function_calls>'],
+  ['</parameter>', ''],
+  ['</invoke>', ''],
+  ['</tool_call>', ''],
+  ['</function_calls>', ''],
 ] as const
 
 export function filterToolCallMarkup(state: ToolCallMarkupState, delta: string): string {
@@ -34,7 +38,7 @@ export function filterToolCallMarkup(state: ToolCallMarkupState, delta: string):
       state.pending += char
       const match = blocks.find(([opening]) => state.pending === opening)
       if (match) {
-        state.closing = match[1]
+        state.closing = match[1] || undefined
         state.pending = undefined
         continue
       }

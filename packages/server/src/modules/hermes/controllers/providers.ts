@@ -1,3 +1,4 @@
+import { preservedModelKeys } from '../services/models/model-section'
 import { existsSync, readFileSync } from 'fs'
 import { writeFile } from 'fs/promises'
 import { join } from 'path'
@@ -498,4 +499,3 @@ export async function remove(ctx: any) {
     ctx.status = 500; ctx.body = { error: err.message }
   }
 }
-import { preservedModelKeys } from '../services/models/model-section'

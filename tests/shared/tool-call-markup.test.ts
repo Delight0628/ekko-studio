@@ -37,4 +37,10 @@ describe('text-channel protocol filtering', () => {
       ['<｜DSML｜function_calls>', '</｜DSML｜function_calls>'],
     ]) expect(stripToolCallMarkup(`${open}<invoke name="test">payload</invoke>${close}\nDone`)).toBe('\nDone')
   })
+
+  it('drops orphan protocol closing tags but keeps documented closers in code', () => {
+    expect(stripToolCallMarkup('</parameter>\n</invoke>\nAnswer')).toBe('\n\nAnswer')
+    expect(stripToolCallMarkup('`</parameter>`')).toBe('`</parameter>`')
+    expect(stripToolCallMarkup('~~~xml\n<tool_call>example</tool_call>\n~~~')).toContain('example')
+  })
 })

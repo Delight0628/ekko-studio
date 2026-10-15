@@ -639,8 +639,8 @@ function saveGeneratedImages(images: string[], requestedOutputPath?: string): st
   })
 }
 
-function requestedMediaOutputPath(ctx: Context, body: { output_path?: unknown }): string {
-  const path = typeof body.output_path === 'string' ? body.output_path.trim() : ''
+function requestedMediaOutputPath(ctx: Context, value: unknown): string {
+  const path = typeof value === 'string' ? value.trim() : ''
   // Choosing a server filesystem destination is a privileged write, just as
   // files/write is. Other users can still generate into Studio's media store.
   if (path && ctx.state.user?.role !== 'super_admin' && !ctx.state.serverTokenAuth) {
@@ -663,7 +663,7 @@ export async function apiKeyImageGenerate(ctx: Context) {
 
   try {
     const body = ctx.request.body as any
-    const requestedOutputPath = requestedMediaOutputPath(ctx, body)
+    const requestedOutputPath = requestedMediaOutputPath(ctx, body.output_path)
     const mode = normalizeImageMode(body.mode)
     const hermesConfig = await readConfigYamlForProfile(profile)
     const generationSettings = auxiliaryImageSettings(hermesConfig, 'image_generation')
@@ -876,7 +876,7 @@ export async function miniMaxImageToVideo(ctx: Context) {
       timeout_ms?: number
     } | undefined
     const body = input || {}
-    const requestedOutputPath = requestedMediaOutputPath(ctx, body)
+    const requestedOutputPath = requestedMediaOutputPath(ctx, body.output_path)
     const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : MINIMAX_VIDEO_DEFAULT_MODEL
     const tokenInfo = await resolveMiniMaxToken(profile, body.region)
     if (!tokenInfo.token) {
@@ -969,9 +969,10 @@ export async function miniMaxImageToVideo(ctx: Context) {
 export async function grokImageToVideo(ctx: Context) {
   let profile: string
   let requestedOutputPath: string
+  const body = ctx.request.body as any
   try {
     profile = resolveMediaProfile(ctx)
-    requestedOutputPath = requestedMediaOutputPath(ctx, ctx.request.body as any)
+    requestedOutputPath = requestedMediaOutputPath(ctx, body.output_path)
   } catch (err: any) {
     ctx.status = err.status || 400
     ctx.body = { error: err.message || String(err), code: err.code || 'invalid_profile' }
@@ -988,7 +989,6 @@ export async function grokImageToVideo(ctx: Context) {
     return
   }
 
-  const body = ctx.request.body as any
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
   if (!prompt) {
     ctx.status = 400

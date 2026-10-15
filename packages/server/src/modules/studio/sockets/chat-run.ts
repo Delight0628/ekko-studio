@@ -2314,7 +2314,7 @@ export class ChatRunSocket {
     state.queueInsertion = undefined
     if (reason === 'queued_message_removed' && control.runtime === 'hermes' && control.runId) {
       void this.bridge.cancelBoundaryInterrupt(sessionId, control.runId, state.profile)
-        .catch(err => logger.warn(err, '[chat-run-socket] failed to recall queue boundary for %s', sessionId))
+        .catch((err: unknown) => logger.warn(err, '[chat-run-socket] failed to recall queue boundary for %s', sessionId))
     }
     this.emitQueueInsertionUpdate(sessionId, control, 'cancelled', reason)
   }

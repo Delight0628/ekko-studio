@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { authProtectedRoutes } from '../../packages/server/src/modules/studio/routes/auth'
 import { requireSuperAdmin } from '../../packages/server/src/modules/studio/middleware/auth'
 
@@ -24,5 +24,24 @@ describe('locked-ips routes require super admin', () => {
   it('DELETE /api/auth/locked-ips must require requireSuperAdmin', () => {
     const stack = stackFor('DELETE', '/api/auth/locked-ips')
     expect(stack).toContain(requireSuperAdmin)
+  })
+
+  it.each(['user', 'admin', undefined])('rejects role %s before invoking the lock controller', async role => {
+    for (const method of ['GET', 'DELETE']) {
+      const [authorize] = stackFor(method, '/api/auth/locked-ips')
+      const next = vi.fn()
+      const ctx: any = { state: { user: role ? { role } : undefined }, status: 200 }
+      await authorize(ctx, next)
+      expect(ctx.status).toBe(403)
+      expect(next).not.toHaveBeenCalled()
+    }
+  })
+
+  it('allows a super admin to reach the lock controller', async () => {
+    for (const method of ['GET', 'DELETE']) {
+      const next = vi.fn()
+      await stackFor(method, '/api/auth/locked-ips')[0]({ state: { user: { role: 'super_admin' } } }, next)
+      expect(next).toHaveBeenCalledOnce()
+    }
   })
 })
