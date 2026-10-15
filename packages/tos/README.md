@@ -24,11 +24,40 @@ com-hermeswebui-studio_<version>_x86_64.deb.sha256
 com-hermeswebui-studio_<version>_x86_64.deb.verification.json
 ```
 
-This workflow uses read-only repository permissions. It does not create or
-modify GitHub Releases, upload to a registry, submit to the TOS Developer
-Platform, or run as part of the main Web UI/desktop release workflows.
-The TOS Developer Platform only reads Release assets; any eventual publication
-is a separate step after acceptance and explicit authorization.
+The build job uses read-only repository permissions. Ordinary PR runs and manual
+runs with `upload_to_tdp` disabled only create Actions artifacts. This workflow
+does not run as part of the main Web UI/desktop release workflows.
+
+### Optional Developer Platform parsing test
+
+Configure repository Actions secret `TDP_API_TOKEN` with `version:write` and,
+for the first registration, `app:write`. Run this workflow manually with
+`upload_to_tdp` enabled. A separate job:
+
+1. Verifies the package SHA-256 and beta/ID/architecture metadata.
+2. Checks the token's developer identity and registers the TOS application if
+   absent. An existing registration must match the repository and architecture;
+   it is never silently modified.
+3. Publishes the exact Deb, SHA-256 and verification report as a uniquely named
+   `tos-test-<run-id>-<attempt>` GitHub **prerelease**, never latest. The job uses
+   the built-in `github.token`, not a PAT, so this release does not trigger the
+   existing release/npm/Docker workflows.
+4. Asks TerraMaster to download and parse that asset; polls until passed/failed,
+   then compares version, architecture, size and SHA-256 with the local bytes.
+
+Download `tos-platform-test-receipt` for the release URL, application UUID, task
+UUID, parser diagnostics and parsed metadata. A parser failure is a failed job,
+even when HTTP status is 200. Polling is bounded and timed-out task identity is
+preserved for inspection. Passed tasks expire after one hour.
+
+This test never calls `/confirm`, never creates a Version in review, and never
+withdraws/deletes existing versions. It does not establish device compatibility
+or App Center approval. Complete TNAS acceptance before a separate decision to
+submit for review. Do not pass API tokens through command arguments, repository
+variables, source code or public logs.
+
+API reference: `terramaster-tos/tos-app-pkg-tools`, `Developer/agent-api/README.md`,
+reviewed at commit `9dc7e43da051b3e4a8e704764ff57e72fc7309fc`.
 
 Local packaging requires Linux x64, Node.js 24 with its full npm distribution,
 `dpkg-deb`, `readelf` (binutils), tar and bzip2. Build native dependencies on

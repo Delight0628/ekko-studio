@@ -2,12 +2,19 @@ name: Test TOS 7 Deb Package
 
 on:
   workflow_dispatch:
+    inputs:
+      upload_to_tdp:
+        description: "Publish a test prerelease and validate it on TerraMaster (no review submission)"
+        type: boolean
+        default: false
   pull_request:
     paths:
       - ".github/workflows/tos-package-test.yml"
       - "packages/tos/**"
       - "scripts/pack-tos-deb.mjs"
+      - "scripts/test-tos-platform.mjs"
       - "tests/server/tos-packaging.test.ts"
+      - "tests/server/tos-platform.test.ts"
 
 permissions:
   contents: read
@@ -72,3 +79,41 @@ jobs:
             release/tos/*.deb
             release/tos/*.deb.sha256
             release/tos/*.deb.verification.json
+
+  platform:
+    name: TerraMaster package parsing test (no review)
+    if: github.event_name == 'workflow_dispatch' && inputs.upload_to_tdp
+    needs: tos
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: tos-platform-test
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: tos7-x86_64-test
+          path: release/tos
+      - name: Publish test assets and validate on TerraMaster
+        env:
+          # The built-in token prevents release events triggering other workflows.
+          GH_TOKEN: ${{ github.token }}
+          TDP_API_TOKEN: ${{ secrets.TDP_API_TOKEN }}
+        run: node scripts/test-tos-platform.mjs release/tos
+      - name: Upload platform test receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tos-platform-test-receipt
+          path: release/tos/platform-test.json
+          if-no-files-found: warn
+          retention-days: 7

@@ -33,7 +33,8 @@ describe('standalone TOS test workflow', () => {
     expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch', 'pull_request'])
     expect(workflow.on.pull_request.paths).toEqual([
       '.github/workflows/tos-package-test.yml', 'packages/tos/**',
-      'scripts/pack-tos-deb.mjs', 'tests/server/tos-packaging.test.ts',
+      'scripts/pack-tos-deb.mjs', 'scripts/test-tos-platform.mjs',
+      'tests/server/tos-packaging.test.ts', 'tests/server/tos-platform.test.ts',
     ])
     expect(workflow.permissions).toEqual({ contents: 'read' })
     expect(workflow.jobs.tos['runs-on']).toBe('ubuntu-22.04')
@@ -58,6 +59,20 @@ describe('standalone TOS test workflow', () => {
     ])
     expect(steps.some((step: any) => String(step.uses || '').includes('action-gh-release'))).toBe(false)
     expect(steps.some((step: any) => /\bgh release\b/.test(String(step.run || '')))).toBe(false)
+  })
+
+  it('only gives secrets and release writes to the explicitly dispatched platform job', () => {
+    const platform = workflow.jobs.platform
+    expect(workflow.on.workflow_dispatch.inputs.upload_to_tdp.default).toBe(false)
+    expect(platform.if).toBe("github.event_name == 'workflow_dispatch' && inputs.upload_to_tdp")
+    expect(platform.permissions).toEqual({ contents: 'write', actions: 'read' })
+    expect(platform.needs).toBe('tos')
+    expect(platform.concurrency['cancel-in-progress']).toBe(false)
+    const publish = platform.steps.find((step: any) => step.env?.TDP_API_TOKEN)
+    expect(publish.env.GH_TOKEN).toBe('${{ github.token }}')
+    expect(publish.env.TDP_API_TOKEN).toBe('${{ secrets.TDP_API_TOKEN }}')
+    expect(publish.run).toBe('node scripts/test-tos-platform.mjs release/tos')
+    expect(JSON.stringify(workflow.jobs.tos)).not.toContain('secrets.')
   })
 
   it.runIf(process.platform === 'linux')('executes the staging step and exports the packaged input directory', () => {
