@@ -1,7 +1,7 @@
 // Native and teleported surfaces share the same regional tokens. Classes are
 // enabled only for explicitly configured properties, preserving preset defaults.
 $regions: (
-  chrome: '.studio-navigation-rail, .desktop-titlebar, .studio-page-header',
+  chrome: '.studio-navigation-rail, .desktop-titlebar:not(.desktop-titlebar--flush), .studio-page-header',
   sidebar: '.sidebar, .hermes-config-sidebar, .ekko-config-sidebar, .coding-agent-config-sidebar, .session-list, .room-sidebar, .workflow-sidebar',
   content: '.app-main--card, .chat-main-content, .group-chat-surface, .workflow-main, .connections-panel, .agent-manager-panel, .models-view, .voice-stage',
   card: '[data-theme-surface="card"], .theme-card, .settings-card, .provider-card, .profile-card, .model-card, .run-card, .run-usage-card, .job-card, .mcp-card, .kanban-task-card, .platform-card, .stat-card, .task-plan-card, .workflow-agent-node, .n-card, .n-descriptions-table-wrapper, .theme-appearance-editor',

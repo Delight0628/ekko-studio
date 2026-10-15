@@ -319,11 +319,25 @@ test('matches Windows controls to the header glass over custom backgrounds', asy
   await expect(page.locator('.profile-card.active .active-badge')).toHaveCSS('color', 'rgb(51, 102, 255)')
   await expect(controls).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   const railBackground = await page.locator('.studio-navigation-rail').evaluate(el => getComputedStyle(el).backgroundColor)
-  const headerGlass = await page.locator('.app-box').evaluate(el => {
-    const style = getComputedStyle(el, '::before')
+  const headerGlass = await page.locator('.studio-page-header').evaluate(el => {
+    const style = getComputedStyle(el)
     return { background: style.backgroundColor, backdrop: style.backdropFilter }
   })
   expect(headerGlass).toEqual({ background: railBackground, backdrop: 'blur(16px) saturate(1.1)' })
+
+  await page.goto('/#/hermes/theme')
+  await page.getByTestId('theme-scope').selectOption('chrome')
+  await page.getByTestId('theme-chrome-opacity').fill('0.35')
+  await page.getByTestId('theme-chrome-opacity').dispatchEvent('change')
+  await page.getByTestId('theme-chrome-blur').fill('10')
+  await page.getByTestId('theme-chrome-blur').dispatchEvent('change')
+  for (const surface of [page.locator('.studio-navigation-rail'), page.locator('.studio-page-header')]) {
+    await expect(surface).toHaveCSS('background-color', 'rgba(26, 26, 26, 0.35)')
+    await expect(surface).toHaveCSS('backdrop-filter', 'blur(10px) saturate(1.1)')
+  }
+  await expect(controls).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(controls).toHaveCSS('backdrop-filter', 'none')
+  await expect(controls).toHaveCSS('box-shadow', 'none')
   expect(api.unexpectedRequests).toEqual([])
 })
 

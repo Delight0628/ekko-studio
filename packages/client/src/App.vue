@@ -522,7 +522,7 @@ useKeyboard();
   --studio-content-radius: #{$radius-lg};
   --desktop-window-controls-width: 138px;
   flex-direction: row;
-  background-color: var(--theme-sidebar-bg, $bg-sidebar);
+  background-color: $bg-sidebar;
 
   .studio-page-header {
     position: absolute;
@@ -536,6 +536,9 @@ useKeyboard();
     align-items: center;
     border: 0;
     box-shadow: none;
+    background-color: var(--theme-chrome-bg, $bg-sidebar);
+    -webkit-backdrop-filter: var(--theme-chrome-filter, none);
+    backdrop-filter: var(--theme-chrome-filter, none);
     -webkit-app-region: drag;
 
     > :deep(:not(.header-sidebar-control):not(.desktop-titlebar)) {
@@ -637,15 +640,6 @@ useKeyboard();
 
   .app-box {
     padding-top: var(--studio-header-height);
-
-    &::before {
-      content: "";
-      position: absolute;
-      inset: 0 0 auto;
-      height: var(--studio-header-height);
-      background-color: var(--theme-sidebar-bg, $bg-sidebar);
-      pointer-events: none;
-    }
   }
   .app-layout {
     width: auto;
@@ -669,8 +663,12 @@ useKeyboard();
 .app-shell--custom-background {
   &.app-shell--navigation-rail {
     .app-box::before {
-      inset: 0;
-      height: auto;
+      content: "";
+      position: absolute;
+      // The header paints its own chrome surface. Keep gutter glass below it
+      // so the top bar and navigation rail each composite exactly one layer.
+      inset: var(--studio-header-height) 0 0;
+      pointer-events: none;
     }
 
     .app-layout {
@@ -712,6 +710,7 @@ useKeyboard();
   }
 
   &.app-shell--navigation-rail .app-box::before,
+  .studio-page-header,
   :deep(.studio-navigation-rail),
   :deep(.desktop-titlebar:not(.desktop-titlebar--flush)),
   :deep(.chat-panel > .chat-main > .chat-header),

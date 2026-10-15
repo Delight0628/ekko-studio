@@ -35,6 +35,10 @@ gradient and image fit/position/dimming, border width, control height, spacing,
 chat width, font family, line height and letter spacing. Background opacity
 changes the surface color's alpha, never the opacity of its text or children.
 Nested translucent surfaces still composite according to normal CSS rules.
+The navigation rail and top bar share the chrome region and each paint one
+background layer. Their opacity follows global settings until overridden for
+that region; sidebar settings do not change the outer frame. Window controls
+embedded in the top bar stay transparent instead of adding another chrome layer.
 Chat width only constrains outer message rows when explicitly configured;
 card appearance changes do not change the alignment of nested tool messages.
 

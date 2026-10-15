@@ -2,6 +2,72 @@ import { expect, test } from '@playwright/test'
 import sharp from 'sharp'
 import { authenticate, mockHermesApi } from './fixtures'
 
+for (const brightness of ['light', 'dark']) {
+  for (const wallpaper of [false, true]) {
+    test(`navigation and top bar share opacity in ${brightness} mode with wallpaper ${wallpaper}`, async ({ page }) => {
+      await authenticate(page)
+      const api = await mockHermesApi(page, { theme: {
+        brightness,
+        ...(wallpaper ? { background: { name: 'solid.png', mime: 'image/png', updatedAt: 1 } } : {}),
+        appearance: { global: {}, regions: {
+          chrome: { backgroundColor: '#8caacc' },
+          sidebar: { backgroundColor: '#aa3322', opacity: 1 },
+        } },
+      } })
+      if (wallpaper) {
+        const image = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#204060' } }).png().toBuffer()
+        await page.route('**/api/theme/background?*', route => route.fulfill({ contentType: 'image/png', body: image }))
+      }
+      await page.goto('/#/hermes/theme')
+      const rail = page.locator('.studio-navigation-rail')
+      const header = page.locator('.studio-page-header')
+      await expect(header).toBeVisible()
+      if (wallpaper) await expect(page.locator('.app-shell')).toHaveClass(/app-shell--custom-background/)
+      const setOpacity = async (scope: string, value: string) => {
+        await page.getByTestId('theme-scope').selectOption(scope)
+        await page.getByTestId(`theme-${scope}-opacity`).fill(value)
+        await page.getByTestId(`theme-${scope}-opacity`).dispatchEvent('change')
+      }
+      const expectMatchingFrame = async (opacity: number) => {
+        const color = `rgba(140, 170, 204, ${opacity})`
+        await expect(rail).toHaveCSS('background-color', color)
+        await expect(header).toHaveCSS('background-color', color)
+        // Equal CSS colors are not enough: an extra background behind the header
+        // changes the composited pixels while leaving both computed colors equal.
+        await expect.poll(async () => {
+          const screenshot = await page.screenshot({ animations: 'disabled' })
+          const railPixels = await sharp(await sharp(screenshot).extract({ left: 3, top: 180, width: 2, height: 2 }).toBuffer()).stats()
+          const headerPixels = await sharp(await sharp(screenshot).extract({ left: 1100, top: 3, width: 2, height: 2 }).toBuffer()).stats()
+          return Math.max(...railPixels.channels.slice(0, 3).map((channel, index) => Math.abs(channel.mean - headerPixels.channels[index].mean)))
+        }).toBeLessThanOrEqual(1)
+      }
+      await setOpacity('global', '0.25')
+      await expectMatchingFrame(0.25)
+      await setOpacity('chrome', '0.7')
+      await expectMatchingFrame(0.7)
+      await setOpacity('global', '0.1')
+      await expectMatchingFrame(0.7)
+      await setOpacity('sidebar', '0')
+      await expectMatchingFrame(0.7)
+      await page.getByTestId('theme-scope').selectOption('chrome')
+      await page.getByRole('button', { name: 'Reset Background opacity', exact: true }).click()
+      await expectMatchingFrame(0.1)
+      await page.reload()
+      await expectMatchingFrame(0.1)
+      await page.getByTestId('theme-scope').selectOption('global')
+      await page.getByRole('button', { name: 'Reset Background opacity', exact: true }).click()
+      await page.getByTestId('theme-scope').selectOption('chrome')
+      await page.getByRole('button', { name: 'Reset Background color', exact: true }).click()
+      const presetColor = wallpaper
+        ? brightness === 'dark' ? 'rgba(26, 26, 26, 0.9)' : 'rgba(250, 250, 250, 0.6)'
+        : brightness === 'dark' ? 'rgb(32, 32, 32)' : 'rgb(245, 245, 245)'
+      await expect(rail).toHaveCSS('background-color', presetColor)
+      await expect(header).toHaveCSS('background-color', presetColor)
+      expect(api.unexpectedRequests).toEqual([])
+    })
+  }
+}
+
 for (const customized of [false, true]) {
   test(`keeps shell page headers borderless with ${customized ? 'custom' : 'preset'} wallpaper styling`, async ({ page }) => {
     await authenticate(page)

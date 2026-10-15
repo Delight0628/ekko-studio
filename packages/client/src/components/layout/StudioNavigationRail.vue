@@ -85,7 +85,7 @@ function handleNavigate(key: string) {
   width: $navigation-rail-width;
   min-height: 0;
   padding: calc(12px * var(--spacing-scale, 1)) calc(8px * var(--spacing-scale, 1));
-  background: var(--theme-sidebar-bg, $bg-sidebar);
+  background: var(--theme-chrome-bg, $bg-sidebar);
 
   :deep(.page-sidebar-bottom) { width: 100%; padding: 0 0 calc(16px * var(--spacing-scale, 1)); }
   :deep(.page-sidebar-account-btn) { height: 44px; padding: calc(4px * var(--spacing-scale, 1)); }
