@@ -84,6 +84,7 @@ test('allows a 30 MiB wallpaper and rejects a file one byte larger before upload
   const image = await animatedThemeBackground('gif')
   await page.goto('/#/hermes/theme')
   const input = page.locator<HTMLInputElement>('.file-input')
+  await expect(page.getByTestId('theme-library')).toHaveAttribute('aria-busy', 'false')
   async function selectFile(size: number, name: string) {
     await input.evaluate((element, file) => {
       const bytes = new Uint8Array(file.size)
@@ -94,7 +95,11 @@ test('allows a 30 MiB wallpaper and rejects a file one byte larger before upload
       element.dispatchEvent(new Event('change', { bubbles: true }))
     }, { size, name, header: Array.from(image) })
   }
+  // Recording the full multipart upload can exceed the default UI assertion timeout in CI.
+  const uploaded = page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/api/theme/background' && response.request().method() === 'POST')
   await selectFile(30 * 1024 * 1024, 'large.gif')
+  expect((await uploaded).status()).toBe(200)
   await expect(page.locator('.background-name')).toHaveText('large.gif')
   const uploads = () => api.requests.filter(request => request.method === 'POST' && request.pathname === '/api/theme/background').length
   expect(uploads()).toBe(1)
