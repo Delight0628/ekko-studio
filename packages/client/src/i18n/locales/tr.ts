@@ -1,3 +1,4 @@
+import { themePresetMessages } from '../theme-preset-locales'
 import { themeAppearanceMessages } from '../theme-appearance-locales'
 const writeApprovalMessages = {
   writeApprovalTitle: 'Bekleyen yazma onayları',
@@ -346,6 +347,7 @@ export default {
   },
 
   theme: {
+    presets: themePresetMessages['tr'],
     customization: themeAppearanceMessages['tr'],
     title: 'Tema', saved: 'Tema kaydedildi', saveFailed: 'Tema kaydedilemedi', reset: 'Varsayılanları geri yükle', resetSuccess: 'Varsayılan tema geri yüklendi',
     appearance: 'Görünüm', appearanceHint: 'Değişiklikler arayüz genelinde önizlenir', mode: 'Parlaklık', modeHint: 'Açık veya koyu palet seçin',

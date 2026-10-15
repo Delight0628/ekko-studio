@@ -1,6 +1,8 @@
 import { normalizeThemeAppearance, resolveAppearance, THEME_REGIONS } from '@/styles/theme-appearance'
 import { computed, ref, watch } from 'vue'
 import {
+  fetchThemePresets, createThemePreset, renameThemePreset, activateThemePreset, deleteThemePreset,
+  type ThemePreset, type ThemeLibrary, type ThemeLibraryChange,
   clearThemeBackgroundCache,
   deleteThemeBackground as deleteThemeBackgroundApi,
   fetchThemeBackgroundBlob,
@@ -71,6 +73,9 @@ function normalizeServerTheme(value: unknown): UserThemeSettings {
 
   return {
     ...customization,
+    ...(typeof record.activePresetId === 'string' ? { activePresetId: record.activePresetId } : {}),
+    ...(['system', 'light', 'dark'].includes(String(record.brightness)) ? { brightness: record.brightness as BrightnessMode } : {}),
+    ...(['ink', 'comic'].includes(String(record.style)) ? { style: record.style as ThemeStyle } : {}),
     appearance: normalizeThemeAppearance(record.appearance),
     background,
     updatedAt: Number.isFinite(Number(record.updatedAt)) ? Number(record.updatedAt) : 0,
@@ -95,7 +100,9 @@ const style = ref<ThemeStyle>(localStorage.getItem(STYLE_KEY) === 'comic' ? 'com
 const isDark = ref(false)
 const isComic = ref(false)
 const activeUserId = ref<number | null>(storedUserId())
-const serverTheme = ref<UserThemeSettings>(loadCachedTheme(activeUserId.value))
+const serverTheme = ref<UserThemeSettings>({ brightness: brightness.value, style: style.value, ...loadCachedTheme(activeUserId.value) })
+const themePresets = ref<ThemePreset[]>([])
+const presetBusy = ref(false)
 let committedTheme = serverTheme.value
 const backgroundImageUrl = ref<string | null>(null)
 const backgroundImageName = computed(() => serverTheme.value.background?.name || '')
@@ -198,9 +205,10 @@ async function loadBackground(refresh = false) {
 
   const key = `${userId}:${background.updatedAt}`
   if (!refresh && loadedBackgroundKey === key && backgroundImageUrl.value) return
+  if (loadedBackgroundKey !== key) clearBackgroundVisual()
   const generation = ++backgroundLoadGeneration
   try {
-    const blob = await fetchThemeBackgroundBlob(userId, background.updatedAt, refresh)
+    const blob = await fetchThemeBackgroundBlob(userId, background.updatedAt, refresh, serverTheme.value.activePresetId)
     if (
       generation !== backgroundLoadGeneration ||
       userId !== activeUserId.value ||
@@ -218,48 +226,57 @@ async function loadBackground(refresh = false) {
   }
 }
 
+function updatePresetSummary(settings: UserThemeSettings) {
+  const preset = themePresets.value.find(item => item.id === settings.activePresetId)
+  if (preset) Object.assign(preset, settings)
+}
+
 function applyThemeSettings(settings: UserThemeSettings, userId = activeUserId.value) {
   if (userId) activeUserId.value = userId
-  serverTheme.value = normalizeServerTheme(settings)
+  serverTheme.value = { brightness: brightness.value, style: style.value, ...normalizeServerTheme(settings) }
   committedTheme = serverTheme.value
+  updatePresetSummary(committedTheme)
   persistThemeCache()
-  applyCustomization()
+  applyPreferences()
   void loadBackground()
 }
 
 function previewThemeSettings(
-  patch: Partial<Pick<UserThemeSettings, 'fontSize' | 'textColor' | 'accentColor' | 'appearance'>>,
+  patch: Partial<Pick<UserThemeSettings, 'fontSize' | 'textColor' | 'accentColor' | 'appearance' | 'brightness' | 'style'>>,
 ) {
   previewRevision += 1
   serverTheme.value = normalizeServerTheme({ ...serverTheme.value, ...patch })
-  applyCustomization()
+  applyPreferences()
 }
 
 function saveThemeCustomization(
-  patch: Partial<Pick<UserThemeSettings, 'fontSize' | 'textColor' | 'accentColor' | 'appearance'>>,
+  patch: Partial<Pick<UserThemeSettings, 'fontSize' | 'textColor' | 'accentColor' | 'appearance' | 'brightness' | 'style'>>,
 ): Promise<void> {
+  if (presetBusy.value) return Promise.reject(new Error('Theme switch in progress'))
+  patch = { brightness: brightness.value, style: style.value, ...patch }
   previewThemeSettings(patch)
   const revision = previewRevision
   const userId = activeUserId.value
-  const snapshot = JSON.parse(JSON.stringify(patch)) as typeof patch
+  const snapshot = JSON.parse(JSON.stringify({ ...patch, ...(serverTheme.value.activePresetId ? { presetId: serverTheme.value.activePresetId } : {}) })) as typeof patch
   const save = saveQueue.catch(() => undefined).then(async () => {
     if (userId !== activeUserId.value) return
     try {
       const saved = normalizeServerTheme(await updateThemeSettings(snapshot))
       if (userId !== activeUserId.value) return
       committedTheme = saved
+      updatePresetSummary(saved)
       persistThemeCache(saved)
       // A completed request must not replace a newer slider/color preview.
       if (revision === previewRevision) {
         serverTheme.value = saved
-        applyCustomization()
+        applyPreferences()
         void loadBackground()
       }
     } catch (error) {
       if (userId === activeUserId.value && revision === previewRevision) {
         serverTheme.value = committedTheme
         persistThemeCache()
-        applyCustomization()
+        applyPreferences()
       }
       throw error
     }
@@ -277,11 +294,13 @@ async function syncThemeFromServer(): Promise<void> {
 }
 
 function activateUserTheme(userId: number, settings: UserThemeSettings) {
+  if (userId !== activeUserId.value) themePresets.value = []
   previewRevision += 1
   applyThemeSettings(settings, userId)
 }
 
 function changeBackground(request: () => Promise<UserThemeSettings>, remove = false): Promise<void> {
+  if (presetBusy.value) return Promise.reject(new Error('Theme switch in progress'))
   const userId = activeUserId.value
   const change = saveQueue.catch(() => undefined).then(async () => {
     if (userId !== activeUserId.value) return
@@ -291,6 +310,7 @@ function changeBackground(request: () => Promise<UserThemeSettings>, remove = fa
     // belongs to this operation. A newer slider preview must remain visible.
     committedTheme = { ...committedTheme, background: settings.background, updatedAt: settings.updatedAt }
     serverTheme.value = { ...serverTheme.value, background: settings.background, updatedAt: settings.updatedAt }
+    updatePresetSummary(committedTheme)
     persistThemeCache(committedTheme)
     if (remove) {
       clearBackgroundVisual()
@@ -302,11 +322,13 @@ function changeBackground(request: () => Promise<UserThemeSettings>, remove = fa
 }
 
 function uploadBackground(file: File): Promise<void> {
-  return changeBackground(() => uploadThemeBackgroundApi(file))
+  const presetId = serverTheme.value.activePresetId
+  return changeBackground(() => uploadThemeBackgroundApi(file, presetId))
 }
 
 function removeBackground(): Promise<void> {
-  return changeBackground(deleteThemeBackgroundApi, true)
+  const presetId = serverTheme.value.activePresetId
+  return changeBackground(() => deleteThemeBackgroundApi(presetId), true)
 }
 
 function resetCustomization(): Promise<void> {
@@ -318,7 +340,44 @@ function resetCustomization(): Promise<void> {
   })
 }
 
-applyClasses()
+function applyPreferences() {
+  if (serverTheme.value.brightness) brightness.value = serverTheme.value.brightness
+  if (serverTheme.value.style) style.value = serverTheme.value.style
+  localStorage.setItem(BRIGHTNESS_KEY, brightness.value)
+  localStorage.setItem(STYLE_KEY, style.value)
+  applyClasses()
+}
+
+function runLibraryTask(operation: () => Promise<ThemeLibrary | ThemeLibraryChange>): Promise<void> {
+  if (presetBusy.value) return Promise.reject(new Error('Theme switch in progress'))
+  const userId = activeUserId.value
+  presetBusy.value = true
+  previewRevision += 1
+  const task = saveQueue.catch(() => undefined).then(async () => {
+    if (userId !== activeUserId.value) return
+    const result = await operation()
+    if (userId !== activeUserId.value) return
+    themePresets.value = result.themes
+    const active = 'theme' in result ? result.theme : result.themes.find(item => item.id === result.activeId)
+    if (active) applyThemeSettings({ ...active, activePresetId: result.activeId })
+  }).catch(error => {
+    if (userId === activeUserId.value) applyThemeSettings(committedTheme)
+    throw error
+  }).finally(() => { presetBusy.value = false })
+  saveQueue = task
+  return task
+}
+
+function loadThemePresets() { return runLibraryTask(fetchThemePresets) }
+function createPreset(name: string, sourceId?: string) {
+  const preferences = { brightness: brightness.value, style: style.value }
+  return runLibraryTask(() => createThemePreset({ name, sourceId, ...preferences }))
+}
+function renamePreset(id: string, name: string) { return runLibraryTask(() => renameThemePreset(id, name)) }
+function switchPreset(id: string) { return runLibraryTask(() => activateThemePreset(id)) }
+function removePreset(id: string) { return runLibraryTask(() => deleteThemePreset(id)) }
+
+applyPreferences()
 void loadBackground()
 
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
@@ -346,22 +405,27 @@ export function useTheme() {
   })
 
   function setBrightness(mode: BrightnessMode) {
-    brightness.value = mode
+    if (!activeUserId.value) { brightness.value = mode; return Promise.resolve() }
+    return saveThemeCustomization({ brightness: mode })
   }
 
   function setStyle(themeStyle: ThemeStyle) {
-    style.value = themeStyle
+    if (!activeUserId.value) { style.value = themeStyle; return Promise.resolve() }
+    return saveThemeCustomization({ style: themeStyle })
   }
 
   function toggleBrightness() {
-    brightness.value = isDark.value ? 'light' : 'dark'
+    return setBrightness(isDark.value ? 'light' : 'dark')
   }
 
   function toggleStyle() {
-    style.value = isComic.value ? 'ink' : 'comic'
+    return setStyle(isComic.value ? 'ink' : 'comic')
   }
 
   return {
+    themePresets, presetBusy,
+    activePresetId: computed(() => serverTheme.value.activePresetId),
+    loadThemePresets, createPreset, renamePreset, switchPreset, removePreset,
     brightness,
     style,
     isDark,

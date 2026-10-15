@@ -1,3 +1,4 @@
+import { themePresetMessages } from '../theme-preset-locales'
 import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesDe } from '../social-messages-locales'
 
@@ -2044,6 +2045,7 @@ jobTriggered: 'Job ausgelost',
 
   // Settings
   theme: {
+    presets: themePresetMessages['de'],
     customization: themeAppearanceMessages['de'],
     title: 'Design',
     saved: 'Design gespeichert',

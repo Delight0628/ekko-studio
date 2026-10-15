@@ -1,8 +1,9 @@
 # Studio theme customization
 
 Theme settings belong to the signed-in Studio user. They are independent of
-Agent profiles and remain available after switching profiles. Brightness and
-the Ink/Comic preset keep their existing device preference behavior.
+Agent profiles and remain available after switching profiles. Each named theme
+includes brightness, Ink/Comic style, appearance overrides and its wallpaper.
+Legacy device preferences are retained until the first edit or theme creation.
 
 ## Configuration and inheritance
 
@@ -56,6 +57,36 @@ reads tolerate legacy or malformed saved fields. `background_updated_at` is a
 separate image cache version: editing appearance does not download the wallpaper
 again. Existing wallpaper versions migrate from the prior record timestamp.
 
+## Named themes
+
+The Theme page includes **My themes** with create, duplicate, rename, delete and
+activate actions. Existing customization is preserved as the first theme when
+its library is first opened. A new theme starts with default customization and
+no wallpaper; duplication copies the selected theme. Edits automatically update
+the active theme. Deleting the active theme selects the oldest remaining theme;
+the last theme cannot be deleted. Names contain 1–80 characters.
+
+`user_theme_presets` stores user-owned snapshots. `user_themes` retains the
+current settings for the existing theme and login endpoints, plus
+`active_preset_id`, `brightness` and `style`. Active settings and their snapshot
+are updated in the same transaction. Creation, migration and deletion are also
+transactional. Every lookup includes the authenticated user ID.
+
+- `GET /api/theme/presets`: initialize/read the library.
+- `POST /api/theme/presets`: create and activate; optional `sourceId` duplicates.
+- `PATCH /api/theme/presets/:id`: rename.
+- `POST /api/theme/presets/:id/activate`: restore all settings.
+- `DELETE /api/theme/presets/:id`: delete and return the resulting active theme.
+
+Client library operations share the save/upload queue. Controls are disabled
+while switching, and failed operations retain the committed theme. Writes pass
+an expected `presetId`, rejecting a stale tab with HTTP 409 instead of modifying
+a different active theme. Wallpaper reads may target a specific owned preset.
+Duplicate themes share immutable image files; replacing or deleting a wallpaper
+only unlinks files without remaining references. Image versions are allocated
+across the user's themes to prevent cache collisions. Account deletion removes
+all preset records and the account's wallpaper directory.
+
 ## Special renderers and boundaries
 
 - Xterm has a **Follow Studio theme** choice and updates its palette/font size
@@ -84,7 +115,9 @@ renders into a canvas or isolated document, provide an explicit theme adapter.
 
 `theme-appearance.test.ts`, `theme-save-order.test.ts` and `user-theme.test.ts`
 cover validation, inheritance, zero values, renderer palettes, ordered saves,
-rollback, account isolation and legacy wallpaper migration. `theme.spec.ts`
+rollback, account isolation, legacy wallpaper migration, theme CRUD and shared
+wallpaper lifetimes. Theme switching waits for pending saves and restores modes
+and regional settings together. `theme.spec.ts`
 checks live CSS in the browser, persistence, reset, popup styling, brightness
 presets and mobile layout. Source-level layout tests use
 `preset-style-source.ts` to resolve optional overrides to their preset values;

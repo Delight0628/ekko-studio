@@ -1577,6 +1577,32 @@ if (usageStatsOperation) {
   usageStatsOperation.responses['403'] = { description: 'Selected Profile is not accessible to this user' }
 }
 
+// Named user themes use the same customization payload as /api/theme.
+const themeNameSchema = { type: 'string', minLength: 1, maxLength: 80 }
+openapi.paths['/api/theme/presets'].get.description = 'Lists themes owned by the authenticated Studio user. Preserves existing customization as the first theme on initial access.'
+openapi.paths['/api/theme/presets'].post.requestBody = { required: true, content: { 'application/json': { schema: {
+  type: 'object', required: ['name'], properties: {
+    name: themeNameSchema,
+    sourceId: { type: 'string', description: 'Owned theme to duplicate. Omit to create default customization without a wallpaper.' },
+    brightness: { type: 'string', enum: ['system', 'light', 'dark'], default: 'system' },
+    style: { type: 'string', enum: ['ink', 'comic'], default: 'ink' },
+  },
+} } } }
+openapi.paths['/api/theme/presets/{id}'].patch.requestBody = { required: true, content: { 'application/json': { schema: {
+  type: 'object', required: ['name'], properties: { name: themeNameSchema },
+} } } }
+openapi.paths['/api/theme/presets/{id}'].delete.description = 'Deletes an owned theme. Deleting the active theme activates the oldest remaining theme; deleting the last theme is rejected.'
+openapi.paths['/api/theme/presets/{id}/activate'].post.description = 'Activates an owned theme and restores brightness, style, appearance and wallpaper together.'
+for (const path of ['/api/theme/presets', '/api/theme/presets/{id}', '/api/theme/presets/{id}/activate']) {
+  for (const operation of Object.values(openapi.paths[path])) {
+    operation.responses['400'] = { description: 'Invalid theme settings, name, or deletion of the last theme' }
+    operation.responses['404'] = { description: 'Theme not found for the authenticated user' }
+  }
+}
+for (const operation of [openapi.paths['/api/theme'].put, openapi.paths['/api/theme/background'].post, openapi.paths['/api/theme/background'].delete]) {
+  operation.responses['409'] = { description: 'The supplied presetId is no longer the active theme. Reload before editing.' }
+}
+
 // Write output
 const outputPath = join(rootDir, 'docs/openapi.json')
 writeFileSync(outputPath, JSON.stringify(openapi, null, 2))

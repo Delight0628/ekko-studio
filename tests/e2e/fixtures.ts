@@ -35,6 +35,9 @@ interface MockSkillBundlePayload {
 }
 
 interface MockThemePayload {
+  activePresetId?: string
+  brightness?: string
+  style?: string
   appearance?: ThemeAppearance
   fontSize: number
   textColor: string | null
@@ -183,6 +186,17 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
     updatedAt: 0,
     ...options.theme,
   }
+  const themePresets: Array<MockThemePayload & { id: string; name: string }> = []
+  let nextThemeId = 1
+  function syncPreset() {
+    const index = themePresets.findIndex(item => item.id === theme.activePresetId)
+    if (index !== -1) themePresets[index] = { ...themePresets[index]!, ...structuredClone(theme) }
+  }
+  function library() { return { activeId: theme.activePresetId, themes: themePresets, theme } }
+  function settingsOf(preset: MockThemePayload & { id: string; name: string }): MockThemePayload {
+    const { id, name, ...settings } = structuredClone(preset)
+    return settings
+  }
   let providerEditor = {
     id: 'test-provider',
     label: 'Test Provider',
@@ -330,7 +344,44 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
       return
     }
 
+    if (pathname === '/api/theme/presets' || pathname.startsWith('/api/theme/presets/')) {
+      if (!themePresets.length) {
+        theme.activePresetId = 'theme-0'
+        themePresets.push({ ...structuredClone(theme), id: 'theme-0', name: '' })
+      }
+      const body = JSON.parse(request.postData() || '{}')
+      const id = pathname.split('/')[4]
+      if (pathname === '/api/theme/presets' && request.method() === 'POST') {
+        theme.brightness ||= body.brightness
+        theme.style ||= body.style
+        syncPreset()
+        const source = body.sourceId ? themePresets.find(item => item.id === body.sourceId)! : {
+          fontSize: 14, textColor: null, accentColor: null, appearance: { global: {}, regions: {} },
+          background: null, updatedAt: Date.now(), brightness: body.brightness, style: body.style,
+        }
+        const created = { ...structuredClone(source), id: `theme-${nextThemeId++}`, name: body.name }
+        created.activePresetId = created.id
+        themePresets.push(created)
+        theme = settingsOf(created)
+      } else if (request.method() === 'PATCH') {
+        themePresets.find(item => item.id === id)!.name = body.name
+      } else if (pathname.endsWith('/activate')) {
+        theme = settingsOf(themePresets.find(item => item.id === id)!)
+      } else if (request.method() === 'DELETE') {
+        themePresets.splice(themePresets.findIndex(item => item.id === id), 1)
+        if (theme.activePresetId === id) theme = settingsOf(themePresets[0]!)
+      }
+      await route.fulfill(jsonResponse(library()))
+      return
+    }
+
     if (pathname === '/api/theme/background') {
+      if (request.method() === 'POST' || request.method() === 'DELETE') {
+        theme.background = request.method() === 'DELETE' ? null : { name: 'uploaded.png', mime: 'image/png', updatedAt: Date.now() }
+        syncPreset()
+        await route.fulfill(jsonResponse(theme))
+        return
+      }
       if (request.method() === 'GET' && theme.background) {
         await route.fulfill({
           status: 200,
@@ -354,6 +405,7 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
       if (request.method() === 'PUT') {
         const patch = JSON.parse(request.postData() || '{}') as Partial<MockThemePayload>
         theme = { ...theme, ...patch, updatedAt: Date.now() }
+        syncPreset()
         await route.fulfill(jsonResponse(theme))
         return
       }

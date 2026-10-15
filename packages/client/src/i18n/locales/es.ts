@@ -1,3 +1,4 @@
+import { themePresetMessages } from '../theme-preset-locales'
 import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesEs } from '../social-messages-locales'
 
@@ -2044,6 +2045,7 @@ jobTriggered: 'Job ejecutado',
 
   // Settings
   theme: {
+    presets: themePresetMessages['es'],
     customization: themeAppearanceMessages['es'],
     title: 'Tema',
     saved: 'Tema guardado',

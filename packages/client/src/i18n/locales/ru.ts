@@ -1,3 +1,4 @@
+import { themePresetMessages } from '../theme-preset-locales'
 import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesRu } from '../social-messages-locales'
 
@@ -2311,6 +2312,7 @@ export default {
 
 
   theme: {
+    presets: themePresetMessages['ru'],
     customization: themeAppearanceMessages['ru'],
     title: 'Тема',
     saved: 'Тема сохранена',

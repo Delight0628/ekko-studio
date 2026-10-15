@@ -1,0 +1,75 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Server } from 'node:http'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+describe('theme library HTTP routes', () => {
+  let db: any
+  let server: Server
+  let root: string
+  let base: string
+
+  beforeEach(async () => {
+    vi.resetModules()
+    root = await mkdtemp(join(tmpdir(), 'studio-theme-routes-'))
+    const { DatabaseSync } = await import('node:sqlite')
+    db = new DatabaseSync(':memory:')
+    vi.doMock('../../packages/server/src/modules/studio/infrastructure/database/index', () => ({ getDb: () => db }))
+    vi.doMock('../../packages/server/src/modules/studio/public/config', () => ({ config: { appHome: root } }))
+    const { initAllHermesTables } = await import('../../packages/server/src/modules/studio/infrastructure/database/schemas')
+    initAllHermesTables()
+    const { default: Koa } = await import('koa')
+    const { bodyParser } = await import('@koa/bodyparser')
+    const { themeRoutes } = await import('../../packages/server/src/modules/studio/routes/theme')
+    const app = new Koa()
+    app.use(async (ctx, next) => {
+      const id = ctx.get('x-test-user')
+      if (id) ctx.state.user = { id: Number(id) }
+      await next()
+    })
+    app.use(bodyParser())
+    app.use(themeRoutes.routes())
+    server = await new Promise<Server>(resolve => {
+      const listening = app.listen(0, '127.0.0.1', () => resolve(listening))
+    })
+    base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  })
+
+  afterEach(async () => {
+    if (server) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+    db?.close()
+    await rm(root, { recursive: true, force: true })
+    vi.doUnmock('../../packages/server/src/modules/studio/infrastructure/database/index')
+    vi.doUnmock('../../packages/server/src/modules/studio/public/config')
+    vi.resetModules()
+  })
+
+  async function request(path: string, method = 'GET', body?: unknown, user = '1') {
+    return fetch(`${base}/api/theme${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...(user ? { 'x-test-user': user } : {}) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    })
+  }
+
+  it('authenticates operations, validates input and persists the active selection', async () => {
+    expect((await request('/presets', 'GET', undefined, '')).status).toBe(401)
+    expect((await request('/presets', 'POST', { name: '' })).status).toBe(400)
+    const original = await (await request('/presets')).json() as any
+    const createdResponse = await request('/presets', 'POST', { name: 'Night', brightness: 'dark', style: 'ink' })
+    expect(createdResponse.status).toBe(200)
+    const created = await createdResponse.json() as any
+    expect(created.theme.brightness).toBe('dark')
+    expect((await request(`/presets/${created.activeId}`, 'PATCH', { name: 'Evening' })).status).toBe(200)
+    expect((await request(`/presets/${created.activeId}/activate`, 'POST', undefined, '2')).status).toBe(404)
+    expect((await request('', 'PUT', { presetId: original.activeId, fontSize: 20 })).status).toBe(409)
+    expect((await request(`/background?presetId=${original.activeId}`, 'DELETE')).status).toBe(409)
+    expect((await request('/background?presetId=missing')).status).toBe(404)
+    expect((await request(`/presets/${original.activeId}/activate`, 'POST')).status).toBe(200)
+    expect((await (await request('')).json() as any).activePresetId).toBe(original.activeId)
+    const afterDelete = await (await request(`/presets/${created.activeId}`, 'DELETE')).json() as any
+    expect(afterDelete.themes).toHaveLength(1)
+    expect((await request(`/presets/${original.activeId}`, 'DELETE')).status).toBe(400)
+  })
+})

@@ -7,6 +7,9 @@ import {
 } from '../client'
 
 export interface UserThemeSettings {
+  activePresetId?: string
+  brightness?: 'system' | 'light' | 'dark'
+  style?: 'ink' | 'comic'
   fontSize: number
   textColor: string | null
   accentColor: string | null
@@ -39,7 +42,7 @@ export function fetchThemeSettings(): Promise<UserThemeSettings> {
 }
 
 export function updateThemeSettings(
-  patch: Partial<Pick<UserThemeSettings, 'fontSize' | 'textColor' | 'accentColor' | 'appearance'>>,
+  patch: Partial<Pick<UserThemeSettings, 'fontSize' | 'textColor' | 'accentColor' | 'appearance' | 'brightness' | 'style'>> & { presetId?: string },
 ): Promise<UserThemeSettings> {
   return request<UserThemeSettings>('/api/theme', {
     method: 'PUT',
@@ -47,17 +50,17 @@ export function updateThemeSettings(
   })
 }
 
-export function uploadThemeBackground(file: File): Promise<UserThemeSettings> {
+export function uploadThemeBackground(file: File, presetId?: string): Promise<UserThemeSettings> {
   const formData = new FormData()
   formData.append('background', file)
-  return request<UserThemeSettings>('/api/theme/background', {
+  return request<UserThemeSettings>(backgroundPath(presetId), {
     method: 'POST',
     body: formData,
   })
 }
 
-export function deleteThemeBackground(): Promise<UserThemeSettings> {
-  return request<UserThemeSettings>('/api/theme/background', {
+export function deleteThemeBackground(presetId?: string): Promise<UserThemeSettings> {
+  return request<UserThemeSettings>(backgroundPath(presetId), {
     method: 'DELETE',
   })
 }
@@ -66,6 +69,7 @@ export async function fetchThemeBackgroundBlob(
   userId: number,
   version: number,
   refresh = false,
+  presetId?: string,
 ): Promise<Blob> {
   const cacheKey = backgroundCacheKey(userId, version)
   const cache = typeof caches === 'undefined'
@@ -76,7 +80,7 @@ export async function fetchThemeBackgroundBlob(
     if (cached) return cached.blob()
   }
 
-  const response = await themeFetch(`/api/theme/background?v=${encodeURIComponent(version)}`)
+  const response = await themeFetch(`/api/theme/background?v=${encodeURIComponent(version)}${presetId ? `&presetId=${encodeURIComponent(presetId)}` : ''}`)
   if (!response.ok) throw new Error(`Failed to load theme background (${response.status})`)
   const blob = await response.blob()
   if (cache) {
@@ -105,4 +109,28 @@ export async function clearThemeBackgroundCache(userId: number): Promise<void> {
   await Promise.all(requests
     .filter(entry => new URL(entry.url).pathname.startsWith(prefix))
     .map(entry => cache.delete(entry).catch(() => false)))
+}
+
+export interface ThemePreset extends UserThemeSettings { id: string; name: string }
+export interface ThemeLibrary { activeId: string; themes: ThemePreset[] }
+export interface ThemeLibraryChange extends ThemeLibrary { theme: UserThemeSettings }
+
+function backgroundPath(presetId?: string): string {
+  return `/api/theme/background${presetId ? `?presetId=${encodeURIComponent(presetId)}` : ''}`
+}
+
+export function fetchThemePresets(): Promise<ThemeLibrary> {
+  return request('/api/theme/presets')
+}
+export function createThemePreset(input: { name: string; sourceId?: string; brightness: UserThemeSettings['brightness']; style: UserThemeSettings['style'] }): Promise<ThemeLibraryChange> {
+  return request('/api/theme/presets', { method: 'POST', body: JSON.stringify(input) })
+}
+export function renameThemePreset(id: string, name: string): Promise<ThemeLibrary> {
+  return request(`/api/theme/presets/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) })
+}
+export function activateThemePreset(id: string): Promise<ThemeLibraryChange> {
+  return request(`/api/theme/presets/${encodeURIComponent(id)}/activate`, { method: 'POST' })
+}
+export function deleteThemePreset(id: string): Promise<ThemeLibraryChange> {
+  return request(`/api/theme/presets/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }

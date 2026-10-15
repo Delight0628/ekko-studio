@@ -1,5 +1,6 @@
 import type { Context } from 'koa'
 import {
+  listThemePresets, createThemePreset, renameThemePreset, activateThemePreset, deleteThemePreset,
   getUserTheme,
   saveUserTheme,
   toUserThemePayload,
@@ -45,7 +46,7 @@ export async function updateTheme(ctx: Context) {
     ctx.body = toUserThemePayload(saveUserTheme(id, body || {}))
   } catch (error) {
     if (error instanceof UserThemeValidationError) {
-      ctx.status = 400
+      ctx.status = error.status
       ctx.body = { error: error.message }
       return
     }
@@ -105,10 +106,10 @@ export async function uploadThemeBackground(ctx: Context) {
 
     try {
       const data = part.subarray(headerEnd + 4, part.length - 2)
-      ctx.body = toUserThemePayload(await replaceThemeBackground(id, filename, data))
+      ctx.body = toUserThemePayload(await replaceThemeBackground(id, filename, data, ctx.query.presetId))
       return
     } catch (error) {
-      if (error instanceof ThemeBackgroundValidationError) {
+      if (error instanceof ThemeBackgroundValidationError || error instanceof UserThemeValidationError) {
         ctx.status = error.status
         ctx.body = { error: error.message }
         return
@@ -128,7 +129,14 @@ export async function getThemeBackground(ctx: Context) {
     ctx.body = { error: 'Unauthorized' }
     return
   }
-  const background = await readThemeBackground(id)
+  let background
+  try { background = await readThemeBackground(id, ctx.query.presetId) }
+  catch (error) {
+    if (!(error instanceof UserThemeValidationError)) throw error
+    ctx.status = error.status
+    ctx.body = { error: error.message }
+    return
+  }
   if (!background) {
     ctx.status = 404
     ctx.body = { error: 'Background image not found' }
@@ -147,5 +155,43 @@ export async function deleteThemeBackground(ctx: Context) {
     ctx.body = { error: 'Unauthorized' }
     return
   }
-  ctx.body = toUserThemePayload(await removeThemeBackground(id))
+  try { ctx.body = toUserThemePayload(await removeThemeBackground(id, ctx.query.presetId)) }
+  catch (error) {
+    if (!(error instanceof UserThemeValidationError)) throw error
+    ctx.status = error.status
+    ctx.body = { error: error.message }
+  }
+}
+
+async function presetAction(ctx: Context, operation: (id: number) => unknown) {
+  const id = userId(ctx)
+  if (!id) { ctx.status = 401; ctx.body = { error: 'Unauthorized' }; return }
+  try { ctx.body = await operation(id) }
+  catch (error) {
+    if (!(error instanceof UserThemeValidationError)) throw error
+    ctx.status = error.status
+    ctx.body = { error: error.message }
+  }
+}
+
+export async function listPresets(ctx: Context) {
+  await presetAction(ctx, id => listThemePresets(id))
+}
+
+export async function createPreset(ctx: Context) {
+  const body = ctx.request.body as { name?: unknown; sourceId?: unknown; brightness?: unknown; style?: unknown } | undefined
+  await presetAction(ctx, id => createThemePreset(id, body || {}))
+}
+
+export async function renamePreset(ctx: Context) {
+  const body = ctx.request.body as { name?: unknown } | undefined
+  await presetAction(ctx, id => renameThemePreset(id, ctx.params.id, body?.name))
+}
+
+export async function activatePreset(ctx: Context) {
+  await presetAction(ctx, id => activateThemePreset(id, ctx.params.id))
+}
+
+export async function deletePreset(ctx: Context) {
+  await presetAction(ctx, id => deleteThemePreset(id, ctx.params.id))
 }

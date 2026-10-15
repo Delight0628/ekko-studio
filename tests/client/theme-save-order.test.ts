@@ -4,6 +4,7 @@ import { flushPromises } from '@vue/test-utils'
 import type { UserThemeSettings } from '@/api/studio/theme'
 
 const api = vi.hoisted(() => ({
+  fetchThemePresets: vi.fn(), createThemePreset: vi.fn(), renameThemePreset: vi.fn(), activateThemePreset: vi.fn(), deleteThemePreset: vi.fn(),
   updateThemeSettings: vi.fn(), fetchThemeSettings: vi.fn(), fetchThemeBackgroundBlob: vi.fn(),
   clearThemeBackgroundCache: vi.fn(), deleteThemeBackground: vi.fn(), uploadThemeBackground: vi.fn(),
 }))
@@ -95,6 +96,63 @@ describe('theme preview and persistence ordering', () => {
     expect(theme.fontSize.value).toBe(20)
     expect(api.fetchThemeBackgroundBlob).toHaveBeenCalledTimes(2)
     expect(JSON.parse(localStorage.getItem('hermes_theme_customization_v1:1')!).fontSize).toBe(16)
+  })
+
+  it('waits for saves before switching and restores modes and regional settings together', async () => {
+    const pendingSave = deferred<UserThemeSettings>()
+    api.updateThemeSettings.mockReturnValueOnce(pendingSave.promise)
+    const next = { ...defaults, activePresetId: 'night', brightness: 'dark' as const, style: 'comic' as const, appearance: { global: { radius: 4 }, regions: {} } }
+    api.activateThemePreset.mockResolvedValue({ activeId: 'night', themes: [{ ...next, id: 'night', name: 'Night' }], theme: next })
+    const theme = (await import('@/composables/useTheme')).useTheme()
+    theme.activateUserTheme(1, { ...defaults, activePresetId: 'day' })
+    const saving = theme.saveThemeCustomization({ fontSize: 18 })
+    const switching = theme.switchPreset('night')
+    await flushPromises()
+    expect(api.activateThemePreset).not.toHaveBeenCalled()
+    expect(theme.presetBusy.value).toBe(true)
+    await expect(theme.saveThemeCustomization({ fontSize: 20 })).rejects.toThrow(/in progress/)
+    pendingSave.resolve({ ...defaults, activePresetId: 'day', fontSize: 18 })
+    await saving; await switching
+    expect(api.updateThemeSettings).toHaveBeenCalledWith(expect.objectContaining({ presetId: 'day', fontSize: 18 }))
+    expect(theme.activePresetId.value).toBe('night')
+    expect(theme.fontSize.value).toBe(14)
+    expect(theme.brightness.value).toBe('dark')
+    expect(theme.style.value).toBe('comic')
+    expect(document.documentElement.style.getPropertyValue('--theme-card-radius')).toBe('4px')
+    expect(localStorage.getItem('hermes_brightness')).toBe('dark')
+    expect(theme.presetBusy.value).toBe(false)
+  })
+
+  it('restores a legacy device brightness preference when its first server save fails', async () => {
+    api.updateThemeSettings.mockRejectedValueOnce(new Error('offline'))
+    localStorage.setItem('hermes_brightness', 'light')
+    const theme = (await import('@/composables/useTheme')).useTheme()
+    theme.activateUserTheme(1, defaults)
+    const saving = theme.setBrightness('dark')
+    expect(theme.isDark.value).toBe(true)
+    await expect(saving).rejects.toThrow('offline')
+    expect(theme.brightness.value).toBe('light')
+    expect(theme.isDark.value).toBe(false)
+    expect(localStorage.getItem('hermes_brightness')).toBe('light')
+  })
+
+  it('keeps the current theme if switching fails and ignores a previous account library response', async () => {
+    const theme = (await import('@/composables/useTheme')).useTheme()
+    theme.activateUserTheme(1, { ...defaults, activePresetId: 'day', fontSize: 16 })
+    api.activateThemePreset.mockRejectedValueOnce(new Error('offline'))
+    await expect(theme.switchPreset('night')).rejects.toThrow('offline')
+    expect(theme.activePresetId.value).toBe('day')
+    expect(theme.fontSize.value).toBe(16)
+    expect(theme.presetBusy.value).toBe(false)
+    const request = deferred<any>()
+    api.fetchThemePresets.mockReturnValueOnce(request.promise)
+    const loading = theme.loadThemePresets()
+    await flushPromises()
+    theme.activateUserTheme(2, { ...defaults, activePresetId: 'other' })
+    request.resolve({ activeId: 'day', themes: [{ ...defaults, id: 'day', name: 'Old account' }] })
+    await loading
+    expect(theme.activePresetId.value).toBe('other')
+    expect(theme.themePresets.value).toEqual([])
   })
 
   it('ignores a stale initial fetch after a local preview', async () => {

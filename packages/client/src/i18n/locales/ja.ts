@@ -1,3 +1,4 @@
+import { themePresetMessages } from '../theme-preset-locales'
 import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesJa } from '../social-messages-locales'
 
@@ -2044,6 +2045,7 @@ export default {
 
   // 設定
   theme: {
+    presets: themePresetMessages['ja'],
     customization: themeAppearanceMessages['ja'],
     title: 'テーマ',
     saved: 'テーマを保存しました',

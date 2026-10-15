@@ -1,3 +1,4 @@
+import { themePresetMessages } from '../theme-preset-locales'
 import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesKo } from '../social-messages-locales'
 
@@ -2044,6 +2045,7 @@ export default {
 
   // 설정
   theme: {
+    presets: themePresetMessages['ko'],
     customization: themeAppearanceMessages['ko'],
     title: '테마',
     saved: '테마가 저장되었습니다',

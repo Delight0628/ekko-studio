@@ -1,3 +1,4 @@
+import { themePresetMessages } from '../theme-preset-locales'
 import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesZhTw } from '../social-messages'
 
@@ -2487,6 +2488,7 @@ export default {
 
   // 設定
   theme: {
+    presets: themePresetMessages['zh-TW'],
     customization: themeAppearanceMessages['zh-TW'],
     title: '主題',
     saved: '主題已儲存',

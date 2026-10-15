@@ -1,3 +1,4 @@
+import { themePresetMessages } from '../theme-preset-locales'
 import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesAr } from '../social-messages-locales'
 
@@ -2539,6 +2540,7 @@ export default {
 
   // Settings
   theme: {
+    presets: themePresetMessages['ar'],
     customization: themeAppearanceMessages['ar'],
     title: 'المظهر',
     saved: 'تم حفظ المظهر',

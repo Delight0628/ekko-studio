@@ -25147,6 +25147,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "description": "The supplied presetId is no longer the active theme. Reload before editing."
           }
         },
         "requestBody": {
@@ -25185,8 +25188,21 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "description": "The supplied presetId is no longer the active theme. Reload before editing."
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "presetId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       },
       "get": {
         "tags": [
@@ -25210,7 +25226,17 @@
           "404": {
             "description": "Not found"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "presetId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       },
       "delete": {
         "tags": [
@@ -25230,8 +25256,253 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "description": "The supplied presetId is no longer the active theme. Reload before editing."
+          }
+        },
+        "parameters": [
+          {
+            "name": "presetId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/theme/presets": {
+      "get": {
+        "tags": [
+          "Theme"
+        ],
+        "summary": "Get presets",
+        "description": "Lists themes owned by the authenticated Studio user. Preserves existing customization as the first theme on initial access.",
+        "operationId": "listPresets",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid theme settings, name, or deletion of the last theme"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Theme not found for the authenticated user"
           }
         }
+      },
+      "post": {
+        "tags": [
+          "Theme"
+        ],
+        "summary": "Create presets",
+        "description": "POST /api/theme/presets",
+        "operationId": "createPreset",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid theme settings, name, or deletion of the last theme"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Theme not found for the authenticated user"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "sourceId": {
+                    "type": "string",
+                    "description": "Owned theme to duplicate. Omit to create default customization without a wallpaper."
+                  },
+                  "brightness": {
+                    "type": "string",
+                    "enum": [
+                      "system",
+                      "light",
+                      "dark"
+                    ],
+                    "default": "system"
+                  },
+                  "style": {
+                    "type": "string",
+                    "enum": [
+                      "ink",
+                      "comic"
+                    ],
+                    "default": "ink"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/theme/presets/{id}": {
+      "patch": {
+        "tags": [
+          "Theme"
+        ],
+        "summary": "Update :id",
+        "description": "PATCH /api/theme/presets/:id",
+        "operationId": "renamePreset",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid theme settings, name, or deletion of the last theme"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Theme not found for the authenticated user"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Theme"
+        ],
+        "summary": "Delete :id",
+        "description": "Deletes an owned theme. Deleting the active theme activates the oldest remaining theme; deleting the last theme is rejected.",
+        "operationId": "deletePreset",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid theme settings, name, or deletion of the last theme"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Theme not found for the authenticated user"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/theme/presets/{id}/activate": {
+      "post": {
+        "tags": [
+          "Theme"
+        ],
+        "summary": "Create activate",
+        "description": "Activates an owned theme and restores brightness, style, appearance and wallpaper together.",
+        "operationId": "activatePreset",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid theme settings, name, or deletion of the last theme"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Theme not found for the authenticated user"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/tts/proxy/audio/speech": {

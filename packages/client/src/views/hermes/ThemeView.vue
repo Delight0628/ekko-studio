@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ThemePresetManager from '@/components/layout/ThemePresetManager.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import ThemeAppearanceEditor from '@/components/layout/ThemeAppearanceEditor.vue'
 import { computed, ref } from 'vue'
@@ -36,8 +37,7 @@ const {
   accentColor,
   backgroundImageUrl,
   backgroundImageName,
-  setBrightness,
-  setStyle,
+  presetBusy,
   previewThemeSettings,
   saveThemeCustomization,
   resetCustomization,
@@ -154,7 +154,7 @@ async function handleReset() {
     <header class="page-header">
       <h2 class="header-title">{{ t('theme.title') }}</h2>
       <div class="header-actions">
-        <NButton size="small" secondary @click="handleReset">
+        <NButton size="small" secondary :disabled="presetBusy" @click="handleReset">
           {{ t('theme.reset') }}
         </NButton>
       </div>
@@ -162,6 +162,8 @@ async function handleReset() {
     </PageHeader>
 
     <div class="theme-content">
+      <ThemePresetManager />
+      <div class="theme-editors" :inert="presetBusy">
       <section class="theme-card">
         <div class="section-heading">
           <div>
@@ -180,7 +182,7 @@ async function handleReset() {
             :options="brightnessOptions"
             size="small"
             class="theme-select"
-            @update:value="value => setBrightness(value as BrightnessMode)"
+            @update:value="value => savePatch({ brightness: value as BrightnessMode })"
           />
         </div>
 
@@ -194,7 +196,7 @@ async function handleReset() {
             :options="styleOptions"
             size="small"
             class="theme-select"
-            @update:value="value => setStyle(value as ThemeStyle)"
+            @update:value="value => savePatch({ style: value as ThemeStyle })"
           />
         </div>
 
@@ -316,6 +318,7 @@ async function handleReset() {
           <button type="button">{{ t('theme.previewAction') }}</button>
         </div>
       </section>
+      </div>
     </div>
   </div>
 </template>
@@ -338,6 +341,12 @@ async function handleReset() {
   overflow-y: auto;
   display: grid;
   gap: calc(16px * var(--spacing-scale, 1));
+}
+
+.theme-editors {
+  display: grid;
+  gap: calc(16px * var(--spacing-scale, 1));
+  min-width: 0;
 }
 
 .theme-card,
