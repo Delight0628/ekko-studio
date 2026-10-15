@@ -91,6 +91,8 @@ describe('standalone TOS test workflow', () => {
     const publish = platform.steps.find((step: any) => step.env?.TDP_API_TOKEN)
     expect(publish.env.GH_TOKEN).toBe('${{ github.token }}')
     expect(publish.env.TDP_API_TOKEN).toBe('${{ secrets.TDP_API_TOKEN }}')
+    expect(publish.env.TOS_RELEASE_TAG).toBe('${{ inputs.release_tag }}')
+    expect(publish.env.TOS_SOURCE_SHA).toBe('${{ needs.tos.outputs.source_sha }}')
     expect(publish.run).toBe('node scripts/test-tos-platform.mjs release/tos')
     expect(JSON.stringify(workflow.jobs.tos)).not.toContain('secrets.')
   })
@@ -104,12 +106,48 @@ describe('standalone TOS test workflow', () => {
     }
     const githubEnv = join(root, 'github-env')
     execFileSync('bash', ['-e', '-o', 'pipefail', '-c', stage.run], {
-      cwd: source, env: { ...process.env, RUNNER_TEMP: root, GITHUB_ENV: githubEnv },
+      cwd: source, env: { ...process.env, TOS_SOURCE_DIR: '.', RUNNER_TEMP: root, GITHUB_ENV: githubEnv },
     })
     const staged = join(root, 'ekko-tos-webui')
     expect(readFileSync(githubEnv, 'utf8')).toBe(`TOS_WEBUI_DIR=${staged}\n`)
     expect(readFileSync(join(staged, 'dist/client/index.html'), 'utf8')).toBe('staged production input')
     expect(readFileSync(join(staged, 'node_modules/fixture/index.js'), 'utf8')).toBe('staged production input')
+  })
+
+  it('checks out the selected Release source separately from packaging tools', () => {
+    const steps = workflow.jobs.tos.steps
+    const checkout = steps.find((step: any) => step.name === 'Checkout release source')
+    expect(checkout.with.ref).toBe('refs/tags/${{ inputs.release_tag }}')
+    expect(checkout.with.path).toBe('.tos-release-source')
+    expect(workflow.jobs.tos.outputs.source_sha).toBe('${{ steps.source.outputs.sha }}')
+  })
+
+  it('requires a Release tag for uploading but permits plain PR builds', () => {
+    const step = workflow.jobs.tos.steps.find((step: any) => step.name === 'Validate release selection')
+    for (const env of [{ RELEASE_TAG: '', UPLOAD_TO_TDP: 'false' }, { RELEASE_TAG: 'v1.2.3', UPLOAD_TO_TDP: 'true' }]) {
+      expect(() => execFileSync('bash', ['-e', '-c', step.run], { env: { ...process.env, ...env }, stdio: 'pipe' })).not.toThrow()
+    }
+    expect(() => execFileSync('bash', ['-e', '-c', step.run], {
+      env: { ...process.env, RELEASE_TAG: '', UPLOAD_TO_TDP: 'true' }, stdio: 'pipe',
+    })).toThrow()
+  })
+
+  it('records the actual source commit and rejects mismatched Release metadata', () => {
+    const root = temporary()
+    put(root, 'package.json', JSON.stringify({ name: 'ekko-studio', version: '1.2.3' }))
+    for (const args of [
+      ['init', '-q'], ['config', 'user.name', 'TOS test'], ['config', 'user.email', 'tos-test@example.invalid'],
+      ['add', 'package.json'], ['commit', '-qm', 'fixture'],
+    ]) execFileSync('git', ['-C', root, ...args])
+    const step = workflow.jobs.tos.steps.find((step: any) => step.id === 'source')
+    const output = join(root, 'outputs')
+    const env = { ...process.env, TOS_SOURCE_DIR: root, RELEASE_TAG: 'v1.2.3', GITHUB_OUTPUT: output }
+    execFileSync('bash', ['-e', '-c', step.run], { env, stdio: 'pipe' })
+    const sha = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+    expect(readFileSync(output, 'utf8')).toBe(`sha=${sha}\n`)
+    expect(() => execFileSync('bash', ['-e', '-c', step.run], {
+      env: { ...env, RELEASE_TAG: 'v2.0.0' }, stdio: 'pipe',
+    })).toThrow()
   })
 
   it.each(['webui-release.yml', 'desktop-release.yml', 'desktop-manual-build.yml'])(

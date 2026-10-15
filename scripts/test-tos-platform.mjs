@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { readdir, readFile, writeFile } from 'node:fs/promises'
-import { resolve, join } from 'node:path'
+import { basename, resolve, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const API = 'https://api-developer.terra-master.com'
@@ -19,10 +19,10 @@ export async function testTosPlatform({
   const repo = env.GITHUB_REPOSITORY
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo || '')) throw new Error('Invalid GITHUB_REPOSITORY')
   if (!/^[0-9a-f]{40}$/.test(env.GITHUB_SHA || '')) throw new Error('Invalid GITHUB_SHA')
-  if (!/^\d+$/.test(env.GITHUB_RUN_ID || '') || !/^\d+$/.test(env.GITHUB_RUN_ATTEMPT || '')) {
-    throw new Error('GitHub run identity is required')
-  }
-  const receipt = { reviewSubmitted: false, sourceSha: env.GITHUB_SHA }
+  const releaseTag = env.TOS_RELEASE_TAG
+  if (!/^v?\d+\.\d+\.\d+$/.test(releaseTag || '')) throw new Error('TOS_RELEASE_TAG must select an existing versioned Release')
+  if (!/^[0-9a-f]{40}$/.test(env.TOS_SOURCE_SHA || '')) throw new Error('TOS_SOURCE_SHA is required')
+  const receipt = { reviewSubmitted: false, sourceSha: env.TOS_SOURCE_SHA, workflowSha: env.GITHUB_SHA, releaseTag }
   const saveReceipt = () => writeFile(join(directory, 'platform-test.json'),
     `${JSON.stringify(receipt, null, 2).replaceAll(token, '[REDACTED]').replaceAll(env.GH_TOKEN, '[REDACTED]')}\n`)
   const api = async (path, body) => {
@@ -55,6 +55,29 @@ export async function testTosPlatform({
       || checksum[0] !== hash || checksum[1] !== filename) {
       throw new Error('TOS package identity/checksum mismatch')
     }
+    if (![report.version, `v${report.version}`].includes(releaseTag)) {
+      throw new Error('Release tag does not match package version')
+    }
+    const release = JSON.parse(gh(['api', `repos/${repo}/releases/tags/${releaseTag}`]))
+    if (release.draft || release.tag_name !== releaseTag) throw new Error('Expected an existing published Release')
+    const sourceSha = gh(['api', `repos/${repo}/commits/${releaseTag}`, '--jq', '.sha'])
+    if (sourceSha !== env.TOS_SOURCE_SHA) throw new Error('Packaged source does not match the Release tag commit')
+    receipt.versionTag = report.version
+    receipt.releaseUrl = release.html_url
+    receipt.sha256 = hash
+    const assets = [deb, `${deb}.sha256`, `${deb}.verification.json`]
+    const missing = []
+    for (const path of assets) {
+      const name = basename(path)
+      const existing = release.assets.find(asset => asset.name === name)
+      if (!existing) missing.push(path)
+      else {
+        const digest = createHash('sha256').update(await readFile(path)).digest('hex')
+        if (existing.digest !== `sha256:${digest}`) {
+          throw new Error(`Release already contains different or unverifiable ${name}; refusing to overwrite`)
+        }
+      }
+    }
     const identity = await api('/whoami')
     if (!identity.token?.scopes?.includes('version:write')) {
       throw new Error('TDP token needs version:write')
@@ -79,18 +102,10 @@ export async function testTosPlatform({
     const versions = await api(`/apps/${app.id}/versions`)
     if (versions.some(version => version.status === 0)) throw new Error('Application already has a version under review')
 
-    const tag = `tos-test-${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}`
-    const releaseUrl = gh([
-      'release', 'create', tag, deb, `${deb}.sha256`, `${deb}.verification.json`,
-      '--repo', repo, '--target', env.GITHUB_SHA, '--prerelease', '--latest=false',
-      '--title', `TOS 7 test ${report.version} (${env.GITHUB_RUN_ID})`,
-      '--notes', 'Experimental TOS 7 x86_64 package. Device acceptance pending. Not submitted for App Center review.',
-    ])
-    receipt.releaseUrl = releaseUrl
-    receipt.sha256 = hash
+    if (missing.length) gh(['release', 'upload', releaseTag, ...missing, '--repo', repo])
     const task = await api(`/apps/${app.id}/versions`, {
-      tag,
-      browser_download_url: `${repoUrl}/releases/download/${tag}/${filename}`,
+      tag: report.version,
+      browser_download_url: `${repoUrl}/releases/download/${releaseTag}/${filename}`,
     })
     if (!/^[0-9a-f-]{36}$/i.test(task.task_id || '')) throw new Error('Invalid creation task UUID')
     receipt.taskId = task.task_id

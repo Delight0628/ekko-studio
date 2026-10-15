@@ -12,8 +12,11 @@ Use the independent **Test TOS 7 Deb Package** workflow
 independently so the package can be tested before merging. It also supports a
 manual `workflow_dispatch` trigger. After the workflow is available on the default
 branch, choose **Run workflow** and select a branch that includes the packager.
-The job checks out the exact dispatch commit, builds on Ubuntu 22.04, prunes
-development dependencies, verifies Sharp and packages the staged production Web UI.
+The workflow keeps packaging tools at the dispatch commit. With `release_tag`
+selected, it checks out that exact Git tag into a separate source directory;
+without a tag, PR/build-only runs use the event commit. It builds the chosen
+source on Ubuntu 22.04, prunes development dependencies, verifies Sharp and
+packages the staged production Web UI.
 
 Download **tos7-x86_64-test** from the run's **Artifacts** section; artifacts
 are retained for 7 days. The download contains:
@@ -32,20 +35,27 @@ does not run as part of the main Web UI/desktop release workflows.
 
 Configure repository Actions secret `TDP_API_TOKEN` with `version:write` and,
 for the first registration, `app:write`. Run this workflow manually with
-`upload_to_tdp` enabled. A separate job:
+`upload_to_tdp` enabled and `release_tag` set to the existing versioned Release
+(for example `v0.7.35`). Uploads require that tag; the same `0.7.35` / `v0.7.35`
+convention used by normal npm releases is accepted. A separate job:
 
 1. Verifies the package SHA-256 and beta/ID/architecture metadata.
 2. Checks the token's developer identity and registers the TOS application if
    absent. An existing registration must match the repository and architecture;
    it is never silently modified.
-3. Publishes the exact Deb, SHA-256 and verification report as a uniquely named
-   `tos-test-<run-id>-<attempt>` GitHub **prerelease**, never latest. The job uses
-   the built-in `github.token`, not a PAT, so this release does not trigger the
-   existing release/npm/Docker workflows.
+3. Verifies that the package version and built source commit match the selected
+   published Release. Attaches the Deb, SHA-256 and report to that Release using
+   the built-in `github.token`. It does not create a Release, change its title,
+   prerelease/latest flags or existing assets, or invoke the main release
+   workflows. Identical assets with matching server SHA-256 digests are reused;
+   differing or unverifiable same-name assets fail rather than being overwritten.
 4. Asks TerraMaster to download and parse that asset; polls until passed/failed,
    then compares version, architecture, size and SHA-256 with the local bytes.
+   The API version tag is the package version (`0.7.35`), and the download URL
+   points to the matching GitHub Release (`v0.7.35`). Run numbers are not versions.
 
-Download `tos-platform-test-receipt` for the release URL, application UUID, task
+Download `tos-platform-test-receipt` for the Release/version tags, built source
+and workflow commits, release URL, application UUID, task
 UUID, parser diagnostics and parsed metadata. A parser failure is a failed job,
 even when HTTP status is 200. Polling is bounded and timed-out task identity is
 preserved for inspection. Passed tasks expire after one hour.

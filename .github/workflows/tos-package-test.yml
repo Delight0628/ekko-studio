@@ -4,9 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       upload_to_tdp:
-        description: "Publish a test prerelease and validate it on TerraMaster (no review submission)"
+        description: "Attach TOS assets to the selected Release and validate on TerraMaster (no review)"
         type: boolean
         default: false
+      release_tag:
+        description: "Existing Release tag to build (required for upload, e.g. v0.7.35)"
+        type: string
+        default: ""
   pull_request:
     paths:
       - ".github/workflows/tos-package-test.yml"
@@ -28,6 +32,10 @@ jobs:
     name: TOS 7 x86_64 test package
     runs-on: ubuntu-22.04
     timeout-minutes: 30
+    env:
+      TOS_SOURCE_DIR: ${{ inputs.release_tag != '' && github.event_name == 'workflow_dispatch' && '.tos-release-source' || '.' }}
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
 
     steps:
       - name: Checkout selected revision
@@ -35,31 +43,71 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
+      - name: Validate release selection
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          UPLOAD_TO_TDP: ${{ inputs.upload_to_tdp }}
+        run: |
+          node <<'NODE'
+          const tag = process.env.RELEASE_TAG
+          if (process.env.UPLOAD_TO_TDP === 'true' && !tag) {
+            throw new Error('release_tag is required when uploading to TerraMaster')
+          }
+          if (tag && !/^v?\d+\.\d+\.\d+$/.test(tag)) throw new Error('Expected a release tag such as v0.7.35')
+          NODE
+
+      - name: Checkout release source
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+          path: .tos-release-source
+
+      - name: Verify package version and record source
+        id: source
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          node <<'NODE'
+          const { readFileSync, appendFileSync } = require('node:fs')
+          const { execFileSync } = require('node:child_process')
+          const { join } = require('node:path')
+          const directory = process.env.TOS_SOURCE_DIR
+          const { name, version } = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
+          if (name !== 'ekko-studio') throw new Error('Expected ekko-studio source')
+          const tag = process.env.RELEASE_TAG
+          if (tag && ![version, `v${version}`].includes(tag)) throw new Error('Release tag does not match package version')
+          const sha = execFileSync('git', ['-C', directory, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+          appendFileSync(process.env.GITHUB_OUTPUT, `sha=${sha}\n`)
+          NODE
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: ${{ env.TOS_SOURCE_DIR }}/package-lock.json
 
       - name: Install dependencies
         run: |
+          cd "$TOS_SOURCE_DIR"
           npm ci --ignore-scripts
           npm rebuild node-pty
 
       - name: Build Web UI
-        run: npm run build
+        run: cd "$TOS_SOURCE_DIR" && npm run build
 
       - name: Keep production dependencies only
-        run: npm prune --omit=dev --no-audit --no-fund
+        run: cd "$TOS_SOURCE_DIR" && npm prune --omit=dev --no-audit --no-fund
 
       - name: Verify image processing runtime
-        run: npm run verify:sharp-runtime
+        run: cd "$TOS_SOURCE_DIR" && npm run verify:sharp-runtime
 
       - name: Stage production Web UI
         shell: bash
         run: |
           set -euo pipefail
+          cd "$TOS_SOURCE_DIR"
           tos_stage="$RUNNER_TEMP/ekko-tos-webui"
           mkdir -p "$tos_stage"
           cp package.json package-lock.json "$tos_stage/"
@@ -105,9 +153,11 @@ jobs:
           path: release/tos
       - name: Publish test assets and validate on TerraMaster
         env:
-          # The built-in token prevents release events triggering other workflows.
+          # Only attach assets; do not create/edit the Release or trigger main workflows.
           GH_TOKEN: ${{ github.token }}
           TDP_API_TOKEN: ${{ secrets.TDP_API_TOKEN }}
+          TOS_RELEASE_TAG: ${{ inputs.release_tag }}
+          TOS_SOURCE_SHA: ${{ needs.tos.outputs.source_sha }}
         run: node scripts/test-tos-platform.mjs release/tos
       - name: Upload platform test receipt
         if: always()

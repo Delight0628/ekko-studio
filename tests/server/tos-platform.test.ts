@@ -10,7 +10,10 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })))
 })
 
-async function fixture({ status = 2, mismatch = false, existing = true, appMismatch = false, reviewing = false, httpError = false } = {}) {
+async function fixture({
+  status = 2, mismatch = false, existing = true, appMismatch = false, reviewing = false, httpError = false,
+  sourceMismatch = false, releaseDraft = false, assetConflict = false, existingAssets = false,
+} = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'tos-platform-'))
   directories.push(directory)
   const filename = 'com.hermeswebui.studio_1.2.3_x86_64.deb'
@@ -29,8 +32,27 @@ async function fixture({ status = 2, mismatch = false, existing = true, appMisma
     TDP_API_TOKEN: 'private-tdp-fixture', GH_TOKEN: 'private-github-fixture',
     GITHUB_REPOSITORY: 'example/studio', GITHUB_SHA: 'a'.repeat(40),
     GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1',
+    TOS_RELEASE_TAG: 'v1.2.3', TOS_SOURCE_SHA: 'b'.repeat(40),
   }
-  const gh = vi.fn((_args: string[]) => 'https://github.com/example/studio/releases/tag/tos-test-123-1')
+  const assets = []
+  for (const name of [filename, `${filename}.sha256`, `${filename}.verification.json`]) {
+    if (existingAssets || assetConflict) {
+      assets.push({
+        name, digest: assetConflict ? 'sha256:wrong' : `sha256:${createHash('sha256').update(await readFile(join(directory, name))).digest('hex')}`,
+      })
+    }
+  }
+  const gh = vi.fn((args: string[]) => {
+    if (args[0] === 'api' && args[1].includes('/releases/tags/')) {
+      return JSON.stringify({
+        tag_name: env.TOS_RELEASE_TAG, draft: releaseDraft, assets,
+        html_url: `https://github.com/example/studio/releases/tag/${env.TOS_RELEASE_TAG}`,
+      })
+    }
+    if (args[0] === 'api' && args[1].includes('/commits/')) return (sourceMismatch ? 'c' : 'b').repeat(40)
+    if (args[0] === 'release' && args[1] === 'upload') return ''
+    throw new Error(`Unexpected GitHub mutation: ${args.join(' ')}`)
+  })
   const request = vi.fn(async (url: string, options: any) => {
     expect(options.headers.Authorization).toBe(`Bearer ${env.TDP_API_TOKEN}`)
     expect(options.redirect).toBe('error')
@@ -61,11 +83,17 @@ describe('TOS platform parsing integration', () => {
     expect(result.parsed).not.toHaveProperty('icon')
     const calls = f.request.mock.calls
     expect(calls.some(([url]) => /confirm|withdraw|cancel/.test(url))).toBe(false)
-    const release = f.gh.mock.calls[0][0] as unknown as string[]
-    expect(release).toContain('--prerelease')
-    expect(release).toContain('--latest=false')
-    expect(release).toContain(f.env.GITHUB_SHA)
-    expect(JSON.stringify(release)).not.toContain(f.env.TDP_API_TOKEN)
+    const upload = f.gh.mock.calls.find(([args]) => args[0] === 'release')![0]
+    expect(upload.slice(0, 3)).toEqual(['release', 'upload', 'v1.2.3'])
+    expect(upload).not.toContain('--clobber')
+    expect(JSON.stringify(upload)).not.toContain(f.env.TDP_API_TOKEN)
+    const creation = calls.find(([url, options]) => url.endsWith('/versions') && options.method === 'POST')!
+    expect(JSON.parse(creation[1].body)).toEqual({
+      tag: '1.2.3',
+      browser_download_url: 'https://github.com/example/studio/releases/download/v1.2.3/com.hermeswebui.studio_1.2.3_x86_64.deb',
+    })
+    expect(result.sourceSha).toBe(f.env.TOS_SOURCE_SHA)
+    expect(result.versionTag).toBe('1.2.3')
     const receipt = await readFile(join(f.directory, 'platform-test.json'), 'utf8')
     expect(receipt).not.toContain(f.env.TDP_API_TOKEN)
     expect(receipt).not.toContain(f.env.GH_TOKEN)
@@ -76,7 +104,38 @@ describe('TOS platform parsing integration', () => {
     await writeFile(join(f.directory, f.filename), 'tampered')
     await expect(testTosPlatform(f)).rejects.toThrow('checksum mismatch')
     expect(f.request).not.toHaveBeenCalled()
+    expect(f.gh.mock.calls.some(([args]) => args[0] === 'release')).toBe(false)
+  })
+
+  it.each(['1.2.3', 'v1.2.3'])('accepts the same version/tag convention as normal releases: %s', async tag => {
+    const f = await fixture()
+    f.env.TOS_RELEASE_TAG = tag
+    expect((await testTosPlatform(f)).versionTag).toBe('1.2.3')
+  })
+
+  it('rejects an unrelated Release version before any remote calls', async () => {
+    const f = await fixture()
+    f.env.TOS_RELEASE_TAG = 'v9.9.9'
+    await expect(testTosPlatform(f)).rejects.toThrow('does not match package version')
     expect(f.gh).not.toHaveBeenCalled()
+    expect(f.request).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { sourceMismatch: true, message: 'does not match the Release tag commit' },
+    { releaseDraft: true, message: 'published Release' },
+    { assetConflict: true, message: 'refusing to overwrite' },
+  ])('refuses an invalid release target: $message', async ({ message, ...options }) => {
+    const f = await fixture(options)
+    await expect(testTosPlatform(f)).rejects.toThrow(message)
+    expect(f.request).not.toHaveBeenCalled()
+    expect(f.gh.mock.calls.some(([args]) => args[0] === 'release')).toBe(false)
+  })
+
+  it('reuses identical assets without overwriting the Release', async () => {
+    const f = await fixture({ existingAssets: true })
+    expect((await testTosPlatform(f)).validationPassed).toBe(true)
+    expect(f.gh.mock.calls.some(([args]) => args[0] === 'release')).toBe(false)
   })
 
   it.each([
@@ -85,7 +144,7 @@ describe('TOS platform parsing integration', () => {
   ])('refuses conflicting registration/review: $message', async ({ message, ...options }) => {
     const f = await fixture(options)
     await expect(testTosPlatform(f)).rejects.toThrow(message)
-    expect(f.gh).not.toHaveBeenCalled()
+    expect(f.gh.mock.calls.some(([args]) => args[0] === 'release')).toBe(false)
   })
 
   it('treats HTTP 200 with failed task state as failure and preserves diagnostics', async () => {
