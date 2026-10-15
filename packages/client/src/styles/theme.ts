@@ -268,7 +268,7 @@ export function getThemeOverrides(
       },
     } : {}),
   }
-  const resolved = resolveAppearance(customization || { fontSize: 14, textColor: null, accentColor: null }, isDark)
+  const resolved = resolveAppearance(customization || { fontSize: 14, textColor: null, accentColor: null }, isDark, isComic)
   const global = resolved.appearance.global
   if (custom?.textPrimary || custom?.accentPrimary) {
     result.Menu = {
@@ -297,7 +297,9 @@ export function getThemeOverrides(
     } : {}),
     ...(global.secondaryTextColor ? { textColor2: global.secondaryTextColor } : {}),
     ...(global.mutedTextColor ? { textColor3: global.mutedTextColor, placeholderColor: global.mutedTextColor } : {}),
-    ...(global.borderColor ? { borderColor: global.borderColor, dividerColor: global.borderColor } : {}),
+    ...(global.borderColor || global.opacity !== undefined ? {
+      borderColor: resolved.variables['--theme-global-border'], dividerColor: resolved.variables['--theme-global-border'],
+    } : {}),
     ...(global.radius !== undefined ? { borderRadius: `${global.radius}px`, borderRadiusSmall: `${global.radius * 0.75}px` } : {}),
     ...(global.fontFamily ? { fontFamily: THEME_FONTS[global.fontFamily] } : {}),
     ...(global.controlHeight !== undefined ? {
@@ -333,12 +335,26 @@ export function getThemeOverrides(
       borderColorPopover: cardSurface.borderColor,
     } : {}),
   }
+  // Naive's default table theme composites divider colors into opaque colors.
+  // Supply the resolved alpha directly for table grids and overlay dividers.
+  if (cardSurface.borderColor) result.DataTable = { ...result.DataTable,
+    borderColor: cardSurface.borderColor, borderColorModal: cardSurface.borderColor,
+    borderColorPopover: cardSurface.borderColor, actionDividerColor: cardSurface.borderColor,
+  }
   result.Modal = { ...result.Modal, ...surface('overlay') }
   result.Drawer = { ...result.Drawer, ...surface('overlay') }
   result.Popover = { ...result.Popover, ...surface('overlay') }
   result.Dropdown = { ...result.Dropdown, ...surface('overlay') }
   result.Dialog = { ...result.Dialog, ...surface('overlay') }
   result.Notification = { ...result.Notification, ...surface('overlay') }
+  const overlayBorder = resolved.variables['--theme-overlay-border']
+  if (overlayBorder) {
+    const border = `${global.borderWidth ?? 1}px solid ${overlayBorder}`
+    result.Drawer = { ...result.Drawer, headerBorderBottom: border, footerBorderTop: border }
+    result.Popover = { ...result.Popover, dividerColor: overlayBorder }
+    result.Dropdown = { ...result.Dropdown, dividerColor: overlayBorder }
+    result.Dialog = { ...result.Dialog, border }
+  }
   result.Input = { ...result.Input, ...surface('input'),
     ...(resolved.variables['--theme-input-bg'] ? { colorFocus: resolved.variables['--theme-input-bg'] } : {}),
     ...(global.mutedTextColor ? { placeholderColor: global.mutedTextColor } : {}),
@@ -351,9 +367,9 @@ export function getThemeOverrides(
   }
   if (global.borderWidth !== undefined || resolved.variables['--theme-input-border']) {
     const width = global.borderWidth ?? 1
-    const border = `${width}px solid ${resolved.regions.input.borderColor}`
+    const border = `${width}px solid ${resolved.variables['--theme-input-border'] || resolved.regions.input.borderColor}`
     const activeBorder = `${width}px solid ${resolved.accent}`
-    result.Input = { ...result.Input, border, borderHover: border, borderFocus: activeBorder, groupLabelBorder: border }
+    result.Input = { ...result.Input, border, borderHover: border, borderDisabled: border, borderFocus: activeBorder, groupLabelBorder: border }
     result.InternalSelection = { ...result.InternalSelection, border, borderHover: border, borderActive: activeBorder, borderFocus: activeBorder }
   }
   if (global.radius !== undefined) result.Tag = { ...result.Tag, borderRadius: `${global.radius * 0.75}px` }

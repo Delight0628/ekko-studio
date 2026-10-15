@@ -12,6 +12,17 @@ $regions: (
 );
 
 @each $region, $selectors in $regions {
+  $border-scopes: $selectors;
+  @if $region == chrome {
+    // Chrome controls are siblings of the shared background layer.
+    $border-scopes: '#{$selectors}, .studio-navigation-rail, .studio-page-header';
+  }
+  // Ordinary child borders/dividers follow their surface. A nested region starts
+  // from its own resolved opacity, never the parent's already faded color.
+  html.theme-customized :where(#{$border-scopes}) {
+    --border-color: var(--theme-#{$region}-border, var(--theme-global-border));
+    --border-light: var(--theme-#{$region}-border-light, var(--theme-global-border-light));
+  }
   html.theme-customized.theme-#{$region}-bg :is(#{$selectors}) {
     background: var(--theme-#{$region}-bg);
   }
@@ -23,7 +34,8 @@ $regions: (
     --radius-component: var(--theme-#{$region}-radius);
     border-radius: var(--theme-#{$region}-radius);
   }
-  html.theme-customized.theme-#{$region}-border :is(#{$selectors}) {
+  // Keep specificity below component active/focus/error rules.
+  html.theme-customized.theme-#{$region}-border :where(#{$selectors}) {
     border-color: var(--theme-#{$region}-border);
   }
   html.theme-customized.theme-#{$region}-shadow :is(#{$selectors}) {
@@ -81,6 +93,11 @@ html.theme-customized {
   .n-input__border, .n-input__state-border, .n-base-selection__border, .n-base-selection__state-border,
   .n-button__border, .n-button__state-border { border-width: var(--border-width, 1px); }
   .markdown-body a { color: var(--link-color, var(--accent-primary)); }
+  // These components own inline theme variables instead of inheriting borders.
+  .n-divider { --n-color: var(--border-color) !important; }
+  .n-card { --n-border-color: var(--border-color) !important; }
+  .n-tabs { --n-tab-border-color: var(--border-color) !important; }
+  .n-button--default-type > .n-button__border { border-color: var(--border-color); }
 }
 
 // Size the conversation column, not nested messages inside tool/run cards.

@@ -123,7 +123,7 @@ const customization = computed<ThemeCustomization>(() => ({
   accentColor: serverTheme.value.accentColor,
   appearance: serverTheme.value.appearance,
 }))
-const resolvedAppearance = computed(() => resolveAppearance(customization.value, isDark.value))
+const resolvedAppearance = computed(() => resolveAppearance(customization.value, isDark.value, isComic.value))
 
 function resolveDark(mode: BrightnessMode): boolean {
   if (mode === 'system') {

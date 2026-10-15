@@ -53,7 +53,7 @@ const settingsStore = useSettingsStore()
   border: var(--border-width, 1px) solid $border-light;
   border-radius: var(--radius-component, 10px);
   color: $text-primary;
-  :global(.dark) & { background: #1f1f1f; border-color: rgba(255, 255, 255, 0.14); color: #f2f2f2; }
+  :global(.dark) & { background: #1f1f1f; border-color: var(--theme-card-border, rgba(255, 255, 255, 0.14)); color: #f2f2f2; }
 }
 .run-usage-metric { display: flex; min-width: 0; grid-column: span 3; flex-direction: column; gap: calc(5px * var(--spacing-scale, 1)); }
 .run-usage-label { color: $text-muted; font-size: calc(var(--font-size-base, 14px) * 11 / 14); line-height: var(--line-height, calc(var(--font-size-base, 14px) * 16 / 14)); overflow-wrap: anywhere; }

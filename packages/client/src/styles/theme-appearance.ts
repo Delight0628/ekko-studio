@@ -10,7 +10,7 @@ export const THEME_FONTS = {
   mono: '"JetBrains Mono", "Fira Code", Consolas, monospace',
 }
 
-export function resolveAppearance(customization: ThemeCustomization, dark: boolean) {
+export function resolveAppearance(customization: ThemeCustomization, dark: boolean, comic = false) {
   const appearance = normalizeThemeAppearance(customization.appearance)
   const global = appearance.global
   const custom = resolveThemeCustomization(customization, dark)
@@ -20,8 +20,13 @@ export function resolveAppearance(customization: ThemeCustomization, dark: boole
   const secondary = global.secondaryTextColor || custom.textSecondary || (dark ? '#a0a0a0' : '#666666')
   const muted = global.mutedTextColor || custom.textMuted || (dark ? '#888888' : '#999999')
   const accent = custom.accentPrimary || (dark ? '#e0e0e0' : '#333333')
-  const border = global.borderColor || (dark ? '#3a3a3a' : '#e0e0e0')
+  const border = global.borderColor || (comic ? dark ? '#666666' : '#1a1a1a' : dark ? '#3a3a3a' : '#e0e0e0')
+  const borderLight = global.borderColor ? mixHex(border, background, 0.6) : comic ? '#555555' : dark ? '#333333' : '#ebebeb'
   const variables: Record<string, string> = {}
+  // Keep unscaled colors separate: regional opacity replaces global opacity,
+  // rather than multiplying an already translucent inherited border again.
+  variables['--theme-global-border'] = withOpacity(border, global.opacity)
+  variables['--theme-global-border-light'] = withOpacity(borderLight, global.opacity)
   const color = (name: string, value: string) => {
     variables[name] = value
     variables[`${name}-rgb`] = toRgbComponents(value)
@@ -34,10 +39,10 @@ export function resolveAppearance(customization: ThemeCustomization, dark: boole
   }
   if (global.secondaryTextColor) color('--text-secondary', secondary)
   if (global.mutedTextColor) color('--text-muted', muted)
-  if (global.borderColor) {
-    color('--border-color', border)
-    variables['--border-light'] = mixHex(border, background, 0.6)
-    variables['--input-border-color'] = border
+  if (global.borderColor || global.opacity !== undefined) {
+    variables['--border-color'] = variables['--theme-global-border']
+    variables['--border-light'] = variables['--theme-global-border-light']
+    variables['--input-border-color'] = variables['--theme-global-border']
   }
   variables['--link-color'] = global.linkColor || accent
   if (global.fontFamily) variables['--font-ui'] = THEME_FONTS[global.fontFamily]
@@ -69,11 +74,18 @@ export function resolveAppearance(customization: ThemeCustomization, dark: boole
     }
     if (values.blur !== undefined) variables[`${prefix}-filter`] = `blur(${values.blur}px) saturate(1.1)`
     if (values.radius !== undefined) variables[`${prefix}-radius`] = `${values.radius}px`
-    if (values.borderColor) variables[`${prefix}-border`] = values.borderColor
+    if (values.borderColor || values.opacity !== undefined) {
+      variables[`${prefix}-border`] = withOpacity(values.borderColor || border, values.opacity)
+      variables[`${prefix}-border-light`] = withOpacity(values.borderColor ? mixHex(values.borderColor, surfaceColor, 0.6) : borderLight, values.opacity)
+    }
     if (values.shadow !== undefined) variables[`${prefix}-shadow`] = shadow(values.shadow)
     return [region, { ...values, backgroundColor: surfaceColor, borderColor: values.borderColor || border }]
   })) as Record<ThemeRegion, typeof global & { backgroundColor: string; borderColor: string }>
   return { appearance, variables, regions, background, card, text, secondary, muted, accent, border }
+}
+
+function withOpacity(color: string, opacity?: number): string {
+  return opacity === undefined || opacity === 1 ? color : `rgba(${toRgbComponents(color)}, ${opacity})`
 }
 
 function shadow(strength: number): string {

@@ -11,6 +11,49 @@ describe('appearance inheritance and native adapters', () => {
     const theme = resolveAppearance(defaults, false)
     expect(theme.variables['--theme-card-bg']).toBeUndefined()
     expect(theme.variables['--radius-component']).toBeUndefined()
+    expect(theme.variables['--border-color']).toBeUndefined()
+    expect(theme.variables['--theme-card-border']).toBeUndefined()
+  })
+
+  it('resolves border alpha once, using local opacity before global opacity', () => {
+    const appearance = normalizeThemeAppearance({
+      global: { borderColor: '#6688aa', opacity: 0.2 },
+      regions: { card: { opacity: 0.8 }, input: { opacity: 0 }, overlay: { opacity: 1, borderColor: '#112233' } },
+    })
+    const theme = resolveAppearance({ ...defaults, appearance }, false)
+    expect(theme.variables).toMatchObject({
+      '--border-color': 'rgba(102, 136, 170, 0.2)',
+      '--theme-card-border': 'rgba(102, 136, 170, 0.8)',
+      '--theme-input-border': 'rgba(102, 136, 170, 0)',
+      '--theme-overlay-border': '#112233',
+    })
+    delete appearance.regions.card?.opacity
+    expect(resolveAppearance({ ...defaults, appearance }, false).variables['--theme-card-border']).toBe('rgba(102, 136, 170, 0.2)')
+    delete appearance.global.opacity
+    expect(resolveAppearance({ ...defaults, appearance }, false).variables['--theme-card-border']).toBe('#6688aa')
+  })
+
+  it.each([
+    [false, false, '224, 224, 224'], [true, false, '58, 58, 58'],
+    [false, true, '26, 26, 26'], [true, true, '102, 102, 102'],
+  ] as const)('keeps preset border hues with dark=%s comic=%s', (dark, comic, rgb) => {
+    const theme = resolveAppearance({ ...defaults, appearance: { global: { opacity: 0.4 }, regions: {} } }, dark, comic)
+    expect(theme.variables['--border-color']).toBe(`rgba(${rgb}, 0.4)`)
+  })
+
+  it('fades component grids and overlay dividers while keeping input focus visible', () => {
+    const overrides = getThemeOverrides(false, false, { ...defaults, accentColor: '#ff8833', appearance: {
+      global: { opacity: 0.2, borderColor: '#6688aa' },
+      regions: { card: { opacity: 0.8 }, input: { opacity: 0 }, overlay: { opacity: 0.4 } },
+    } })
+    expect(overrides.common?.dividerColor).toBe('rgba(102, 136, 170, 0.2)')
+    expect(overrides.DataTable?.borderColor).toBe('rgba(102, 136, 170, 0.8)')
+    expect(overrides.Descriptions?.borderColor).toBe('rgba(102, 136, 170, 0.8)')
+    expect(overrides.Drawer?.headerBorderBottom).toBe('1px solid rgba(102, 136, 170, 0.4)')
+    expect(overrides.Popover?.dividerColor).toBe('rgba(102, 136, 170, 0.4)')
+    expect(overrides.Input?.border).toBe('1px solid rgba(102, 136, 170, 0)')
+    expect(overrides.Input?.borderFocus).toBe('1px solid #ff8833')
+    expect(overrides.Input?.borderError).toBeUndefined()
   })
 
   it('allows zero opacity, blur, radius and shadow; local values override global values', () => {
@@ -58,7 +101,7 @@ describe('appearance inheritance and native adapters', () => {
       const overrides = getThemeOverrides(dark, false, customization)
       expect(overrides.Descriptions).toMatchObject({
         tdColor: 'rgba(51, 102, 153, 0.25)', tdColorModal: 'rgba(51, 102, 153, 0.25)', tdColorPopover: 'rgba(51, 102, 153, 0.25)',
-        thColor: 'rgba(var(--text-primary-rgb), 0.04)', borderColor: '#6688aa', borderRadius: '16px',
+        thColor: 'rgba(var(--text-primary-rgb), 0.04)', borderColor: 'rgba(102, 136, 170, 0.25)', borderRadius: '16px',
       })
       expect(getThemeOverrides(dark, false, defaults).Descriptions?.tdColor).toBeUndefined()
     }

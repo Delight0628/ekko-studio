@@ -34,6 +34,10 @@ Global settings additionally control secondary/muted/link colors, background
 gradient and image fit/position/dimming, border width, control height, spacing,
 chat width, font family, line height and letter spacing. Background opacity
 changes the surface color's alpha, never the opacity of its text or children.
+Ordinary borders and dividers use the same resolved opacity as their region,
+including custom border colors and component-owned table/drawer dividers.
+Nested regions resolve their own opacity instead of multiplying their parent's
+alpha. Active, focus, warning and error indicators retain their state styling.
 Nested translucent surfaces still composite according to normal CSS rules.
 The navigation rail, top bar and outer gutters share one continuous chrome
 background and blur layer. Their controls stay transparent: independently

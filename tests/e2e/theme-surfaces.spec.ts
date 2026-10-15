@@ -74,7 +74,7 @@ for (const brightness of ['light', 'dark']) {
           await expect(surface).toHaveCSS('background-color', `rgba(140, 170, 204, ${opacity})`)
           await expect(surface).toHaveCSS('backdrop-filter', 'blur(12px) saturate(1.1)')
           await expect(surface).toHaveCSS('border-radius', '6px')
-          await expect(surface).toHaveCSS('border-right-color', 'rgb(102, 136, 170)')
+          await expect(surface).toHaveCSS('border-right-color', `rgba(102, 136, 170, ${opacity})`)
           await expect(surface).toHaveCSS('box-shadow', 'none')
         }
         // A content tint beneath the avatar rail must not change its visible color.
@@ -274,11 +274,14 @@ for (const brightness of ['light', 'dark']) {
       await expect(surface).toHaveCSS('background-color', 'rgba(51, 102, 153, 0.25)')
       await expect(surface).toHaveCSS('backdrop-filter', 'blur(12px) saturate(1.1)')
       await expect(surface).toHaveCSS('border-radius', '16px')
-      await expect(surface).toHaveCSS('border-top-color', 'rgb(102, 136, 170)')
+      await expect(surface).toHaveCSS('border-top-color', 'rgba(102, 136, 170, 0.25)')
     }
     const tint = brightness === 'dark' ? 'rgba(224, 224, 224, 0.04)' : 'rgba(26, 26, 26, 0.04)'
     await expect(table.locator('th').first()).toHaveCSS('background-color', tint)
     await expect(table.locator('td').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(table.locator('.n-descriptions-table-content').first()).toHaveCSS('border-bottom-width', '1px')
+    await expect(table.locator('.n-descriptions-table-content').first()).toHaveCSS('border-bottom-color', 'rgba(102, 136, 170, 0.25)')
+    await expect(page.locator('.log-output-header')).toHaveCSS('border-bottom-color', 'rgba(102, 136, 170, 0.25)')
     await expect(page.locator('.log-title').first()).toHaveCSS('background-color', tint)
     await expect(page.locator('.log-box pre').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await page.screenshot({ path: `/tmp/studio-version-preview-theme-${brightness}.png`, fullPage: true })
