@@ -116,6 +116,7 @@ export function verifyTosDeb(deb) {
     for (const file of ['bin/ekko-studio', `init.d/${config.system_id}.service`,
       `nginx/${config.id}.conf`, config.icon.replace(/^\//, ''), `${config.id}.lang`,
       'webui.bz2', 'depends/bin/node', 'depends/bin/npm', 'depends/bin/npx',
+      'depends/webui/bin/ekko-studio-mcp.mjs',
       'depends/webui/dist/server/index.js', 'depends/webui/dist/client/index.html']) {
       requireFile(join(app, file))
     }
@@ -131,6 +132,10 @@ export function verifyTosDeb(deb) {
     if (!service.includes(`User=${config.user}\n`) || !service.includes('NoNewPrivileges=true\n')
       || !service.includes('ProtectSystem=strict\n') || !service.includes('BIND_HOST=0.0.0.0\n')) {
       throw new Error('Invalid TOS service configuration')
+    }
+    if (!service.includes(`HERMES_WEB_UI_MCP_BIN=/usr/local/${config.id}/depends/webui/bin/ekko-studio-mcp.mjs\n`)
+      || !service.includes(`HERMES_AGENT_NODE=/usr/local/${config.id}/depends/bin/node\n`)) {
+      throw new Error('TOS managed MCP must use the packaged script and Node runtime')
     }
     const icon = readFileSync(join(app, config.icon.replace(/^\//, '')), 'utf8')
     if (!/^\s*<svg\b/.test(icon) || /<image\b/.test(icon)) throw new Error('TOS icon must be an SVG vector')
@@ -157,7 +162,7 @@ export function packTosDeb({ webuiDir, nodeRoot = dirname(dirname(process.execPa
   outputDir = resolve(outputDir)
   const settings = JSON.parse(readFileSync(join(templates, 'config.json'), 'utf8'))
   if (!/^[a-z][a-z0-9-]{0,49}$/.test(settings.id)) throw new Error('TOS id must contain lowercase letters, digits and hyphens only')
-  for (const file of ['package.json', 'bin/hermes-web-ui.mjs', 'dist/server/index.js', 'dist/client/index.html', 'node_modules']) {
+  for (const file of ['package.json', 'bin/hermes-web-ui.mjs', 'bin/ekko-studio-mcp.mjs', 'dist/server/index.js', 'dist/client/index.html', 'node_modules']) {
     requireFile(join(webuiDir, file))
   }
   const pkg = JSON.parse(readFileSync(join(webuiDir, 'package.json'), 'utf8'))
@@ -219,7 +224,7 @@ Architecture: amd64
 Section: web
 Priority: optional
 Maintainer: EKKOLearnAI <noreply@hermes-studio.local>
-Depends: libc6 (>= 2.35), libstdc++6, libgcc-s1, zlib1g, systemd, bash, ca-certificates, git, python3 (>= 3.10), python3-venv
+Depends: libc6 (>= 2.35), libstdc++6, libgcc-s1, zlib1g, systemd, bash, bzip2, ca-certificates, git, python3 (>= 3.10), python3-venv
 Description: Ekko Studio Web service for TerraMaster TOS 7
  Multi-agent chat, coding and visual workflows in your browser.
  Includes a private Node.js runtime. TOS device validation is required.

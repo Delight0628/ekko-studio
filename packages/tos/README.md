@@ -89,6 +89,8 @@ this is part of device acceptance. No Hermes Python runtime, model credentials
 or coding-agent CLI is preinstalled by this target. Ekko Agent is bundled in
 the Web UI. Other agents need their normal setup under the dedicated account.
 The system's Node.js 18 is not used.
+Managed Studio MCP integrations explicitly use the bundled MCP entry script and
+private Node runtime, independent of the service working directory.
 Update this installation through the TOS App Center; the unit disables npm
 update notifications so the managed installation is not replaced by a separate
 per-user npm installation.

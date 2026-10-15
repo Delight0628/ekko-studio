@@ -4,12 +4,15 @@ import { once } from 'node:events'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
 import { checkTosAbi, packTosDeb, TOS_LANGUAGES, verifyTosDeb } from '../../scripts/pack-tos-deb.mjs'
 
 const directories: string[] = []
-afterEach(() => directories.splice(0).forEach(path => rmSync(path, { recursive: true, force: true })))
+afterEach(() => {
+  vi.unstubAllEnvs()
+  directories.splice(0).forEach(path => rmSync(path, { recursive: true, force: true }))
+})
 
 function temporary() {
   const path = mkdtempSync(join(tmpdir(), 'studio-tos-test-'))
@@ -47,6 +50,7 @@ describe.runIf(process.platform === 'linux' && process.arch === 'x64')('TOS Debi
     const source = join(root, 'source')
     put(source, 'package.json', JSON.stringify({ name: 'ekko-studio', version: '99.0.0' }))
     put(source, 'bin/hermes-web-ui.mjs', '/* CLI fixture */')
+    put(source, 'bin/ekko-studio-mcp.mjs', '/* MCP entry fixture */')
     put(source, 'dist/client/index.html', '<html>Ekko Studio fixture</html>')
     put(source, 'dist/server/index.js', `
       const server = require('node:http').createServer((_req, res) => res.end(JSON.stringify({
@@ -76,6 +80,22 @@ describe.runIf(process.platform === 'linux' && process.arch === 'x64')('TOS Debi
     expect(config).toMatchObject({ open_path: true, path: 'http://${ip}:8648', application_type: 'deb', platform: 'x86_64' })
     expect(config.type).toBeUndefined()
     expect(config.user).not.toBe('root')
+    const service = readFileSync(join(app, 'init.d/ekko-studio-tos.service'), 'utf8')
+    for (const key of ['HERMES_WEB_UI_MCP_BIN', 'HERMES_AGENT_NODE']) {
+      const configured = service.split('\n').find(line => line.startsWith(`Environment=${key}=`))!.split('=').slice(2).join('=')
+      const installed = join(unpacked, configured)
+      expect(existsSync(installed)).toBe(true)
+      vi.stubEnv(key, installed)
+    }
+    vi.stubEnv('HERMES_WEB_UI_ALLOW_TRANSIENT_MCP_AUTOINJECT', '1')
+    const { buildManagedEkkoMcpServers } = await import('../../packages/server/src/modules/ekko/services/mcp')
+    const managed = Object.values(buildManagedEkkoMcpServers('default'))
+    expect(managed.length).toBeGreaterThan(0)
+    for (const server of managed) {
+      expect(server.command).toBe(join(app, 'depends/bin/node'))
+      expect(server.args?.[0]).toBe(join(app, 'depends/webui/bin/ekko-studio-mcp.mjs'))
+    }
+    expect(execFileSync('dpkg-deb', ['--field', deb, 'Depends'], { encoding: 'utf8' })).toContain('bzip2')
     const languages = readFileSync(join(app, `${result.id}.lang`), 'utf8')
     for (const language of TOS_LANGUAGES) expect(languages).toContain(`[${language}]\n`)
     const icon = readFileSync(join(app, 'images/icons', `${result.id}.svg`), 'utf8')
