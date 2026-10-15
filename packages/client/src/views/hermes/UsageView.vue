@@ -131,18 +131,18 @@ onMounted(() => {
 .overview-controls {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: calc(8px * var(--spacing-scale, 1));
 }
 
 .period-selector {
-  gap: 4px;
+  gap: calc(4px * var(--spacing-scale, 1));
   flex-shrink: 0;
 }
 
 .usage-content {
   flex: 1;
   overflow-y: auto;
-  padding: 28px;
+  padding: calc(28px * var(--spacing-scale, 1));
   max-width: 1140px;
   margin: 0 auto;
   width: 100%;
@@ -154,10 +154,10 @@ onMounted(() => {
   }
 }
 
-.overview-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; color: $text-secondary; font-size: 12px; p { margin: 0; } span { font-size: 11px; } }
-.overview-controls { gap: 12px; flex-wrap: nowrap; overflow-x: auto; padding: 2px 0 6px; > * { flex-shrink: 0; } }
+.overview-heading { display: flex; align-items: center; justify-content: space-between; gap: calc(16px * var(--spacing-scale, 1)); margin-bottom: 20px; color: $text-secondary; font-size: calc(var(--font-size-base, 14px) * 12 / 14); p { margin: 0; } span { font-size: calc(var(--font-size-base, 14px) * 11 / 14); } }
+.overview-controls { gap: calc(12px * var(--spacing-scale, 1)); flex-wrap: nowrap; overflow-x: auto; padding: calc(2px * var(--spacing-scale, 1)) 0 calc(6px * var(--spacing-scale, 1)); > * { flex-shrink: 0; } }
 .account-filter, .profile-filter { width: 180px; }
-.account-note { font-size: 11px; color: $text-secondary; margin: 6px 0 22px; line-height: 1.6; }
+.account-note { font-size: calc(var(--font-size-base, 14px) * 11 / 14); color: $text-secondary; margin: 6px 0 22px; line-height: var(--line-height, 1.6); }
 .overview-results > :deep(.daily-trend) { margin-bottom: 24px; }
 
 .usage-loading,
@@ -165,12 +165,12 @@ onMounted(() => {
   text-align: center;
   padding: 60px 0;
   color: $text-muted;
-  font-size: 14px;
+  font-size: calc(var(--font-size-base, 14px) * 14 / 14);
 }
 
 @media (max-width: $breakpoint-mobile) {
-  .usage-content { padding: 22px 18px; }
-  .overview-heading { flex-wrap: wrap; gap: 6px; }
+  .usage-content { padding: calc(22px * var(--spacing-scale, 1)) calc(18px * var(--spacing-scale, 1)); }
+  .overview-heading { flex-wrap: wrap; gap: calc(6px * var(--spacing-scale, 1)); }
   .account-filter, .profile-filter { width: 160px; }
 }
 </style>

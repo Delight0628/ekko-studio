@@ -1,3 +1,4 @@
+import { resolveAppearance, THEME_FONTS } from './theme-appearance'
 import type { GlobalThemeOverrides } from 'naive-ui'
 import {
   resolveThemeCustomization,
@@ -244,7 +245,7 @@ export function getThemeOverrides(
       }
     : null
 
-  return {
+  const result: GlobalThemeOverrides = {
     ...base,
     common,
     ...(input ? { Input: input } : {}),
@@ -267,4 +268,78 @@ export function getThemeOverrides(
       },
     } : {}),
   }
+  const resolved = resolveAppearance(customization || { fontSize: 14, textColor: null, accentColor: null }, isDark)
+  const global = resolved.appearance.global
+  if (custom?.textPrimary || custom?.accentPrimary) {
+    result.Menu = {
+      ...result.Menu,
+      itemTextColorActive: resolved.accent,
+      itemTextColorActiveHover: resolved.accent,
+      itemTextColorChildActive: resolved.accent,
+      itemIconColorActive: resolved.accent,
+      itemIconColorActiveHover: resolved.accent,
+      arrowColorActive: resolved.accent,
+    }
+  }
+  result.common = {
+    ...result.common,
+    ...(custom ? {
+      fontSizeMini: `${custom.fontSize * 12 / 14}px`,
+      fontSizeTiny: `${custom.fontSize * 12 / 14}px`,
+      fontSizeSmall: `${custom.fontSize * 14 / 14}px`,
+      fontSizeLarge: `${custom.fontSize * 15 / 14}px`,
+      fontSizeHuge: `${custom.fontSize * 16 / 14}px`,
+    } : {}),
+    ...(global.backgroundColor ? {
+      bodyColor: resolved.background, cardColor: resolved.card, modalColor: resolved.card,
+      popoverColor: resolved.card, inputColor: resolved.card, tableColor: resolved.card,
+      actionColor: resolved.variables['--bg-secondary'],
+    } : {}),
+    ...(global.secondaryTextColor ? { textColor2: global.secondaryTextColor } : {}),
+    ...(global.mutedTextColor ? { textColor3: global.mutedTextColor, placeholderColor: global.mutedTextColor } : {}),
+    ...(global.borderColor ? { borderColor: global.borderColor, dividerColor: global.borderColor } : {}),
+    ...(global.radius !== undefined ? { borderRadius: `${global.radius}px`, borderRadiusSmall: `${global.radius * 0.75}px` } : {}),
+    ...(global.fontFamily ? { fontFamily: THEME_FONTS[global.fontFamily] } : {}),
+    ...(global.controlHeight !== undefined ? {
+      heightMedium: `${global.controlHeight}px`, heightSmall: `${global.controlHeight - 4}px`,
+      heightLarge: `${global.controlHeight + 4}px`, heightTiny: `${global.controlHeight - 8}px`,
+    } : {}),
+    ...(global.lineHeight !== undefined ? { lineHeight: String(global.lineHeight) } : {}),
+  }
+  const surface = (region: 'card' | 'input' | 'overlay') => {
+    const prefix = `--theme-${region}`
+    return {
+      ...(resolved.variables[`${prefix}-bg`] ? { color: resolved.variables[`${prefix}-bg`] } : {}),
+      ...(resolved.variables[`${prefix}-radius`] ? { borderRadius: resolved.variables[`${prefix}-radius`] } : {}),
+      ...(resolved.variables[`${prefix}-border`] ? { borderColor: resolved.variables[`${prefix}-border`] } : {}),
+      ...(resolved.variables[`${prefix}-shadow`] ? { boxShadow: resolved.variables[`${prefix}-shadow`] } : {}),
+    }
+  }
+  result.Card = { ...result.Card, ...surface('card') }
+  result.Modal = { ...result.Modal, ...surface('overlay') }
+  result.Drawer = { ...result.Drawer, ...surface('overlay') }
+  result.Popover = { ...result.Popover, ...surface('overlay') }
+  result.Dropdown = { ...result.Dropdown, ...surface('overlay') }
+  result.Dialog = { ...result.Dialog, ...surface('overlay') }
+  result.Notification = { ...result.Notification, ...surface('overlay') }
+  result.Input = { ...result.Input, ...surface('input'),
+    ...(resolved.variables['--theme-input-bg'] ? { colorFocus: resolved.variables['--theme-input-bg'] } : {}),
+    ...(global.mutedTextColor ? { placeholderColor: global.mutedTextColor } : {}),
+  }
+  result.InternalSelection = { ...result.InternalSelection, ...surface('input'),
+    ...(resolved.variables['--theme-input-bg'] ? {
+      colorActive: resolved.variables['--theme-input-bg'],
+      colorFocus: resolved.variables['--theme-input-bg'],
+    } : {}),
+  }
+  if (global.borderWidth !== undefined || resolved.variables['--theme-input-border']) {
+    const width = global.borderWidth ?? 1
+    const border = `${width}px solid ${resolved.regions.input.borderColor}`
+    const activeBorder = `${width}px solid ${resolved.accent}`
+    result.Input = { ...result.Input, border, borderHover: border, borderFocus: activeBorder, groupLabelBorder: border }
+    result.InternalSelection = { ...result.InternalSelection, border, borderHover: border, borderActive: activeBorder, borderFocus: activeBorder }
+  }
+  if (global.radius !== undefined) result.Tag = { ...result.Tag, borderRadius: `${global.radius * 0.75}px` }
+  if (global.backgroundColor) result.Layout = { ...result.Layout, color: resolved.background, siderColor: resolved.background, headerColor: resolved.background }
+  return result
 }

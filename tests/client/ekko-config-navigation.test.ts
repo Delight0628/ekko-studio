@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readPresetStyleSource as readFileSync } from './preset-style-source'
 import { describe, expect, it } from 'vitest'
 
 const readClientFile = (path: string) => readFileSync(`packages/client/src/${path}`, 'utf8')

@@ -93,20 +93,20 @@ onUnmounted(() => {
 <style scoped lang="scss">
 .shortcut-description, .shortcut-hint { color: var(--text-secondary); }
 .shortcut-label { display: block; margin-bottom: 8px; }
-.shortcut-recorder { display: flex; gap: 8px; }
+.shortcut-recorder { display: flex; gap: calc(8px * var(--spacing-scale, 1)); }
 .shortcut-key {
   min-width: 0;
   flex: 1;
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-input);
+  padding: calc(8px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1));
+  border: var(--border-width, 1px) solid var(--border-color);
+  border-radius: var(--radius-component, 6px);
+  background: var(--theme-input-bg, var(--bg-input));
   color: inherit;
   font: inherit;
   &:focus { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
 }
-.shortcut-hint { margin: 12px 0; font-size: 12px; }
-.shortcut-modes { display: flex; flex-direction: column; gap: 8px; }
+.shortcut-hint { margin: 12px 0; font-size: calc(var(--font-size-base, 14px) * 12 / 14); }
+.shortcut-modes { display: flex; flex-direction: column; gap: calc(8px * var(--spacing-scale, 1)); }
 .shortcut-error { color: var(--error); }
-.shortcut-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.shortcut-actions { display: flex; justify-content: flex-end; gap: calc(8px * var(--spacing-scale, 1)); }
 </style>

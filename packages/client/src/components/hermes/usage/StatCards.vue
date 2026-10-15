@@ -54,46 +54,46 @@ function formatTokens(value: number) { return formatUsageTokens(value, locale?.v
   grid-template-columns: 1.5fr repeat(3, 1fr);
   gap: 0;
   margin-bottom: 24px;
-  background: $bg-card;
-  border: 1px solid $border-color;
-  border-radius: 12px;
-  padding: 28px 0;
+  background: var(--theme-card-bg, $bg-card);
+  border: var(--border-width, 1px) solid $border-color;
+  border-radius: var(--radius-component, 12px);
+  padding: calc(28px * var(--spacing-scale, 1)) 0;
 }
 
 .stat-card {
   min-width: 0;
-  padding: 0 24px;
-  border-inline-start: 1px solid $border-light;
+  padding: 0 calc(24px * var(--spacing-scale, 1));
+  border-inline-start: var(--border-width, 1px) solid $border-light;
   &:first-child { border: 0; }
 }
 
 .stat-label {
-  font-size: 12px;
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
   color: $text-secondary;
   margin-bottom: 18px;
 }
 
 .stat-value {
-  font-size: 30px;
+  font-size: calc(var(--font-size-base, 14px) * 30 / 14);
   font-weight: 550;
   color: $text-primary;
-  line-height: 1.2;
+  line-height: var(--line-height, 1.2);
   letter-spacing: -1px;
   font-variant-numeric: tabular-nums;
   margin-bottom: 18px;
 }
 
-.stat-main { display: flex; align-items: baseline; gap: 6px; flex-wrap: nowrap; }
-.stat-unit { font-size: 12px; color: $text-secondary; white-space: nowrap; }
+.stat-main { display: flex; align-items: baseline; gap: calc(6px * var(--spacing-scale, 1)); flex-wrap: nowrap; }
+.stat-unit { font-size: calc(var(--font-size-base, 14px) * 12 / 14); color: $text-secondary; white-space: nowrap; }
 .stat-hero .stat-value { font-size: clamp(36px, 4vw, 48px); letter-spacing: -2px; margin-bottom: 12px; }
-.stat-text-value { font-size: 20px; letter-spacing: 0; }
-.token-split { display: flex; flex-wrap: wrap; gap: 0 4px; span { white-space: nowrap; } }
+.stat-text-value { font-size: calc(var(--font-size-base, 14px) * 20 / 14); letter-spacing: 0; }
+.token-split { display: flex; flex-wrap: wrap; gap: 0 calc(4px * var(--spacing-scale, 1)); span { white-space: nowrap; } }
 
 .stat-sub {
-  font-size: 10px;
+  font-size: calc(var(--font-size-base, 14px) * 10 / 14);
   color: $text-secondary;
   margin-top: 3px;
-  line-height: 1.7;
+  line-height: var(--line-height, 1.7);
   overflow-wrap: anywhere;
 }
 
@@ -102,21 +102,21 @@ function formatTokens(value: number) { return formatUsageTokens(value, locale?.v
     grid-template-columns: repeat(2, 1fr);
     padding: 0;
   }
-  .stat-card { padding: 22px; border: 0; }
-  .stat-card:nth-child(even) { border-inline-start: 1px solid $border-light; }
-  .stat-card:nth-child(n + 3) { border-top: 1px solid $border-light; }
-  .stat-hero .stat-value { font-size: 32px; letter-spacing: -1px; }
+  .stat-card { padding: calc(22px * var(--spacing-scale, 1)); border: 0; }
+  .stat-card:nth-child(even) { border-inline-start: var(--border-width, 1px) solid $border-light; }
+  .stat-card:nth-child(n + 3) { border-top: var(--border-width, 1px) solid $border-light; }
+  .stat-hero .stat-value { font-size: calc(var(--font-size-base, 14px) * 32 / 14); letter-spacing: -1px; }
 }
 
 @media (max-width: 480px) {
-  .stat-card { padding: 18px 12px; }
-  .stat-label { font-size: 11px; margin-bottom: 12px; }
+  .stat-card { padding: calc(18px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1)); }
+  .stat-label { font-size: calc(var(--font-size-base, 14px) * 11 / 14); margin-bottom: 12px; }
   .stat-value { font-size: clamp(24px, 6.5vw, 28px); letter-spacing: -.7px; margin-bottom: 12px; white-space: nowrap; }
   .stat-hero .stat-value { font-size: clamp(24px, 7vw, 28px); letter-spacing: -1px; }
   .stat-currency-value:not(.stat-text-value) { font-size: clamp(16px, 5vw, 22px); }
-  .stat-text-value { font-size: 16px; letter-spacing: 0; white-space: normal; }
-  .stat-main { gap: 4px; }
-  .stat-unit { font-size: 10px; }
-  .token-split { gap: 0 3px; }
+  .stat-text-value { font-size: calc(var(--font-size-base, 14px) * 16 / 14); letter-spacing: 0; white-space: normal; }
+  .stat-main { gap: calc(4px * var(--spacing-scale, 1)); }
+  .stat-unit { font-size: calc(var(--font-size-base, 14px) * 10 / 14); }
+  .token-split { gap: 0 calc(3px * var(--spacing-scale, 1)); }
 }
 </style>

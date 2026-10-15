@@ -294,7 +294,7 @@ async function handleRefreshModelCache() {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: calc(8px * var(--spacing-scale, 1));
 }
 
 .models-content {
@@ -303,7 +303,7 @@ async function handleRefreshModelCache() {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding: 20px;
+  padding: calc(20px * var(--spacing-scale, 1));
 }
 
 .models-profile-loading {
@@ -321,7 +321,7 @@ async function handleRefreshModelCache() {
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: calc(8px * var(--spacing-scale, 1));
   flex-wrap: wrap;
   justify-content: flex-end;
 }

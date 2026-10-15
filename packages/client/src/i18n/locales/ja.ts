@@ -1,3 +1,4 @@
+import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesJa } from '../social-messages-locales'
 
 export default {
@@ -2043,6 +2044,7 @@ export default {
 
   // 設定
   theme: {
+    customization: themeAppearanceMessages['ja'],
     title: 'テーマ',
     saved: 'テーマを保存しました',
     saveFailed: 'テーマを保存できませんでした',

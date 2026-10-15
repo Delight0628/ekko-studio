@@ -86,6 +86,37 @@ describe('user theme storage', () => {
       .toThrow(/six-digit hex color/)
   })
 
+  it('persists sparse regional overrides per user and resets inheritance', async () => {
+    const { store } = await initStore()
+    const appearance = { global: { backgroundColor: '#123456', opacity: 0.4 }, regions: { input: { radius: 0, opacity: 0 } } }
+    store.saveUserTheme(1, { appearance })
+    expect(store.getUserTheme(1).appearance).toEqual(appearance)
+    expect(store.getUserTheme(2).appearance).toEqual({ global: {}, regions: {} })
+    expect(() => store.saveUserTheme(1, { appearance: { global: { opacity: 2 } } })).toThrow('Invalid theme appearance')
+    expect(store.getUserTheme(1).appearance).toEqual(appearance)
+    expect(store.saveUserTheme(1, { appearance: null }).appearance).toEqual({ global: {}, regions: {} })
+  })
+
+  it('migrates legacy settings without losing colors or changing the wallpaper cache key on saves', async () => {
+    const schemas = await import('../../packages/server/src/modules/studio/infrastructure/database/schemas')
+    db.exec(`CREATE TABLE ${schemas.USER_THEMES_TABLE} (
+      user_id INTEGER PRIMARY KEY, font_size INTEGER, text_color TEXT, accent_color TEXT,
+      background_filename TEXT, background_original_name TEXT, background_mime TEXT,
+      created_at INTEGER, updated_at INTEGER
+    )`)
+    db.prepare(`INSERT INTO ${schemas.USER_THEMES_TABLE} VALUES (1, 16, '#123456', NULL, 'wall.png', 'wall.png', 'image/png', 100, 200)`).run()
+    const { store } = await initStore()
+    expect(store.getUserTheme(1)).toMatchObject({ fontSize: 16, textColor: '#123456', appearance: { global: {}, regions: {} }, backgroundUpdatedAt: 200 })
+    const appearance = { global: { radius: 12 }, regions: {} }
+    const updated = store.saveUserTheme(1, { appearance })
+    expect(store.toUserThemePayload(updated).background?.updatedAt).toBe(200)
+    expect(store.saveUserTheme(1, { fontSize: 20 }).backgroundUpdatedAt).toBe(200)
+    const uploaded = store.saveUserThemeBackground(1, { filename: 'new.png', originalName: 'new.png', mime: 'image/png' })
+    expect(uploaded.backgroundUpdatedAt).toBeGreaterThan(200)
+    expect(uploaded.appearance).toEqual(appearance)
+    expect(store.clearUserThemeBackground(1).appearance).toEqual(appearance)
+  })
+
   it('keeps color settings when the background metadata changes', async () => {
     const { store } = await initStore()
     store.saveUserTheme(1, {

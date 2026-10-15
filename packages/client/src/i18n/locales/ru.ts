@@ -1,3 +1,4 @@
+import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesRu } from '../social-messages-locales'
 
 export default {
@@ -2310,6 +2311,7 @@ export default {
 
 
   theme: {
+    customization: themeAppearanceMessages['ru'],
     title: 'Тема',
     saved: 'Тема сохранена',
     saveFailed: 'Не удалось сохранить тему',

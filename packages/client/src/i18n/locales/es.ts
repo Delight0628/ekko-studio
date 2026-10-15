@@ -1,3 +1,4 @@
+import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesEs } from '../social-messages-locales'
 
 export default {
@@ -2043,6 +2044,7 @@ jobTriggered: 'Job ejecutado',
 
   // Settings
   theme: {
+    customization: themeAppearanceMessages['es'],
     title: 'Tema',
     saved: 'Tema guardado',
     saveFailed: 'No se pudo guardar el tema',

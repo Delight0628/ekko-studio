@@ -586,6 +586,8 @@ export const USER_THEMES_SCHEMA: Record<string, string> = {
   background_filename: 'TEXT',
   background_original_name: 'TEXT',
   background_mime: 'TEXT',
+  appearance_json: "TEXT NOT NULL DEFAULT '{}'",
+  background_updated_at: 'INTEGER NOT NULL DEFAULT 0',
   created_at: 'INTEGER NOT NULL',
   updated_at: 'INTEGER NOT NULL',
 }

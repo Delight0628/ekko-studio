@@ -113,22 +113,22 @@ function clearVisibility() {
 .visibility-hint {
   margin: 0 0 10px;
   color: $text-secondary;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: calc(var(--font-size-base, 14px) * 13 / 14);
+  line-height: var(--line-height, 1.5);
 }
 
 .visibility-count {
   color: $text-muted;
-  font-size: 12px;
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
   margin-bottom: 10px;
 }
 
 .visibility-list {
   max-height: 360px;
   overflow-y: auto;
-  border: 1px solid $border-light;
+  border: var(--border-width, 1px) solid $border-light;
   border-radius: $radius-sm;
-  padding: 8px;
+  padding: calc(8px * var(--spacing-scale, 1));
 }
 
 .visibility-search {
@@ -144,11 +144,11 @@ function clearVisibility() {
 .visibility-model {
   display: flex;
   width: 100%;
-  padding: 4px 2px;
+  padding: calc(4px * var(--spacing-scale, 1)) calc(2px * var(--spacing-scale, 1));
 
   code {
-    font-family: $font-code;
-    font-size: 12px;
+    font-family: var(--font-code, $font-code);
+    font-size: calc(var(--font-size-base, 14px) * 12 / 14);
     color: $text-secondary;
   }
 }
@@ -156,14 +156,14 @@ function clearVisibility() {
 .visibility-model-id {
   margin-inline-start: 6px;
   color: $text-muted !important;
-  font-size: 11px !important;
+  font-size: calc(var(--font-size-base, 14px) * 11 / 14) !important;
 }
 
 .visibility-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: calc(8px * var(--spacing-scale, 1));
   margin-top: 14px;
 }
 

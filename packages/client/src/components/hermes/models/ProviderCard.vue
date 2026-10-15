@@ -427,10 +427,10 @@ async function handleRestoreModels() {
 @use '@/styles/variables' as *;
 
 .provider-card {
-  background-color: $bg-card;
-  border: 1px solid $border-color;
+  background-color: var(--theme-card-bg, $bg-card);
+  border: var(--border-width, 1px) solid $border-color;
   border-radius: $radius-md;
-  padding: 16px;
+  padding: calc(16px * var(--spacing-scale, 1));
   transition: border-color $transition-fast;
 
   &:hover {
@@ -442,12 +442,12 @@ async function handleRestoreModels() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: calc(12px * var(--spacing-scale, 1));
   margin-bottom: 12px;
 }
 
 .provider-name {
-  font-size: 15px;
+  font-size: calc(var(--font-size-base, 14px) * 15 / 14);
   font-weight: 600;
   color: $text-primary;
   overflow: hidden;
@@ -460,14 +460,14 @@ async function handleRestoreModels() {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: calc(6px * var(--spacing-scale, 1));
   min-width: 0;
 }
 
 .type-badge {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
+  font-size: calc(var(--font-size-base, 14px) * 11 / 14);
+  padding: calc(2px * var(--spacing-scale, 1)) calc(8px * var(--spacing-scale, 1));
+  border-radius: var(--radius-component, 10px);
   font-weight: 500;
   white-space: nowrap;
 
@@ -490,7 +490,7 @@ async function handleRestoreModels() {
 .card-body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: calc(6px * var(--spacing-scale, 1));
   margin-bottom: 14px;
 }
 
@@ -501,18 +501,18 @@ async function handleRestoreModels() {
 }
 
 .info-label {
-  font-size: 12px;
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
   color: $text-muted;
 }
 
 .info-value {
-  font-size: 12px;
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
   color: $text-secondary;
 }
 
 .mono {
-  font-family: $font-code;
-  font-size: 12px;
+  font-family: var(--font-code, $font-code);
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
 }
 
 .models-row {
@@ -521,13 +521,13 @@ async function handleRestoreModels() {
 
 .models-count {
   color: $text-muted;
-  font-size: 12px;
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
 }
 
 .models-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 6px;
+  gap: calc(4px * var(--spacing-scale, 1)) calc(6px * var(--spacing-scale, 1));
   margin-top: 6px;
   height: 100px;
   overflow-y: auto;
@@ -537,7 +537,7 @@ async function handleRestoreModels() {
 .default-model-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: calc(10px * var(--spacing-scale, 1));
   margin-top: 2px;
   min-width: 0;
 }
@@ -550,12 +550,12 @@ async function handleRestoreModels() {
 .model-tag {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: calc(5px * var(--spacing-scale, 1));
   min-height: 22px;
-  font-size: 10px;
-  font-family: $font-code;
-  padding: 2px 6px;
-  border-radius: 3px;
+  font-size: calc(var(--font-size-base, 14px) * 10 / 14);
+  font-family: var(--font-code, $font-code);
+  padding: calc(2px * var(--spacing-scale, 1)) calc(6px * var(--spacing-scale, 1));
+  border-radius: var(--radius-component, 3px);
   background: rgba(var(--accent-primary-rgb), 0.08);
   color: $text-secondary;
   white-space: nowrap;
@@ -594,29 +594,29 @@ async function handleRestoreModels() {
 
 .model-tag-id {
   color: $text-muted;
-  font-size: 9px;
+  font-size: calc(var(--font-size-base, 14px) * 9 / 14);
 }
 
 .model-tag-default,
 .alias-row-default {
   color: $warning;
   font-family: $font-ui;
-  font-size: 10px;
+  font-size: calc(var(--font-size-base, 14px) * 10 / 14);
   font-weight: 600;
 }
 
 .card-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  border-top: 1px solid $border-light;
-  padding-top: 10px;
+  gap: calc(8px * var(--spacing-scale, 1));
+  border-top: var(--border-width, 1px) solid $border-light;
+  padding-top: calc(10px * var(--spacing-scale, 1));
 }
 
 .alias-list-hint,
 .model-alias-hint {
   color: $text-muted;
-  font-size: 12px;
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
 }
 
 .alias-list-hint {
@@ -626,7 +626,7 @@ async function handleRestoreModels() {
 .alias-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: calc(6px * var(--spacing-scale, 1));
   max-height: 45vh;
   overflow-y: auto;
 }
@@ -634,9 +634,9 @@ async function handleRestoreModels() {
 .alias-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px;
-  border: 1px solid $border-light;
+  gap: calc(12px * var(--spacing-scale, 1));
+  padding: calc(8px * var(--spacing-scale, 1));
+  border: var(--border-width, 1px) solid $border-light;
   border-radius: $radius-sm;
 }
 
@@ -645,7 +645,7 @@ async function handleRestoreModels() {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: calc(2px * var(--spacing-scale, 1));
 }
 
 .alias-row-name {
@@ -653,8 +653,8 @@ async function handleRestoreModels() {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: $text-primary;
-  font-family: $font-code;
-  font-size: 12px;
+  font-family: var(--font-code, $font-code);
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
 }
 
 .alias-row-id,
@@ -663,8 +663,8 @@ async function handleRestoreModels() {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: $text-muted;
-  font-family: $font-code;
-  font-size: 11px;
+  font-family: var(--font-code, $font-code);
+  font-size: calc(var(--font-size-base, 14px) * 11 / 14);
 }
 
 .model-alias-canonical {
@@ -678,7 +678,7 @@ async function handleRestoreModels() {
 .model-alias-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: calc(8px * var(--spacing-scale, 1));
 }
 
 .model-alias-spacer {

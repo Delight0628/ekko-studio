@@ -44,7 +44,7 @@ const confirmationOpen = computed(() => dialogs.value.length > 0)
 .large-catalog-hint {
   margin: 0 0 16px;
   color: $text-secondary;
-  line-height: 1.6;
+  line-height: var(--line-height, 1.6);
 }
 
 .large-catalog-list {
@@ -59,9 +59,9 @@ const confirmationOpen = computed(() => dialogs.value.length > 0)
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
-    gap: 8px;
-    padding: 10px 0;
-    border-bottom: 1px solid $border-light;
+    gap: calc(8px * var(--spacing-scale, 1));
+    padding: calc(10px * var(--spacing-scale, 1)) 0;
+    border-bottom: var(--border-width, 1px) solid $border-light;
   }
 
   span {

@@ -90,6 +90,6 @@ watch(() => route.fullPath, () => {
 <style scoped lang="scss">
 .credential-warning-text {
   margin: 0;
-  line-height: 1.6;
+  line-height: var(--line-height, 1.6);
 }
 </style>

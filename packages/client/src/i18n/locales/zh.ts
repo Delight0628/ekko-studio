@@ -1,3 +1,4 @@
+import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesZh } from '../social-messages'
 
 export default {
@@ -2537,6 +2538,7 @@ export default {
 
   // 设置
   theme: {
+    customization: themeAppearanceMessages['zh'],
     title: '主题',
     saved: '主题已保存',
     saveFailed: '主题保存失败',

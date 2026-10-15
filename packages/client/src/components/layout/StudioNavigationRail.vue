@@ -84,11 +84,11 @@ function handleNavigate(key: string) {
   align-items: center;
   width: $navigation-rail-width;
   min-height: 0;
-  padding: 12px 8px;
-  background: $bg-sidebar;
+  padding: calc(12px * var(--spacing-scale, 1)) calc(8px * var(--spacing-scale, 1));
+  background: var(--theme-sidebar-bg, $bg-sidebar);
 
-  :deep(.page-sidebar-bottom) { width: 100%; padding: 0 0 16px; }
-  :deep(.page-sidebar-account-btn) { height: 44px; padding: 4px; }
+  :deep(.page-sidebar-bottom) { width: 100%; padding: 0 0 calc(16px * var(--spacing-scale, 1)); }
+  :deep(.page-sidebar-account-btn) { height: 44px; padding: calc(4px * var(--spacing-scale, 1)); }
 }
 .studio-navigation-rail__nav {
   display: flex;
@@ -97,12 +97,12 @@ function handleNavigate(key: string) {
   width: 100%;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: calc(8px * var(--spacing-scale, 1));
   overflow-y: auto;
   scrollbar-width: none;
 }
-.studio-navigation-rail__bottom { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; }
-.api-relay-logo { border-radius: 4px; }
+.studio-navigation-rail__bottom { display: flex; flex-direction: column; gap: calc(8px * var(--spacing-scale, 1)); padding-top: 12px; }
+.api-relay-logo { border-radius: var(--radius-component, 4px); }
 .studio-navigation-rail__item {
   display: grid;
   place-items: center;

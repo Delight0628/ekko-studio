@@ -1,3 +1,4 @@
+import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesEn } from '../social-messages'
 
 export default {
@@ -2499,6 +2500,7 @@ export default {
 
   // Settings
   theme: {
+    customization: themeAppearanceMessages['en'],
     title: 'Theme',
     saved: 'Theme saved',
     saveFailed: 'Failed to save theme',

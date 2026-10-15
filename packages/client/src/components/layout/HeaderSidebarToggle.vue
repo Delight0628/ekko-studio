@@ -49,9 +49,9 @@ const target = usePageHeaderTarget()
     align-items: center;
     flex: 0 0 $sidebar-width;
     height: var(--studio-header-height, 40px);
-    padding-inline-start: 8px;
+    padding-inline-start: calc(8px * var(--spacing-scale, 1));
     margin-inline-end: 8px;
-    border-inline-end: 1px solid $border-color;
+    border-inline-end: var(--border-width, 1px) solid $border-color;
     transition: flex-basis $transition-normal, border-color $transition-fast;
 
     &.header-sidebar-control--collapsed {

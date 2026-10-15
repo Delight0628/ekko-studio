@@ -1,3 +1,4 @@
+import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesDe } from '../social-messages-locales'
 
 export default {
@@ -2043,6 +2044,7 @@ jobTriggered: 'Job ausgelost',
 
   // Settings
   theme: {
+    customization: themeAppearanceMessages['de'],
     title: 'Design',
     saved: 'Design gespeichert',
     saveFailed: 'Design konnte nicht gespeichert werden',

@@ -3323,9 +3323,9 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 0 14px 12px;
-  font-size: 12px;
+  gap: calc(8px * var(--spacing-scale, 1));
+  padding: 0 calc(14px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1));
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
   color: var(--text-secondary);
   > span { flex: 1; }
 }
@@ -3337,7 +3337,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
-  background-color: $bg-card;
+  background-color: var(--theme-card-bg, $bg-card);
 }
 
 .session-list {
@@ -3345,8 +3345,8 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   min-height: 0;
   align-self: stretch;
   margin: 0;
-  background: $bg-sidebar-surface;
-  border-inline-end: 1px solid $border-color;
+  background: var(--theme-sidebar-bg, $bg-sidebar-surface);
+  border-inline-end: var(--border-width, 1px) solid $border-color;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -3406,13 +3406,13 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
 
 .page-sidebar-top {
   flex-shrink: 0;
-  padding: 12px;
+  padding: calc(12px * var(--spacing-scale, 1));
 }
 
 .page-sidebar-tabs {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: calc(4px * var(--spacing-scale, 1));
 }
 
 .page-sidebar-tab {
@@ -3427,8 +3427,8 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   flex-direction: row;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
-  padding: 7px 10px;
+  gap: calc(8px * var(--spacing-scale, 1));
+  padding: calc(7px * var(--spacing-scale, 1)) calc(10px * var(--spacing-scale, 1));
   cursor: pointer;
   transition:
     background-color $transition-fast,
@@ -3443,8 +3443,8 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 13px;
-    line-height: 18px;
+    font-size: calc(var(--font-size-base, 14px) * 13 / 14);
+    line-height: var(--line-height, calc(var(--font-size-base, 14px) * 18 / 14));
   }
 
   &:hover {
@@ -3456,21 +3456,21 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
 .session-list-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: calc(8px * var(--spacing-scale, 1));
   margin-top: 8px;
   justify-content: space-between;
 }
 
 .session-selection-count {
   min-width: 0;
-  font-size: 12px;
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
   color: $text-secondary;
 }
 
 .session-list-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: calc(4px * var(--spacing-scale, 1));
   height: 22px;
 
   .n-button {
@@ -3488,7 +3488,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   background: none;
   cursor: pointer;
   color: $text-secondary;
-  padding: 4px;
+  padding: calc(4px * var(--spacing-scale, 1));
   border-radius: $radius-sm;
   height: 22px;
   min-height: 22px;
@@ -3501,20 +3501,20 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
 }
 
 .session-list-title {
-  font-size: 12px;
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
   font-weight: 600;
   color: $text-muted;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  line-height: 22px;
+  line-height: var(--line-height, calc(var(--font-size-base, 14px) * 22 / 14));
 }
 
 .conversation-switch {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px;
+  gap: calc(2px * var(--spacing-scale, 1));
   margin-top: 8px;
-  padding: 2px;
+  padding: calc(2px * var(--spacing-scale, 1));
   border-radius: $radius-sm;
   background: rgba(var(--accent-primary-rgb), 0.05);
 }
@@ -3523,11 +3523,11 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   min-width: 0;
   height: 28px;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--radius-component, 5px);
   background: transparent;
   color: $text-secondary;
-  font-size: 12px;
-  line-height: 16px;
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
+  line-height: var(--line-height, calc(var(--font-size-base, 14px) * 16 / 14));
   cursor: pointer;
   transition:
     background-color $transition-fast,
@@ -3538,7 +3538,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   }
 
   &.active {
-    background: $bg-card;
+    background: var(--theme-card-bg, $bg-card);
     color: $text-primary;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   }
@@ -3552,9 +3552,9 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   max-height: calc(100dvh - 32px);
   margin: auto;
   overflow: hidden;
-  border: 1px solid $border-light;
-  border-radius: 16px;
-  background: $bg-card;
+  border: var(--border-width, 1px) solid $border-light;
+  border-radius: var(--radius-component, 16px);
+  background: var(--theme-card-bg, $bg-card);
   color: $text-primary;
   box-shadow: 0 16px 60px #00000024;
 }
@@ -3563,14 +3563,14 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   flex: none;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid $border-light;
-  h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 22px; }
+  gap: calc(12px * var(--spacing-scale, 1));
+  padding: calc(14px * var(--spacing-scale, 1)) calc(16px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1));
+  border-bottom: var(--border-width, 1px) solid $border-light;
+  h2 { margin: 0; font-size: calc(var(--font-size-base, 14px) * 15 / 14); font-weight: 600; line-height: var(--line-height, calc(var(--font-size-base, 14px) * 22 / 14)); }
 }
 .new-chat-settings-body {
   min-height: 0;
-  padding: 16px;
+  padding: calc(16px * var(--spacing-scale, 1));
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -3578,8 +3578,8 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
 .new-chat-settings-group {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  & + & { margin-top: 16px; padding-top: 16px; border-top: 1px solid $border-light; }
+  gap: calc(16px * var(--spacing-scale, 1));
+  & + & { margin-top: 16px; padding-top: calc(16px * var(--spacing-scale, 1)); border-top: var(--border-width, 1px) solid $border-light; }
 }
 
 .new-chat-page {
@@ -3587,26 +3587,26 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   justify-content: center; padding: clamp(12px, 2vh, 24px) 0;
 }
 .new-chat-intro {
-  flex: none; text-align: center; padding: 0 20px;
+  flex: none; text-align: center; padding: 0 calc(20px * var(--spacing-scale, 1));
   h1 { margin: 0 0 8px; font-size: clamp(22px, 2.4vw, 30px); font-weight: 600; letter-spacing: -.6px; }
-  p { margin: 0; color: $text-secondary; font-size: 13px; }
+  p { margin: 0; color: $text-secondary; font-size: calc(var(--font-size-base, 14px) * 13 / 14); }
 }
 .new-chat-page > :deep(.agent-cards) {
   flex: 1; min-height: 0; max-height: calc(176px * 1.4 + 84px); max-width: 1040px; margin: 8px auto 0;
 }
 .new-chat-compose { flex: none; width: min(760px, calc(100% - 48px)); margin: 12px auto 0; }
-.new-chat-config-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px 12px; margin-bottom: 8px; }
-.new-chat-config-actions { display: flex; justify-content: flex-start; align-items: center; gap: 8px; max-width: 100%; }
+.new-chat-config-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: calc(6px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1)); margin-bottom: 8px; }
+.new-chat-config-actions { display: flex; justify-content: flex-start; align-items: center; gap: calc(8px * var(--spacing-scale, 1)); max-width: 100%; }
 .new-chat-config-icon { width: 28px; height: 28px; padding: 0; }
 .new-chat-launch-toggle {
-  display: inline-flex; flex: none; gap: 2px; margin: 0 2px; padding: 2px;
-  border-radius: 8px; background: rgba(var(--text-primary-rgb), .045);
+  display: inline-flex; flex: none; gap: calc(2px * var(--spacing-scale, 1)); margin: 0 2px; padding: calc(2px * var(--spacing-scale, 1));
+  border-radius: var(--radius-component, 8px); background: rgba(var(--text-primary-rgb), .045);
   button {
-    min-width: 44px; height: 24px; padding: 0 9px; border: 0; border-radius: 6px;
-    background: transparent; color: $text-secondary; font: inherit; font-size: 12px; line-height: 20px;
+    min-width: 44px; height: 24px; padding: 0 calc(9px * var(--spacing-scale, 1)); border: 0; border-radius: var(--radius-component, 6px);
+    background: transparent; color: $text-secondary; font: inherit; font-size: calc(var(--font-size-base, 14px) * 12 / 14); line-height: var(--line-height, calc(var(--font-size-base, 14px) * 20 / 14));
     white-space: nowrap; cursor: pointer; transition: background-color .15s, color .15s, box-shadow .15s;
     &[aria-checked="true"] {
-      background: $bg-card; color: $text-primary;
+      background: var(--theme-card-bg, $bg-card); color: $text-primary;
       box-shadow: 0 1px 4px #00000014, inset 0 0 0 1px rgba(var(--text-primary-rgb), .1);
     }
     &:focus-visible { outline: 2px solid $accent-primary; outline-offset: 2px; }
@@ -3614,51 +3614,51 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   }
 }
 .new-chat-compose :deep(.chat-input-area) { padding: 0; border-top: 0; background: transparent; }
-.new-chat-config-hint { display: block; margin: 10px auto 0; padding: 0; border: 0; background: transparent; color: $text-secondary; font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.workspace-picker-content { display: flex; flex-direction: column; gap: 12px; max-height: 65vh; overflow-y: auto; }
+.new-chat-config-hint { display: block; margin: 10px auto 0; padding: 0; border: 0; background: transparent; color: $text-secondary; font: inherit; font-size: calc(var(--font-size-base, 14px) * 12 / 14); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.workspace-picker-content { display: flex; flex-direction: column; gap: calc(12px * var(--spacing-scale, 1)); max-height: 65vh; overflow-y: auto; }
 .workspace-picker-content :deep(.n-button__content) { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: $breakpoint-mobile) {
-  .new-chat-page { justify-content: flex-start; padding: 16px 0; }
+  .new-chat-page { justify-content: flex-start; padding: calc(16px * var(--spacing-scale, 1)) 0; }
   .new-chat-intro {
     margin-top: auto;
-    padding: 0 24px;
-    h1 { margin-bottom: 6px; font-size: clamp(19px, 5.1vw, 24px); line-height: 1.35; }
-    p { font-size: 12px; line-height: 1.5; }
+    padding: 0 calc(24px * var(--spacing-scale, 1));
+    h1 { margin-bottom: 6px; font-size: clamp(19px, 5.1vw, 24px); line-height: var(--line-height, 1.35); }
+    p { font-size: calc(var(--font-size-base, 14px) * 12 / 14); line-height: var(--line-height, 1.5); }
   }
   .new-chat-page > :deep(.agent-cards) { flex: none; max-height: none; }
   .new-chat-compose { width: calc(100% - 32px); margin-top: 8px; margin-bottom: auto; }
-  .new-chat-config-bar { flex-wrap: wrap; gap: 6px; }
+  .new-chat-config-bar { flex-wrap: wrap; gap: calc(6px * var(--spacing-scale, 1)); }
   .new-chat-config-actions { width: 100%; }
 }
 @media (max-width: $breakpoint-mobile) and (max-height: 640px) {
-  .new-chat-page { padding: 8px 0; }
+  .new-chat-page { padding: calc(8px * var(--spacing-scale, 1)) 0; }
 }
 
 .new-chat-field {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  gap: 8px;
-  :deep(.n-base-selection), :deep(.n-input) { border-radius: 8px; }
+  gap: calc(8px * var(--spacing-scale, 1));
+  :deep(.n-base-selection), :deep(.n-input) { border-radius: var(--radius-component, 8px); }
 }
 
 .new-chat-label {
-  font-size: 12px;
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
   color: $text-secondary;
   font-weight: 500;
 }
 
 .new-chat-field-hint {
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: calc(var(--font-size-base, 14px) * 11 / 14);
+  line-height: var(--line-height, 1.5);
   color: $text-muted;
 }
 
 .session-group-header {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 10px 4px;
+  gap: calc(4px * var(--spacing-scale, 1));
+  padding: calc(6px * var(--spacing-scale, 1)) calc(10px * var(--spacing-scale, 1)) calc(4px * var(--spacing-scale, 1));
   cursor: pointer;
   user-select: none;
 }
@@ -3671,7 +3671,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
 .session-group-toggle {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: calc(4px * var(--spacing-scale, 1));
   min-width: 0;
   padding: 0;
   border: 0;
@@ -3692,7 +3692,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
 }
 
 .session-group-label {
-  font-size: 10px;
+  font-size: calc(var(--font-size-base, 14px) * 10 / 14);
   font-weight: 600;
   color: $text-muted;
   text-transform: uppercase;
@@ -3705,11 +3705,11 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   background: transparent;
   color: $text-muted;
   cursor: pointer;
-  padding: 0 2px;
+  padding: 0 calc(2px * var(--spacing-scale, 1));
 }
 
 .session-group-count {
-  font-size: 10px;
+  font-size: calc(var(--font-size-base, 14px) * 10 / 14);
   color: $text-muted;
   font-weight: 400;
 }
@@ -3724,7 +3724,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   margin-inline-start: auto;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-component, 4px);
   background: transparent;
   color: $text-muted;
   cursor: pointer;
@@ -3740,14 +3740,14 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: calc(8px * var(--spacing-scale, 1));
   margin: 4px 10px 8px;
-  padding: 7px 8px;
-  border: 1px solid rgba(var(--error-rgb), 0.25);
-  border-radius: 6px;
+  padding: calc(7px * var(--spacing-scale, 1)) calc(8px * var(--spacing-scale, 1));
+  border: var(--border-width, 1px) solid rgba(var(--error-rgb), 0.25);
+  border-radius: var(--radius-component, 6px);
   background: rgba(var(--error-rgb), 0.06);
   color: var(--error);
-  font-size: 11px;
+  font-size: calc(var(--font-size-base, 14px) * 11 / 14);
 
   button {
     flex: 0 0 auto;
@@ -3768,13 +3768,13 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
 .session-items {
   flex: 1;
   overflow-y: auto;
-  padding: 0 6px 12px;
+  padding: 0 calc(6px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1));
 }
 
 .session-loading,
 .session-empty {
-  padding: 16px 10px;
-  font-size: 12px;
+  padding: calc(16px * var(--spacing-scale, 1)) calc(10px * var(--spacing-scale, 1));
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
   color: $text-muted;
   text-align: center;
 }
@@ -3786,9 +3786,9 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   overflow: hidden;
   min-width: 0;
   margin: 10px 10px 10px 0;
-  background: $bg-main-surface;
-  border: 1px solid $border-color;
-  border-radius: 14px;
+  background: var(--theme-content-bg, $bg-main-surface);
+  border: var(--border-width, 1px) solid $border-color;
+  border-radius: var(--radius-component, 14px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
 
   &--sidebar-collapsed {
@@ -3819,7 +3819,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   z-index: 30;
   pointer-events: none;
   border: 2px dashed var(--accent-info);
-  border-radius: 8px;
+  border-radius: var(--radius-component, 8px);
   background: rgba(var(--accent-info-rgb), 0.05);
 }
 
@@ -3829,7 +3829,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background-color: $bg-main-surface;
+  background-color: var(--theme-content-bg, $bg-main-surface);
   animation: chat-surface-fade-in 1.5s ease both;
 }
 
@@ -3847,22 +3847,22 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 21px 20px;
-  border-bottom: 1px solid $border-color;
+  padding: calc(21px * var(--spacing-scale, 1)) calc(20px * var(--spacing-scale, 1));
+  border-bottom: var(--border-width, 1px) solid $border-color;
   flex-shrink: 0;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: calc(8px * var(--spacing-scale, 1));
   overflow: hidden;
   flex: 1;
   min-width: 0;
 }
 
 .header-session-title {
-  font-size: 16px;
+  font-size: calc(var(--font-size-base, 14px) * 16 / 14);
   font-weight: 600;
   color: $text-primary;
   white-space: nowrap;
@@ -3871,20 +3871,20 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
 }
 
 .source-badge {
-  font-size: 10px;
+  font-size: calc(var(--font-size-base, 14px) * 10 / 14);
   color: $text-muted;
   background: rgba($text-muted, 0.12);
-  padding: 1px 7px;
-  border-radius: 8px;
+  padding: calc(1px * var(--spacing-scale, 1)) calc(7px * var(--spacing-scale, 1));
+  border-radius: var(--radius-component, 8px);
   flex-shrink: 0;
   white-space: nowrap;
-  line-height: 16px;
+  line-height: var(--line-height, calc(var(--font-size-base, 14px) * 16 / 14));
 }
 
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: calc(4px * var(--spacing-scale, 1));
   flex-shrink: 0;
 }
 
@@ -3896,7 +3896,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
 .chat-mode-toggle {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: calc(4px * var(--spacing-scale, 1));
   margin-inline-end: 4px;
 }
 
@@ -3910,7 +3910,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   }
 
   .header-session-title {
-    font-size: 14px;
+    font-size: calc(var(--font-size-base, 14px) * 14 / 14);
   }
 
 }
@@ -3927,8 +3927,8 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   max-width: 100%;
   max-inline-size: 100%;
   box-sizing: border-box;
-  background: $bg-card;
-  border-inline-start: 1px solid $border-color;
+  background: var(--theme-card-bg, $bg-card);
+  border-inline-start: var(--border-width, 1px) solid $border-color;
   display: flex;
   min-height: 0;
   overflow: visible;
@@ -3985,13 +3985,13 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
     width: 12px;
     height: 38px;
     transform: translateY(-50%);
-    border-radius: 6px;
+    border-radius: var(--radius-component, 6px);
     background:
       linear-gradient($text-muted, $text-muted) center 12px / 6px 1px no-repeat,
       linear-gradient($text-muted, $text-muted) center 19px / 6px 1px no-repeat,
       linear-gradient($text-muted, $text-muted) center 26px / 6px 1px no-repeat,
       $bg-card;
-    border: 1px solid $border-color;
+    border: var(--border-width, 1px) solid $border-color;
     opacity: 0.9;
     transition: all $transition-fast;
     z-index: 2;
@@ -4021,7 +4021,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: $bg-main-surface;
+  background: var(--theme-content-bg, $bg-main-surface);
 }
 
 .chat-file-preview-loading {
@@ -4040,10 +4040,10 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   order: 2;
   width: 48px;
   height: 100%;
-  gap: 4px;
-  padding: 8px 6px;
-  border-inline-start: 1px solid $border-color;
-  background: $bg-sidebar-surface;
+  gap: calc(4px * var(--spacing-scale, 1));
+  padding: calc(8px * var(--spacing-scale, 1)) calc(6px * var(--spacing-scale, 1));
+  border-inline-start: var(--border-width, 1px) solid $border-color;
+  background: var(--theme-sidebar-bg, $bg-sidebar-surface);
   box-sizing: border-box;
 }
 
@@ -4099,7 +4099,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: $bg-main-surface;
+  background: var(--theme-content-bg, $bg-main-surface);
 }
 
 .chat-tool-content > * {
@@ -4160,13 +4160,13 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px 8px;
+  gap: calc(6px * var(--spacing-scale, 1)) calc(8px * var(--spacing-scale, 1));
   min-width: 0;
   margin-bottom: 8px;
 }
 
 .default-workspace-label {
-  font-size: 13px;
+  font-size: calc(var(--font-size-base, 14px) * 13 / 14);
   color: var(--n-text-color-3);
   flex-shrink: 0;
 }
@@ -4177,7 +4177,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
 
 .recent-workspaces-label {
   display: block;
-  font-size: 11px;
+  font-size: calc(var(--font-size-base, 14px) * 11 / 14);
   color: $text-muted;
   margin-bottom: 4px;
 }
@@ -4185,7 +4185,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
 .recent-workspaces-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: calc(4px * var(--spacing-scale, 1));
 }
 
 </style>

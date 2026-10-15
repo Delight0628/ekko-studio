@@ -74,10 +74,10 @@ function selectEffort(value: string) {
 @use '@/styles/variables' as *;
 .native-coding-agent-model-fields { min-width: 0; }
 .native-model-trigger {
-  width: 100%; padding: 6px 8px; border: 1px solid $border-color; border-radius: $radius-sm;
-  background: $bg-input; color: $text-primary; font-size: 13px; text-align: start; cursor: pointer;
+  width: 100%; padding: calc(6px * var(--spacing-scale, 1)) calc(8px * var(--spacing-scale, 1)); border: var(--border-width, 1px) solid $border-color; border-radius: $radius-sm;
+  background: var(--theme-input-bg, $bg-input); color: $text-primary; font-size: calc(var(--font-size-base, 14px) * 13 / 14); text-align: start; cursor: pointer;
   &:disabled { opacity: .6; cursor: default; }
   &:focus-visible { outline: 2px solid $accent-primary; }
 }
-.native-model-status { display: flex; align-items: center; gap: 8px; padding: 0 14px 12px; color: $text-secondary; font-size: 12px; > span { flex: 1; } }
+.native-model-status { display: flex; align-items: center; gap: calc(8px * var(--spacing-scale, 1)); padding: 0 14px 12px; color: $text-secondary; font-size: calc(var(--font-size-base, 14px) * 12 / 14); > span { flex: 1; } }
 </style>

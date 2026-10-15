@@ -161,27 +161,27 @@ const dateTicks = computed(() => {
 @use '@/styles/variables' as *;
 
 .daily-trend {
-  background: $bg-card;
-  border: 1px solid $border-color;
-  border-radius: 12px;
-  padding: 24px 24px 16px;
+  background: var(--theme-card-bg, $bg-card);
+  border: var(--border-width, 1px) solid $border-color;
+  border-radius: var(--radius-component, 12px);
+  padding: calc(24px * var(--spacing-scale, 1)) calc(24px * var(--spacing-scale, 1)) calc(16px * var(--spacing-scale, 1));
 }
 
 .section-title {
-  font-size: 15px;
+  font-size: calc(var(--font-size-base, 14px) * 15 / 14);
   font-weight: 600;
   color: $text-primary;
   margin: 0;
 }
 
-.trend-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 30px; }
-.chart-caption { margin: 6px 0 0; font-size: 11px; color: $text-secondary; }
-.metric-selector { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-.daily-details { margin-top: 16px; summary { cursor: pointer; color: $text-secondary; font-size: 12px; padding: 8px 0; } }
+.trend-heading { display: flex; justify-content: space-between; align-items: center; gap: calc(12px * var(--spacing-scale, 1)); margin-bottom: 30px; }
+.chart-caption { margin: 6px 0 0; font-size: calc(var(--font-size-base, 14px) * 11 / 14); color: $text-secondary; }
+.metric-selector { display: flex; align-items: center; gap: calc(4px * var(--spacing-scale, 1)); flex-shrink: 0; }
+.daily-details { margin-top: 16px; summary { cursor: pointer; color: $text-secondary; font-size: calc(var(--font-size-base, 14px) * 12 / 14); padding: calc(8px * var(--spacing-scale, 1)) 0; } }
 .bar-segment.cost, .legend-swatch.cost { background: $accent-primary; }
-.chart-frame { position: relative; padding-inline-start: 48px; margin-bottom: 16px; }
+.chart-frame { position: relative; padding-inline-start: calc(48px * var(--spacing-scale, 1)); margin-bottom: 16px; }
 .chart-grid { position: absolute; inset: 0; inset-inline-start: 48px; pointer-events: none;
-  > div { position: absolute; width: 100%; border-top: 1px dashed $border-light; span { position: absolute; inset-inline-end: calc(100% + 10px); transform: translateY(-50%); font-size: 10px; white-space: nowrap; color: $text-secondary; } }
+  > div { position: absolute; width: 100%; border-top: var(--border-width, 1px) dashed $border-light; span { position: absolute; inset-inline-end: calc(100% + 10px); transform: translateY(-50%); font-size: calc(var(--font-size-base, 14px) * 10 / 14); white-space: nowrap; color: $text-secondary; } }
 }
 .cost-chart {
   .chart-frame, .bar-dates { padding-inline-start: 72px; }
@@ -252,9 +252,9 @@ const dateTicks = computed(() => {
   transform: translateX(-50%);
   background: $text-primary;
   color: var(--text-on-accent);
-  padding: 6px 10px;
+  padding: calc(6px * var(--spacing-scale, 1)) calc(10px * var(--spacing-scale, 1));
   border-radius: $radius-sm;
-  font-size: 11px;
+  font-size: calc(var(--font-size-base, 14px) * 11 / 14);
   white-space: nowrap;
   z-index: 10;
   pointer-events: none;
@@ -281,16 +281,16 @@ const dateTicks = computed(() => {
 }
 
 .tooltip-row {
-  line-height: 1.5;
+  line-height: var(--line-height, 1.5);
 }
 
 .bar-dates {
   display: flex;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: calc(var(--font-size-base, 14px) * 10 / 14);
   color: $text-secondary;
   margin-bottom: 12px;
-  padding-inline-start: 48px;
+  padding-inline-start: calc(48px * var(--spacing-scale, 1));
 }
 
 .single-day {
@@ -303,17 +303,17 @@ const dateTicks = computed(() => {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 8px 14px;
+  gap: calc(8px * var(--spacing-scale, 1)) calc(14px * var(--spacing-scale, 1));
   margin: 0;
   color: $text-secondary;
-  font-size: 11px;
+  font-size: calc(var(--font-size-base, 14px) * 11 / 14);
 }
 
 @media (max-width: 480px) {
-  .daily-trend { padding: 20px 16px 12px; }
-  .trend-heading { gap: 8px; align-items: flex-start; flex-wrap: wrap; }
-  .section-title { font-size: 14px; }
-  .metric-selector { gap: 2px; :deep(.n-button) { font-size: 11px; padding: 0 10px; } }
+  .daily-trend { padding: calc(20px * var(--spacing-scale, 1)) calc(16px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1)); }
+  .trend-heading { gap: calc(8px * var(--spacing-scale, 1)); align-items: flex-start; flex-wrap: wrap; }
+  .section-title { font-size: calc(var(--font-size-base, 14px) * 14 / 14); }
+  .metric-selector { gap: calc(2px * var(--spacing-scale, 1)); :deep(.n-button) { font-size: calc(var(--font-size-base, 14px) * 11 / 14); padding: 0 calc(10px * var(--spacing-scale, 1)); } }
   .bar-col { position: static; }
   .bar-tooltip { left: 0; right: 0; transform: none; white-space: normal; &::after { display: none; } }
 }
@@ -321,14 +321,14 @@ const dateTicks = computed(() => {
 .legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: calc(5px * var(--spacing-scale, 1));
   white-space: nowrap;
 }
 
 .legend-swatch {
   width: 8px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-component, 2px);
   flex-shrink: 0;
 }
 
@@ -338,14 +338,14 @@ const dateTicks = computed(() => {
   table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 11px;
+    font-size: calc(var(--font-size-base, 14px) * 11 / 14);
   }
 
   th,
   td {
     text-align: end;
-    padding: 6px 8px;
-    border-bottom: 1px solid $border-color;
+    padding: calc(6px * var(--spacing-scale, 1)) calc(8px * var(--spacing-scale, 1));
+    border-bottom: var(--border-width, 1px) solid $border-color;
     white-space: nowrap;
   }
 

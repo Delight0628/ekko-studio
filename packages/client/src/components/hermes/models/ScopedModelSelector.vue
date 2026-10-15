@@ -80,14 +80,14 @@ function handleSelect(selection: { provider: string; model: string; apiMode?: Pr
 .model-trigger {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: calc(6px * var(--spacing-scale, 1));
   width: 100%;
-  padding: 6px 8px;
-  background: $bg-input;
-  border: 1px solid $border-color;
+  padding: calc(6px * var(--spacing-scale, 1)) calc(8px * var(--spacing-scale, 1));
+  background: var(--theme-input-bg, $bg-input);
+  border: var(--border-width, 1px) solid $border-color;
   border-radius: $radius-sm;
   color: $text-primary;
-  font-size: 13px;
+  font-size: calc(var(--font-size-base, 14px) * 13 / 14);
   cursor: pointer;
   transition: border-color $transition-fast;
 

@@ -1,3 +1,4 @@
+import type { ThemeAppearance } from '../../../../shared/theme-appearance'
 import {
   ensureDesktopAuthReady,
   getApiKey,
@@ -9,6 +10,7 @@ export interface UserThemeSettings {
   fontSize: number
   textColor: string | null
   accentColor: string | null
+  appearance?: ThemeAppearance
   background: {
     name: string
     mime: string | null
@@ -37,7 +39,7 @@ export function fetchThemeSettings(): Promise<UserThemeSettings> {
 }
 
 export function updateThemeSettings(
-  patch: Partial<Pick<UserThemeSettings, 'fontSize' | 'textColor' | 'accentColor'>>,
+  patch: Partial<Pick<UserThemeSettings, 'fontSize' | 'textColor' | 'accentColor' | 'appearance'>>,
 ): Promise<UserThemeSettings> {
   return request<UserThemeSettings>('/api/theme', {
     method: 'PUT',

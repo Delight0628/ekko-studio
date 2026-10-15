@@ -142,11 +142,11 @@ async function save() {
 </template>
 
 <style scoped lang="scss">
-.pricing-help { margin: 0 0 16px; line-height: 1.6; }
+.pricing-help { margin: 0 0 16px; line-height: var(--line-height, 1.6); }
 .pricing-error { margin-bottom: 12px; }
 .pricing-rows { max-height: 60vh; overflow: auto; }
-.pricing-row { display: grid; grid-template-columns: repeat(2, minmax(110px, 1.5fr)) repeat(4, minmax(85px, 1fr)) auto; align-items: end; gap: 10px; margin-bottom: 14px; }
-.pricing-row label { display: flex; flex-direction: column; min-width: 0; gap: 6px; font-size: 12px; }
+.pricing-row { display: grid; grid-template-columns: repeat(2, minmax(110px, 1.5fr)) repeat(4, minmax(85px, 1fr)) auto; align-items: end; gap: calc(10px * var(--spacing-scale, 1)); margin-bottom: 14px; }
+.pricing-row label { display: flex; flex-direction: column; min-width: 0; gap: calc(6px * var(--spacing-scale, 1)); font-size: calc(var(--font-size-base, 14px) * 12 / 14); }
 .pricing-actions { display: flex; justify-content: space-between; }
 @media (max-width: 800px) { .pricing-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 </style>

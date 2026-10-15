@@ -55,16 +55,16 @@ async function handleRefresh() {
 
 <style scoped lang="scss">
 @use '@/styles/variables' as *;
-.model-selector { padding: 0 12px; margin-bottom: 8px; }
+.model-selector { padding: 0 calc(12px * var(--spacing-scale, 1)); margin-bottom: 8px; }
 .model-label-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.model-label { font-size: 11px; font-weight: 600; color: $text-muted; text-transform: uppercase; letter-spacing: 0.5px; }
+.model-label { font-size: calc(var(--font-size-base, 14px) * 11 / 14); font-weight: 600; color: $text-muted; text-transform: uppercase; letter-spacing: 0.5px; }
 .model-refresh { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: $radius-sm; background: transparent; color: $text-muted; cursor: pointer;
   &:hover:not(:disabled) { background: $bg-secondary; color: $text-primary; }
   &:disabled { cursor: default; opacity: 0.7; }
   svg.spinning { animation: model-refresh-spin 0.8s linear infinite; }
 }
 @keyframes model-refresh-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.model-trigger { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 8px; background: $bg-input; border: 1px solid $border-color; border-radius: $radius-sm; color: $text-primary; font-size: 13px; cursor: pointer;
+.model-trigger { display: flex; align-items: center; gap: calc(6px * var(--spacing-scale, 1)); width: 100%; padding: calc(6px * var(--spacing-scale, 1)) calc(8px * var(--spacing-scale, 1)); background: var(--theme-input-bg, $bg-input); border: var(--border-width, 1px) solid $border-color; border-radius: $radius-sm; color: $text-primary; font-size: calc(var(--font-size-base, 14px) * 13 / 14); cursor: pointer;
   &:hover { border-color: $accent-muted; }
   &:focus-visible { outline: 2px solid $accent-primary; outline-offset: 2px; }
 }

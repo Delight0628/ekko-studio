@@ -138,7 +138,7 @@ export async function readThemeBackground(userIdValue: unknown): Promise<{
     return {
       data: await readFile(storedBackgroundPath(userId, theme.backgroundFilename)),
       mime: theme.backgroundMime,
-      updatedAt: theme.updatedAt,
+      updatedAt: theme.backgroundUpdatedAt,
     }
   } catch {
     return null

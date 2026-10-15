@@ -439,7 +439,7 @@ async function handleLocalTest() {
 @use '@/styles/variables' as *;
 
 .voice-settings {
-  padding: 8px 0;
+  padding: calc(8px * var(--spacing-scale, 1)) 0;
 }
 
 .settings-section {
@@ -448,15 +448,15 @@ async function handleLocalTest() {
 
 .voice-provider-section + .voice-provider-section {
   margin-top: 28px;
-  padding-top: 20px;
-  border-top: 1px solid $border-color;
+  padding-top: calc(20px * var(--spacing-scale, 1));
+  border-top: var(--border-width, 1px) solid $border-color;
 }
 
 .section-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 20px;
+  gap: calc(20px * var(--spacing-scale, 1));
   margin-bottom: 14px;
 }
 
@@ -467,7 +467,7 @@ async function handleLocalTest() {
 .section-title {
   margin: 0 0 6px;
   color: $text-primary;
-  font-size: 15px;
+  font-size: calc(var(--font-size-base, 14px) * 15 / 14);
   font-weight: 600;
 }
 
@@ -475,15 +475,15 @@ async function handleLocalTest() {
   margin: 0;
   max-width: 620px;
   color: $text-muted;
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: calc(var(--font-size-base, 14px) * 13 / 14);
+  line-height: var(--line-height, 1.6);
 }
 
 .section-controls {
   display: grid;
   grid-template-columns: 220px 112px;
   align-items: center;
-  gap: 10px;
+  gap: calc(10px * var(--spacing-scale, 1));
   flex-shrink: 0;
 
   > .n-button {
@@ -493,7 +493,7 @@ async function handleLocalTest() {
 
 .active-select {
   display: grid;
-  gap: 5px;
+  gap: calc(5px * var(--spacing-scale, 1));
   width: 220px;
   min-width: 0;
 }
@@ -501,8 +501,8 @@ async function handleLocalTest() {
 .active-label,
 .active-summary {
   color: $text-muted;
-  font-size: 11px;
-  line-height: 1.3;
+  font-size: calc(var(--font-size-base, 14px) * 11 / 14);
+  line-height: var(--line-height, 1.3);
 }
 
 .active-summary {
@@ -519,7 +519,7 @@ async function handleLocalTest() {
 .provider-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: calc(10px * var(--spacing-scale, 1));
 }
 
 @media (max-width: 860px) {

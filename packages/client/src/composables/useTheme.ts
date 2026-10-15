@@ -1,3 +1,4 @@
+import { normalizeThemeAppearance, resolveAppearance, THEME_REGIONS } from '@/styles/theme-appearance'
 import { computed, ref, watch } from 'vue'
 import {
   clearThemeBackgroundCache,
@@ -29,6 +30,7 @@ const DEFAULT_SERVER_THEME: UserThemeSettings = {
   fontSize: DEFAULT_THEME_FONT_SIZE,
   textColor: null,
   accentColor: null,
+  appearance: normalizeThemeAppearance(null),
   background: null,
   updatedAt: 0,
 }
@@ -69,6 +71,7 @@ function normalizeServerTheme(value: unknown): UserThemeSettings {
 
   return {
     ...customization,
+    appearance: normalizeThemeAppearance(record.appearance),
     background,
     updatedAt: Number.isFinite(Number(record.updatedAt)) ? Number(record.updatedAt) : 0,
   }
@@ -97,14 +100,21 @@ let committedTheme = serverTheme.value
 const backgroundImageUrl = ref<string | null>(null)
 const backgroundImageName = computed(() => serverTheme.value.background?.name || '')
 const hasBackgroundImage = computed(() => !!backgroundImageUrl.value)
+const hasCustomBackground = computed(() => hasBackgroundImage.value || !!serverTheme.value.appearance?.global.gradientColor)
 let backgroundObjectUrl: string | null = null
 let backgroundLoadGeneration = 0
+let loadedBackgroundKey = ''
+let appearanceProperties: string[] = ['--bg-primary', '--text-primary']
+let previewRevision = 0
+let saveQueue: Promise<void> = Promise.resolve()
 
 const customization = computed<ThemeCustomization>(() => ({
   fontSize: serverTheme.value.fontSize,
   textColor: serverTheme.value.textColor,
   accentColor: serverTheme.value.accentColor,
+  appearance: serverTheme.value.appearance,
 }))
+const resolvedAppearance = computed(() => resolveAppearance(customization.value, isDark.value))
 
 function resolveDark(mode: BrightnessMode): boolean {
   if (mode === 'system') {
@@ -119,6 +129,7 @@ function setOrRemoveStyle(name: string, value: string | undefined) {
 }
 
 function applyCustomization() {
+  for (const name of appearanceProperties) document.documentElement.style.removeProperty(name)
   const resolved = resolveThemeCustomization(customization.value, isDark.value)
   const root = document.documentElement
   root.style.setProperty('--font-size-base', `${resolved.fontSize}px`)
@@ -134,6 +145,18 @@ function applyCustomization() {
   setOrRemoveStyle('--accent-primary-rgb', resolved.accentPrimaryRgb)
   setOrRemoveStyle('--accent-hover-rgb', resolved.accentHoverRgb)
   setOrRemoveStyle('--text-on-accent', resolved.textOnAccent)
+  const appearance = resolvedAppearance.value
+  appearanceProperties = Object.keys(appearance.variables)
+  for (const [name, value] of Object.entries(appearance.variables)) root.style.setProperty(name, value)
+  root.classList.toggle('theme-customized', Object.keys(appearance.appearance.global).length > 0 || Object.keys(appearance.appearance.regions).length > 0)
+  root.classList.toggle('theme-custom-background-color', !!appearance.appearance.global.backgroundColor)
+  for (const region of THEME_REGIONS) {
+    for (const property of ['bg', 'filter', 'radius', 'border', 'shadow']) {
+      root.classList.toggle(`theme-${region}-${property}`, appearance.variables[`--theme-${region}-${property}`] !== undefined)
+    }
+  }
+  root.style.setProperty('--font-scale', String(resolved.fontSize / 14))
+  document.dispatchEvent(new CustomEvent('studio-theme-change'))
 }
 
 function applyClasses() {
@@ -145,9 +168,9 @@ function applyClasses() {
   applyCustomization()
 }
 
-function persistThemeCache() {
+function persistThemeCache(settings = serverTheme.value) {
   if (!activeUserId.value) return
-  localStorage.setItem(cacheKey(activeUserId.value), JSON.stringify(serverTheme.value))
+  localStorage.setItem(cacheKey(activeUserId.value), JSON.stringify(settings))
 }
 
 function revokeBackgroundObjectUrl() {
@@ -161,6 +184,7 @@ function clearBackgroundVisual() {
   backgroundLoadGeneration += 1
   revokeBackgroundObjectUrl()
   backgroundImageUrl.value = null
+  loadedBackgroundKey = ''
   document.documentElement.style.removeProperty('--app-background-image')
 }
 
@@ -172,6 +196,8 @@ async function loadBackground(refresh = false) {
     return
   }
 
+  const key = `${userId}:${background.updatedAt}`
+  if (!refresh && loadedBackgroundKey === key && backgroundImageUrl.value) return
   const generation = ++backgroundLoadGeneration
   try {
     const blob = await fetchThemeBackgroundBlob(userId, background.updatedAt, refresh)
@@ -185,6 +211,7 @@ async function loadBackground(refresh = false) {
     revokeBackgroundObjectUrl()
     backgroundObjectUrl = url
     backgroundImageUrl.value = url
+    loadedBackgroundKey = key
     document.documentElement.style.setProperty('--app-background-image', `url("${url}")`)
   } catch {
     if (generation === backgroundLoadGeneration) clearBackgroundVisual()
@@ -201,47 +228,85 @@ function applyThemeSettings(settings: UserThemeSettings, userId = activeUserId.v
 }
 
 function previewThemeSettings(
-  patch: Partial<Pick<UserThemeSettings, 'fontSize' | 'textColor' | 'accentColor'>>,
+  patch: Partial<Pick<UserThemeSettings, 'fontSize' | 'textColor' | 'accentColor' | 'appearance'>>,
 ) {
+  previewRevision += 1
   serverTheme.value = normalizeServerTheme({ ...serverTheme.value, ...patch })
   applyCustomization()
 }
 
-async function saveThemeCustomization(
-  patch: Partial<Pick<UserThemeSettings, 'fontSize' | 'textColor' | 'accentColor'>>,
+function saveThemeCustomization(
+  patch: Partial<Pick<UserThemeSettings, 'fontSize' | 'textColor' | 'accentColor' | 'appearance'>>,
 ): Promise<void> {
   previewThemeSettings(patch)
-  try {
-    applyThemeSettings(await updateThemeSettings(patch))
-  } catch (error) {
-    serverTheme.value = committedTheme
-    persistThemeCache()
-    applyCustomization()
-    throw error
-  }
+  const revision = previewRevision
+  const userId = activeUserId.value
+  const snapshot = JSON.parse(JSON.stringify(patch)) as typeof patch
+  const save = saveQueue.catch(() => undefined).then(async () => {
+    if (userId !== activeUserId.value) return
+    try {
+      const saved = normalizeServerTheme(await updateThemeSettings(snapshot))
+      if (userId !== activeUserId.value) return
+      committedTheme = saved
+      persistThemeCache(saved)
+      // A completed request must not replace a newer slider/color preview.
+      if (revision === previewRevision) {
+        serverTheme.value = saved
+        applyCustomization()
+        void loadBackground()
+      }
+    } catch (error) {
+      if (userId === activeUserId.value && revision === previewRevision) {
+        serverTheme.value = committedTheme
+        persistThemeCache()
+        applyCustomization()
+      }
+      throw error
+    }
+  })
+  saveQueue = save
+  return save
 }
 
 async function syncThemeFromServer(): Promise<void> {
-  if (!activeUserId.value) return
-  applyThemeSettings(await fetchThemeSettings())
+  const userId = activeUserId.value
+  const revision = previewRevision
+  if (!userId) return
+  const settings = await fetchThemeSettings()
+  if (userId === activeUserId.value && revision === previewRevision) applyThemeSettings(settings)
 }
 
 function activateUserTheme(userId: number, settings: UserThemeSettings) {
+  previewRevision += 1
   applyThemeSettings(settings, userId)
 }
 
-async function uploadBackground(file: File): Promise<void> {
-  const settings = await uploadThemeBackgroundApi(file)
-  applyThemeSettings(settings)
-  await loadBackground(true)
+function changeBackground(request: () => Promise<UserThemeSettings>, remove = false): Promise<void> {
+  const userId = activeUserId.value
+  const change = saveQueue.catch(() => undefined).then(async () => {
+    if (userId !== activeUserId.value) return
+    const settings = normalizeServerTheme(await request())
+    if (userId !== activeUserId.value) return
+    // Upload responses include the whole theme; only their background metadata
+    // belongs to this operation. A newer slider preview must remain visible.
+    committedTheme = { ...committedTheme, background: settings.background, updatedAt: settings.updatedAt }
+    serverTheme.value = { ...serverTheme.value, background: settings.background, updatedAt: settings.updatedAt }
+    persistThemeCache(committedTheme)
+    if (remove) {
+      clearBackgroundVisual()
+      if (userId) await clearThemeBackgroundCache(userId)
+    } else await loadBackground(true)
+  })
+  saveQueue = change
+  return change
 }
 
-async function removeBackground(): Promise<void> {
-  const userId = activeUserId.value
-  const settings = await deleteThemeBackgroundApi()
-  clearBackgroundVisual()
-  if (userId) await clearThemeBackgroundCache(userId)
-  applyThemeSettings(settings)
+function uploadBackground(file: File): Promise<void> {
+  return changeBackground(() => uploadThemeBackgroundApi(file))
+}
+
+function removeBackground(): Promise<void> {
+  return changeBackground(deleteThemeBackgroundApi, true)
 }
 
 function resetCustomization(): Promise<void> {
@@ -249,6 +314,7 @@ function resetCustomization(): Promise<void> {
     fontSize: DEFAULT_THEME_FONT_SIZE,
     textColor: null,
     accentColor: null,
+    appearance: normalizeThemeAppearance(null),
   })
 }
 
@@ -269,7 +335,7 @@ watch(style, (themeStyle) => {
   applyClasses()
 })
 
-watch(hasBackgroundImage, (active) => {
+watch(hasCustomBackground, (active) => {
   document.documentElement.classList.toggle('theme-has-custom-background', active)
 }, { immediate: true })
 
@@ -302,12 +368,15 @@ export function useTheme() {
     isComic,
     themeName,
     customization,
+    appearance: computed(() => normalizeThemeAppearance(serverTheme.value.appearance)),
+    resolvedAppearance,
     fontSize: computed(() => serverTheme.value.fontSize),
     textColor: computed(() => serverTheme.value.textColor),
     accentColor: computed(() => serverTheme.value.accentColor),
     backgroundImageUrl,
     backgroundImageName,
     hasBackgroundImage,
+    hasCustomBackground,
     setBrightness,
     setStyle,
     toggleBrightness,

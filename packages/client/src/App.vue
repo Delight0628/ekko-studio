@@ -93,7 +93,7 @@ const {
   isDark,
   isComic,
   customization,
-  hasBackgroundImage,
+  hasCustomBackground,
   syncThemeFromServer,
 } = useTheme();
 const { t, locale } = useI18n();
@@ -309,7 +309,7 @@ useKeyboard();
                 desktop: isDesktopShell,
                 'desktop-chat-window': isDesktopChatWindow,
                 'desktop-window-maximized': isDesktopWindowMaximized,
-                'app-shell--custom-background': hasBackgroundImage,
+                'app-shell--custom-background': hasCustomBackground,
                 'app-shell--navigation-rail': showNavigationRail,
               },
             ]"
@@ -441,10 +441,10 @@ useKeyboard();
     position: absolute;
     z-index: 0;
     inset: 0;
-    background-image: var(--app-background-image, none);
-    background-position: center;
+    background-image: linear-gradient(var(--app-background-overlay, transparent), var(--app-background-overlay, transparent)), var(--app-background-image, none), var(--app-background-gradient, none);
+    background-position: var(--app-background-position, center);
     background-repeat: no-repeat;
-    background-size: cover;
+    background-size: var(--app-background-size, cover);
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.3s ease;
@@ -476,7 +476,7 @@ useKeyboard();
   width: 100%;
   max-width: 100%;
   overflow: hidden;
-  background-color: $bg-card;
+  background-color: var(--theme-card-bg, $bg-card);
 
   &.no-sidebar {
     display: block;
@@ -508,9 +508,9 @@ useKeyboard();
 
   &--card {
     margin: 10px 10px 10px 0;
-    background-color: $bg-main-surface;
-    border: 1px solid $border-color;
-    border-radius: 14px;
+    background-color: var(--theme-content-bg, $bg-main-surface);
+    border: var(--border-width, 1px) solid $border-color;
+    border-radius: var(--radius-component, 14px);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
   }
 }
@@ -522,7 +522,7 @@ useKeyboard();
   --studio-content-radius: #{$radius-lg};
   --desktop-window-controls-width: 138px;
   flex-direction: row;
-  background-color: $bg-sidebar;
+  background-color: var(--theme-sidebar-bg, $bg-sidebar);
 
   .studio-page-header {
     position: absolute;
@@ -542,7 +542,7 @@ useKeyboard();
       align-items: center;
       justify-content: space-between;
       flex-wrap: nowrap;
-      gap: 12px;
+      gap: calc(12px * var(--spacing-scale, 1));
       // The sidebar control is a sibling on configuration pages.
       flex: 1 1 0%;
       width: 0;
@@ -551,7 +551,7 @@ useKeyboard();
       height: 100%;
       min-height: 0;
       margin: 0;
-      padding: 0 16px;
+      padding: 0 calc(16px * var(--spacing-scale, 1));
       border: 0;
       background: transparent;
       overflow-x: auto;
@@ -579,7 +579,7 @@ useKeyboard();
     :deep(.header-session-title),
     :deep(.header-workflow-title),
     :deep(.room-title-text) {
-      font-size: 13px;
+      font-size: calc(var(--font-size-base, 14px) * 13 / 14);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -615,7 +615,7 @@ useKeyboard();
     :deep(.header-text) {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: calc(8px * var(--spacing-scale, 1));
       min-width: 0;
 
       p {
@@ -641,7 +641,7 @@ useKeyboard();
       position: absolute;
       inset: 0 0 auto;
       height: var(--studio-header-height);
-      background-color: $bg-sidebar;
+      background-color: var(--theme-sidebar-bg, $bg-sidebar);
       pointer-events: none;
     }
   }
@@ -678,7 +678,12 @@ useKeyboard();
     .app-layout {
       // Align this image with the shell's full-window background. Its opaque base
       // keeps the continuous frame glass from tinting the content a second time.
-      background: $bg-sidebar var(--app-background-image, none) center / cover no-repeat fixed;
+      background-color: $bg-sidebar;
+      background-image: linear-gradient(var(--app-background-overlay, transparent), var(--app-background-overlay, transparent)), var(--app-background-image, none), var(--app-background-gradient, none);
+      background-position: var(--app-background-position, center);
+      background-size: var(--app-background-size, cover);
+      background-repeat: no-repeat;
+      background-attachment: fixed;
       // Composite the image and surfaces before rounding them together. Separate
       // rounded clips leave antialiased pixels that expose the unfiltered image.
       border-radius: 0;
@@ -694,9 +699,9 @@ useKeyboard();
     background-color: transparent;
 
     &--card {
-      background-color: var(--glass-content-bg);
-      -webkit-backdrop-filter: blur(8px) saturate(110%);
-      backdrop-filter: blur(8px) saturate(110%);
+      background-color: var(--theme-content-bg, var(--glass-content-bg));
+      -webkit-backdrop-filter: var(--theme-content-filter, blur(8px) saturate(110%));
+      backdrop-filter: var(--theme-content-filter, blur(8px) saturate(110%));
     }
   }
 
@@ -713,9 +718,9 @@ useKeyboard();
   :deep(.desktop-titlebar:not(.desktop-titlebar--flush)),
   :deep(.chat-panel > .chat-main > .chat-header),
   :deep(.group-chat-panel > .chat-main > .chat-header) {
-    background-color: var(--glass-chrome-bg);
-    -webkit-backdrop-filter: blur(16px) saturate(110%);
-    backdrop-filter: blur(16px) saturate(110%);
+    background-color: var(--theme-chrome-bg, var(--glass-chrome-bg));
+    -webkit-backdrop-filter: var(--theme-chrome-filter, blur(16px) saturate(110%));
+    backdrop-filter: var(--theme-chrome-filter, blur(16px) saturate(110%));
   }
 
   :deep(.sidebar),
@@ -726,9 +731,9 @@ useKeyboard();
   :deep(.history-panel > .page-loading-content > .session-list),
   :deep(.group-chat-panel > .room-sidebar),
   :deep(.workflow-view > .page-loading-content > .workflow-sidebar) {
-    background-color: var(--glass-sidebar-bg);
-    -webkit-backdrop-filter: blur(12px) saturate(110%);
-    backdrop-filter: blur(12px) saturate(110%);
+    background-color: var(--theme-sidebar-bg, var(--glass-sidebar-bg));
+    -webkit-backdrop-filter: var(--theme-sidebar-filter, blur(12px) saturate(110%));
+    backdrop-filter: var(--theme-sidebar-filter, blur(12px) saturate(110%));
   }
 
   :deep(.history-panel > .page-loading-content > .chat-main),
@@ -736,9 +741,9 @@ useKeyboard();
   :deep(.connections-panel),
   :deep(.agent-manager-panel),
   :deep(.models-view) {
-    background-color: var(--glass-content-bg);
-    -webkit-backdrop-filter: blur(8px) saturate(110%);
-    backdrop-filter: blur(8px) saturate(110%);
+    background-color: var(--theme-content-bg, var(--glass-content-bg));
+    -webkit-backdrop-filter: var(--theme-content-filter, blur(8px) saturate(110%));
+    backdrop-filter: var(--theme-content-filter, blur(8px) saturate(110%));
   }
 
   :deep(.chat-panel > .chat-main),
@@ -755,7 +760,7 @@ useKeyboard();
 
   :deep(.chat-main-content),
   :deep(.group-chat-surface) {
-    background-color: rgba(var(--bg-main-surface-rgb), 0.42);
+    background-color: var(--theme-content-bg, rgba(var(--bg-main-surface-rgb), 0.42));
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -769,9 +774,9 @@ useKeyboard();
 
   :deep(.chat-input-area .context-usage-row),
   :deep(.chat-input-area .input-wrapper) {
-    background-color: rgba(var(--bg-main-surface-rgb), 0.72);
-    -webkit-backdrop-filter: blur(8px) saturate(110%);
-    backdrop-filter: blur(8px) saturate(110%);
+    background-color: var(--theme-input-bg, rgba(var(--bg-main-surface-rgb), 0.72));
+    -webkit-backdrop-filter: var(--theme-input-filter, blur(8px) saturate(110%));
+    backdrop-filter: var(--theme-input-filter, blur(8px) saturate(110%));
   }
 
   :deep(.browser-settings-page > .settings-card) {
@@ -852,7 +857,7 @@ useKeyboard();
   }
 
   :deep(.studio-navigation-rail) {
-    padding-top: 44px;
+    padding-top: calc(44px * var(--spacing-scale, 1));
 
     &::before {
       content: "";
@@ -871,14 +876,14 @@ useKeyboard();
   .app-layout > :deep(.hermes-config-sidebar),
   .app-layout > :deep(.ekko-config-sidebar),
   .app-layout > :deep(.coding-agent-config-sidebar) {
-    padding-top: 40px;
+    padding-top: calc(40px * var(--spacing-scale, 1));
   }
 
   :deep(.chat-panel > .session-list > .page-sidebar-top),
   :deep(.history-panel > .page-loading-content > .session-list > .page-sidebar-top),
   :deep(.workflow-view > .page-loading-content > .workflow-sidebar > .page-sidebar-top),
   :deep(.group-chat-panel > .room-sidebar > .sidebar-header) {
-    padding-top: 44px;
+    padding-top: calc(44px * var(--spacing-scale, 1));
   }
 }
 
@@ -896,7 +901,7 @@ useKeyboard();
   }
 
   .app-layout {
-    padding-top: 46px;
+    padding-top: calc(46px * var(--spacing-scale, 1));
   }
 
   :deep(.chat-panel--standalone > .chat-main) {
@@ -930,13 +935,13 @@ useKeyboard();
   flex: 0 0 auto;
   width: 100%;
   z-index: 100;
-  padding: 4px 16px;
-  font-size: 12px;
+  padding: calc(4px * var(--spacing-scale, 1)) calc(16px * var(--spacing-scale, 1));
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
   font-weight: 500;
   color: #b45309;
   background-color: #fef3c7;
-  border-bottom: 1px solid #fde68a;
+  border-bottom: var(--border-width, 1px) solid #fde68a;
   text-align: center;
-  line-height: 1.4;
+  line-height: var(--line-height, 1.4);
 }
 </style>

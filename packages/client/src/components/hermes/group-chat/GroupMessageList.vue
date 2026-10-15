@@ -323,20 +323,20 @@ defineExpose({ scrollToBottom })
 
 .handoff-stop-card {
     display: grid;
-    gap: 4px;
+    gap: calc(4px * var(--spacing-scale, 1));
     margin: 6px 0 0 46px;
-    padding: 10px 12px;
+    padding: calc(10px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1));
     max-width: min(85%, 720px);
-    border: 1px solid rgba(var(--warning-rgb), 0.3);
-    border-radius: 10px;
+    border: var(--border-width, 1px) solid rgba(var(--warning-rgb), 0.3);
+    border-radius: var(--radius-component, 10px);
     background: rgba(var(--warning-rgb), 0.08);
     color: var(--text-color);
-    font-size: 12px;
+    font-size: calc(var(--font-size-base, 14px) * 12 / 14);
 }
 
 .handoff-stop-actions {
     display: flex;
-    gap: 12px;
+    gap: calc(12px * var(--spacing-scale, 1));
     margin-top: 4px;
 
     button {
@@ -359,7 +359,7 @@ defineExpose({ scrollToBottom })
     align-items: center;
     justify-content: center;
     border-radius: 999px;
-    border: 1px solid rgba(var(--accent-primary-rgb), 0.24);
+    border: var(--border-width, 1px) solid rgba(var(--accent-primary-rgb), 0.24);
     background: rgba(255, 255, 255, 0.94);
     color: var(--accent-primary);
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
@@ -386,12 +386,12 @@ defineExpose({ scrollToBottom })
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 12px;
+    gap: calc(12px * var(--spacing-scale, 1));
     color: $text-muted;
 
     p {
         margin: 0;
-        font-size: 14px;
+        font-size: calc(var(--font-size-base, 14px) * 14 / 14);
     }
 }
 
@@ -399,7 +399,7 @@ defineExpose({ scrollToBottom })
     display: flex;
     align-items: center;
     justify-content: center;
-    padding-inline-start: 8px;
+    padding-inline-start: calc(8px * var(--spacing-scale, 1));
 }
 
 .empty-agent-avatar {
@@ -408,7 +408,7 @@ defineExpose({ scrollToBottom })
     margin-inline-start: -8px;
     overflow: hidden;
     box-sizing: border-box;
-    border: 1px solid #fff;
+    border: var(--border-width, 1px) solid #fff;
     border-radius: 50%;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
 
@@ -424,7 +424,7 @@ defineExpose({ scrollToBottom })
     display: grid;
     grid-template-columns: minmax(24px, 1fr) auto minmax(24px, 1fr);
     align-items: center;
-    gap: 12px;
+    gap: calc(12px * var(--spacing-scale, 1));
     width: min(760px, 100%);
     margin: 12px auto 4px;
     color: var(--text-secondary);
@@ -439,14 +439,14 @@ defineExpose({ scrollToBottom })
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 7px 12px;
-    border: 1px solid rgba(var(--accent-primary-rgb), 0.22);
+    gap: calc(8px * var(--spacing-scale, 1));
+    padding: calc(7px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1));
+    border: var(--border-width, 1px) solid rgba(var(--accent-primary-rgb), 0.22);
     border-radius: 999px;
-    background: var(--bg-card);
+    background: var(--theme-card-bg, var(--bg-card));
     box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
-    font-size: 12px;
-    line-height: 1.35;
+    font-size: calc(var(--font-size-base, 14px) * 12 / 14);
+    line-height: var(--line-height, 1.35);
 }
 
 .summary-anchor-divider-icon {
@@ -501,8 +501,8 @@ defineExpose({ scrollToBottom })
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding-bottom: 8px;
+    gap: calc(8px * var(--spacing-scale, 1));
+    padding-bottom: calc(8px * var(--spacing-scale, 1));
 }
 
 .history-load-error button {
@@ -510,21 +510,21 @@ defineExpose({ scrollToBottom })
     align-items: center;
     justify-content: center;
     min-height: 28px;
-    padding: 5px 10px;
-    border: 1px solid rgba(var(--accent-info-rgb), 0.22);
+    padding: calc(5px * var(--spacing-scale, 1)) calc(10px * var(--spacing-scale, 1));
+    border: var(--border-width, 1px) solid rgba(var(--accent-info-rgb), 0.22);
     border-radius: 999px;
     background: rgba(var(--accent-info-rgb), 0.08);
     color: var(--accent-primary);
-    font-size: 12px;
+    font-size: calc(var(--font-size-base, 14px) * 12 / 14);
     font-weight: 600;
-    line-height: 1.3;
+    line-height: var(--line-height, 1.3);
     text-decoration: none;
     text-align: center;
 }
 
 .history-load-error {
     color: $text-secondary;
-    font-size: 12px;
+    font-size: calc(var(--font-size-base, 14px) * 12 / 14);
 }
 
 .history-load-error button {
@@ -535,7 +535,7 @@ defineExpose({ scrollToBottom })
 @media (max-width: 640px) {
     .summary-anchor-divider {
         grid-template-columns: 1fr;
-        gap: 8px;
+        gap: calc(8px * var(--spacing-scale, 1));
     }
 
     .summary-anchor-divider-line {
@@ -549,4 +549,4 @@ defineExpose({ scrollToBottom })
 }
 </style>
 
-<style scoped>.routing-suggestion{margin:4px 12px 10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;display:flex;gap:8px;align-items:center}.routing-warning{border-color:#f0a020}.routing-suggestion button{border:0;background:transparent;color:var(--primary-color);cursor:pointer}</style>
+<style scoped>.routing-suggestion{margin:4px 12px 10px;padding:calc(8px * var(--spacing-scale, 1)) calc(10px * var(--spacing-scale, 1));border:var(--border-width, 1px) solid var(--border-color);border-radius: var(--radius-component, 8px);display:flex;gap:calc(8px * var(--spacing-scale, 1));align-items:center}.routing-warning{border-color:#f0a020}.routing-suggestion button{border:0;background:transparent;color:var(--primary-color);cursor:pointer}</style>

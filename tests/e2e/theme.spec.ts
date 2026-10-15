@@ -1,6 +1,87 @@
 import { expect, test } from '@playwright/test'
 import { authenticate, mockHermesApi, TEST_ACCESS_KEY } from './fixtures'
 
+test('previews global appearance, persists regional overrides, and restores inheritance', async ({ page }) => {
+  await authenticate(page)
+  const api = await mockHermesApi(page, { workflows: [{
+    id: 'theme-workflow', name: 'Theme preview', profile: 'default', workspace: null,
+    nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, created_at: 1, updated_at: 1,
+  }] })
+  await page.goto('/#/hermes/theme')
+  await expect(page.getByTestId('theme-scope')).toBeVisible()
+  const opacity = page.getByTestId('theme-global-opacity')
+  await opacity.evaluate(element => {
+    const input = element as HTMLInputElement
+    input.value = '0.22'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await expect(page.locator('.app-main--card')).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.22)')
+  expect(api.requests.filter(request => request.method === 'PUT' && request.pathname === '/api/theme')).toHaveLength(0)
+  await opacity.dispatchEvent('change')
+  await page.getByTestId('theme-global-radius').fill('18')
+  await page.getByTestId('theme-global-radius').dispatchEvent('change')
+  await expect(page.locator('.theme-card').first()).toHaveCSS('border-radius', '18px')
+  await page.getByTestId('theme-global-borderWidth').fill('2')
+  await page.getByTestId('theme-global-borderWidth').dispatchEvent('change')
+  await expect(page.locator('.theme-appearance-editor')).toHaveCSS('border-top-width', '2px')
+  await page.getByTestId('theme-global-lineHeight').fill('2')
+  await page.getByTestId('theme-global-lineHeight').dispatchEvent('change')
+
+  await page.getByTestId('theme-scope').selectOption('input')
+  await page.getByTestId('theme-input-opacity').fill('0')
+  await page.getByTestId('theme-input-opacity').dispatchEvent('change')
+  await page.getByTestId('theme-input-radius').fill('0')
+  await page.getByTestId('theme-input-radius').dispatchEvent('change')
+  await expect.poll(() => api.requests.some(request => request.method === 'PUT' && JSON.parse(request.postData || '{}').appearance?.regions.input?.radius === 0)).toBe(true)
+  await page.reload()
+  await expect(page.getByTestId('theme-scope')).toBeVisible()
+  await page.getByTestId('theme-scope').selectOption('input')
+  await expect(page.getByTestId('theme-input-opacity')).toHaveValue('0')
+  await expect(page.getByTestId('theme-input-radius')).toHaveValue('0')
+  await page.getByRole('link', { name: 'Chat', exact: true }).click()
+  await expect(page.locator('.chat-panel .input-wrapper')).toHaveCSS('background-color', 'rgba(255, 255, 255, 0)')
+  await expect(page.locator('.chat-panel .input-wrapper')).toHaveCSS('border-radius', '0px')
+  await expect(page.locator('.chat-panel .input-textarea')).toHaveCSS('line-height', '28px')
+  await expect(page.locator('.chat-main-content')).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.22)')
+
+  await page.goto('/#/hermes/theme')
+  await page.getByTestId('theme-scope').selectOption('input')
+  await page.getByRole('button', { name: 'Reset Background opacity', exact: true }).click()
+  await page.getByRole('button', { name: 'Reset Corner radius', exact: true }).click()
+  await page.goto('/#/hermes/chat')
+  await expect(page.locator('.chat-panel .input-wrapper')).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.22)')
+  await expect(page.locator('.chat-panel .input-wrapper')).toHaveCSS('border-radius', '18px')
+  await page.goto('/#/hermes/workflow')
+  await expect(page.locator('.workflow-main')).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.22)')
+  await expect(page.locator('.workflow-canvas')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(page.locator('.workflow-flow')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  expect(api.unexpectedRequests).toEqual([])
+})
+
+test('applies custom colors, gradients and overlay surfaces in dark mode at mobile width', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await authenticate(page)
+  await page.addInitScript(() => localStorage.setItem('hermes_brightness', 'dark'))
+  const api = await mockHermesApi(page, { theme: {
+    fontSize: 16, textColor: '#f0f0f0', accentColor: '#88bbff',
+    appearance: { global: { backgroundColor: '#102030', gradientColor: '#304050', opacity: 0.3, radius: 14, blur: 0 }, regions: { overlay: { backgroundColor: '#203040', opacity: 0.9, radius: 10 } } },
+  } })
+  await page.goto('/#/hermes/theme')
+  await expect(page.locator('html')).toHaveClass(/theme-has-custom-background/)
+  await expect(page.locator('.theme-card').first()).toHaveCSS('background-color', 'rgba(16, 32, 48, 0.3)')
+  await expect(page.locator('.theme-card').first()).toHaveCSS('backdrop-filter', 'blur(0px) saturate(1.1)')
+  await page.locator('.theme-select').first().click()
+  const menu = page.locator('.n-base-select-menu:visible')
+  await expect(menu).toHaveCSS('background-color', 'rgba(32, 48, 64, 0.9)')
+  await expect(menu).toHaveCSS('border-radius', '10px')
+  await page.keyboard.press('Escape')
+  await expect(menu).not.toBeVisible()
+  await page.getByTestId('theme-scope').scrollIntoViewIfNeeded()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.screenshot({ path: '/tmp/studio-theme-customization-mobile.png' })
+  expect(api.unexpectedRequests).toEqual([])
+})
+
 test('loads and saves the signed-in user theme without profile scoping', async ({ page }) => {
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   const api = await mockHermesApi(page, {

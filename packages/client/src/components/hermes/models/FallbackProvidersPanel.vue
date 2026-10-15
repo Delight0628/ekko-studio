@@ -198,32 +198,32 @@ usePageLoadingTask(() => loading.value)
 @use '@/styles/variables' as *;
 
 .fallback-panel {
-  padding: 4px 0;
+  padding: calc(4px * var(--spacing-scale, 1)) 0;
 }
 
 .fallback-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: calc(16px * var(--spacing-scale, 1));
   margin-bottom: 16px;
 
   h3 {
     margin: 0 0 4px;
-    font-size: 15px;
+    font-size: calc(var(--font-size-base, 14px) * 15 / 14);
     color: $text-primary;
   }
 
   p {
     margin: 0;
-    font-size: 12px;
+    font-size: calc(var(--font-size-base, 14px) * 12 / 14);
     color: $text-secondary;
   }
 }
 
 .fallback-header-actions {
   display: flex;
-  gap: 8px;
+  gap: calc(8px * var(--spacing-scale, 1));
   flex-shrink: 0;
 }
 
@@ -233,16 +233,16 @@ usePageLoadingTask(() => loading.value)
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: calc(6px * var(--spacing-scale, 1));
 }
 
 .fallback-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
+  gap: calc(12px * var(--spacing-scale, 1));
+  padding: calc(10px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1));
   background: $bg-secondary;
-  border: 1px solid $border-color;
+  border: var(--border-width, 1px) solid $border-color;
   border-radius: $radius-sm;
   cursor: grab;
 
@@ -265,9 +265,9 @@ usePageLoadingTask(() => loading.value)
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: $bg-input;
+  background: var(--theme-input-bg, $bg-input);
   color: $text-secondary;
-  font-size: 11px;
+  font-size: calc(var(--font-size-base, 14px) * 11 / 14);
 }
 
 .fallback-model {
@@ -275,10 +275,10 @@ usePageLoadingTask(() => loading.value)
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: calc(2px * var(--spacing-scale, 1));
 
   strong {
-    font-size: 13px;
+    font-size: calc(var(--font-size-base, 14px) * 13 / 14);
     font-weight: 500;
     color: $text-primary;
     overflow: hidden;
@@ -287,7 +287,7 @@ usePageLoadingTask(() => loading.value)
   }
 
   small {
-    font-size: 11px;
+    font-size: calc(var(--font-size-base, 14px) * 11 / 14);
     color: $text-muted;
   }
 }
@@ -295,21 +295,21 @@ usePageLoadingTask(() => loading.value)
 .fallback-grip {
   flex-shrink: 0;
   color: $text-muted;
-  font-size: 14px;
-  line-height: 1;
+  font-size: calc(var(--font-size-base, 14px) * 14 / 14);
+  line-height: var(--line-height, 1);
   cursor: grab;
   user-select: none;
 }
 
 .fallback-empty {
   margin: 12px 0;
-  font-size: 12px;
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
   color: $text-muted;
 }
 
 .fallback-note {
   margin: 14px 0 0;
-  font-size: 11px;
+  font-size: calc(var(--font-size-base, 14px) * 11 / 14);
   color: $text-muted;
 }
 

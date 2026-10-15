@@ -1,3 +1,4 @@
+import { normalizeThemeAppearance, type ThemeAppearance } from '../../../../../shared/theme-appearance'
 import { getDb } from '../infrastructure/database'
 import { USER_THEMES_TABLE } from '../infrastructure/database/schemas'
 
@@ -10,7 +11,9 @@ export interface UserThemeRecord {
   fontSize: number
   textColor: string | null
   accentColor: string | null
+  appearance: ThemeAppearance
   backgroundFilename: string | null
+  backgroundUpdatedAt: number
   backgroundOriginalName: string | null
   backgroundMime: string | null
   createdAt: number
@@ -21,6 +24,7 @@ export interface UserThemePayload {
   fontSize: number
   textColor: string | null
   accentColor: string | null
+  appearance: ThemeAppearance
   background: {
     name: string
     mime: string | null
@@ -34,6 +38,8 @@ interface StoredUserThemeRow {
   font_size: number
   text_color: string | null
   accent_color: string | null
+  appearance_json: string | null
+  background_updated_at: number
   background_filename: string | null
   background_original_name: string | null
   background_mime: string | null
@@ -45,6 +51,7 @@ export interface UserThemePatch {
   fontSize?: unknown
   textColor?: unknown
   accentColor?: unknown
+  appearance?: unknown
 }
 
 function requireDb() {
@@ -79,12 +86,19 @@ function normalizeColor(value: unknown, label: string): string | null {
   return value.trim().toLowerCase()
 }
 
+function readAppearance(value: string | null): ThemeAppearance {
+  try { return normalizeThemeAppearance(value ? JSON.parse(value) : null) }
+  catch { return normalizeThemeAppearance(null) }
+}
+
 function mapRow(row: StoredUserThemeRow): UserThemeRecord {
   return {
     userId: row.user_id,
     fontSize: row.font_size,
     textColor: row.text_color,
     accentColor: row.accent_color,
+    appearance: readAppearance(row.appearance_json),
+    backgroundUpdatedAt: row.background_updated_at || row.updated_at,
     backgroundFilename: row.background_filename,
     backgroundOriginalName: row.background_original_name,
     backgroundMime: row.background_mime,
@@ -99,6 +113,8 @@ function defaultTheme(userId: number): UserThemeRecord {
     fontSize: DEFAULT_THEME_FONT_SIZE,
     textColor: null,
     accentColor: null,
+    appearance: normalizeThemeAppearance(null),
+    backgroundUpdatedAt: 0,
     backgroundFilename: null,
     backgroundOriginalName: null,
     backgroundMime: null,
@@ -114,10 +130,11 @@ export function toUserThemePayload(theme: UserThemeRecord): UserThemePayload {
     fontSize: theme.fontSize,
     textColor: theme.textColor,
     accentColor: theme.accentColor,
+    appearance: theme.appearance,
     background: theme.backgroundFilename ? {
       name: theme.backgroundOriginalName || 'background',
       mime: theme.backgroundMime,
-      updatedAt: theme.updatedAt,
+      updatedAt: theme.backgroundUpdatedAt,
     } : null,
     updatedAt: theme.updatedAt,
   }
@@ -149,6 +166,11 @@ export function saveUserTheme(userIdValue: unknown, patch: UserThemePatch): User
   const accentColor = Object.prototype.hasOwnProperty.call(patch, 'accentColor')
     ? normalizeColor(patch.accentColor, 'Accent color')
     : current.accentColor
+  let appearance = current.appearance
+  if (Object.prototype.hasOwnProperty.call(patch, 'appearance')) {
+    try { appearance = normalizeThemeAppearance(patch.appearance, true) }
+    catch (error) { throw new UserThemeValidationError((error as Error).message) }
+  }
   const now = Date.now()
   const createdAt = current.createdAt || now
   const db = requireDb()
@@ -156,12 +178,14 @@ export function saveUserTheme(userIdValue: unknown, patch: UserThemePatch): User
   db.prepare(
     `INSERT INTO ${USER_THEMES_TABLE}
       (user_id, font_size, text_color, accent_color, background_filename,
-       background_original_name, background_mime, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       background_original_name, background_mime, created_at, updated_at, appearance_json, background_updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        font_size = excluded.font_size,
        text_color = excluded.text_color,
        accent_color = excluded.accent_color,
+       appearance_json = excluded.appearance_json,
+       background_updated_at = excluded.background_updated_at,
        updated_at = excluded.updated_at`,
   ).run(
     userId,
@@ -173,6 +197,8 @@ export function saveUserTheme(userIdValue: unknown, patch: UserThemePatch): User
     current.backgroundMime,
     createdAt,
     now,
+    JSON.stringify(appearance),
+    current.backgroundUpdatedAt,
   )
   return getUserTheme(userId)
 }
@@ -189,12 +215,13 @@ export function saveUserThemeBackground(
   db.prepare(
     `INSERT INTO ${USER_THEMES_TABLE}
       (user_id, font_size, text_color, accent_color, background_filename,
-       background_original_name, background_mime, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       background_original_name, background_mime, created_at, updated_at, appearance_json, background_updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        background_filename = excluded.background_filename,
        background_original_name = excluded.background_original_name,
        background_mime = excluded.background_mime,
+       background_updated_at = excluded.background_updated_at,
        updated_at = excluded.updated_at`,
   ).run(
     userId,
@@ -206,6 +233,8 @@ export function saveUserThemeBackground(
     background.mime,
     createdAt,
     now,
+    JSON.stringify(current.appearance),
+    Math.max(now, current.backgroundUpdatedAt + 1),
   )
   return getUserTheme(userId)
 }
@@ -220,6 +249,7 @@ export function clearUserThemeBackground(userIdValue: unknown): UserThemeRecord 
      SET background_filename = NULL,
          background_original_name = NULL,
          background_mime = NULL,
+         background_updated_at = 0,
          updated_at = ?
      WHERE user_id = ?`,
   ).run(Date.now(), userId)

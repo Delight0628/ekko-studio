@@ -87,9 +87,9 @@ onMounted(load)
 </template>
 
 <style scoped lang="scss">
-.preset-field { display: flex; flex-direction: column; gap: 8px; }
-.preset-label { font-size: 12px; color: var(--text-secondary); }
-.description, .hint { margin: 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.preset-field { display: flex; flex-direction: column; gap: calc(8px * var(--spacing-scale, 1)); }
+.preset-label { font-size: calc(var(--font-size-base, 14px) * 12 / 14); color: var(--text-secondary); }
+.description, .hint { margin: 0; font-size: calc(var(--font-size-base, 14px) * 12 / 14); line-height: var(--line-height, 1.5); overflow-wrap: anywhere; }
 .hint { color: var(--text-secondary); }
 .preset-compact { min-width: 0; }
 .preset-icon { width: 28px; height: 28px; padding: 0; }

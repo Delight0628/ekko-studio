@@ -36,7 +36,7 @@ const { isDark, toggleBrightness } = useTheme()
   height: 28px;
   border: none;
   background: transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-component, 4px);
   cursor: pointer;
   color: var(--text-muted);
   transition: color 0.15s ease, background-color 0.15s ease;

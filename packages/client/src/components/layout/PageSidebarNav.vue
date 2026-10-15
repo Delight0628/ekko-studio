@@ -293,20 +293,20 @@ function openApiRelay() {
 .page-sidebar-nav {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: calc(8px * var(--spacing-scale, 1));
 }
 
 .page-sidebar-tabs {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: calc(4px * var(--spacing-scale, 1));
 }
 
 .page-sidebar-search-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: calc(4px * var(--spacing-scale, 1));
   min-width: 0;
 
   .page-sidebar-primary { flex: 0 0 100%; }
@@ -318,7 +318,7 @@ function openApiRelay() {
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  gap: 4px;
+  gap: calc(4px * var(--spacing-scale, 1));
 }
 
 .page-sidebar-nav--compact {
@@ -328,7 +328,7 @@ function openApiRelay() {
   .page-sidebar-primary span { display: none; }
 }
 
-.api-relay-logo { border-radius: 4px; }
+.api-relay-logo { border-radius: var(--radius-component, 4px); }
 
 .page-sidebar-tab {
   width: 100%;
@@ -342,8 +342,8 @@ function openApiRelay() {
   flex-direction: row;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
-  padding: 7px 10px;
+  gap: calc(8px * var(--spacing-scale, 1));
+  padding: calc(7px * var(--spacing-scale, 1)) calc(10px * var(--spacing-scale, 1));
   cursor: pointer;
   transition:
     background-color $transition-fast,
@@ -358,8 +358,8 @@ function openApiRelay() {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 13px;
-    line-height: 18px;
+    font-size: calc(var(--font-size-base, 14px) * 13 / 14);
+    line-height: var(--line-height, calc(var(--font-size-base, 14px) * 18 / 14));
   }
 
   &:hover,
@@ -372,8 +372,8 @@ function openApiRelay() {
 .conversation-switch {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px;
-  padding: 2px;
+  gap: calc(2px * var(--spacing-scale, 1));
+  padding: calc(2px * var(--spacing-scale, 1));
   border-radius: $radius-sm;
   background: rgba(var(--accent-primary-rgb), 0.05);
 }
@@ -387,7 +387,7 @@ function openApiRelay() {
   min-width: 0;
   height: 30px;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--radius-component, 5px);
   background: transparent;
   color: $text-secondary;
   display: inline-flex;
@@ -407,14 +407,14 @@ function openApiRelay() {
   }
 
   &.active {
-    background: $bg-card;
+    background: var(--theme-card-bg, $bg-card);
     color: $text-primary;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   }
 }
 
 :global(.dark .conversation-switch--four .conversation-switch-tab.active) {
-  background: $bg-card-hover;
+  background: var(--theme-card-bg, $bg-card-hover);
   color: $accent-primary;
   box-shadow:
     inset 0 0 0 1px $border-color,

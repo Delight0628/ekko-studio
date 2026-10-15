@@ -632,13 +632,13 @@ function handleClose() {
 <style scoped lang="scss">
 .fun-provider-hint {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
 
   a {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 8px;
+    gap: calc(6px * var(--spacing-scale, 1));
+    padding: calc(4px * var(--spacing-scale, 1)) calc(8px * var(--spacing-scale, 1));
     white-space: nowrap;
     color: var(--accent-primary);
     text-decoration: none;
@@ -656,6 +656,6 @@ function handleClose() {
 .modal-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: calc(8px * var(--spacing-scale, 1));
 }
 </style>

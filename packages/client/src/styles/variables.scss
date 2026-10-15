@@ -228,9 +228,9 @@ $header-height: 60px;
 $breakpoint-mobile: 768px;
 
 // Radius
-$radius-sm: 6px;
-$radius-md: 8px;
-$radius-lg: 8px;
+$radius-sm: var(--radius-sm, 6px);
+$radius-md: var(--radius-md, 8px);
+$radius-lg: var(--radius-lg, 8px);
 
 // Transition
 $transition-fast: 0.15s ease;

@@ -405,9 +405,9 @@ async function uploadImages(files: File[]) {
   height: 100%;
   min-width: 260px;
   min-height: 360px;
-  border: 1px solid $border-color;
-  border-radius: 8px;
-  background: $bg-card;
+  border: var(--border-width, 1px) solid $border-color;
+  border-radius: var(--radius-component, 8px);
+  background: var(--theme-card-bg, $bg-card);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
   color: $text-primary;
   display: flex;
@@ -435,10 +435,10 @@ async function uploadImages(files: File[]) {
 .node-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 14px;
-  border-bottom: 1px solid $border-light;
-  font-size: 13px;
+  gap: calc(8px * var(--spacing-scale, 1));
+  padding: calc(12px * var(--spacing-scale, 1)) calc(14px * var(--spacing-scale, 1));
+  border-bottom: var(--border-width, 1px) solid $border-light;
+  font-size: calc(var(--font-size-base, 14px) * 13 / 14);
   font-weight: 600;
   flex: 0 0 auto;
   cursor: grab;
@@ -459,7 +459,7 @@ async function uploadImages(files: File[]) {
   min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: calc(8px * var(--spacing-scale, 1));
 }
 
 .node-status-tip {
@@ -512,8 +512,8 @@ async function uploadImages(files: File[]) {
 .node-controls {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  gap: calc(10px * var(--spacing-scale, 1));
+  padding: calc(12px * var(--spacing-scale, 1));
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -522,16 +522,16 @@ async function uploadImages(files: File[]) {
 .node-field-row {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: calc(6px * var(--spacing-scale, 1));
   color: $text-secondary;
-  font-size: 12px;
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
 }
 
 .node-field-label-row {
   display: inline-flex;
   width: fit-content;
   align-items: center;
-  gap: 4px;
+  gap: calc(4px * var(--spacing-scale, 1));
 }
 
 .node-toggle-row {
@@ -539,11 +539,11 @@ async function uploadImages(files: File[]) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 0 2px;
+  gap: calc(12px * var(--spacing-scale, 1));
+  padding: 0 calc(2px * var(--spacing-scale, 1));
   color: $text-secondary;
-  font-size: 12px;
-  line-height: 1.2;
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
+  line-height: var(--line-height, 1.2);
 }
 
 .node-prompt-input {
@@ -571,10 +571,10 @@ async function uploadImages(files: File[]) {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 8px;
+  gap: calc(8px * var(--spacing-scale, 1));
   max-height: 180px;
   overflow-y: auto;
-  padding-inline-end: 2px;
+  padding-inline-end: calc(2px * var(--spacing-scale, 1));
 }
 
 .image-upload-input {
@@ -584,9 +584,9 @@ async function uploadImages(files: File[]) {
 .image-upload-trigger {
   width: 64px;
   height: 64px;
-  border: 1px dashed $border-color;
+  border: var(--border-width, 1px) dashed $border-color;
   border-radius: $radius-sm;
-  background: $bg-input;
+  background: var(--theme-input-bg, $bg-input);
   color: $text-muted;
   display: inline-flex;
   align-items: center;
@@ -629,7 +629,7 @@ async function uploadImages(files: File[]) {
   position: relative;
   width: 64px;
   height: 64px;
-  border: 1px solid $border-color;
+  border: var(--border-width, 1px) solid $border-color;
   border-radius: $radius-sm;
   background: $bg-secondary;
   overflow: hidden;
@@ -683,14 +683,14 @@ async function uploadImages(files: File[]) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: calc(2px * var(--spacing-scale, 1));
   width: 92px;
   min-height: 64px;
-  border: 1px solid $border-color;
+  border: var(--border-width, 1px) solid $border-color;
   border-radius: $radius-sm;
   background: $bg-secondary;
   color: $text-secondary;
-  padding: 8px 10px;
+  padding: calc(8px * var(--spacing-scale, 1)) calc(10px * var(--spacing-scale, 1));
   cursor: pointer;
   text-decoration: none;
   overflow: hidden;
@@ -707,7 +707,7 @@ async function uploadImages(files: File[]) {
 
 .file-name {
   max-width: 100%;
-  font-size: 11px;
+  font-size: calc(var(--font-size-base, 14px) * 11 / 14);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -757,7 +757,7 @@ async function uploadImages(files: File[]) {
   max-width: 90vw;
   max-height: 90vh;
   object-fit: contain;
-  border-radius: 4px;
+  border-radius: var(--radius-component, 4px);
   cursor: pointer;
 }
 

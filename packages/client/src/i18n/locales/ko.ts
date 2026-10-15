@@ -1,3 +1,4 @@
+import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesKo } from '../social-messages-locales'
 
 export default {
@@ -2043,6 +2044,7 @@ export default {
 
   // 설정
   theme: {
+    customization: themeAppearanceMessages['ko'],
     title: '테마',
     saved: '테마가 저장되었습니다',
     saveFailed: '테마를 저장하지 못했습니다',

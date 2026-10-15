@@ -326,11 +326,11 @@ function handleSidebarClick(event: MouseEvent) {
   min-height: 0;
   align-self: stretch;
   margin: 0;
-  background-color: $bg-sidebar-surface;
-  border-inline-end: 1px solid $border-color;
+  background-color: var(--theme-sidebar-bg, $bg-sidebar-surface);
+  border-inline-end: var(--border-width, 1px) solid $border-color;
   display: flex;
   flex-direction: column;
-  padding: 8px 12px 20px;
+  padding: calc(8px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1)) calc(20px * var(--spacing-scale, 1));
   overflow: hidden;
   flex-shrink: 0;
   transition: width $transition-normal;
@@ -339,9 +339,9 @@ function handleSidebarClick(event: MouseEvent) {
 .sidebar-nav {
   flex: 1;
   display: flex;
-  padding-top: 8px;
+  padding-top: calc(8px * var(--spacing-scale, 1));
   flex-direction: column;
-  gap: 6px;
+  gap: calc(6px * var(--spacing-scale, 1));
   overflow-y: auto;
   min-height: 0;
   scrollbar-width: none;
@@ -354,14 +354,14 @@ function handleSidebarClick(event: MouseEvent) {
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px;
+  gap: calc(10px * var(--spacing-scale, 1));
+  padding: calc(12px * var(--spacing-scale, 1));
   border: none;
   background: none;
   appearance: none;
   text-decoration: none;
   color: $text-secondary;
-  font-size: 14px;
+  font-size: calc(var(--font-size-base, 14px) * 14 / 14);
   border-radius: $radius-sm;
   cursor: pointer;
   transition: all $transition-fast;
@@ -379,7 +379,7 @@ function handleSidebarClick(event: MouseEvent) {
   }
 
   .beta-tag {
-    font-size: 10px;
+    font-size: calc(var(--font-size-base, 14px) * 10 / 14);
     color: $text-muted;
     margin-inline-start: 2px;
   }
@@ -388,29 +388,29 @@ function handleSidebarClick(event: MouseEvent) {
 .sidebar-top-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: calc(6px * var(--spacing-scale, 1));
   margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid $border-color;
+  padding-top: calc(8px * var(--spacing-scale, 1));
+  border-top: var(--border-width, 1px) solid $border-color;
 }
 
 .sidebar-return-tab {
   flex: 1;
   min-width: 0;
-  padding: 8px 10px;
-  font-size: 13px;
+  padding: calc(8px * var(--spacing-scale, 1)) calc(10px * var(--spacing-scale, 1));
+  font-size: calc(var(--font-size-base, 14px) * 13 / 14);
 }
 
 .sidebar-account-footer {
-  padding: 10px 0 0;
-  border-top: 1px solid $border-color;
+  padding: calc(10px * var(--spacing-scale, 1)) 0 0;
+  border-top: var(--border-width, 1px) solid $border-color;
 }
 
 // ─── Collapsed sidebar (icon-rail mode) ─────────────────────────
 
 .sidebar.collapsed {
   width: $sidebar-collapsed-width;
-  padding: 8px 8px 12px;
+  padding: calc(8px * var(--spacing-scale, 1)) calc(8px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1));
   overflow: hidden;
 
   .collapse-btn {
@@ -420,20 +420,20 @@ function handleSidebarClick(event: MouseEvent) {
 
   .sidebar-top-actions {
     flex-direction: column;
-    gap: 6px;
+    gap: calc(6px * var(--spacing-scale, 1));
     margin-top: 8px;
-    padding-top: 8px;
+    padding-top: calc(8px * var(--spacing-scale, 1));
   }
 
   .sidebar-return-tab {
     width: 100%;
     flex: 0 0 auto;
-    padding: 10px 4px;
+    padding: calc(10px * var(--spacing-scale, 1)) calc(4px * var(--spacing-scale, 1));
   }
 
   .nav-item {
     justify-content: center;
-    padding: 10px 4px;
+    padding: calc(10px * var(--spacing-scale, 1)) calc(4px * var(--spacing-scale, 1));
     gap: 0;
 
     span {

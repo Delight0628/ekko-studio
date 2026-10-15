@@ -174,7 +174,7 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
-  gap: 1px;
+  gap: calc(1px * var(--spacing-scale, 1));
 }
 
 .screenshot-trigger { display: inline-flex; }
@@ -189,7 +189,7 @@ onUnmounted(() => {
 .system-wait {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
+  gap: calc(4px * var(--spacing-scale, 1));
+  font-size: calc(var(--font-size-base, 14px) * 12 / 14);
 }
 </style>
