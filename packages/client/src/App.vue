@@ -319,6 +319,7 @@ useKeyboard();
               :standalone="isLoginPage || isDesktopChatWindow"
               :left-offset="desktopTitleBarLeft"
             />
+            <div v-if="showNavigationRail" class="studio-frame-surface" aria-hidden="true" />
             <StudioNavigationRail v-if="showNavigationRail" />
             <MobileNavigationDrawer
               v-if="hasNavigationRail && !isWideViewport"
@@ -524,6 +525,18 @@ useKeyboard();
   flex-direction: row;
   background-color: $bg-sidebar;
 
+  // Paint the whole outer frame once, behind all navigation/header controls.
+  // Separate backdrop filters sample nearby content differently at their seam.
+  .studio-frame-surface {
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    pointer-events: none;
+    background-color: var(--theme-chrome-bg, $bg-sidebar);
+    -webkit-backdrop-filter: var(--theme-chrome-filter, none);
+    backdrop-filter: var(--theme-chrome-filter, none);
+  }
+
   .studio-page-header {
     position: absolute;
     z-index: 1001;
@@ -536,9 +549,7 @@ useKeyboard();
     align-items: center;
     border: 0;
     box-shadow: none;
-    background-color: var(--theme-chrome-bg, $bg-sidebar);
-    -webkit-backdrop-filter: var(--theme-chrome-filter, none);
-    backdrop-filter: var(--theme-chrome-filter, none);
+    background: transparent;
     -webkit-app-region: drag;
 
     > :deep(:not(.header-sidebar-control):not(.desktop-titlebar)) {
@@ -645,6 +656,8 @@ useKeyboard();
     width: auto;
     margin: 0 var(--studio-content-gutter) var(--studio-content-gutter) 0;
     border-radius: var(--studio-content-radius);
+    // Content surfaces composite over their own base, independently of chrome.
+    background-color: $bg-sidebar;
   }
   .app-layout.no-sidebar { display: flex; }
 
@@ -662,15 +675,6 @@ useKeyboard();
 
 .app-shell--custom-background {
   &.app-shell--navigation-rail {
-    .app-box::before {
-      content: "";
-      position: absolute;
-      // The header paints its own chrome surface. Keep gutter glass below it
-      // so the top bar and navigation rail each composite exactly one layer.
-      inset: var(--studio-header-height) 0 0;
-      pointer-events: none;
-    }
-
     .app-layout {
       // Align this image with the shell's full-window background. Its opaque base
       // keeps the continuous frame glass from tinting the content a second time.
@@ -709,9 +713,7 @@ useKeyboard();
     background-color: transparent;
   }
 
-  &.app-shell--navigation-rail .app-box::before,
-  .studio-page-header,
-  :deep(.studio-navigation-rail),
+  .studio-frame-surface,
   :deep(.desktop-titlebar:not(.desktop-titlebar--flush)),
   :deep(.chat-panel > .chat-main > .chat-header),
   :deep(.group-chat-panel > .chat-main > .chat-header) {

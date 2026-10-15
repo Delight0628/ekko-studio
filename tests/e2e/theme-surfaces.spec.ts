@@ -3,6 +3,39 @@ import sharp from 'sharp'
 import { authenticate, mockChatSocket, mockHermesApi } from './fixtures'
 
 for (const brightness of ['light', 'dark']) {
+  for (const blur of [0, 16, 30]) {
+    test(`frame has no navigation-header seam in ${brightness} mode with blur ${blur}`, async ({ page }) => {
+      await authenticate(page)
+      await mockHermesApi(page, { theme: {
+        brightness,
+        background: { name: 'horizontal-stripes.png', mime: 'image/png', updatedAt: 1 },
+        appearance: { global: { opacity: 0.2, blur }, regions: { chrome: { backgroundColor: '#8caacc', radius: 12, shadow: 2 } } },
+      } })
+      // The wallpaper varies vertically, so horizontally adjacent frame pixels
+      // must stay equal even where separately positioned controls meet.
+      const wallpaper = await sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><defs><pattern id="p" width="1280" height="48" patternUnits="userSpaceOnUse"><path fill="#172b4d" d="M0 0h1280v24H0z"/><path fill="#e8c88c" d="M0 24h1280v24H0z"/></pattern></defs><path fill="url(#p)" d="M0 0h1280v720H0z"/></svg>')).png().toBuffer()
+      await page.route('**/api/theme/background?*', route => route.fulfill({ contentType: 'image/png', body: wallpaper }))
+      await page.goto('/#/hermes/theme')
+      await expect(page.locator('.app-shell')).toHaveClass(/app-shell--custom-background/)
+      await expect(page.locator('.studio-page-header')).toBeVisible()
+      await expect.poll(async () => {
+        const screenshot = await page.screenshot({ animations: 'disabled', path: `/tmp/studio-frame-seam-${brightness}-${blur}.png` })
+        const { data, info } = await sharp(screenshot).raw().toBuffer({ resolveWithObject: true })
+        let maxDifference = 0
+        for (let y = 2; y < 38; y++) {
+          for (let channel = 0; channel < 3; channel++) {
+            const left = data[(y * info.width + 62) * info.channels + channel]
+            const right = data[(y * info.width + 66) * info.channels + channel]
+            maxDifference = Math.max(maxDifference, Math.abs(left - right))
+          }
+        }
+        return maxDifference
+      }).toBeLessThanOrEqual(2)
+    })
+  }
+}
+
+for (const brightness of ['light', 'dark']) {
   for (const wallpaper of [false, true]) {
     test(`group member rail follows sidebar appearance in ${brightness} mode with wallpaper ${wallpaper}`, async ({ page }) => {
       await authenticate(page)
@@ -99,6 +132,7 @@ for (const brightness of ['light', 'dark']) {
       await page.goto('/#/hermes/theme')
       const rail = page.locator('.studio-navigation-rail')
       const header = page.locator('.studio-page-header')
+      const frame = page.locator('.studio-frame-surface')
       await expect(header).toBeVisible()
       if (wallpaper) await expect(page.locator('.app-shell')).toHaveClass(/app-shell--custom-background/)
       const setOpacity = async (scope: string, value: string) => {
@@ -108,10 +142,12 @@ for (const brightness of ['light', 'dark']) {
       }
       const expectMatchingFrame = async (opacity: number) => {
         const color = `rgba(140, 170, 204, ${opacity})`
-        await expect(rail).toHaveCSS('background-color', color)
-        await expect(header).toHaveCSS('background-color', color)
-        // Equal CSS colors are not enough: an extra background behind the header
-        // changes the composited pixels while leaving both computed colors equal.
+        await expect(frame).toHaveCSS('background-color', color)
+        for (const controls of [rail, header]) {
+          await expect(controls).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+          await expect(controls).toHaveCSS('backdrop-filter', 'none')
+        }
+        // Check actual composited pixels as well as the shared background token.
         await expect.poll(async () => {
           const screenshot = await page.screenshot({ animations: 'disabled' })
           const railPixels = await sharp(await sharp(screenshot).extract({ left: 3, top: 180, width: 2, height: 2 }).toBuffer()).stats()
@@ -139,8 +175,7 @@ for (const brightness of ['light', 'dark']) {
       const presetColor = wallpaper
         ? brightness === 'dark' ? 'rgba(26, 26, 26, 0.9)' : 'rgba(250, 250, 250, 0.6)'
         : brightness === 'dark' ? 'rgb(32, 32, 32)' : 'rgb(245, 245, 245)'
-      await expect(rail).toHaveCSS('background-color', presetColor)
-      await expect(header).toHaveCSS('background-color', presetColor)
+      await expect(frame).toHaveCSS('background-color', presetColor)
       expect(api.unexpectedRequests).toEqual([])
     })
   }
@@ -166,10 +201,12 @@ for (const customized of [false, true]) {
     await expect(header).toHaveCSS('box-shadow', 'none')
     await expect(header).toHaveCSS('height', '40px')
     if (customized) {
-      await expect(header).toHaveCSS('background-color', 'rgba(204, 221, 238, 0.5)')
+      await expect(header).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+      await expect(page.locator('.studio-frame-surface')).toHaveCSS('background-color', 'rgba(204, 221, 238, 0.5)')
       await expect(page.locator('.theme-card').first()).toHaveCSS('border-top-width', '4px')
       await expect(page.locator('.theme-card').first()).not.toHaveCSS('box-shadow', 'none')
-      await expect(page.locator('.studio-navigation-rail')).not.toHaveCSS('box-shadow', 'none')
+      await expect(page.locator('.studio-frame-surface')).not.toHaveCSS('box-shadow', 'none')
+      await expect(page.locator('.studio-navigation-rail')).toHaveCSS('box-shadow', 'none')
     }
     expect(api.unexpectedRequests).toEqual([])
   })
