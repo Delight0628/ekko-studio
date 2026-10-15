@@ -78,6 +78,28 @@ describe('run chat abort goal handling', () => {
     calcAndUpdateUsageMock.mockResolvedValue({ inputTokens: 0, outputTokens: 0 })
   })
 
+  it('acknowledges automatic wake claims on Stop instead of dequeuing or releasing them', async () => {
+    const { handleAbort, markAbortCompleted } = await import('../../packages/server/src/modules/studio/services/chat-run/abort')
+    const { nsp, socket } = makeHarness()
+    const state: any = {
+      messages: [], events: [], isWorking: true, source: 'cli', profile: 'work', runId: 'r',
+      queue: [{ queue_id: 'wake', input: 'continue', autonomous: true, backgroundDelegationId: 'd', backgroundClaimId: 'c' }],
+    }
+    const sessions = new Map([['session-1', state]])
+    const run = vi.fn()
+    const bridge = {
+      interrupt: vi.fn(async () => ({ synced: true })), goalPause: vi.fn(),
+      completeBackgroundNotification: vi.fn(), releaseBackgroundNotification: vi.fn(),
+    }
+    await handleAbort(nsp as any, socket as any, 'session-1', sessions, bridge, run)
+    await markAbortCompleted(nsp as any, socket as any, 'session-1', 'r', sessions, run)
+    expect(state.backgroundWakeStopped).toBe(true)
+    expect(state.queue).toEqual([])
+    expect(bridge.completeBackgroundNotification).toHaveBeenCalledWith('session-1', 'work', 'd', 'c')
+    expect(bridge.releaseBackgroundNotification).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it('completes an abort once and waits for bridge cleanup before dequeuing', async () => {
     const { handleAbort, markAbortCompleted } = await import('../../packages/server/src/modules/studio/services/chat-run/abort')
     const { emit, nsp, socket } = makeHarness()

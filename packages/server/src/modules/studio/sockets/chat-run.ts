@@ -1621,6 +1621,7 @@ export class ChatRunSocket {
     }
     if (data.session_id) {
       const state = getOrCreateSession(this.sessionMap, data.session_id)
+      if (!data.autonomous && !data.background_delegation_id) state.backgroundWakeStopped = false
       state.webhookAgent = webhookAgentForRun(data)
       state.webhookRoomId = data.group_room_id
       state.webhookWorkflowId = data.workflow_id
@@ -1950,6 +1951,10 @@ export class ChatRunSocket {
     const state = await this.sessionStateForBackground(sessionId)
     if (!state) {
       await releaseClaim()
+      return
+    }
+    if (state.backgroundWakeStopped) {
+      await this.backgroundBridge.completeBackgroundNotification(sessionId, notification.profile, delegationId, claimId)
       return
     }
     if (this.closing) {

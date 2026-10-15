@@ -134,6 +134,8 @@ export interface QueueInsertionControl {
 }
 
 export interface SessionState {
+  /** Explicit Stop suppresses automatic wakeups until the next user run. */
+  backgroundWakeStopped?: boolean
   /** Snapshot the owning runtime's interrupted turn without waiting for model IO. */
   finalizeRunUsage?: () => RunUsageSummary | undefined
   nativeUsageSource?: 'coding_agent'

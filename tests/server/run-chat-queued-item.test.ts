@@ -22,12 +22,18 @@ const bridgeMock = vi.hoisted(() => ({
   statusIfLoaded: vi.fn(),
   interrupt: vi.fn(),
   requestBoundaryInterrupt: vi.fn(),
+  cancelBoundaryInterrupt: vi.fn(async () => ({ status: 'cancelled' })),
+  completeBackgroundNotification: vi.fn(async () => ({ completed: true })),
   approvalRespond: vi.fn(),
 }))
 const sessionStoreMocks = vi.hoisted(() => ({
   clearSessionMessages: vi.fn(),
 }))
 const listWorkspaceRunChangesForAssistantMessagesMock = vi.hoisted(() => vi.fn(() => []))
+
+vi.mock('../../packages/server/src/modules/studio/services/task-plans', () => ({
+  getSessionTaskPlans: vi.fn(() => []),
+}))
 
 vi.mock('../../packages/server/src/modules/studio/services/chat-run/handle-bridge-run', () => ({
   handleBridgeRun: handleBridgeRunMock,
@@ -269,6 +275,42 @@ describe('ChatRunSocket queued bridge runs', () => {
     })
     await vi.waitFor(() => expect((server as any).sessionMap.get('session-1').queueInsertion.phase)
       .toBe('stopping_current_turn'))
+  })
+
+  it('recalls a cancelled queue insertion even when its acknowledgement arrives late', async () => {
+    let resolveBoundary!: (value: any) => void
+    bridgeMock.requestBoundaryInterrupt.mockImplementationOnce(() => new Promise(resolve => { resolveBoundary = resolve }))
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { handlers, io, socket } = makeServerHarness()
+    const server = new ChatRunSocket(io as any)
+    ;(server as any).onConnection(socket)
+    ;(server as any).sessionMap.set('session-1', {
+      messages: [], isWorking: true, events: [], source: 'cli', webhookAgent: 'bridge',
+      profile: 'default', runId: 'run-1',
+      queue: [{ queue_id: 'q', input: 'queued', profile: 'default', source: 'cli' }],
+    })
+    handlers.get('insert_queued_run')?.({ session_id: 'session-1', queue_id: 'q' })
+    await vi.waitFor(() => expect(bridgeMock.requestBoundaryInterrupt).toHaveBeenCalledOnce())
+    handlers.get('cancel_queued_run')?.({ session_id: 'session-1', queue_id: 'q' })
+    expect(bridgeMock.cancelBoundaryInterrupt).toHaveBeenCalledWith('session-1', 'run-1', 'default')
+    resolveBoundary({ status: 'accepted', phase: 'tool_batch' })
+    await vi.waitFor(() => expect(bridgeMock.cancelBoundaryInterrupt).toHaveBeenCalledTimes(2))
+    expect((server as any).sessionMap.get('session-1').queueInsertion).toBeUndefined()
+  })
+
+  it('acknowledges a late background completion instead of restarting a stopped session', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io } = makeServerHarness()
+    const server: any = new ChatRunSocket(io as any)
+    server.sessionMap.set('session-1', {
+      messages: [], events: [], queue: [], isWorking: false, backgroundWakeStopped: true,
+    })
+    const run = vi.spyOn(server, 'runQueuedItem')
+    await server.scheduleBackgroundNotification({
+      session_id: 'session-1', delegation_id: 'd', claim_id: 'c', profile: 'default', message: 'wake',
+    })
+    expect(bridgeMock.completeBackgroundNotification).toHaveBeenCalledWith('session-1', 'default', 'd', 'c')
+    expect(run).not.toHaveBeenCalled()
   })
 
   it('tags a Bridge run.failed terminal event as an intentional queue insertion stop', async () => {

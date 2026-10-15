@@ -65,6 +65,23 @@ export async function handleAbort(
     sessionMap.set(sessionId, state)
   }
   const isCodingAgentRun = state?.source === 'coding_agent' || state?.source === 'builtin_agent' || state?.webhookAgent === 'ekko' || hasCodingAgentRun || hasEkkoBackgroundTasks
+  if (state) {
+    state.backgroundWakeStopped = true
+    const dropped = state.queue.filter(item => item.goalContinuation || item.autonomous || item.backgroundDelegationId)
+    state.queue = state.queue.filter(item => !dropped.includes(item))
+    for (const item of dropped) {
+      if (item.backgroundDelegationId && item.backgroundClaimId) {
+        // Releasing a claim requeues it, undoing the user's Stop.
+        try {
+          await bridge.completeBackgroundNotification?.(
+            sessionId, item.profile || state.profile, item.backgroundDelegationId, item.backgroundClaimId,
+          )
+        } catch (err) {
+          logger.warn(err, '[chat-run-socket] failed to acknowledge stopped background wake')
+        }
+      }
+    }
+  }
   if (
     (!state?.isWorking && !hasCodingAgentRun && !hasEkkoBackgroundTasks) ||
     (state && !isCodingAgentRun && !state.runId && !state.abortController)

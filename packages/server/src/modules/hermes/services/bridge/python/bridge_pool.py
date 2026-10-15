@@ -2209,6 +2209,21 @@ class AgentPool:
                 del session.background_events[:-self.MAX_BACKGROUND_EVENTS_PER_SESSION]
             return interrupted
 
+    def _stop_session_processes(self, session_id: str) -> int:
+        try:
+            from tools.process_registry import process_registry
+        except ImportError:
+            return 0
+        stopped = 0
+        for process in process_registry.list_sessions(session_key=session_id):
+            if process.get("status") != "running":
+                continue
+            process_id = str(process.get("session_id") or "")
+            if process_id:
+                process_registry.kill_process(process_id)
+                stopped += 1
+        return stopped
+
     def interrupt(self, session_id: str, message: str | None = None) -> dict[str, Any]:
         with self._lock:
             session = self._sessions.get(session_id)
@@ -2228,6 +2243,10 @@ class AgentPool:
         if not hasattr(session.agent, "interrupt"):
             raise RuntimeError("agent does not support interrupt")
         session.agent.interrupt(message)
+        try:
+            self._stop_session_processes(session_id)
+        except Exception as exc:
+            print(f"[hermes_bridge] session process cleanup failed: {exc}", file=sys.stderr, flush=True)
         self._cancel_pending_approvals_for_generation(session_id, interrupted_run_id)
         deadline = time.time() + 10.0
         synced = False
