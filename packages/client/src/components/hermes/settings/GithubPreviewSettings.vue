@@ -296,7 +296,7 @@ watch(
         </NDescriptionsItem>
       </NDescriptions>
 
-      <div class="log-output">
+      <div class="log-output" data-theme-surface="card">
         <div class="log-output-header">{{ t('githubPreview.logOutput') }}</div>
         <div class="log-box">
           <div class="log-title">{{ t('githubPreview.actionLog') }}</div>
@@ -378,7 +378,7 @@ watch(
   padding: calc(8px * var(--spacing-scale, 1)) calc(14px * var(--spacing-scale, 1));
   font-size: calc(var(--font-size-base, 14px) * 12 / 14);
   color: $text-secondary;
-  background: $bg-secondary;
+  background: rgba(var(--text-primary-rgb), 0.04);
 }
 
 pre {

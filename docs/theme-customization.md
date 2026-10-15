@@ -42,6 +42,11 @@ Nested translucent surfaces still composite according to normal CSS rules.
 - `styles/theme.ts` uses the same resolver for Naive UI overrides.
 - `styles/_theme-surfaces.scss` maps region properties to native and teleported
   surfaces. Property classes exist only while the corresponding override is set.
+  New card surfaces can opt in with `data-theme-surface="card"`; description
+  tables also use the card region, with translucent headers instead of opaque
+  fills. When card blur is configured, outer content surfaces paint their own
+  background/filter on a pseudo-element so they do not isolate the cards from
+  the wallpaper. Blur remains visually hidden behind fully opaque surfaces.
 - Existing pixel spacing/font sizes and radii use optional variables with their
   previous values as fallbacks, preserving the default preset geometry.
 - `useTheme.ts` applies previews synchronously and serializes saves. Older
@@ -119,7 +124,10 @@ rollback, account isolation, legacy wallpaper migration, theme CRUD and shared
 wallpaper lifetimes. Theme switching waits for pending saves and restores modes
 and regional settings together. `theme.spec.ts`
 checks live CSS in the browser, persistence, reset, popup styling, brightness
-presets and mobile layout. Source-level layout tests use
+presets and mobile layout.
+`theme-surfaces.spec.ts` compares rendered wallpaper pixels before/after card
+blur and checks Version Preview table/log surfaces in light and dark modes.
+Source-level layout tests use
 `preset-style-source.ts` to resolve optional overrides to their preset values;
 they continue to verify the existing default geometry rather than requiring
 literal pixels in production styles.

@@ -49,4 +49,18 @@ describe('appearance inheritance and native adapters', () => {
     expect(terminalTheme(customization, true)).toMatchObject({ background: 'rgba(16, 32, 48, 0.5)', foreground: '#f0f0f0', cursor: '#ff8833' })
     expect(editorTheme(customization, true).colors).toMatchObject({ 'editor.background': '#10203080', 'editor.foreground': '#f0f0f0', 'editorCursor.foreground': '#ff8833' })
   })
+
+  it('applies card overrides to description tables without an opaque header layer', () => {
+    const customization = { ...defaults, appearance: {
+      global: {}, regions: { card: { backgroundColor: '#336699', opacity: 0.25, radius: 16, borderColor: '#6688aa' } },
+    } }
+    for (const dark of [false, true]) {
+      const overrides = getThemeOverrides(dark, false, customization)
+      expect(overrides.Descriptions).toMatchObject({
+        tdColor: 'rgba(51, 102, 153, 0.25)', tdColorModal: 'rgba(51, 102, 153, 0.25)', tdColorPopover: 'rgba(51, 102, 153, 0.25)',
+        thColor: 'rgba(var(--text-primary-rgb), 0.04)', borderColor: '#6688aa', borderRadius: '16px',
+      })
+      expect(getThemeOverrides(dark, false, defaults).Descriptions?.tdColor).toBeUndefined()
+    }
+  })
 })

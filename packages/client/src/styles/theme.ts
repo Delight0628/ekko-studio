@@ -316,6 +316,23 @@ export function getThemeOverrides(
     }
   }
   result.Card = { ...result.Card, ...surface('card') }
+  const cardSurface = surface('card')
+  result.Descriptions = {
+    ...result.Descriptions,
+    ...(cardSurface.color ? {
+      tdColor: cardSurface.color, tdColorModal: cardSurface.color, tdColorPopover: cardSurface.color,
+      // The wrapper owns the surface; headers add only a translucent tint.
+      thColor: 'rgba(var(--text-primary-rgb), 0.04)',
+      thColorModal: 'rgba(var(--text-primary-rgb), 0.04)',
+      thColorPopover: 'rgba(var(--text-primary-rgb), 0.04)',
+    } : {}),
+    ...(cardSurface.borderRadius ? { borderRadius: cardSurface.borderRadius } : {}),
+    ...(cardSurface.borderColor ? {
+      borderColor: cardSurface.borderColor,
+      borderColorModal: cardSurface.borderColor,
+      borderColorPopover: cardSurface.borderColor,
+    } : {}),
+  }
   result.Modal = { ...result.Modal, ...surface('overlay') }
   result.Drawer = { ...result.Drawer, ...surface('overlay') }
   result.Popover = { ...result.Popover, ...surface('overlay') }
