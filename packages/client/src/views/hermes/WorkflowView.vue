@@ -3849,6 +3849,7 @@ function nodeColor(node: { data: WorkflowAgentNodeData }) {
         ref="workflowRunsPanelRef"
         v-if="showWorkflowRunsPanel"
         class="workflow-runs-panel"
+        :class="{ 'workflow-runs-panel--overlay': isMobile }"
         @pointerdown="startWorkflowRunPageSwipe"
         @pointerup="finishWorkflowRunPageSwipe"
         @pointercancel="cancelWorkflowRunPageSwipe"
@@ -4777,8 +4778,7 @@ function nodeColor(node: { data: WorkflowAgentNodeData }) {
   white-space: nowrap;
 }
 
-// The content surface already paints the theme behind the history and details.
-// Avoid an opaque wrapper or a second copy of the translucent card background.
+// The content surface paints the desktop panel; the mobile drawer owns its overlay.
 html:is(.theme-card-bg, .theme-has-custom-background) .workflow-view {
   --workflow-run-panel-bg: transparent;
   --workflow-run-item-bg: rgba(var(--text-primary-rgb), 0.04);
@@ -4811,6 +4811,7 @@ html:is(.theme-card-bg, .theme-has-custom-background) .workflow-view {
 .workflow-runs-pages {
   width: 200%;
   height: 100%;
+  flex-shrink: 0;
   display: flex;
   transform: translateX(0);
   transition: transform 220ms ease;
@@ -5382,12 +5383,17 @@ html:is(.theme-card-bg, .theme-has-custom-background) .workflow-view {
     flex: none;
     min-height: 0;
     border-inline-start: var(--border-width, 1px) solid $border-color;
+    background: var(--theme-overlay-bg, $bg-card);
     box-shadow: -8px 0 24px rgba(0, 0, 0, 0.16);
     display: flex;
 
     &:dir(rtl) {
       box-shadow: 8px 0 24px rgba(0, 0, 0, 0.16);
     }
+  }
+
+  .workflow-evidence {
+    background: transparent;
   }
 
   .workflow-chat-panel {

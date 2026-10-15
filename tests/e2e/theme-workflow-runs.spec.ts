@@ -80,6 +80,36 @@ for (const brightness of ['light', 'dark']) {
       await page.getByRole('button', { name: 'Restore defaults', exact: true }).click()
       await page.goto(path)
       await expect(item).toHaveCSS('background-color', wallpaper ? wallpaperTint : presetBackground)
+
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.getByRole('button', { name: 'Show run records', exact: true }).click()
+      const drawerBackground = wallpaper
+        ? `rgba(${brightness === 'dark' ? '26, 26, 26' : '255, 255, 255'}, 0.72)`
+        : brightness === 'dark' ? 'rgb(42, 42, 42)' : 'rgb(255, 255, 255)'
+      await expect(panel).toHaveCSS('background-color', drawerBackground)
+      await expect(panel).toHaveCSS('backdrop-filter', wallpaper ? 'blur(8px) saturate(1.1)' : 'none')
+      await item.click()
+      await expect(page.locator('.workflow-evidence')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+
+      await page.goto('/#/hermes/theme')
+      await page.getByTestId('theme-scope').selectOption('overlay')
+      await page.getByTestId('theme-overlay-backgroundColor').fill('#335577')
+      await page.getByTestId('theme-overlay-opacity').fill('0.85')
+      await page.getByTestId('theme-overlay-opacity').dispatchEvent('change')
+      await page.getByTestId('theme-overlay-blur').fill('12')
+      await page.getByTestId('theme-overlay-blur').dispatchEvent('change')
+      await page.goto(path)
+      await expect(page.getByRole('button', { name: /^(Show|Hide) run records$/ })).toBeVisible()
+      if (!await panel.isVisible()) await page.getByRole('button', { name: 'Show run records', exact: true }).click()
+      await expect(panel).toHaveCSS('background-color', 'rgba(51, 85, 119, 0.85)')
+      await expect(panel).toHaveCSS('backdrop-filter', 'blur(12px) saturate(1.1)')
+      await item.click()
+      await expect(page.locator('.workflow-evidence')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+      await expect.poll(async () => Math.round((await details.boundingBox())!.width - await panel.evaluate(element => element.clientWidth))).toBe(0)
+
+      await page.setViewportSize({ width: 1280, height: 844 })
+      await expect(panel).toHaveCSS('background-color', wallpaper ? 'rgba(0, 0, 0, 0)' : brightness === 'dark' ? 'rgb(42, 42, 42)' : 'rgb(255, 255, 255)')
+      await expect(panel).toHaveCSS('backdrop-filter', 'none')
       expect(api.unexpectedRequests).toEqual([])
     })
   }

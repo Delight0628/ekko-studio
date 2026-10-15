@@ -1,17 +1,20 @@
 // Native and teleported surfaces share the same regional tokens. Classes are
 // enabled only for explicitly configured properties, preserving preset defaults.
-$overlay-surfaces: '.n-modal, .n-dialog, .n-drawer-content, .n-popover:not(.n-tooltip), .n-dropdown-menu, .n-base-select-menu, .n-cascader-menu, .n-notification, .slash-command-dropdown, .mention-dropdown, .annotation-popover';
+$overlay-surfaces: '.n-modal, .n-dialog, .n-drawer-content, .n-popover:not(.n-tooltip), .n-dropdown-menu, .n-base-select-menu, .n-cascader-menu, .n-notification, .slash-command-dropdown, .mention-dropdown, .annotation-popover, .workflow-runs-panel--overlay';
 // Native tables share their containing card; Naive tables own one wrapper fill.
-$table-surfaces: '.n-data-table-wrapper, .n-table, .plugins-table-wrap, .relay-usage-card, .daily-trend, .runtime-section, .usage-panel, .markdown-body table';
+// Message tables share the bubble's background, filter and border tokens.
+$markdown-card-tables: '.markdown-body table:not(:where(.message-bubble, .msg-content, .group-run-bubble) table)';
+$table-surfaces: '.n-data-table-wrapper, .n-table, .plugins-table-wrap, .relay-usage-card, .daily-trend, .runtime-section, .usage-panel, #{$markdown-card-tables}';
 $regions: (
   chrome: '.studio-frame-surface, .desktop-titlebar:not(.desktop-titlebar--flush)',
   sidebar: '.sidebar, .hermes-config-sidebar, .ekko-config-sidebar, .coding-agent-config-sidebar, .session-list, .room-sidebar, .agent-avatar-rail, .workflow-sidebar',
   content: '.app-main--card, .chat-main-content, .group-chat-surface, .workflow-main, .connections-panel, .agent-manager-panel, .models-view, .voice-stage',
-  card: '#{$table-surfaces}, [data-theme-surface="card"], .theme-card, .settings-card, .provider-card, .profile-card, .model-card, .run-card, .run-usage-card, .job-card, .mcp-card, .kanban-task-card, .platform-card, .stat-card, .task-plan-card, .workflow-agent-node, .n-card:not(.n-modal), .n-descriptions-table-wrapper, .theme-appearance-editor',
+  card: '#{$table-surfaces}, [data-theme-surface="card"], .theme-card, .settings-card, .provider-card, .profile-card, .model-card, .run-card:not(.group-run-bubble), .run-usage-card, .job-card, .mcp-card, .kanban-task-card, .platform-card, .stat-card, .task-plan-card, .workflow-agent-node, .n-card:not(.n-modal), .n-descriptions-table-wrapper, .theme-appearance-editor',
   input: '[data-theme-surface="input"], .input-wrapper, .context-usage-row, .n-input, .n-base-selection, .search-input, .profile-display, .model-trigger',
   overlay: $overlay-surfaces,
-  userMessage: '.message.user .message-bubble:not(.agent-error), .group-message.self .msg-content:not(.agent-error)',
-  assistantMessage: '.message.assistant .message-bubble:not(.agent-error), .group-message.agent .msg-content:not(.agent-error)'
+  // Embedded group messages share their enclosing run card's surface.
+  userMessage: '.message.user .message-bubble:not(.agent-error), .group-message.self:not(.embedded) .msg-content:not(.agent-error), .group-run-bubble--user',
+  assistantMessage: '.message.assistant .message-bubble:not(.agent-error), .group-message.agent:not(.embedded) .msg-content:not(.agent-error), .group-run-bubble--assistant'
 );
 
 // Teleported menus and dialogs need the same wallpaper defaults as the shell.
@@ -166,11 +169,11 @@ html.theme-customized.theme-card-filter :is(.n-data-table-wrapper, .settings-car
   }
 }
 
-.message.user, .group-message.self {
+.message.user, .group-message.self, .group-run-bubble--user {
   --message-theme-bg: var(--theme-userMessage-bg);
   --message-theme-filter: var(--theme-userMessage-filter);
 }
-.message.assistant, .group-message.agent {
+.message.assistant, .group-message.agent, .group-run-bubble--assistant {
   --message-theme-bg: var(--theme-assistantMessage-bg);
   --message-theme-filter: var(--theme-assistantMessage-filter);
 }

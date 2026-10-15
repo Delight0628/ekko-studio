@@ -121,7 +121,7 @@ for (const brightness of ['light', 'dark']) {
     expect(api.unexpectedRequests).toEqual([])
   })
 
-  test(`markdown and striped spreadsheet tables follow card appearance in ${brightness} mode`, async ({ page }) => {
+  test(`message tables share the bubble while spreadsheets follow cards in ${brightness} mode`, async ({ page }) => {
     const id = 'theme-table-session'
     const path = '/tmp/theme-table.csv'
     await authenticate(page)
@@ -133,7 +133,10 @@ for (const brightness of ['light', 'dark']) {
           token_count: null, finish_reason: null, reasoning: null }],
       } }
     }, { id, path })
-    const api = await mockHermesApi(page, { theme: { brightness, background: wallpaper, appearance }, sessions: [{
+    const api = await mockHermesApi(page, { theme: { brightness, background: wallpaper, appearance: {
+      ...appearance,
+      regions: { ...appearance.regions, assistantMessage: { backgroundColor: '#884422', opacity: 0.35, borderColor: '#aa6633', blur: 9 } },
+    } }, sessions: [{
       id, profile: 'research', source: 'cli', model: 'test-model', provider: 'test-provider', title: 'Table fixture',
       started_at: 1790000000, last_active: 1790000100, ended_at: null, message_count: 1,
       tool_call_count: 0, input_tokens: 0, output_tokens: 0, workspace: '/tmp',
@@ -144,9 +147,12 @@ for (const brightness of ['light', 'dark']) {
     }))
     await page.goto(`/#/hermes/session/${id}`)
     const markdown = page.locator('.markdown-body table')
-    await expect(markdown).toHaveCSS('background-color', 'rgba(51, 102, 153, 0.25)')
+    await expect(page.locator('.message.assistant .message-bubble')).toHaveCSS('background-color', 'rgba(136, 68, 34, 0.35)')
+    await expect(markdown).toHaveCSS('background-color', transparent)
+    await expect(markdown).toHaveCSS('backdrop-filter', 'none')
+    await expect(markdown).toHaveCSS('box-shadow', 'none')
     await expect(markdown.locator('th').first()).toHaveCSS('background-color', tint(0.04))
-    await expect(markdown.locator('td').first()).toHaveCSS('border-top-color', 'rgba(102, 136, 170, 0.25)')
+    await expect(markdown.locator('td').first()).toHaveCSS('border-top-color', 'rgba(170, 102, 51, 0.35)')
     await page.locator('.markdown-file-link').filter({ hasText: 'theme-table.csv' }).click()
     const table = page.locator('.spreadsheet-preview .n-data-table-wrapper')
     await expect.poll(() => paintedTableStyle(page, 'backgroundColor')).toBe('rgba(51, 102, 153, 0.25)')

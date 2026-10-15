@@ -83,7 +83,9 @@ card appearance changes do not change the alignment of nested tool messages.
   background/filter on a pseudo-element so they do not isolate the cards from
   the wallpaper. Blur remains visually hidden behind fully opaque surfaces.
 - Data tables, simple Naive tables, description tables, native plugin/usage/runtime
-  tables, skill statistics and Markdown tables use the card region. Standalone
+  tables, skill statistics and Markdown tables outside message bubbles use the card region.
+  Tables inside message bubbles share the message background, filter and border
+  tokens without adding another card surface. Standalone
   tables paint on their wrapper; native tables inside a card reuse that card's
   surface. Headers, striped rows, sorting and hover states add translucent tints
   instead of preset white/black fills. Data table row groups and rows stay

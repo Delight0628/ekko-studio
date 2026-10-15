@@ -54,6 +54,7 @@ const activeAgentInfo = computed(() => props.agents.find(agent =>
     )
 ))
 const agentInfo = computed(() => groupMessageAgent(props.message, props.agents))
+const isAssistantMessage = computed(() => Boolean(agentInfo.value) || props.message.role === 'agent_run')
 const memberInfo = computed(() => {
     if (agentInfo.value) return null
     return props.members?.find(member =>
@@ -110,7 +111,15 @@ function handleToolListWheel(event: WheelEvent): void {
                 <span class="run-agent-name">{{ message.senderName }}</span>
                 <GroupAgentRobotIcon v-if="agentInfo" class="run-agent-icon" />
             </div>
-            <div v-if="transcriptItems.length || runToolItems.length || (runUsage && !message.isStreaming)" class="run-card" :class="{ streaming: message.isStreaming }">
+            <div
+                v-if="transcriptItems.length || runToolItems.length || (runUsage && !message.isStreaming)"
+                class="run-card group-run-bubble"
+                :class="{
+                    streaming: message.isStreaming,
+                    'group-run-bubble--assistant': isAssistantMessage,
+                    'group-run-bubble--user': !isAssistantMessage,
+                }"
+            >
                 <ToolRunSummary
                     v-if="runToolItems.length"
                     class="run-tools"
@@ -367,10 +376,10 @@ function handleToolListWheel(event: WheelEvent): void {
     padding: 0 calc(14px * var(--spacing-scale, 1)) calc(10px * var(--spacing-scale, 1));
 }
 
-:global(html.theme-has-custom-background .run-card) {
-    background: var(--theme-card-bg, rgba(var(--bg-main-surface-rgb), 0.78));
-    -webkit-backdrop-filter: var(--theme-card-filter, blur(8px) saturate(110%));
-    backdrop-filter: var(--theme-card-filter, blur(8px) saturate(110%));
+:global(html.theme-has-custom-background .group-run-bubble) {
+    background: var(--message-theme-bg, rgba(var(--bg-main-surface-rgb), 0.78));
+    -webkit-backdrop-filter: var(--message-theme-filter, blur(8px) saturate(110%));
+    backdrop-filter: var(--message-theme-filter, blur(8px) saturate(110%));
 }
 
 @media (max-width: $breakpoint-mobile) {
