@@ -183,9 +183,10 @@ export function getThemeOverrides(
   isDark: boolean,
   isComic?: boolean,
   customization?: ThemeCustomization,
+  hasCustomBackground = false,
 ): GlobalThemeOverrides {
   const base = isDark ? darkThemeOverrides : lightThemeOverrides
-  if (!isComic && !customization) return base
+  if (!isComic && !customization && !hasCustomBackground) return base
   const comicFont = "'Comic Neue', 'ZCOOL KuaiLe', 'Zen Maru Gothic', 'Gaegu', cursive, sans-serif"
   const custom = customization ? resolveThemeCustomization(customization, isDark) : null
   const common = {
@@ -319,6 +320,16 @@ export function getThemeOverrides(
   }
   result.Card = { ...result.Card, ...surface('card') }
   const cardSurface = surface('card')
+  const tagBackground = cardSurface.color || (hasCustomBackground ? 'rgba(var(--bg-card-rgb), 0.72)' : undefined)
+  result.Tag = {
+    ...result.Tag,
+    // Default tags have separate fills for bordered and borderless variants.
+    // Leave semantic and checkable-state colors to Naive UI.
+    ...(tagBackground ? { color: tagBackground, colorBordered: tagBackground } : {}),
+    ...(cardSurface.borderColor || global.borderWidth !== undefined ? {
+      border: `${global.borderWidth ?? 1}px solid ${cardSurface.borderColor || resolved.border}`,
+    } : {}),
+  }
   result.Descriptions = {
     ...result.Descriptions,
     ...(cardSurface.color ? {

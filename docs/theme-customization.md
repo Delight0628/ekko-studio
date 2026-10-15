@@ -54,6 +54,9 @@ card appearance changes do not change the alignment of nested tool messages.
 
 - `styles/theme-appearance.ts` resolves one configuration into CSS tokens.
 - `styles/theme.ts` uses the same resolver for Naive UI overrides.
+  Default bordered and borderless tags inherit the card background and opacity,
+  including wallpaper glass defaults. Semantic and checkable tag colors retain
+  their own states; clearing customization restores the preset tag fills.
 - `styles/_theme-surfaces.scss` maps region properties to native and teleported
   surfaces. Property classes exist only while the corresponding override is set.
   Wallpaper defaults cover the same overlay list, including the account popover,
