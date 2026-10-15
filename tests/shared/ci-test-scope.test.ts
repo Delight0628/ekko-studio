@@ -12,6 +12,7 @@ describe('CI test scope', () => {
   it.each([
     'packages/client/src/styles/_theme-surfaces.scss',
     'packages/client/src/components/layout/PageHeader.vue',
+    'packages/client/src/components/common/StudioLoading.vue',
     'packages/desktop/src/preload.ts',
     'packages/shared/theme-appearance.ts',
     'packages/server/src/modules/studio/services/theme/archive.ts',
