@@ -20,7 +20,7 @@ overrides for eight regions:
 | `sidebar` | Page, session, room and workflow sidebars, plus the group member avatar rail |
 | `content` | Main page, chat and workflow surfaces |
 | `card` | Settings, models, profiles, tasks and other cards |
-| `input` | Composer, text inputs and selections |
+| `input` | Composer, text inputs, selections, connection view selectors and switch tracks |
 | `overlay` | Dialogs, drawers, popovers, menus and notifications |
 | `userMessage` | User message bubbles |
 | `assistantMessage` | Assistant message bubbles |
@@ -57,6 +57,11 @@ card appearance changes do not change the alignment of nested tool messages.
   Default bordered and borderless tags inherit the card background and opacity,
   including wallpaper glass defaults. Semantic and checkable tag colors retain
   their own states; clearing customization restores the preset tag fills.
+  Switch tracks inherit input opacity (0.72 with a wallpaper and no override).
+  The inactive track tints the input background; the active track keeps the accent
+  hue. Thumbs, focus indicators and disabled behavior remain independent of fill
+  opacity. Connection view/source selectors share the input surface and use a
+  translucent selection tint instead of an opaque nested button.
 - `styles/_theme-surfaces.scss` maps region properties to native and teleported
   surfaces. Property classes exist only while the corresponding override is set.
   Wallpaper defaults cover the same overlay list, including the account popover,

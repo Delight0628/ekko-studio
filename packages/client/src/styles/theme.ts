@@ -1,7 +1,9 @@
 import { resolveAppearance, THEME_FONTS } from './theme-appearance'
 import type { GlobalThemeOverrides } from 'naive-ui'
 import {
+  mixHex,
   resolveThemeCustomization,
+  toRgbComponents,
   type ThemeCustomization,
 } from './theme-customization'
 
@@ -376,6 +378,16 @@ export function getThemeOverrides(
       colorActive: resolved.variables['--theme-input-bg'],
       colorFocus: resolved.variables['--theme-input-bg'],
     } : {}),
+  }
+  if (hasCustomBackground || resolved.variables['--theme-input-bg']) {
+    const opacity = resolved.regions.input.opacity ?? (resolved.variables['--theme-input-bg'] ? 1 : 0.72)
+    // Tint the inactive track so its white thumb remains visible on light fills.
+    const neutral = mixHex(resolved.text, resolved.regions.input.backgroundColor, 0.12)
+    result.Switch = {
+      ...result.Switch,
+      railColor: `rgba(${toRgbComponents(neutral)}, ${opacity})`,
+      railColorActive: `rgba(${toRgbComponents(resolved.accent)}, ${opacity})`,
+    }
   }
   if (global.borderWidth !== undefined || resolved.variables['--theme-input-border']) {
     const width = global.borderWidth ?? 1

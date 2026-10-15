@@ -6,7 +6,7 @@ $regions: (
   sidebar: '.sidebar, .hermes-config-sidebar, .ekko-config-sidebar, .coding-agent-config-sidebar, .session-list, .room-sidebar, .agent-avatar-rail, .workflow-sidebar',
   content: '.app-main--card, .chat-main-content, .group-chat-surface, .workflow-main, .connections-panel, .agent-manager-panel, .models-view, .voice-stage',
   card: '[data-theme-surface="card"], .theme-card, .settings-card, .provider-card, .profile-card, .model-card, .run-card, .run-usage-card, .job-card, .mcp-card, .kanban-task-card, .platform-card, .stat-card, .task-plan-card, .workflow-agent-node, .n-card:not(.n-modal), .n-descriptions-table-wrapper, .theme-appearance-editor',
-  input: '.input-wrapper, .context-usage-row, .n-input, .n-base-selection, .search-input, .profile-display, .model-trigger',
+  input: '[data-theme-surface="input"], .input-wrapper, .context-usage-row, .n-input, .n-base-selection, .search-input, .profile-display, .model-trigger',
   overlay: $overlay-surfaces,
   userMessage: '.message.user .message-bubble:not(.agent-error), .group-message.self .msg-content:not(.agent-error)',
   assistantMessage: '.message.assistant .message-bubble:not(.agent-error), .group-message.agent .msg-content:not(.agent-error)'
@@ -20,8 +20,13 @@ html.theme-has-custom-background :is(#{$overlay-surfaces}) {
   backdrop-filter: var(--theme-overlay-filter, blur(8px) saturate(1.1));
 }
 
-html.theme-has-custom-background :is(.n-base-selection, .profile-display, .model-trigger) {
+html.theme-has-custom-background :is([data-theme-surface="input"], .n-base-selection, .profile-display, .model-trigger) {
   background: var(--theme-input-bg, rgba(var(--bg-card-rgb), 0.72));
+}
+
+// Paint the segmented track once; selection adds a translucent state tint.
+html:is(.theme-input-bg, .theme-has-custom-background) .view-switch[data-theme-surface="input"] .view-switch-button--active {
+  background: rgba(var(--accent-primary-rgb), 0.16);
 }
 
 // A selection paints on both its wrapper and label/tags. Only the wrapper

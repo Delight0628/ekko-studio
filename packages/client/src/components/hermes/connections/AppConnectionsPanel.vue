@@ -601,7 +601,7 @@ onUnmounted(() => {
         <p>{{ t('connections.app.subtitle') }}</p>
       </div>
       <div class="panel-actions">
-        <div class="view-switch" role="tablist">
+        <div class="view-switch" role="tablist" data-theme-surface="input">
           <button
             type="button"
             class="view-switch-button"
@@ -758,7 +758,7 @@ onUnmounted(() => {
               <p>Android</p>
             </div>
             <div class="app-platform-download-controls">
-              <div class="view-switch download-source-switch" role="tablist" aria-label="GitHub / Cloudflare">
+              <div class="view-switch download-source-switch" role="tablist" aria-label="GitHub / Cloudflare" data-theme-surface="input">
                 <button
                   type="button"
                   role="tab"
@@ -1149,6 +1149,11 @@ onUnmounted(() => {
 
   &:hover {
     color: $text-primary;
+  }
+
+  &:focus-visible {
+    outline: 2px solid $accent-primary;
+    outline-offset: 1px;
   }
 
   &--active {
