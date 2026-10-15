@@ -62,7 +62,6 @@ async function remove() {
           <i :style="{ background: preset.appearance?.global.gradientColor || preset.textColor || '#555555' }" />
         </span>
         <span class="preset-name">{{ displayName(preset.name) }}</span>
-        <span v-if="preset.id === activePresetId" class="preset-active">{{ t('theme.presets.active') }}</span>
       </button>
     </div>
     <div v-if="current" class="preset-actions">
@@ -114,7 +113,6 @@ p { margin-top: 4px; color: var(--text-muted); font-size: calc(var(--font-size-b
 .preset-colors { display: flex; flex-shrink: 0; overflow: hidden; border-radius: 4px; border: 1px solid var(--border-color); }
 .preset-colors i { width: 10px; height: 24px; }
 .preset-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.preset-active { color: var(--text-secondary); font-size: calc(var(--font-size-base, 14px) * 11 / 14); }
 .preset-actions { margin-top: 14px; }
 .editing-name { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; color: var(--text-secondary); }
 .dialog-actions { justify-content: flex-end; margin-top: 18px; }
