@@ -2485,6 +2485,19 @@ class AgentPool:
         arg = parts[1] if len(parts) > 1 else ""
 
         with _profile_env(profile):
+            if name == "plan":
+                try:
+                    from agent.plan_prompt import build_plan_prompt
+                except ImportError:
+                    return {
+                        "session_id": session_id, "command": name, "handled": False,
+                        "type": "plan",
+                        "message": "/plan requires a newer Hermes Agent runtime with agent.plan_prompt.",
+                    }
+                return {
+                    "session_id": session_id, "command": name, "handled": True,
+                    "type": "plan", "message": build_plan_prompt(arg),
+                }
             if name == "goal":
                 return self._dispatch_goal_command(session_id, arg)
             if name == "subgoal":
