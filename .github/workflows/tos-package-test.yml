@@ -1,4 +1,4 @@
-name: Test TOS 7 Deb Package
+name: Build TOS 7 Deb Package
 
 on:
   workflow_dispatch:
@@ -11,6 +11,8 @@ on:
         description: "Existing Release tag to build (required for upload, e.g. v0.7.35)"
         type: string
         default: ""
+  release:
+    types: [published]
   pull_request:
     paths:
       - ".github/workflows/tos-package-test.yml"
@@ -24,8 +26,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: tos-package-test-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: tos-package-test-${{ github.event.release.tag_name || inputs.release_tag || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   tos:
@@ -33,7 +35,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     env:
-      TOS_SOURCE_DIR: ${{ inputs.release_tag != '' && github.event_name == 'workflow_dispatch' && '.tos-release-source' || '.' }}
+      TOS_SOURCE_DIR: ${{ (github.event.release.tag_name || inputs.release_tag) && '.tos-release-source' || '.' }}
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
 
@@ -45,8 +47,8 @@ jobs:
 
       - name: Validate release selection
         env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
-          UPLOAD_TO_TDP: ${{ inputs.upload_to_tdp }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+          UPLOAD_TO_TDP: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.upload_to_tdp) }}
         run: |
           node <<'NODE'
           const tag = process.env.RELEASE_TAG
@@ -57,16 +59,16 @@ jobs:
           NODE
 
       - name: Checkout release source
-        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
         uses: actions/checkout@v4
         with:
-          ref: refs/tags/${{ inputs.release_tag }}
+          ref: refs/tags/${{ github.event.release.tag_name || inputs.release_tag }}
           path: .tos-release-source
 
       - name: Verify package version and record source
         id: source
         env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
           node <<'NODE'
           const { readFileSync, appendFileSync } = require('node:fs')
@@ -130,7 +132,7 @@ jobs:
 
   platform:
     name: TerraMaster package parsing test (no review)
-    if: github.event_name == 'workflow_dispatch' && inputs.upload_to_tdp
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.upload_to_tdp)
     needs: tos
     runs-on: ubuntu-22.04
     timeout-minutes: 15
@@ -156,7 +158,7 @@ jobs:
           # Only attach assets; do not create/edit the Release or trigger main workflows.
           GH_TOKEN: ${{ github.token }}
           TDP_API_TOKEN: ${{ secrets.TDP_API_TOKEN }}
-          TOS_RELEASE_TAG: ${{ inputs.release_tag }}
+          TOS_RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
           TOS_SOURCE_SHA: ${{ needs.tos.outputs.source_sha }}
         run: node scripts/test-tos-platform.mjs release/tos
       - name: Upload platform test receipt

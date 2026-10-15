@@ -49,8 +49,13 @@ describe('TOS platform SVG constraints', () => {
 describe('standalone TOS test workflow', () => {
   const workflow = parse(readFileSync(resolve('.github/workflows/tos-package-test.yml'), 'utf8'))
 
-  it('only runs manually or for TOS-related PRs with read-only repository permissions', () => {
-    expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch', 'pull_request'])
+  it('runs on published releases like Docker/npm, manual dispatch or TOS PRs', () => {
+    expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch', 'release', 'pull_request'])
+    expect(workflow.on.release).toEqual({ types: ['published'] })
+    for (const filename of ['docker-publish.yml', 'npm-publish.yml']) {
+      const existing = parse(readFileSync(resolve('.github/workflows', filename), 'utf8'))
+      expect(workflow.on.release).toEqual(existing.on.release)
+    }
     expect(workflow.on.pull_request.paths).toEqual([
       '.github/workflows/tos-package-test.yml', 'packages/tos/**',
       'scripts/pack-tos-deb.mjs', 'scripts/test-tos-platform.mjs',
@@ -81,17 +86,17 @@ describe('standalone TOS test workflow', () => {
     expect(steps.some((step: any) => /\bgh release\b/.test(String(step.run || '')))).toBe(false)
   })
 
-  it('only gives secrets and release writes to the explicitly dispatched platform job', () => {
+  it('only gives secrets and release writes to the release/opt-in platform job', () => {
     const platform = workflow.jobs.platform
     expect(workflow.on.workflow_dispatch.inputs.upload_to_tdp.default).toBe(false)
-    expect(platform.if).toBe("github.event_name == 'workflow_dispatch' && inputs.upload_to_tdp")
+    expect(platform.if).toBe("github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.upload_to_tdp)")
     expect(platform.permissions).toEqual({ contents: 'write', actions: 'read' })
     expect(platform.needs).toBe('tos')
     expect(platform.concurrency['cancel-in-progress']).toBe(false)
     const publish = platform.steps.find((step: any) => step.env?.TDP_API_TOKEN)
     expect(publish.env.GH_TOKEN).toBe('${{ github.token }}')
     expect(publish.env.TDP_API_TOKEN).toBe('${{ secrets.TDP_API_TOKEN }}')
-    expect(publish.env.TOS_RELEASE_TAG).toBe('${{ inputs.release_tag }}')
+    expect(publish.env.TOS_RELEASE_TAG).toBe('${{ github.event.release.tag_name || inputs.release_tag }}')
     expect(publish.env.TOS_SOURCE_SHA).toBe('${{ needs.tos.outputs.source_sha }}')
     expect(publish.run).toBe('node scripts/test-tos-platform.mjs release/tos')
     expect(JSON.stringify(workflow.jobs.tos)).not.toContain('secrets.')
@@ -117,9 +122,32 @@ describe('standalone TOS test workflow', () => {
   it('checks out the selected Release source separately from packaging tools', () => {
     const steps = workflow.jobs.tos.steps
     const checkout = steps.find((step: any) => step.name === 'Checkout release source')
-    expect(checkout.with.ref).toBe('refs/tags/${{ inputs.release_tag }}')
+    expect(checkout.with.ref).toBe('refs/tags/${{ github.event.release.tag_name || inputs.release_tag }}')
     expect(checkout.with.path).toBe('.tos-release-source')
     expect(workflow.jobs.tos.outputs.source_sha).toBe('${{ steps.source.outputs.sha }}')
+  })
+
+  it.each([
+    { event: 'release', tag: 'v1.2.3', inputTag: '', upload: false, publish: true, sourceTag: 'v1.2.3' },
+    { event: 'release', tag: 'v1.2.3', inputTag: 'v9.9.9', upload: false, publish: true, sourceTag: 'v1.2.3' },
+    { event: 'workflow_dispatch', tag: '', inputTag: 'v1.2.3', upload: true, publish: true, sourceTag: 'v1.2.3' },
+    { event: 'workflow_dispatch', tag: '', inputTag: 'v1.2.3', upload: false, publish: false, sourceTag: 'v1.2.3' },
+    { event: 'workflow_dispatch', tag: '', inputTag: '', upload: false, publish: false, sourceTag: '' },
+    { event: 'pull_request', tag: '', inputTag: '', upload: true, publish: false, sourceTag: '' },
+  ])('routes source/upload/cancellation for $event (upload=$upload, tag=$tag)', scenario => {
+    // These workflow conditions use the shared JS/GitHub boolean-expression subset.
+    const github = { event_name: scenario.event, event: { release: { tag_name: scenario.tag } } }
+    const inputs = { release_tag: scenario.inputTag, upload_to_tdp: scenario.upload }
+    const evaluate = (expression: string) => Function('github', 'inputs',
+      `return (${expression.replace(/^\$\{\{\s*|\s*\}\}$/g, '')})`)(github, inputs)
+    expect(Boolean(evaluate(workflow.jobs.platform.if))).toBe(scenario.publish)
+    const publish = workflow.jobs.platform.steps.find((step: any) => step.env?.TDP_API_TOKEN)
+    expect(evaluate(publish.env.TOS_RELEASE_TAG)).toBe(scenario.sourceTag)
+    const validate = workflow.jobs.tos.steps.find((step: any) => step.name === 'Validate release selection')
+    expect(evaluate(validate.env.RELEASE_TAG)).toBe(scenario.sourceTag)
+    expect(Boolean(evaluate(validate.env.UPLOAD_TO_TDP))).toBe(scenario.publish)
+    expect(evaluate(workflow.jobs.tos.env.TOS_SOURCE_DIR)).toBe(scenario.sourceTag ? '.tos-release-source' : '.')
+    expect(evaluate(workflow.concurrency['cancel-in-progress'])).toBe(scenario.event === 'pull_request')
   })
 
   it('requires a Release tag for uploading but permits plain PR builds', () => {

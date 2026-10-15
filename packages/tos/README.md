@@ -5,14 +5,18 @@ Electron or the Linux desktop Deb. The first target is **x86_64 / amd64**.
 Packages are marked `beta: true` until their lifecycle and data retention are verified on a TNAS.
 Generating or uploading a package is not App Center approval.
 
-## Standalone test workflow
+## Independent packaging workflow
 
-Use the independent **Test TOS 7 Deb Package** workflow
-(`.github/workflows/tos-package-test.yml`). TOS-related pull requests run it
-independently so the package can be tested before merging. It also supports a
-manual `workflow_dispatch` trigger. After the workflow is available on the default
-branch, choose **Run workflow** and select a branch that includes the packager.
-The workflow keeps packaging tools at the dispatch commit. With `release_tag`
+Use the independent **Build TOS 7 Deb Package** workflow
+(`.github/workflows/tos-package-test.yml`). Like Docker and npm packaging, it
+automatically runs on GitHub `release.published`, builds that event's tag and
+attaches the TOS package to the same Release, then validates with TerraMaster.
+No manual tag/input is required on a Release event. It does not submit for review.
+
+TOS-related pull requests only build/test the package. A manual
+`workflow_dispatch` entry also remains available: choose **Run workflow** and
+select a branch that includes the packager. The workflow keeps packaging tools
+at the event commit. On a Release event or with manual `release_tag`
 selected, it checks out that exact Git tag into a separate source directory;
 without a tag, PR/build-only runs use the event commit. It builds the chosen
 source on Ubuntu 22.04, prunes development dependencies, verifies Sharp and
@@ -29,12 +33,16 @@ com.hermeswebui.studio_<version>_x86_64.deb.verification.json
 
 The build job uses read-only repository permissions. Ordinary PR runs and manual
 runs with `upload_to_tdp` disabled only create Actions artifacts. This workflow
-does not run as part of the main Web UI/desktop release workflows.
+remains a separate file/job graph from the main Web UI/desktop release workflows;
+those workflows are unchanged. Release publication is their shared trigger.
+Only PR runs cancel older in-progress builds; Release/manual runs for a tag
+serialize so an upload is not cancelled halfway through.
 
 ### Optional Developer Platform parsing test
 
 Configure repository Actions secret `TDP_API_TOKEN` with `version:write` and,
-for the first registration, `app:write`. Run this workflow manually with
+for the first registration, `app:write`. Release events automatically enable
+upload/validation and use `github.event.release.tag_name`. For manual runs, use
 `upload_to_tdp` enabled and `release_tag` set to the existing versioned Release
 (for example `v0.7.35`). Uploads require that tag; the same `0.7.35` / `v0.7.35`
 convention used by normal npm releases is accepted. A separate job:
