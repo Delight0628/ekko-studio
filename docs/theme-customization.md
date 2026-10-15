@@ -70,7 +70,10 @@ card appearance changes do not change the alignment of nested tool messages.
   Disabled/loading selections keep that surface; muted text/icons and disabled
   interaction still indicate their state without flashing a preset background.
   New card surfaces can opt in with `data-theme-surface="card"`; description
-  tables also use the card region, with translucent headers instead of opaque
+  tables, the shared promotion hero and download platform cards use this scope.
+  Promotion/download cards use a translucent wallpaper fallback, and small
+  badges/icons add only a tint. QR code backgrounds stay opaque for scanning.
+  Description tables use translucent headers instead of opaque
   fills. When card blur is configured, outer content surfaces paint their own
   background/filter on a pseudo-element so they do not isolate the cards from
   the wallpaper. Blur remains visually hidden behind fully opaque surfaces.

@@ -702,7 +702,7 @@ onUnmounted(() => {
 
     <div v-else-if="panelView === 'download'" class="app-downloads">
       <div class="app-download-layout">
-        <section class="app-download-hero">
+        <section class="app-download-hero" data-theme-surface="card">
           <div class="app-download-intro">
             <div class="app-download-brand">
               <img class="app-download-logo" src="/logo.png" alt="">
@@ -736,6 +736,7 @@ onUnmounted(() => {
         <div class="app-platform-grid">
           <article
             class="app-platform-card app-platform-card--apk"
+            data-theme-surface="card"
             :class="androidDownloadUrl ? 'app-platform-card--available' : 'app-platform-card--pending'"
           >
             <div class="app-platform-card-header">
@@ -791,6 +792,7 @@ onUnmounted(() => {
 
           <article
             class="app-platform-card"
+            data-theme-surface="card"
             :class="googlePlayDownloadUrl ? 'app-platform-card--available' : 'app-platform-card--pending'"
           >
             <div class="app-platform-card-header">
@@ -826,6 +828,7 @@ onUnmounted(() => {
 
           <article
             class="app-platform-card"
+            data-theme-surface="card"
             :class="appleDownloadUrl ? 'app-platform-card--available' : 'app-platform-card--pending'"
           >
             <div class="app-platform-card-header">
@@ -1309,7 +1312,7 @@ onUnmounted(() => {
   display: flex;
   box-sizing: border-box;
   flex-direction: column;
-  background: var(--theme-card-bg, $bg-card);
+  background: var(--theme-card-bg, var(--theme-card-wallpaper-bg, $bg-card));
   border: var(--border-width, 1px) solid $border-color;
   border-radius: var(--radius-component, 14px);
   transition: border-color $transition-fast, box-shadow $transition-fast, transform $transition-fast;
@@ -1321,7 +1324,7 @@ onUnmounted(() => {
   }
 
   &--pending {
-    background: rgba(var(--bg-card-rgb), 0.64);
+    background: var(--theme-card-bg, var(--theme-card-wallpaper-bg, rgba(var(--bg-card-rgb), 0.64)));
   }
 }
 

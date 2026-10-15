@@ -46,7 +46,7 @@ onBeforeUnmount(() => { requestController?.abort() })
       </header>
     </PageHeader>
     <div class="api-relay-content">
-      <section class="api-relay-hero" aria-labelledby="api-relay-heading">
+      <section class="api-relay-hero" data-theme-surface="card" aria-labelledby="api-relay-heading">
         <div class="api-relay-intro">
           <div class="api-relay-brand">
             <img
