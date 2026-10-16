@@ -299,18 +299,18 @@ describe.runIf(process.platform === 'linux' && process.arch === 'x64')('TOS Debi
       { ...config, port: 9999 },
     ]) {
       writeFileSync(join(alteredApp, 'config.ini'), JSON.stringify(invalid))
-      execFileSync('dpkg-deb', ['-Zgzip', '--build', alteredStage, alteredDeb])
+      execFileSync('dpkg-deb', ['-Znone', '--build', alteredStage, alteredDeb])
       expect(() => verifyTosDeb(alteredDeb)).toThrow('C21')
     }
     writeFileSync(join(alteredApp, 'config.ini'), readFileSync(join(app, 'config.ini')))
     for (const directive of ['Restart=on-failure', '  Restart = no', 'RestartSec=10']) {
       writeFileSync(join(alteredApp, 'init.d/ekko-studio-tos.service'), service.replace('[Service]', `[Service]\n${directive}`))
-      execFileSync('dpkg-deb', ['-Zgzip', '--build', alteredStage, alteredDeb])
+      execFileSync('dpkg-deb', ['-Znone', '--build', alteredStage, alteredDeb])
       expect(() => verifyTosDeb(alteredDeb)).toThrow('S05')
     }
     writeFileSync(join(alteredApp, 'init.d/ekko-studio-tos.service'), service)
     writeFileSync(join(alteredStage, 'usr/local', result.id, 'README.md'), 'modified without updating checksums')
-    execFileSync('dpkg-deb', ['-Zgzip', '--build', alteredStage, alteredDeb])
+    execFileSync('dpkg-deb', ['-Znone', '--build', alteredStage, alteredDeb])
     expect(() => verifyTosDeb(alteredDeb)).toThrow('checksum mismatch')
     expect(JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')).version).toBe('99.0.0')
   }, 120_000)
