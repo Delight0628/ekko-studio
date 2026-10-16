@@ -65,9 +65,7 @@ acceptance for this integration has been performed on macOS only.
    A dispatched action or `effect: unverifiable` is not success. Never blindly
    replay input after cancellation or a timeout.
 
-Typing or drafting stops at the filled field. Send, submit or press Return only
-when that action is part of the user's request; a tool approval does not expand
-the task. If background input fails, prefer an exact-window foreground delivery
+If background input fails, prefer an exact-window foreground delivery
 before desktop scope. Desktop input acts on whichever app is frontmost, so
 confirm the target immediately before acting.
 
