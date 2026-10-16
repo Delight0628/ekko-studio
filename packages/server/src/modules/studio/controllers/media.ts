@@ -5,6 +5,7 @@ import { getActiveProfileName, getProfileDir, listProfileNamesFromDisk } from '.
 import { readConfigYamlForProfile } from '../public/media-profile-config'
 import { config } from '../public/config'
 import { getCompatibleCustomProviders } from '../contracts/provider-compat'
+import { canChooseMediaOutputPath } from '../services/auth/media-output-access'
 
 const XAI_VIDEO_GENERATIONS_URL = 'https://api.x.ai/v1/videos/generations'
 const XAI_VIDEO_STATUS_URL = 'https://api.x.ai/v1/videos'
@@ -643,7 +644,7 @@ function requestedMediaOutputPath(ctx: Context, value: unknown): string {
   const path = typeof value === 'string' ? value.trim() : ''
   // Choosing a server filesystem destination is a privileged write, just as
   // files/write is. Other users can still generate into Studio's media store.
-  if (path && ctx.state.user?.role !== 'super_admin' && !ctx.state.serverTokenAuth) {
+  if (path && !canChooseMediaOutputPath(ctx.state)) {
     throw Object.assign(new Error('Only super admins can choose a media output path'), {
       status: 403, code: 'media_output_path_forbidden',
     })
