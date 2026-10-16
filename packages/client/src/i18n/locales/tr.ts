@@ -29,6 +29,13 @@ const writeApprovalMessages = {
 }
 
 export default {
+  ekkoConfig: {
+    computerUseEnabled: 'Bilgisayar kullanımı',
+    computerUseHint: 'Ekko çalıştığı bilgisayardaki uygulamaları görebilir ve yönetebilir. Giriş işlemleri araç onayı ayarlarınıza uyar.',
+    computerUseDriverPath: 'Cua Driver çalıştırılabilir dosyası',
+    computerUseDriverHint: 'Yüklü Cua Driver sürücüsünü otomatik bulmak için boş bırakın veya çalıştırılabilir dosyanın mutlak yolunu girin.',
+    computerUseTimeoutMs: 'Masaüstü işlemi zaman aşımı (ms)',
+  },
   changelog: {
     new_0_7_36_1: 'Arayüz bölgelerine göre arka plan, opaklık, bulanıklık, köşe, kenarlık ve gölgeler için canlı tema özelleştirmesi eklendi (#3394)',
     new_0_7_36_2: 'Oluşturma, çoğaltma, değiştirme, içe aktarma, dışa aktarma ve hesap başına kaydetme destekli adlandırılmış temalar eklendi (#3394)',

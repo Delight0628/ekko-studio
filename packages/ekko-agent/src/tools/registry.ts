@@ -7,6 +7,7 @@ import type {
 } from './types'
 import { UpdatePlanTool } from './plan'
 import { createBrowserTools } from './browser'
+import { ComputerUseTool, type ComputerUseToolOptions } from './computer-use'
 import { createClarificationToolProvider } from './clarify'
 import { CodeExecTool, type CodeExecToolOptions } from './code-exec'
 import { createDelegationTools } from './delegation'
@@ -111,6 +112,7 @@ export interface DefaultToolRegistryOptions {
   executionTimeoutMs?: number
   codeExec?: (CodeExecToolOptions & { enabled?: boolean }) | false
   recovery?: EkkoRecoveryService
+  computerUse?: ComputerUseToolOptions
 }
 
 export function createDefaultToolRegistry(options: DefaultToolRegistryOptions = {}): AgentToolRegistry {
@@ -121,6 +123,7 @@ export function createDefaultToolRegistry(options: DefaultToolRegistryOptions = 
     ...createImageTools(),
     ...createTerminalTools({ timeoutMs: options.executionTimeoutMs }),
     ...createBrowserTools(),
+    ...(options.computerUse?.enabled === false ? [] : [new ComputerUseTool(options.computerUse)]),
     ...createDelegationTools(),
     ...(options.recovery ? createRecoveryTools(options.recovery) : []),
     ...createSkillTools(options.skillDirectory, {

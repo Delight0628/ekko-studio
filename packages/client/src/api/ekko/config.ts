@@ -25,6 +25,11 @@ export interface EkkoSettingsConfig {
   tools: {
     enabled: boolean
     executionTimeoutMs: number
+    computerUse: {
+      enabled: boolean
+      driverPath: string
+      timeoutMs: number
+    }
     approvals: {
       enabled: boolean
       timeoutMs: number
