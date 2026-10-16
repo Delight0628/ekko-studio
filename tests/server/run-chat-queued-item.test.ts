@@ -195,6 +195,22 @@ describe('ChatRunSocket queued bridge runs', () => {
     })
   })
 
+  it.each([
+    { event: 'run.completed', isAborting: false, payload: { result: { interrupted: true, boundary_interrupt: true } }, expected: 'ended' },
+    { event: 'run.completed', isAborting: false, payload: { interrupted: true }, expected: 'ended' },
+    { event: 'run.failed', isAborting: false, payload: { interrupted: true }, expected: 'failed' },
+    { event: 'abort.completed', isAborting: false, payload: {}, expected: 'interrupted' },
+    { event: 'run.completed', isAborting: true, payload: {}, expected: 'interrupted' },
+  ])('settles task plans from Stop state, not stale runtime flags: $event/$expected', async ({ event, isAborting, payload, expected }) => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io } = makeServerHarness()
+    const server = new ChatRunSocket(io as any)
+    ;(server as any).sessionMap.set('session-1', { isWorking: true, isAborting, events: [], queue: [] })
+    const finish = vi.spyOn((server as any).taskPlanRuns, 'finishSession').mockImplementation(() => {})
+    ;(server as any).finishTaskPlanRun('session-1', event, payload)
+    expect(finish).toHaveBeenCalledWith('session-1', expected)
+  })
+
   it('drops a queued shared message when its execution-time authorization fails', async () => {
     const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
     const { io, socket, roomEmit } = makeServerHarness()

@@ -508,7 +508,9 @@ export class ChatRunSocket {
     if (!['run.completed', 'run.failed', 'abort.completed'].includes(event)) return
     runMcpCredentials.revoke(sessionId, contextId)
     this.clarificationRuns.finishSession(sessionId, contextId)
-    const interrupted = event === 'abort.completed' || payload?.interrupted === true || payload?.result?.interrupted === true || this.sessionMap.get(sessionId)?.isAborting
+    // A queue boundary can finish after its queued input was removed. Runtime
+    // interrupt flags alone do not mean the user pressed Stop.
+    const interrupted = event === 'abort.completed' || this.sessionMap.get(sessionId)?.isAborting
     const executionState = interrupted ? 'interrupted' : event === 'run.failed' ? 'failed' : 'ended'
     try {
       if (contextId) this.taskPlanRuns.finish(contextId, executionState)
