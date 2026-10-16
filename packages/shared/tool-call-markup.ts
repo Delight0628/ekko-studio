@@ -7,19 +7,77 @@ export interface ToolCallMarkupState {
   ticks?: number
   codeTicks?: number
   tickChar?: string
-  codeChar?: string
+  tickLineStart?: boolean
+  indent?: number
+  escaped?: boolean
+  fenceTicks?: number
+  fenceChar?: string
+  fenceCandidate?: number
+  fenceTrailing?: boolean
 }
 
 const blocks = [
   ['<tool_call>', '</tool_call>'],
   ['<function_calls>', '</function_calls>'],
-  ['<invoke name=', '</invoke>'],
   ['<｜DSML｜function_calls>', '</｜DSML｜function_calls>'],
   ['</parameter>', ''],
   ['</invoke>', ''],
   ['</tool_call>', ''],
   ['</function_calls>', ''],
 ] as const
+
+function openingMatch(text: string): { closing?: string, pending: boolean } {
+  const exact = blocks.find(([opening]) => opening === text)
+  if (exact) return { closing: exact[1], pending: false }
+  if (blocks.some(([opening]) => opening.startsWith(text))) return { pending: true }
+  for (const tag of ['invoke', 'parameter']) {
+    const opening = `<${tag}`
+    if (opening.startsWith(text)) return { pending: true }
+    if (!text.startsWith(opening)) continue
+    const rest = text.slice(opening.length)
+    if (/^\s+name\s*=$/.test(rest)) return { closing: `</${tag}>`, pending: false }
+    if (/^\s+(?:n|na|nam|name\s*)?$/.test(rest)) return { pending: true }
+  }
+  return { pending: false }
+}
+
+function advanceLine(state: ToolCallMarkupState, char: string): void {
+  if (char === '\n') {
+    state.lineStart = true
+    state.indent = 0
+  } else if (state.lineStart && (char === ' ' || char === '\t')) {
+    const indent = state.indent || 0
+    state.indent = indent + (char === '\t' ? 4 - indent % 4 : 1)
+  } else {
+    state.lineStart = false
+  }
+}
+
+function advanceFence(state: ToolCallMarkupState, char: string): void {
+  // Unlike inline backticks, fences close only on a line containing a matching
+  // marker run (at least as long as the opener) and optional trailing whitespace.
+  const count = state.fenceCandidate || 0
+  if (char === '\n') {
+    if (count >= state.fenceTicks!) {
+      state.fenceTicks = undefined
+      state.fenceChar = undefined
+    }
+    state.fenceCandidate = 0
+    state.fenceTrailing = false
+  } else if (count >= 0) {
+    if (state.lineStart && (char === ' ' || char === '\t')) {
+      // Indentation is checked when the first fence character arrives.
+    } else if (char === state.fenceChar && !state.fenceTrailing
+      && (state.lineStart || count > 0) && (state.indent || 0) <= 3) {
+      state.fenceCandidate = count + 1
+    } else if ((char === ' ' || char === '\t' || char === '\r') && count >= state.fenceTicks!) {
+      state.fenceTrailing = true
+    } else {
+      state.fenceCandidate = -1
+    }
+  }
+  advanceLine(state, char)
+}
 
 export function filterToolCallMarkup(state: ToolCallMarkupState, delta: string): string {
   let out = ''
@@ -31,43 +89,57 @@ export function filterToolCallMarkup(state: ToolCallMarkupState, delta: string):
         state.closing = undefined
         state.tail = ''
         state.lineStart = true
+        state.indent = 0
       }
       continue
     }
     if (state.pending !== undefined) {
       state.pending += char
-      const match = blocks.find(([opening]) => state.pending === opening)
-      if (match) {
-        state.closing = match[1] || undefined
+      const match = openingMatch(state.pending)
+      if (match.closing !== undefined) {
+        state.closing = match.closing || undefined
         state.pending = undefined
         continue
       }
-      if (blocks.some(([opening]) => opening.startsWith(state.pending!))) continue
-      out += state.pending
-      state.lineStart = char === '\n'
+      if (match.pending) continue
+      // Reprocess the mismatching character so backticks/newlines still affect
+      // Markdown state after an ordinary '<...'.
+      out += state.pending.slice(0, -1)
+      state.lineStart = false
       state.pending = undefined
+    }
+    if (state.ticks && char !== state.tickChar) {
+      if (state.codeTicks) {
+        if (state.tickChar === '`' && state.ticks === state.codeTicks) state.codeTicks = 0
+      } else if (state.tickLineStart && state.ticks >= 3) {
+        state.fenceTicks = state.ticks
+        state.fenceChar = state.tickChar
+        state.fenceCandidate = -1 // The opening line cannot also close a fence.
+      } else if (state.tickChar === '`') {
+        state.codeTicks = state.ticks
+      }
+      state.ticks = 0
+    }
+    if (state.fenceTicks) {
+      out += char
+      advanceFence(state, char)
       continue
     }
-    if ((char === '`' || char === '~') && (!state.ticks || state.tickChar === char)) {
+    if ((char === '`' || char === '~') && (!state.escaped || state.codeTicks)) {
+      if (!state.ticks) state.tickLineStart = !!state.lineStart && (state.indent || 0) <= 3
       state.ticks = (state.ticks || 0) + 1
       state.tickChar = char
       out += char
+      advanceLine(state, char)
       continue
-    }
-    if (state.ticks) {
-      if (!state.codeTicks && (state.tickChar === '`' || state.ticks >= 3)) {
-        state.codeTicks = state.ticks
-        state.codeChar = state.tickChar
-      } else if (state.ticks === state.codeTicks && state.tickChar === state.codeChar) state.codeTicks = 0
-      state.ticks = 0
     }
     if (!state.codeTicks && state.lineStart && char === '<') {
       state.pending = '<'
       continue
     }
     out += char
-    if (char === '\n') state.lineStart = true
-    else if (char !== ' ' && char !== '\t') state.lineStart = false
+    advanceLine(state, char)
+    state.escaped = !state.codeTicks && char === '\\' && !state.escaped
   }
   return out
 }
@@ -80,7 +152,13 @@ export function flushToolCallMarkup(state: ToolCallMarkupState): string {
   state.ticks = 0
   state.codeTicks = 0
   state.tickChar = undefined
-  state.codeChar = undefined
+  state.tickLineStart = undefined
+  state.indent = 0
+  state.escaped = false
+  state.fenceTicks = undefined
+  state.fenceChar = undefined
+  state.fenceCandidate = undefined
+  state.fenceTrailing = false
   state.lineStart = true
   return text
 }

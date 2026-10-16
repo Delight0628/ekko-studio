@@ -3,7 +3,67 @@ import { filterToolCallMarkup, flushToolCallMarkup, stripToolCallMarkup } from '
 
 const protocol = '<tool_call><invoke name="read_file"><parameter name="path">demo.txt</parameter></invoke></tool_call>'
 
+function expectAllChunkBoundaries(input: string, expected: string) {
+  expect(stripToolCallMarkup(input)).toBe(expected)
+  for (let split = 0; split <= input.length; split++) {
+    const state = {}
+    expect(filterToolCallMarkup(state, input.slice(0, split))
+      + filterToolCallMarkup(state, input.slice(split))
+      + flushToolCallMarkup(state)).toBe(expected)
+  }
+  const state = {}
+  expect([...input].map(char => filterToolCallMarkup(state, char)).join('')
+    + flushToolCallMarkup(state)).toBe(expected)
+}
+
 describe('text-channel protocol filtering', () => {
+  it.each([
+    '<parameter name="path">private-path</parameter>',
+    '<parameter\tname \t= "path">private-path</parameter>',
+    '<invoke name = "read_file"><parameter name="path">private-path</parameter></invoke>',
+    '<invoke \t name\n = "read_file"><parameter name="path">private-path</parameter></invoke>',
+  ])('filters structural line-leading protocol across every split: %s', markup => {
+    expectAllChunkBoundaries(`Before\n  ${markup}\nAnswer`, 'Before\n  \nAnswer')
+  })
+
+  it.each([
+    '```text\nAn embedded ``` is literal inside this fence.\n<tool_call>example</tool_call>\n```',
+    '~~~text\nAn embedded ~~~ is literal inside this fence.\n<parameter name="path">example</parameter>\n~~~',
+    '````xml\n```\n<invoke name = "read_file">example</invoke>\n````',
+    '```xml\n```not-a-closing-fence\n<tool_call>example</tool_call>\n```',
+    '```xml\n``` \t nope\n<tool_call>example</tool_call>\n```',
+    '```xml\n~~~\n<tool_call>example</tool_call>\n```',
+    '```xml\n    ```\n<tool_call>example</tool_call>\n```',
+  ])('keeps fenced examples with literal fence-like text: %s', example => {
+    expectAllChunkBoundaries(`${example}\n${protocol}\nAnswer`, `${example}\n\nAnswer`)
+  })
+
+  it.each([
+    ['```xml', '````'],
+    ['~~~xml', '~~~~~'],
+    ['   ```xml', '  ```` \t'],
+    ['```xml\r', '````\r'],
+  ])('recognizes a longer closing fence after %s', (opening, closing) => {
+    const example = `${opening}\n<parameter name="path">example</parameter>\n${closing}\n`
+    expectAllChunkBoundaries(`${example}${protocol}\nAnswer`, `${example}\nAnswer`)
+  })
+
+  it.each([
+    '`<parameter name="path">example</parameter>`',
+    '``inline ` backtick\n<invoke name = "read_file">example</invoke>\n``',
+    '`inline ``` backticks\n<tool_call>example</tool_call>\n`',
+    'Explain <parameter name="path">example</parameter> here.',
+    '<invoke names="ordinary">keep</invoke>',
+    '<parameter namespace="ordinary">keep</parameter>',
+  ])('preserves inline code, discussion and non-protocol attributes: %s', example => {
+    expectAllChunkBoundaries(`${example}\n${protocol}\nAnswer`, `${example}\n\nAnswer`)
+  })
+
+  it('does not treat escaped backticks or prose tildes as code openers', () => {
+    expectAllChunkBoundaries('Escaped \\`\n' + protocol, 'Escaped \\`\n')
+    expectAllChunkBoundaries(`Prose ~~~ text\n${protocol}`, 'Prose ~~~ text\n')
+  })
+
   it('removes protocol blocks while retaining the answer', () => {
     expect(stripToolCallMarkup(`Before\n${protocol}\nAfter`)).toBe('Before\n\nAfter')
   })
