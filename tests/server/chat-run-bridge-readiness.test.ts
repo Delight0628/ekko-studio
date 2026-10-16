@@ -1170,7 +1170,7 @@ describe('ChatRunSocket MCP task plan lifecycle', () => {
     expect(() => server.updateTaskPlan(contextId, 'default', input)).toThrow('expired')
   })
 
-  it.each([false, true])('keeps Hermes plans alive until its stream completes (interrupted=%s)', async interrupted => {
+  it.each([false, true])('keeps Hermes plans alive until completion without treating runtime interrupted=%s as Stop', async interrupted => {
     getSessionMock.mockReturnValue({ id: 'session-1', profile: 'default', source: 'cli', agent: 'hermes' })
     const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
     const { emitted, io, socket } = makeServerHarness()
@@ -1187,7 +1187,9 @@ describe('ChatRunSocket MCP task plan lifecycle', () => {
       data.onEvent('run.completed', { event: 'run.completed', result: { interrupted } })
     }) as any)
     await (server as any).handleRun(socket, { session_id: 'session-1', source: 'cli', input: 'Implement a feature' }, 'default')
-    expect(emitted.filter(item => item.event === 'plan.updated').map(item => item.payload.execution_state)).toEqual(['running', interrupted ? 'interrupted' : 'ended'])
+    const updates = emitted.filter(item => item.event === 'plan.updated')
+    expect(updates.map(item => item.payload.execution_state)).toEqual(['running', 'ended'])
+    expect(updates[1].payload.plan).toEqual([{ id: 'verify', step: 'Verify the change', status: 'pending' }])
     expect(() => server.updateTaskPlan(contextId, 'default', input)).toThrow('expired')
   })
 })

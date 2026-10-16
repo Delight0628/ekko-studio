@@ -18,6 +18,30 @@ function expectAllChunkBoundaries(input: string, expected: string) {
 
 describe('text-channel protocol filtering', () => {
   it.each([
+    '```inline```',
+    '```inline ` literal```',
+    '````inline````',
+  ])('does not mistake line-start inline code for a fence: %s', example => {
+    expectAllChunkBoundaries(`${example}\n${protocol}\nAnswer`, `${example}\n\nAnswer`)
+  })
+
+  it.each([
+    '    <parameter name="path">literal-example</parameter>',
+    '\t<parameter name="path">literal-example</parameter>',
+    'Intro\n\n    <parameter name="path">literal-example</parameter>',
+    '    code\n    <parameter name="path">literal-example</parameter>',
+  ])('preserves parameters in indented code: %s', example => {
+    expectAllChunkBoundaries(`${example}\n\nAnswer\n${protocol}`, `${example}\n\nAnswer\n`)
+  })
+
+  it.each(['', ' ', '  ', '   ', '    ', '\t'])('keeps non-code protocol indentation policy: %j', indent => {
+    expectAllChunkBoundaries(
+      `Before\n${indent}<parameter name = "path">private-path</parameter>\nAnswer`,
+      `Before\n${indent}\nAnswer`,
+    )
+  })
+
+  it.each([
     '<parameter name="path">private-path</parameter>',
     '<parameter\tname \t= "path">private-path</parameter>',
     '<invoke name = "read_file"><parameter name="path">private-path</parameter></invoke>',

@@ -14,6 +14,9 @@ export interface ToolCallMarkupState {
   fenceChar?: string
   fenceCandidate?: number
   fenceTrailing?: boolean
+  fenceOpening?: boolean
+  indentedCodeAllowed?: boolean
+  indentedCode?: boolean
 }
 
 const blocks = [
@@ -43,6 +46,11 @@ function openingMatch(text: string): { closing?: string, pending: boolean } {
 
 function advanceLine(state: ToolCallMarkupState, char: string): void {
   if (char === '\n') {
+    // An indented code block starts after a blank line (or at document start),
+    // and may continue on subsequent indented lines. Paragraph continuations
+    // keep the existing whitespace-tolerant protocol filtering.
+    state.indentedCodeAllowed = !!state.lineStart || !!state.indentedCode
+    state.indentedCode = false
     state.lineStart = true
     state.indent = 0
   } else if (state.lineStart && (char === ' ' || char === '\t')) {
@@ -108,6 +116,13 @@ export function filterToolCallMarkup(state: ToolCallMarkupState, delta: string):
       state.lineStart = false
       state.pending = undefined
     }
+    if (state.indentedCode || (state.lineStart && (state.indent || 0) >= 4
+      && state.indentedCodeAllowed !== false && char !== '\n')) {
+      state.indentedCode = true
+      out += char
+      advanceLine(state, char)
+      continue
+    }
     if (state.ticks && char !== state.tickChar) {
       if (state.codeTicks) {
         if (state.tickChar === '`' && state.ticks === state.codeTicks) state.codeTicks = 0
@@ -115,11 +130,22 @@ export function filterToolCallMarkup(state: ToolCallMarkupState, delta: string):
         state.fenceTicks = state.ticks
         state.fenceChar = state.tickChar
         state.fenceCandidate = -1 // The opening line cannot also close a fence.
+        state.fenceOpening = state.tickChar === '`'
       } else if (state.tickChar === '`') {
         state.codeTicks = state.ticks
       }
       state.ticks = 0
     }
+    // A backtick in the info string invalidates a backtick fence opener.
+    // The already-emitted prefix is instead an inline span whose delimiter
+    // must be matched exactly, e.g. a line containing ```inline```.
+    if (state.fenceOpening && char === '`') {
+      state.codeTicks = state.fenceTicks
+      state.fenceTicks = undefined
+      state.fenceChar = undefined
+      state.fenceOpening = false
+    }
+    if (char === '\n') state.fenceOpening = false
     if (state.fenceTicks) {
       out += char
       advanceFence(state, char)
@@ -159,6 +185,9 @@ export function flushToolCallMarkup(state: ToolCallMarkupState): string {
   state.fenceChar = undefined
   state.fenceCandidate = undefined
   state.fenceTrailing = false
+  state.fenceOpening = false
+  state.indentedCodeAllowed = true
+  state.indentedCode = false
   state.lineStart = true
   return text
 }
