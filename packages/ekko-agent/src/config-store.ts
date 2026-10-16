@@ -7,7 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, isAbsolute, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { resolveEkkoJevConfig } from './jev/config'
 import {
   DEFAULT_CODE_EXEC_LANGUAGES,
@@ -544,10 +544,6 @@ export function normalizeEkkoConfig(value: unknown): EkkoConfig {
   const approvals = record(tools.approvals, 'tools.approvals', true)
   const codeExec = record(tools.codeExec, 'tools.codeExec', true)
   const computerUse = record(tools.computerUse, 'tools.computerUse', true)
-  const computerUseDriverPath = stringValue(computerUse.driverPath, '', 'tools.computerUse.driverPath').trim()
-  if (computerUseDriverPath && !isAbsolute(computerUseDriverPath)) {
-    throw new EkkoConfigError('must be an absolute executable path or empty for automatic discovery', 'tools.computerUse.driverPath')
-  }
   const mcp = record(source.mcp, 'mcp', true)
   const delegation = record(source.delegation, 'delegation', true)
   const compression = record(source.compression, 'compression', true)
@@ -637,7 +633,6 @@ export function normalizeEkkoConfig(value: unknown): EkkoConfig {
       ...tools,
       computerUse: {
         enabled: booleanValue(computerUse.enabled, true, 'tools.computerUse.enabled'),
-        driverPath: computerUseDriverPath,
         timeoutMs: integer(computerUse.timeoutMs, 30_000, 'tools.computerUse.timeoutMs', 1),
       },
       enabled: booleanValue(tools.enabled, DEFAULT_EKKO_CONFIG.tools.enabled, 'tools.enabled'),

@@ -3,36 +3,40 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const launches = vi.hoisted(() => [] as any[])
-vi.mock('@modelcontextprotocol/client/stdio', async importOriginal => {
-  const actual = await importOriginal<typeof import('@modelcontextprotocol/client/stdio')>()
-  return { ...actual, StdioClientTransport: class extends actual.StdioClientTransport {
-    constructor(options: any) {
-      launches.push(options)
-      super({ ...options, command: process.execPath, args: [join(process.cwd(), 'tests/fixtures/fake-cua-driver.cjs')] })
-    }
-  } }
-})
+const loadSdk = vi.hoisted(() => vi.fn())
+vi.mock('../../packages/ekko-agent/src/tools/computer-use/sdk', () => ({ loadComputerUseSdk: loadSdk }))
 
 import { ComputerUseTool } from '../../packages/ekko-agent/src/tools/computer-use'
-import { computerUseEnvironment } from '../../packages/ekko-agent/src/tools/computer-use/driver'
+import { FakeCuaSdkDriver } from '../fixtures/fake-cua-sdk'
 import { createDefaultToolRegistry, EkkoToolApprovalService, setupEkkoAgent, type AgentToolContext } from '../../packages/ekko-agent/src'
 
 let directory: string
 const scopes: AbortController[] = []
 const tools: ComputerUseTool[] = []
-function fixture() {
+const drivers: FakeCuaSdkDriver[] = []
+const createConfigured = vi.fn((_options: unknown) => {
+  const driver = new FakeCuaSdkDriver(drivers.length + 1)
+  drivers.push(driver)
+  return driver
+})
+const sdk = { CuaDriver: { createConfigured }, SessionPermissionMode: { Standard: 0 } }
+function fixture(timeoutMs = 3000) {
   const scope = new AbortController()
   scopes.push(scope)
   const context: AgentToolContext = { computerUseSessionSignal: scope.signal, workspaceRoot: directory, runId: `run-${scopes.length}`, sessionId: `session-${scopes.length}` }
-  const tool = new ComputerUseTool({ driverPath: process.execPath, timeoutMs: 3000 })
+  const tool = new ComputerUseTool({ timeoutMs })
   tools.push(tool)
   const describeTool = (name: string) => tool.execute({ action: 'describe', tool: name }, context)
   const call = (name: string, args = {}) => tool.execute({ action: 'call', tool: name, arguments: args }, context)
   return { tool, context, scope, describeTool, call }
 }
 
-beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), 'ekko-cua-test-')); launches.length = 0 })
+beforeEach(async () => {
+  directory = await mkdtemp(join(tmpdir(), 'ekko-cua-test-'))
+  drivers.length = 0
+  createConfigured.mockClear()
+  loadSdk.mockReset().mockResolvedValue(sdk)
+})
 afterEach(async () => {
   await Promise.all(tools.splice(0).map((tool, i) => tool.execute({ action: 'close' }, { computerUseSessionSignal: scopes[i].signal })))
   for (const scope of scopes.splice(0)) scope.abort()
@@ -41,9 +45,9 @@ afterEach(async () => {
 })
 
 describe('Ekko Computer Use', () => {
-  it('discovers paginated operations lazily and keeps one direct driver per run', async () => {
+  it('discovers native SDK operations lazily and keeps one embedded runtime per run', async () => {
     const { tool, context, describeTool, call } = fixture()
-    expect(launches).toHaveLength(0)
+    expect(drivers).toHaveLength(0)
     const list = await tool.execute({ action: 'list' }, context)
     expect(list.ok).toBe(true)
     expect(list.content).toContain('type_text')
@@ -52,9 +56,9 @@ describe('Ekko Computer Use', () => {
     await describeTool('list_apps')
     const first = await call('list_apps')
     const second = await call('list_apps')
-    expect((first.data as any).result.pid).toBe((second.data as any).result.pid)
-    expect(launches).toHaveLength(1)
-    expect(launches[0].args).toEqual(['mcp', '--direct', '--no-overlay'])
+    expect((first.data as any).result.driverId).toBe((second.data as any).result.driverId)
+    expect(drivers).toHaveLength(1)
+    expect(loadSdk).toHaveBeenCalledTimes(1)
   })
 
   it('keeps snapshot ownership stable without a run ID and renews it after explicit close', async () => {
@@ -70,7 +74,8 @@ describe('Ekko Computer Use', () => {
     await describeTool('get_window_state')
     const next = (await call('get_window_state', { pid: 1, window_id: 2 })).data as any
     expect(next.result.args.session).not.toBe(first.result.args.session)
-    expect(launches).toHaveLength(2)
+    expect(drivers).toHaveLength(2)
+    expect(drivers[0].destroyed).toBe(true)
   })
 
   it('returns a real image part, a shareable local file and snapshot-bound handles without logging image data', async () => {
@@ -122,45 +127,78 @@ describe('Ekko Computer Use', () => {
     expect((await second.call('list_windows')).ok).toBe(true)
   })
 
-  it('closes the subprocess on cancellation and refuses reusing its scope', async () => {
+  it('cancels native work, releases its handle and refuses reusing the scope', async () => {
     const { describeTool, call, scope } = fixture()
-    await describeTool('list_apps')
-    const pid = (await call('list_apps')).data as any
+    await describeTool('type_text')
+    const pending = call('type_text', { text: '__hang__', pid: 1, window_id: 2 })
+    await vi.waitFor(() => expect(drivers[0].calls).toHaveLength(1))
     scope.abort()
-    await vi.waitFor(() => expect(() => process.kill(pid.result.pid, 0)).toThrow())
-    expect((await call('list_apps')).ok).toBe(false)
+    expect((await pending).ok).toBe(false)
+    expect(drivers[0].calls[0].signal.aborted).toBe(true)
+    expect(drivers[0]).toMatchObject({ closed: true, destroyed: true })
+    expect((await call('type_text')).ok).toBe(false)
   })
 
   it('never retries an input that times out', async () => {
-    const { context, scope } = fixture()
-    const tool = new ComputerUseTool({ driverPath: process.execPath, timeoutMs: 1000 })
+    const { tool, context } = fixture(20)
     expect((await tool.execute({ action: 'describe', tool: 'type_text' }, context)).ok).toBe(true)
     const failed = await tool.execute({ action: 'call', tool: 'type_text', arguments: { text: '__hang__', pid: 1, window_id: 2 } }, context)
     expect(failed.error).toContain('outcome is unknown')
     const repeat = await tool.execute({ action: 'call', tool: 'type_text', arguments: { text: '__hang__', pid: 1, window_id: 2 } }, context)
     expect(repeat.error).toContain('connection has ended')
-    expect(launches).toHaveLength(1)
-    scope.abort()
+    expect(drivers).toHaveLength(1)
+    expect(drivers[0].calls).toHaveLength(1)
+    expect(drivers[0].calls[0].signal.aborted).toBe(true)
+    expect(drivers[0]).toMatchObject({ closed: true, destroyed: true })
   })
 
-  it('requires a run scope, blocks delegated control and reports missing drivers without launching', async () => {
+  it('requires a run scope and blocks delegated control without loading native code', async () => {
     const { tool, context } = fixture()
     expect((await tool.execute({ action: 'list' })).error).toContain('run-scoped')
     expect((await tool.execute({ action: 'list' }, { ...context, delegationDepth: 1 })).error).toContain('main agent')
-    const absent = new ComputerUseTool({ driverPath: join(directory, 'absent') })
-    expect((await absent.execute({ action: 'status' })).ok).toBe(false)
-    expect(launches).toHaveLength(0)
+    expect(loadSdk).not.toHaveBeenCalled()
   })
 
-  it('strips credentials and permission bypasses from the driver environment', () => {
-    vi.stubEnv('OPENAI_API_KEY', 'not-for-cua')
+  it('sets a standard authorization ceiling without inheriting daemon or bypass settings', async () => {
     vi.stubEnv('CUA_DRIVER_PERMISSION_MODE', 'unrestricted')
-    vi.stubEnv('CUA_DRIVER_CAPABILITY_MANIFEST_APPROVED', '1')
     vi.stubEnv('CUA_DRIVER_RS_SOCKET', '/other/daemon')
-    expect(computerUseEnvironment()).toMatchObject({ CUA_DRIVER_PERMISSION_MODE: 'standard', CUA_DRIVER_RS_TELEMETRY_ENABLED: '0', ELECTRON_RUN_AS_NODE: '1' })
-    expect(computerUseEnvironment()).not.toHaveProperty('OPENAI_API_KEY')
-    expect(computerUseEnvironment()).not.toHaveProperty('CUA_DRIVER_CAPABILITY_MANIFEST_APPROVED')
-    expect(computerUseEnvironment()).not.toHaveProperty('CUA_DRIVER_RS_SOCKET')
+    const { tool } = fixture()
+    const status = await tool.execute({ action: 'status' })
+    expect(status).toMatchObject({ ok: true, data: { mode: 'embedded', backend: '@trycua/cua-driver' } })
+    expect(createConfigured).toHaveBeenCalledWith({
+      claudeCodeCompatibility: false,
+      authorization: { allowedModes: [0], compatibilityMode: 0, unrestrictedAcknowledged: false, maxSessionTtlSeconds: 86_400n, maxIdleTtlSeconds: 300n },
+    })
+    expect(drivers[0]).toMatchObject({ closed: true, destroyed: true })
+  })
+
+  it('reports unavailable SDK libraries without falling back to a system executable', async () => {
+    loadSdk.mockRejectedValue(new Error('CUA_SDK_UNAVAILABLE: missing native library'))
+    const { tool } = fixture()
+    expect((await tool.execute({ action: 'status' })).error).toContain('CUA_SDK_UNAVAILABLE')
+    expect(createConfigured).not.toHaveBeenCalled()
+  })
+
+  it('does not create a native runtime if the scope closes during SDK loading', async () => {
+    let finish!: (value: typeof sdk) => void
+    loadSdk.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const { tool, context, scope } = fixture()
+    const pending = tool.execute({ action: 'list' }, context)
+    scope.abort()
+    finish(sdk)
+    expect((await pending).ok).toBe(false)
+    expect(createConfigured).not.toHaveBeenCalled()
+  })
+
+  it('serializes native calls and cancels queued input before it is dispatched', async () => {
+    const { call, describeTool, scope } = fixture()
+    await describeTool('type_text')
+    const first = call('type_text', { text: '__hang__', pid: 1, window_id: 2 })
+    const second = call('type_text', { text: 'must not execute', pid: 1, window_id: 2 })
+    await vi.waitFor(() => expect(drivers[0].calls).toHaveLength(1))
+    scope.abort()
+    expect((await Promise.all([first, second])).every(result => !result.ok)).toBe(true)
+    expect(drivers[0].calls).toHaveLength(1)
   })
 
   it('uses existing approvals and keeps foreground grants separate', async () => {
@@ -168,8 +206,8 @@ describe('Ekko Computer Use', () => {
     const registry = createDefaultToolRegistry({ authorizer: service.authorize })
     const call = { action: 'call', tool: 'click', arguments: { pid: 1, window_id: 2, element_token: 's00000001:1' } }
     expect(await registry.execute('computer_use', call, { sessionId: 'test' })).toMatchObject({ ok: false, error: expect.stringContaining('requires approval') })
-    expect(launches).toHaveLength(0)
-    const requestToolApproval = vi.fn(async () => 'session' as const)
+    expect(drivers).toHaveLength(0)
+    const requestToolApproval = vi.fn(async (_request: unknown) => 'session' as const)
     const context = { sessionId: 'test', requestToolApproval }
     await service.authorize('computer_use', call, context)
     await service.authorize('computer_use', call, context)
@@ -182,12 +220,12 @@ describe('Ekko Computer Use', () => {
   it('persists config, merges partial updates, and removes the tool when disabled', () => {
     const setup = setupEkkoAgent({ baseDirectory: directory })
     try {
-      expect(setup.config.read().tools.computerUse).toEqual({ enabled: true, driverPath: '', timeoutMs: 30_000 })
-      setup.config.update({ tools: { computerUse: { driverPath: process.execPath } } })
+      expect(setup.config.read().tools.computerUse).toEqual({ enabled: true, timeoutMs: 30_000 })
+      setup.config.update({ tools: { computerUse: { timeoutMs: 20_000 } } })
       setup.config.update({ tools: { computerUse: { enabled: false } } })
-      expect(setup.config.read().tools.computerUse).toEqual({ enabled: false, driverPath: process.execPath, timeoutMs: 30_000 })
+      expect(setup.config.read().tools.computerUse).toEqual({ enabled: false, timeoutMs: 20_000 })
       expect(createDefaultToolRegistry({ computerUse: { enabled: false } }).get('computer_use')).toBeUndefined()
-      expect(() => setup.config.update({ tools: { computerUse: { driverPath: 'relative/path' } } })).toThrow('absolute')
+      expect(loadSdk).not.toHaveBeenCalled()
     } finally { setup.close() }
   })
 })

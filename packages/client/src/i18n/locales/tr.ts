@@ -32,8 +32,6 @@ export default {
   ekkoConfig: {
     computerUseEnabled: 'Bilgisayar kullanımı',
     computerUseHint: 'Ekko çalıştığı bilgisayardaki uygulamaları görebilir ve yönetebilir. Giriş işlemleri araç onayı ayarlarınıza uyar.',
-    computerUseDriverPath: 'Cua Driver çalıştırılabilir dosyası',
-    computerUseDriverHint: 'Yüklü Cua Driver sürücüsünü otomatik bulmak için boş bırakın veya çalıştırılabilir dosyanın mutlak yolunu girin.',
     computerUseTimeoutMs: 'Masaüstü işlemi zaman aşımı (ms)',
   },
   changelog: {

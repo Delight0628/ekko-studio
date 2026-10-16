@@ -177,8 +177,6 @@ export default {
     "permanentAllow": "永久允许的工具",
     "computerUseEnabled": "电脑操作",
     "computerUseHint": "允许 Ekko 查看和操作运行它的这台电脑上的应用。输入操作遵循工具审批设置。",
-    "computerUseDriverPath": "Cua Driver 可执行文件",
-    "computerUseDriverHint": "留空自动查找已安装的 Cua Driver，也可填写可执行文件的绝对路径。",
     "computerUseTimeoutMs": "桌面操作超时（毫秒）",
     "codeExecEnabled": "代码执行",
     "codeExecLanguages": "代码执行语言",

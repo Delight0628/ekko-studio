@@ -448,8 +448,7 @@ Studio 的 `ekkoSkillsEnabled` 映射到此字段；共用参数为 `skillsCandi
 | `tools.enabled` | `boolean` | 全部工具源总开关。 |
 | `tools.executionTimeoutMs` | `number` | 普通工具超时。 |
 | `tools.computerUse.enabled` | `boolean` | 桌面操作工具开关；默认开启，调用时才启动驱动。 |
-| `tools.computerUse.driverPath` | `string` | Cua Driver 可执行文件绝对路径；空串自动发现。 |
-| `tools.computerUse.timeoutMs` | `number` | 驱动连接及每次操作超时，默认 30000 毫秒。详见 [Computer Use](computer-use.md)。 |
+| `tools.computerUse.timeoutMs` | `number` | 内置 Cua SDK 每次操作超时，默认 30000 毫秒；SDK 随 Agent 安装，无需外部驱动路径。详见 [Computer Use](computer-use.md)。 |
 | `tools.approvals.enabled` | `boolean` | 危险工具审批开关。 |
 | `tools.approvals.timeoutMs` | `number` | 审批等待时间。 |
 | `tools.approvals.permanentAllow` | `string[]` | 持久允许键。 |
@@ -929,7 +928,6 @@ export interface EkkoCodeExecConfig {
 
 export interface EkkoComputerUseConfig {
   enabled: boolean
-  driverPath: string
   timeoutMs: number
 }
 
@@ -1016,7 +1014,7 @@ export interface EkkoConfig {
 
 export type EkkoConfigPatch = { schemaVersion?: number runtime?: Partial<EkkoRuntimeConfig> model?: Partial<Omit<EkkoModelConfig, 'providerCatalog' | 'disabledProviderPresets' | 'providers' | 'authorizations'>> & { providerCatalog?: Record<string, EkkoModelProviderPreset> disabledProviderPresets?: string[] providers?: Record<string, EkkoModelProviderSettings> authorizations?: Record<string, EkkoModelAuthorizationSettings> } tools?: Partial<Omit<EkkoToolsConfig, 'approvals' | 'codeExec' | 'computerUse'>> & { approvals?: Partial<EkkoToolApprovalConfig> codeExec?: Partial<EkkoCodeExecConfig> computerUse?: Partial<EkkoComputerUseConfig> } mcp?: Partial<Omit<EkkoMcpConfig, 'profiles'>> & { profiles?: Record<string, EkkoMcpProfileConfig> } delegation?: Partial<EkkoDelegationConfig> compression?: Partial<EkkoCompressionConfig> memory?: Partial<EkkoMemoryConfig> jev?: Partial<EkkoJevConfig> skills?: Partial<Omit<EkkoSkillsConfig, 'profiles'>> & { profiles?: Record<string, Partial<EkkoSkillsProfileConfig>> } logging?: Partial<EkkoLoggingConfig> prompt?: Partial<EkkoPromptConfig> }
 
-export const DEFAULT_EKKO_CONFIG: EkkoConfig = { schemaVersion: EKKO_CONFIG_SCHEMA_VERSION, runtime: { maxSteps: DEFAULT_AGENT_MAX_STEPS, maxModelRetries: DEFAULT_AGENT_MODEL_MAX_RETRIES, toolFailureRecoveryThreshold: DEFAULT_AGENT_TOOL_FAILURE_RECOVERY_THRESHOLD, maxConsecutiveToolFailures: DEFAULT_AGENT_MAX_CONSECUTIVE_TOOL_FAILURES, }, model: { defaultProvider: '', defaultModel: '', requestTimeoutMs: DEFAULT_MODEL_REQUEST_TIMEOUT_MS, reasoningEffort: 'medium', reasoningSummary: 'auto', authorizationRefreshLeewayMs: DEFAULT_MODEL_AUTHORIZATION_REFRESH_LEEWAY_MS, providerCatalog: structuredClone(BUILTIN_MODEL_PROVIDER_PRESETS), disabledProviderPresets: [], providers: {}, authorizations: {}, }, tools: { enabled: true, executionTimeoutMs: DEFAULT_TOOL_EXECUTION_TIMEOUT_MS, computerUse: { enabled: true, driverPath: '', timeoutMs: 30_000 }, approvals: { enabled: true, timeoutMs: DEFAULT_TOOL_APPROVAL_TIMEOUT_MS, permanentAllow: [], }, codeExec: { enabled: true, languages: [...DEFAULT_CODE_EXEC_LANGUAGES], timeoutMs: DEFAULT_TOOL_EXECUTION_TIMEOUT_MS, maxToolCalls: DEFAULT_CODE_EXEC_MAX_TOOL_CALLS, maxOutputBytes: DEFAULT_CODE_EXEC_MAX_OUTPUT_BYTES, maxStderrBytes: DEFAULT_CODE_EXEC_MAX_STDERR_BYTES, maxSourceBytes: DEFAULT_CODE_EXEC_MAX_SOURCE_BYTES, }, }, mcp: { enabled: true, profiles: {}, }, delegation: { backgroundEnabled: true, subtaskMaxSteps: DEFAULT_AGENT_SUBTASK_MAX_STEPS, }, compression: { enabled: true, threshold: DEFAULT_COMPRESSION_THRESHOLD, targetRatio: DEFAULT_COMPRESSION_TARGET_RATIO, protectLastN: DEFAULT_COMPRESSION_PROTECT_LAST_N, protectFirstN: DEFAULT_COMPRESSION_PROTECT_FIRST_N, }, memory: { enabled: true, recentMessageLimit: DEFAULT_MEMORY_RECENT_MESSAGE_LIMIT, automaticRecallTokenBudget: DEFAULT_AUTOMATIC_MEMORY_TOKEN_BUDGET, searchResultLimit: DEFAULT_MEMORY_SEARCH_RESULT_LIMIT, }, skills: { enabled: true, reviewEveryToolCalls: DEFAULT_SKILL_REVIEW_TOOL_CALL_INTERVAL, profiles: {}, }, jev: { ...DEFAULT_EKKO_JEV_CONFIG }, logging: { maxBytes: DEFAULT_EKKO_LOG_MAX_BYTES, }, prompt: { instructions: [], }, }
+export const DEFAULT_EKKO_CONFIG: EkkoConfig = { schemaVersion: EKKO_CONFIG_SCHEMA_VERSION, runtime: { maxSteps: DEFAULT_AGENT_MAX_STEPS, maxModelRetries: DEFAULT_AGENT_MODEL_MAX_RETRIES, toolFailureRecoveryThreshold: DEFAULT_AGENT_TOOL_FAILURE_RECOVERY_THRESHOLD, maxConsecutiveToolFailures: DEFAULT_AGENT_MAX_CONSECUTIVE_TOOL_FAILURES, }, model: { defaultProvider: '', defaultModel: '', requestTimeoutMs: DEFAULT_MODEL_REQUEST_TIMEOUT_MS, reasoningEffort: 'medium', reasoningSummary: 'auto', authorizationRefreshLeewayMs: DEFAULT_MODEL_AUTHORIZATION_REFRESH_LEEWAY_MS, providerCatalog: structuredClone(BUILTIN_MODEL_PROVIDER_PRESETS), disabledProviderPresets: [], providers: {}, authorizations: {}, }, tools: { enabled: true, executionTimeoutMs: DEFAULT_TOOL_EXECUTION_TIMEOUT_MS, computerUse: { enabled: true, timeoutMs: 30_000 }, approvals: { enabled: true, timeoutMs: DEFAULT_TOOL_APPROVAL_TIMEOUT_MS, permanentAllow: [], }, codeExec: { enabled: true, languages: [...DEFAULT_CODE_EXEC_LANGUAGES], timeoutMs: DEFAULT_TOOL_EXECUTION_TIMEOUT_MS, maxToolCalls: DEFAULT_CODE_EXEC_MAX_TOOL_CALLS, maxOutputBytes: DEFAULT_CODE_EXEC_MAX_OUTPUT_BYTES, maxStderrBytes: DEFAULT_CODE_EXEC_MAX_STDERR_BYTES, maxSourceBytes: DEFAULT_CODE_EXEC_MAX_SOURCE_BYTES, }, }, mcp: { enabled: true, profiles: {}, }, delegation: { backgroundEnabled: true, subtaskMaxSteps: DEFAULT_AGENT_SUBTASK_MAX_STEPS, }, compression: { enabled: true, threshold: DEFAULT_COMPRESSION_THRESHOLD, targetRatio: DEFAULT_COMPRESSION_TARGET_RATIO, protectLastN: DEFAULT_COMPRESSION_PROTECT_LAST_N, protectFirstN: DEFAULT_COMPRESSION_PROTECT_FIRST_N, }, memory: { enabled: true, recentMessageLimit: DEFAULT_MEMORY_RECENT_MESSAGE_LIMIT, automaticRecallTokenBudget: DEFAULT_AUTOMATIC_MEMORY_TOKEN_BUDGET, searchResultLimit: DEFAULT_MEMORY_SEARCH_RESULT_LIMIT, }, skills: { enabled: true, reviewEveryToolCalls: DEFAULT_SKILL_REVIEW_TOOL_CALL_INTERVAL, profiles: {}, }, jev: { ...DEFAULT_EKKO_JEV_CONFIG }, logging: { maxBytes: DEFAULT_EKKO_LOG_MAX_BYTES, }, prompt: { instructions: [], }, }
 
 export function serializeDefaultEkkoConfig(): string
 ```
@@ -3302,14 +3300,10 @@ export class CodeExecTool implements AgentTool<CodeExecInput> {
 ### `src/tools/computer-use/driver.ts`
 
 ```ts
-export function resolveComputerUseDriver(configuredPath = ''): string
-
-export function computerUseEnvironment(): Record<string, string>
-
 export class ComputerUseDriverSession {
   readonly id = `ekko-${randomUUID()}`
   readonly described = new Set<string>()
-  constructor(readonly command: string, private readonly timeoutMs: number)
+  constructor(private readonly timeoutMs: number)
   async list(signal?: AbortSignal): Promise<any[]>
   async call(name: string, args: Record<string, unknown>, signal?: AbortSignal)
   async close(): Promise<void>
@@ -3320,7 +3314,6 @@ export class ComputerUseDriverSession {
 ```ts
 export interface ComputerUseToolOptions {
   enabled?: boolean
-  driverPath?: string
   timeoutMs?: number
 }
 
@@ -3341,6 +3334,11 @@ export const COMPUTER_USE_INPUT_TOOLS = new Set([ 'click', 'double_click', 'righ
 export function computerUseApproval(input: Record<string, unknown>)
 
 export function record(value: unknown): Record<string, any>
+```
+### `src/tools/computer-use/sdk.ts`
+
+```ts
+export async function loadComputerUseSdk(): Promise<CuaSdk>
 ```
 ### `src/tools/delegation.ts`
 

@@ -177,8 +177,6 @@ export default {
     "permanentAllow": "Outils toujours autorisés",
     "computerUseEnabled": "Contrôle de l’ordinateur",
     "computerUseHint": "Autoriser Ekko à observer et utiliser les applications de cet ordinateur. Les saisies suivent vos autorisations d’outils.",
-    "computerUseDriverPath": "Exécutable Cua Driver",
-    "computerUseDriverHint": "Laisser vide pour détecter Cua Driver, ou saisir le chemin absolu de son exécutable.",
     "computerUseTimeoutMs": "Délai des opérations de bureau (ms)",
     "codeExecEnabled": "Exécution de code",
     "codeExecLanguages": "Langages d’exécution",

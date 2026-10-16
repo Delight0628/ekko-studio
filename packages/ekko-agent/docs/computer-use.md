@@ -4,28 +4,41 @@ Ekko includes a `computer_use` tool for native desktop applications on macOS,
 Windows and Linux. It controls the machine running Ekko; connecting from a phone
 or a remote browser does not give it access to that client's desktop.
 
-In Studio, open **Ekko → Settings → Tools** to enable Computer Use, set an
-optional absolute Cua Driver executable path, and adjust the operation timeout.
-The tool is enabled by default and starts the driver only when called. It needs
-an installed [Cua Driver](https://cua.ai/docs/cua-driver) with `mcp --direct`
-support; 0.26.1 is the tested baseline. No Hermes installation is required.
-Ekko never downloads a driver or changes OS grants as a side effect of a model call.
+The agent declares `@trycua/cua-driver` 0.35.4 as a runtime dependency. npm
+installs the SDK and its matching platform native library together; no separate
+`cua-driver` executable, CuaDriver.app, daemon or Hermes installation is required.
+The library is loaded lazily, and each run owns a same-process configured SDK
+runtime. Ekko does not search PATH, connect to an installed daemon or install
+software during a model call. The configured constructor limits the native
+runtime to standard permission mode, independently of Cua environment overrides.
 
-Discovery checks `tools.computerUse.driverPath`, then `EKKO_CUA_DRIVER_PATH`,
-then PATH and conventional application locations. Driver installations managed
-privately by Hermes are not searched. Each agent run starts the selected binary
-as `cua-driver mcp --direct --no-overlay`, owning its native runtime instead of
-connecting to a potentially incompatible shared daemon. On macOS, Accessibility
-and Screen Recording permissions belong to the host launching Ekko (Studio or
-the terminal); CuaDriver.app's separate grants are not sufficient in this mode.
-Linux needs an active graphical session; Windows needs an interactive desktop.
+In Studio, **Ekko → Settings → Tools** edits the agent's own
+`tools.computerUse` config: enable/disable the tool and adjust its operation
+timeout. The UI stores no separate desktop configuration. Computer Use is
+enabled by default; enabling it alone does not load the native library.
+
+Source installations must keep npm optional dependencies enabled because Cua
+uses platform-selected native packages. `npm ci --ignore-scripts` still installs
+these prebuilt libraries; no postinstall compiler or runtime download is needed.
+If optional dependencies were omitted, reinstall with `npm install --include=optional`.
+Studio's distribution manifest also declares the SDK because its server bundles
+the agent's JavaScript while shipping native dependencies separately. The existing
+desktop packaging copies these production dependencies outside ASAR.
+
+OS grants are still required. On macOS, Accessibility and Screen Recording
+permissions belong to the host running Ekko (Studio or the terminal), not to a
+separate driver app. The adapter reads permission status without prompting or
+granting access. Windows needs an interactive desktop. Linux needs a graphical
+session and the native library's system dependencies, including X11/AT-SPI where
+applicable; the SDK's Linux builds target glibc, not musl. macOS and Windows
+packages support x64/arm64, as do the published Linux native packages. Native
+acceptance for this integration has been performed on macOS only.
 
 ```json
 {
   "tools": {
     "computerUse": {
       "enabled": true,
-      "driverPath": "",
       "timeoutMs": 30000
     }
   }
@@ -34,11 +47,11 @@ Linux needs an active graphical session; Windows needs an interactive desktop.
 
 ## Tool workflow
 
-1. `computer_use({action: "status"})` checks the driver connection and reads
+1. `computer_use({action: "status"})` initializes the bundled native SDK and reads
    permission status without raising system dialogs. Connected is not proof of
    successful capture or input.
 2. `computer_use({action: "list"})` lists supported desktop operations. The list
-   comes from the installed driver's MCP schema and an explicit Ekko allowlist.
+   comes from the SDK's canonical tool schema and an explicit Ekko allowlist.
 3. `computer_use({action: "describe", tool: "list_windows"})` returns the exact
    argument schema. Describe each operation before calling it.
 4. `computer_use({action: "call", tool: "list_windows", arguments: {}})` discovers
@@ -54,7 +67,7 @@ The surface covers application/window discovery, window/desktop observations,
 accessibility trees, screenshots and zoom, click/double/right/middle click
 (middle via `click.button`), typing, keys/hotkeys, scrolling, dragging, values,
 native menus, app launch, foreground activation, window geometry, cursor
-movement and outcome verification, when advertised by the installed driver.
+movement and outcome verification, when advertised by the bundled SDK.
 Driver configuration, grants, browser-profile attachment, installation, shell
 execution, process termination and recording are not exposed through this tool.
 Studio browser requests continue to use `ekko_studio_browser_toolset`.
@@ -73,11 +86,13 @@ handler refuses inputs when approvals are enabled. Disabling Ekko approvals
 does not change Cua's standard permission mode or OS permissions.
 
 The runtime provides a separate `computerUseSessionSignal` for each run and
-aborts it on completion, failure or cancellation. One run at a time may own
+aborts it on completion, failure or cancellation. Cancellation and operation
+timeouts reach the SDK's native Rust future through `AbortSignal`; the adapter
+then shuts down the runtime and releases its binding handle. One run at a time may own
 the desktop in an Ekko process. Delegated agents hand desktop work to their
 parent. This lease does not coordinate separate Studio processes or unrelated
 automation programs. `action: "close"` explicitly releases the current run's
-connection; it must rediscover schemas and capture fresh state before resuming.
+runtime; it must rediscover schemas and capture fresh state before resuming.
 
 Direct tool callers must supply their own `computerUseSessionSignal` and abort
 it when done. A standalone `status` probe manages its own connection.
@@ -89,8 +104,12 @@ npx vitest run tests/ekko-agent/computer-use.test.ts tests/ekko-agent/runtime.te
 npx playwright test tests/e2e/ekko-computer-use-settings.spec.ts
 ```
 
-The MCP fixture exercises real subprocess framing, pagination, snapshot expiry,
-image delivery, approval denial, controller contention, cancellation and timeout
-handling. It does not prove native UI behavior on every platform. Native desktop
-acceptance requires a graphical session with the host's OS grants and should
-use a disposable application window.
+The SDK fixture exercises snapshot expiry, image delivery, approval denial,
+controller contention, serialization, cancellation, timeout handling and late
+initialization cleanup. It does not prove native UI behavior on every platform.
+Native desktop acceptance requires a graphical session with the host's OS grants
+and should use a disposable application window. Verify the compiled agent from
+an unrelated working directory with an empty PATH and an invalid
+`CUA_DRIVER_RS_SOCKET` to detect accidental dependence on a preinstalled CLI or
+daemon. Capture the target window, send background input, then independently
+read the fixture's actual value to verify delivery.

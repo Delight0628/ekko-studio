@@ -122,7 +122,6 @@ export interface EkkoCodeExecConfig {
 
 export interface EkkoComputerUseConfig {
   enabled: boolean
-  driverPath: string
   timeoutMs: number
 }
 
@@ -270,7 +269,7 @@ export const DEFAULT_EKKO_CONFIG: EkkoConfig = {
   tools: {
     enabled: true,
     executionTimeoutMs: DEFAULT_TOOL_EXECUTION_TIMEOUT_MS,
-    computerUse: { enabled: true, driverPath: '', timeoutMs: 30_000 },
+    computerUse: { enabled: true, timeoutMs: 30_000 },
     approvals: {
       enabled: true,
       timeoutMs: DEFAULT_TOOL_APPROVAL_TIMEOUT_MS,

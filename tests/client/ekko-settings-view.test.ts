@@ -83,7 +83,7 @@ const config = {
   tools: {
     enabled: true,
     executionTimeoutMs: 120_000,
-    computerUse: { enabled: true, driverPath: '', timeoutMs: 30_000 },
+    computerUse: { enabled: true, timeoutMs: 30_000 },
     approvals: { enabled: true, timeoutMs: 30_000, permanentAllow: [] },
     codeExec: {
       enabled: true,
@@ -165,11 +165,11 @@ describe('Ekko settings auto-save', () => {
     expect(saveEkkoSettingsMock.mock.calls[0][0].delegation.backgroundEnabled).toBe(true)
   })
 
-  it('saves the Computer Use switch while preserving driver settings', async () => {
+  it('saves the Computer Use switch while preserving the timeout setting', async () => {
     wrapper = mount(SettingsView)
     await flushPromises()
     await wrapper.get('[data-testid="computer-use-enabled"]').trigger('click')
     await flushPromises()
-    expect(saveEkkoSettingsMock.mock.calls[0][0].tools.computerUse).toEqual({ enabled: false, driverPath: '', timeoutMs: 30_000 })
+    expect(saveEkkoSettingsMock.mock.calls[0][0].tools.computerUse).toEqual({ enabled: false, timeoutMs: 30_000 })
   })
 })
