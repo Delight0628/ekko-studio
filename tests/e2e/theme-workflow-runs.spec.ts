@@ -53,6 +53,9 @@ for (const brightness of ['light', 'dark']) {
       await expect(item).toHaveCSS('border-top-color', 'rgba(102, 136, 170, 0.25)')
       await expect(item).toHaveCSS('box-shadow', 'none')
       await expect(item.locator('.workflow-run-status-dot')).toHaveCSS('background-color', 'rgb(22, 163, 74)')
+      // Focus and scrollIntoView must not scroll the viewport around the page track.
+      await panel.evaluate(element => { element.scrollLeft = 10 })
+      expect(await panel.evaluate(element => element.scrollLeft)).toBe(0)
       await item.hover()
       await expect(item).toHaveCSS('border-top-color', 'rgba(187, 119, 85, 0.45)')
       await expect(item).toHaveCSS('background-image', /linear-gradient.*0\.06/)

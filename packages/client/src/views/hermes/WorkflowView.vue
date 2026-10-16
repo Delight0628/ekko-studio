@@ -4794,7 +4794,8 @@ html:is(.theme-card-bg, .theme-has-custom-background) .workflow-view {
   min-height: 0;
   border-inline-start: var(--border-width, 1px) solid $border-color;
   background: var(--workflow-run-panel-bg, $bg-card);
-  overflow: hidden;
+  // Keep focus/scrollIntoView from adding scrollLeft to the page track's transform.
+  overflow: clip;
   overscroll-behavior-x: contain;
   touch-action: pan-y;
 }

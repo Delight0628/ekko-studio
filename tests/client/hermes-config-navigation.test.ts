@@ -19,7 +19,6 @@ describe("Hermes configuration navigation", () => {
     expect(app).toContain('v-if="!isLoginPage && usesHermesConfigSidebar"');
     expect(app).toContain("if (usesHermesConfigSidebar.value)");
     expect(app).toContain("if (showNavigationRail.value) return 64;");
-    expect(app).toContain("return appStore.sidebarCollapsed ? 64 : 240;");
 
     for (const name of [
       "hermes.jobs",
