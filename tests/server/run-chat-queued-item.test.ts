@@ -308,10 +308,51 @@ describe('ChatRunSocket queued bridge runs', () => {
     handlers.get('insert_queued_run')?.({ session_id: 'session-1', queue_id: 'q' })
     await vi.waitFor(() => expect(bridgeMock.requestBoundaryInterrupt).toHaveBeenCalledOnce())
     handlers.get('cancel_queued_run')?.({ session_id: 'session-1', queue_id: 'q' })
-    expect(bridgeMock.cancelBoundaryInterrupt).toHaveBeenCalledWith('session-1', 'run-1', 'default')
+    expect(bridgeMock.cancelBoundaryInterrupt).not.toHaveBeenCalled()
     resolveBoundary({ status: 'accepted', phase: 'tool_batch' })
     await vi.waitFor(() => expect(bridgeMock.cancelBoundaryInterrupt).toHaveBeenCalledTimes(2))
     expect((server as any).sessionMap.get('session-1').queueInsertion).toBeUndefined()
+  })
+
+  it.each([false, true])('settles an old cancellation before arming a new insertion (reject=%s)', async rejectCancel => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { handlers, io, socket } = makeServerHarness()
+    const server: any = new ChatRunSocket(io as any)
+    server.onConnection(socket)
+    let boundaryPending = false
+    let settleCancel!: () => void
+    bridgeMock.requestBoundaryInterrupt.mockImplementation(async () => {
+      const status = boundaryPending ? 'already_pending' : 'accepted'
+      boundaryPending = true
+      return { status, phase: 'tool_batch' }
+    })
+    bridgeMock.cancelBoundaryInterrupt.mockImplementationOnce(() => new Promise((resolve, reject) => {
+      settleCancel = () => {
+        boundaryPending = false
+        if (rejectCancel) reject(new Error('cancel response unavailable'))
+        else resolve({ status: 'cancelled' })
+      }
+    }))
+    const state = {
+      messages: [], isWorking: true, events: [], source: 'cli', webhookAgent: 'bridge',
+      profile: 'default', runId: 'run-1',
+      queue: [{ queue_id: 'a', input: 'old', profile: 'default', source: 'cli' }],
+    }
+    server.sessionMap.set('session-1', state)
+    await server.requestQueuedRunInsertion('session-1', 'a')
+    handlers.get('cancel_queued_run')?.({ session_id: 'session-1', queue_id: 'a' })
+    await vi.waitFor(() => expect(bridgeMock.cancelBoundaryInterrupt).toHaveBeenCalledOnce())
+    state.queue.push({ queue_id: 'b', input: 'new', profile: 'default', source: 'cli' })
+    const insertion = server.requestQueuedRunInsertion('session-1', 'b')
+    await Promise.resolve()
+    expect(bridgeMock.requestBoundaryInterrupt).toHaveBeenCalledTimes(1)
+    settleCancel()
+    await insertion
+    expect(bridgeMock.requestBoundaryInterrupt).toHaveBeenCalledTimes(2)
+    expect(boundaryPending).toBe(true)
+    expect(server.sessionMap.get('session-1').queueInsertion).toMatchObject({
+      queueId: 'b', phase: 'waiting_for_tool_batch',
+    })
   })
 
   it('acknowledges a late background completion instead of restarting a stopped session', async () => {

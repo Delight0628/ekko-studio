@@ -422,6 +422,7 @@ export class ChatRunSocket {
   private backgroundBridge = createPrimaryAgentBridge({ timeoutMs: 1000, connectRetryMs: 0 })
   /** sessionId → session state (messages, working status, events, run tracking) */
   private sessionMap = new Map<string, SessionState>()
+  private hermesQueueInsertionOperations = new Map<string, Promise<void>>()
   private readonly taskPlanRuns = new TaskPlanRuns(saveTaskPlan, (sessionId, snapshot) => {
     this.emitExternalEvent(sessionId, 'plan.updated', { event: 'plan.updated', ...snapshot })
   })
@@ -2315,7 +2316,10 @@ export class ChatRunSocket {
     if (!control) return
     state.queueInsertion = undefined
     if (reason === 'queued_message_removed' && control.runtime === 'hermes' && control.runId) {
-      void this.bridge.cancelBoundaryInterrupt(sessionId, control.runId, state.profile)
+      const runId = control.runId
+      const profile = state.profile
+      void this.serializeHermesQueueInsertion(sessionId, () =>
+        this.bridge.cancelBoundaryInterrupt(sessionId, runId, profile))
         .catch((err: unknown) => logger.warn(err, '[chat-run-socket] failed to recall queue boundary for %s', sessionId))
     }
     this.emitQueueInsertionUpdate(sessionId, control, 'cancelled', reason)
@@ -2369,6 +2373,28 @@ export class ChatRunSocket {
   }
 
   private async activateQueueInsertion(sessionId: string, generation: string) {
+    if (this.sessionMap.get(sessionId)?.queueInsertion?.runtime === 'hermes') {
+      // Each bridge request uses a separate connection. Keep recalls and new
+      // requests ordered, including the cleanup of a late acknowledgement.
+      return this.serializeHermesQueueInsertion(sessionId, () => this.activateQueueInsertionNow(sessionId, generation))
+    }
+    return this.activateQueueInsertionNow(sessionId, generation)
+  }
+
+  private serializeHermesQueueInsertion<T>(sessionId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.hermesQueueInsertionOperations.get(sessionId) || Promise.resolve()
+    const result = previous.then(operation)
+    const settled = result.then(() => {}, () => {})
+    this.hermesQueueInsertionOperations.set(sessionId, settled)
+    void settled.then(() => {
+      if (this.hermesQueueInsertionOperations.get(sessionId) === settled) {
+        this.hermesQueueInsertionOperations.delete(sessionId)
+      }
+    })
+    return result
+  }
+
+  private async activateQueueInsertionNow(sessionId: string, generation: string) {
     const state = this.sessionMap.get(sessionId)
     const control = state?.queueInsertion
     if (!state || !control || control.generation !== generation || control.phase !== 'requesting' || !control.runId) return

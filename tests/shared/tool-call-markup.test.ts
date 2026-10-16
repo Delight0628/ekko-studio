@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import MarkdownIt from 'markdown-it'
 import { filterToolCallMarkup, flushToolCallMarkup, stripToolCallMarkup } from '../../packages/shared/tool-call-markup'
 
 const protocol = '<tool_call><invoke name="read_file"><parameter name="path">demo.txt</parameter></invoke></tool_call>'
@@ -17,6 +18,24 @@ function expectAllChunkBoundaries(input: string, expected: string) {
 }
 
 describe('text-channel protocol filtering', () => {
+  it.each([
+    '- ~~~xml\n  <tool_call>example</tool_call>\n  ~~~',
+    '- ```xml\n  <!-- literal ``` -->\n  <tool_call>example</tool_call>\n  ```',
+    '10. ~~~xml\n    <tool_call>example</tool_call>\n    ~~~',
+    '- > ~~~xml\n  > <tool_call>example</tool_call>\n  > ~~~',
+    '> - ```xml\n>   <!-- literal ``` -->\n>   <tool_call>example</tool_call>\n>   ```',
+    '   - ~~~xml\n     <tool_call>example</tool_call>\n        ~~~',
+    '- - ~~~xml\n    <tool_call>example</tool_call>\n    ~~~',
+    '> ```xml\n> <tool_call>example</tool_call>\n> ```',
+  ])('preserves container fences across every stream split: %s', example => {
+    expect(new MarkdownIt().render(example)).toContain('&lt;tool_call&gt;example&lt;/tool_call&gt;')
+    expectAllChunkBoundaries(`${example}\n\n${protocol}\nAnswer`, `${example}\n\n\nAnswer`)
+  })
+
+  it.each(['- ~~~xml\n  literal', '> ```xml\n> literal'])('ends an unclosed fence when leaving its container: %s', example => {
+    expectAllChunkBoundaries(`${example}\n\n${protocol}\nAnswer`, `${example}\n\n\nAnswer`)
+  })
+
   it.each([
     '```inline```',
     '```inline ` literal```',

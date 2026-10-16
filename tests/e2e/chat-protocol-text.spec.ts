@@ -45,6 +45,9 @@ test('chat preserves fenced and indented literals while filtering structural pro
       + '<invoke name = "read_file">hidden-invoke</invoke>\n\n'
       + '```inline```\n<tool_call>hidden-after-inline</tool_call>\n\n'
       + '    <parameter name="path">indented-example</parameter>\n'
+      + '\n- ~~~xml\n  <tool_call>list-tilde-example</tool_call>\n  ~~~\n'
+      + '\n- ```xml\n  <!-- literal ``` -->\n  <tool_call>list-backtick-example</tool_call>\n  ```\n'
+      + '\n<tool_call>hidden-after-list</tool_call>\n'
     state.latest.__trigger('run.started', { event: 'run.started', session_id: sid, run_id: 'literal-test' })
     for (let offset = 0; offset < text.length; offset += 7) {
       state.latest.__trigger('message.delta', {
@@ -58,7 +61,10 @@ test('chat preserves fenced and indented literals while filtering structural pro
   await expect(answer).not.toContainText('hidden-parameter')
   await expect(answer).not.toContainText('hidden-invoke')
   await expect(answer).not.toContainText('hidden-after-inline')
+  await expect(answer).not.toContainText('hidden-after-list')
   await expect(answer.locator('pre').filter({ hasText: 'fenced-example' })).toContainText('<tool_call>fenced-example</tool_call>')
   await expect(answer.locator('pre').filter({ hasText: 'indented-example' })).toContainText('<parameter name="path">indented-example</parameter>')
   await expect(answer.locator('code').filter({ hasText: /^inline$/ })).toBeVisible()
+  await expect(answer.locator('li pre').filter({ hasText: 'list-tilde-example' })).toContainText('<tool_call>list-tilde-example</tool_call>')
+  await expect(answer.locator('li pre').filter({ hasText: 'list-backtick-example' })).toContainText('<tool_call>list-backtick-example</tool_call>')
 })
