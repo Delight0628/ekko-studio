@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { agentMetadata, isNativeCodingAgent, isGlobalOnlyCodingAgent } from '@/utils/agent-catalog'
 import PageSidebar from "@/components/layout/PageSidebar.vue"
+import SidebarResizeHandle from "@/components/layout/SidebarResizeHandle.vue"
 import { usePageSidebarState } from "@/composables/usePageSidebar"
 import { usePageLoadingTask } from '@/composables/usePageLoading'
 import { useCodingAgentModels } from '@/composables/useCodingAgentModels'
@@ -2474,6 +2475,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
       class="session-list"
       :class="{ collapsed: !showSessions, 'session-list--navigation': contentMode !== 'chat' }"
     >
+      <SidebarResizeHandle />
       <div v-if="showSessions" class="page-sidebar-top">
         <PageSidebarNav
           :active="contentMode === 'connections' ? 'connections' : contentMode === 'agents' ? 'agents' : contentMode === 'models' ? 'models' : chatStore.runtimeMode === 'global_agent' ? 'global' : 'chat'"
@@ -3400,6 +3402,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
 }
 
 .session-list {
+  position: relative;
   width: $sidebar-width;
   min-height: 0;
   align-self: stretch;

@@ -512,6 +512,7 @@ export default {
   },
 
   sidebar: {
+    resize: '사이드바 너비 조절',
     desktopUpdatePreparing: "업데이트 준비 중",
     desktopUpdateStopping: "다운로드 중지 중…",
     desktopUpdateReady: "업데이트 준비 완료",

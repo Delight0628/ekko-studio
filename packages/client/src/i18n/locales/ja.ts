@@ -512,6 +512,7 @@ export default {
   },
 
   sidebar: {
+    resize: 'サイドバーの幅を変更',
     desktopUpdatePreparing: "更新を準備中",
     desktopUpdateStopping: "ダウンロードを停止中…",
     desktopUpdateReady: "更新の準備完了",

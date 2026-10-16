@@ -426,6 +426,7 @@ export default {
   },
 
   sidebar: {
+    resize: 'Изменить ширину боковой панели',
     desktopUpdatePreparing: "Подготовка обновления",
     desktopUpdateStopping: "Остановка загрузки…",
     desktopUpdateReady: "Обновление готово",

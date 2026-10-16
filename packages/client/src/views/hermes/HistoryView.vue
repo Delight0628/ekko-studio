@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import PageSidebar from "@/components/layout/PageSidebar.vue"
+import SidebarResizeHandle from "@/components/layout/SidebarResizeHandle.vue"
 import { usePageSidebarState } from "@/composables/usePageSidebar"
 import PageLoading from '@/components/common/PageLoading.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
@@ -856,6 +857,7 @@ function handleBatchDeleteConfirm() {
   <PageLoading :show="pageLoading" initial-only class="history-panel">
     <PageSidebar>
     <aside class="session-list" :class="{ collapsed: !showSessions }">
+      <SidebarResizeHandle />
       <div v-if="showSessions" class="page-sidebar-top">
         <PageSidebarNav active="history">
           <template #actions>
@@ -1110,6 +1112,7 @@ function handleBatchDeleteConfirm() {
 }
 
 .session-list {
+  position: relative;
   width: $sidebar-width;
   min-height: 0;
   align-self: stretch;

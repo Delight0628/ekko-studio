@@ -500,6 +500,7 @@ export default {
   },
 
   sidebar: {
+    resize: '調整側邊欄寬度',
     desktopUpdatePreparing: "正在準備更新",
     desktopUpdateStopping: "正在停止下載…",
     desktopUpdateReady: "更新已就緒",

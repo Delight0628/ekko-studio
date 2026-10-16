@@ -5,6 +5,7 @@ import ScopedModelSelector from '@/components/hermes/models/ScopedModelSelector.
 import type { CodingAgentId } from '@/api/coding-agents'
 import { isNativeCodingAgent, isGlobalOnlyCodingAgent } from '@/utils/agent-catalog'
 import PageSidebar from "@/components/layout/PageSidebar.vue"
+import SidebarResizeHandle from "@/components/layout/SidebarResizeHandle.vue"
 import { usePageSidebarState } from "@/composables/usePageSidebar"
 import PageHeader from '@/components/layout/PageHeader.vue'
 import HeaderSidebarToggle from '@/components/layout/HeaderSidebarToggle.vue'
@@ -2119,6 +2120,7 @@ function handleClarifyKeydown(event: KeyboardEvent) {
         <!-- Room sidebar -->
         <PageSidebar>
         <div v-if="!props.standalone && showSidebar" class="room-sidebar">
+            <SidebarResizeHandle />
             <div class="sidebar-header">
                 <PageSidebarNav
                     active="group"
@@ -3703,6 +3705,7 @@ export default defineComponent({ components: { CreateRoomForm } })
 // ─── Room Sidebar ────────────────────────────────────────
 
 .room-sidebar {
+    position: relative;
     width: $sidebar-width;
     min-height: 0;
     align-self: stretch;

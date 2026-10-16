@@ -512,6 +512,7 @@ export default {
   },
 
   sidebar: {
+    resize: 'Seitenleistenbreite ändern',
     desktopUpdatePreparing: "Update wird vorbereitet",
     desktopUpdateStopping: "Download wird gestoppt…",
     desktopUpdateReady: "Update bereit",

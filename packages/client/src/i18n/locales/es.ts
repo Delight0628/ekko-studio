@@ -512,6 +512,7 @@ export default {
   },
 
   sidebar: {
+    resize: 'Cambiar el ancho de la barra lateral',
     desktopUpdatePreparing: "Preparando actualización",
     desktopUpdateStopping: "Deteniendo descarga…",
     desktopUpdateReady: "Actualización lista",

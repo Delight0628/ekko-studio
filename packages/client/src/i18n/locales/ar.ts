@@ -500,6 +500,7 @@ export default {
   },
 
   sidebar: {
+    resize: 'تغيير عرض الشريط الجانبي',
     desktopUpdatePreparing: "جارٍ تجهيز التحديث",
     desktopUpdateStopping: "جارٍ إيقاف التنزيل…",
     desktopUpdateReady: "التحديث جاهز",

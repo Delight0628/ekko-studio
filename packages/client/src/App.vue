@@ -35,6 +35,7 @@ import { navigationRailKey } from "@/composables/useNavigationRail";
 import { pageHeaderTargetKey } from "@/composables/usePageHeader";
 import { mobileNavigationKey } from "@/composables/usePageSidebar";
 import HeaderSidebarToggle from "@/components/layout/HeaderSidebarToggle.vue";
+import { clampSidebarWidth, SIDEBAR_DEFAULT_WIDTH, sidebarMaxWidth } from "@/utils/sidebar-width";
 
 const StudioNavigationRail = defineAsyncComponent(
   async () => (await import("@/components/layout/StudioNavigationRail.vue")).default,
@@ -120,6 +121,13 @@ const isStandaloneChatPage = computed(
 const isInviteOnlyPage = computed(() => route.meta?.inviteOnly === true);
 const wideViewportQuery = window.matchMedia('(min-width: 769px)');
 const isWideViewport = ref(wideViewportQuery.matches);
+const viewportWidth = ref(window.innerWidth);
+const sidebarLayoutWidth = computed(() => isWideViewport.value
+  ? clampSidebarWidth(appStore.sidebarWidth, sidebarMaxWidth(viewportWidth.value))
+  : SIDEBAR_DEFAULT_WIDTH);
+function handleViewportResize() {
+  viewportWidth.value = window.innerWidth;
+}
 const hasNavigationRail = computed(() =>
   !isLoginPage.value && !isStandaloneChatPage.value && route.name !== 'desktop.pet',
 );
@@ -214,14 +222,14 @@ const showDesktopTitleBar = computed(
 const desktopTitleBarLeft = computed(() => {
   if (isLoginPage.value) return 10;
   if (showNavigationRail.value) return 64;
-  if (showAppSidebar.value) return appStore.sidebarCollapsed ? 64 : 240;
+  if (showAppSidebar.value) return appStore.sidebarCollapsed ? 64 : sidebarLayoutWidth.value;
   if (usesHermesConfigSidebar.value)
-    return appStore.sidebarCollapsed ? 64 : 240;
+    return appStore.sidebarCollapsed ? 64 : sidebarLayoutWidth.value;
   if (usesEkkoConfigSidebar.value)
-    return appStore.sidebarCollapsed ? 64 : 240;
+    return appStore.sidebarCollapsed ? 64 : sidebarLayoutWidth.value;
   if (usesCodingAgentConfigSidebar.value)
-    return appStore.sidebarCollapsed ? 64 : 240;
-  return appStore.pageSidebarExpanded ? 240 : 10;
+    return appStore.sidebarCollapsed ? 64 : sidebarLayoutWidth.value;
+  return appStore.pageSidebarExpanded ? sidebarLayoutWidth.value : 10;
 });
 const isDesktopPetRoute = computed(() => route.name === "desktop.pet");
 const showWebPet = computed(
@@ -257,6 +265,7 @@ watch(
 );
 
 onMounted(() => {
+  window.addEventListener('resize', handleViewportResize);
   wideViewportQuery.addEventListener('change', handleWideViewportChange);
   if (!isInviteOnlyPage.value) {
     void syncThemeFromServer().catch(() => undefined);
@@ -279,6 +288,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener('resize', handleViewportResize);
   wideViewportQuery.removeEventListener('change', handleWideViewportChange);
   stopWindowStateListener?.();
   appStore.stopHealthPolling();
@@ -303,6 +313,7 @@ useKeyboard();
           <div
             v-else
             class="app-shell"
+            :style="{ '--studio-sidebar-width': `${sidebarLayoutWidth}px` }"
             :class="[
               desktopPlatformClass,
               {
@@ -311,6 +322,7 @@ useKeyboard();
                 'desktop-window-maximized': isDesktopWindowMaximized,
                 'app-shell--custom-background': hasCustomBackground,
                 'app-shell--navigation-rail': showNavigationRail,
+                'app-shell--resizing-sidebar': appStore.sidebarResizing,
               },
             ]"
           >
@@ -493,6 +505,21 @@ useKeyboard();
     &.has-coding-agent-config-sidebar {
       display: flex;
     }
+  }
+}
+
+.app-shell--resizing-sidebar {
+  user-select: none;
+
+  :deep(.sidebar),
+  :deep(.hermes-config-sidebar),
+  :deep(.ekko-config-sidebar),
+  :deep(.coding-agent-config-sidebar),
+  :deep(.session-list),
+  :deep(.room-sidebar),
+  :deep(.workflow-sidebar),
+  :deep(.header-sidebar-control) {
+    transition: none;
   }
 }
 

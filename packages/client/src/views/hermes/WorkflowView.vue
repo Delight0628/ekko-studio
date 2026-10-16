@@ -3,6 +3,7 @@ import { agentMetadata, isGlobalOnlyCodingAgent } from '@/utils/agent-catalog'
 import { useCodingAgentModels } from '@/composables/useCodingAgentModels'
 import { nativeModelLabel } from '@/utils/native-model-families'
 import PageSidebar from "@/components/layout/PageSidebar.vue"
+import SidebarResizeHandle from "@/components/layout/SidebarResizeHandle.vue"
 import { usePageSidebarState } from "@/composables/usePageSidebar"
 import PageLoading from '@/components/common/PageLoading.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
@@ -3242,6 +3243,7 @@ function nodeColor(node: { data: WorkflowAgentNodeData }) {
   <PageLoading :show="pageLoading" initial-only class="workflow-view">
     <PageSidebar>
     <aside class="workflow-sidebar" :class="{ collapsed: !showWorkflowSidebar }">
+      <SidebarResizeHandle />
       <div v-if="showWorkflowSidebar" class="page-sidebar-top">
         <PageSidebarNav
           active="workflow"
@@ -4294,6 +4296,7 @@ function nodeColor(node: { data: WorkflowAgentNodeData }) {
 }
 
 .workflow-sidebar {
+  position: relative;
   width: $sidebar-width;
   min-height: 0;
   align-self: stretch;

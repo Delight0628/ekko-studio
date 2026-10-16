@@ -500,6 +500,7 @@ export default {
   },
 
   sidebar: {
+    resize: 'Resize sidebar',
     desktopUpdatePreparing: "Preparing update",
     desktopUpdateStopping: "Stopping download…",
     desktopUpdateReady: "Update ready",

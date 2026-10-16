@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import PageSidebar from "./PageSidebar.vue";
+import SidebarResizeHandle from "./SidebarResizeHandle.vue";
 import { usePageSidebarState } from "@/composables/usePageSidebar";
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -55,6 +56,7 @@ function handleSidebarClick(event: MouseEvent) {
     }"
     @click="handleSidebarClick"
   >
+    <SidebarResizeHandle />
     <nav class="sidebar-nav">
       <RouteLinkItem
         class="nav-item"
