@@ -1654,6 +1654,47 @@ describe('coding agent launch preparation', () => {
     expect(existsSync(join(result.rootDir, 'skills'))).toBe(false)
   })
 
+  it.each(['codex_responses', 'chat_completions'] as const)('forwards scoped OpenCode effort to the %s upstream', async apiMode => {
+    makeHome()
+    const launch = await prepareCodingAgentLaunch('opencode', {
+      mode: 'scoped', profile: 'default', provider: 'test', model: 'test-model',
+      baseUrl: 'https://api.example.com/v1', apiKey: 'sk-upstream', apiMode,
+      reasoningEffort: 'xhigh', sessionId: 'opencode-effort', agentSessionId: 'opencode-effort-run',
+    })
+    const config = JSON.parse(launch.env.OPENCODE_CONFIG_CONTENT)
+    const routeKey = config.provider['hermes-studio'].options.baseURL.match(/\/api\/codex-proxy\/([^/]+)\/v1/)[1]
+    const response = { id: 'resp_effort', object: 'response', status: 'completed', output: [],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }
+    const chat = { id: 'chat_effort', choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }] }
+
+    for (const stream of [false, true]) {
+      const payload = apiMode === 'codex_responses'
+        ? `event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response })}\n\n`
+        : 'data: {"id":"chat_effort","choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'
+      const fetchMock = vi.fn<typeof fetch>(async () => stream
+        ? new Response(payload, { headers: { 'Content-Type': 'text/event-stream' } })
+        : Response.json(apiMode === 'codex_responses' ? response : chat))
+      vi.stubGlobal('fetch', fetchMock)
+      // OpenCode's custom provider can omit reasoning despite Studio's selection.
+      const ctx = makeProxyContext(routeKey, launch.env.HERMES_OPENCODE_API_KEY, { input: 'hello', stream })
+      await codexProxyResponses(ctx)
+      expect(ctx.status).toBeUndefined()
+      if (stream) for await (const _chunk of ctx.body) { /* consume the proxy stream */ }
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      const sent = JSON.parse(String(fetchMock.mock.calls[0][1]!.body))
+      expect(sent).toMatchObject({ model: 'test-model', stream })
+      if (apiMode === 'codex_responses') {
+        expect(sent.reasoning).toEqual({ effort: 'xhigh' })
+        expect(sent).not.toHaveProperty('reasoning_effort')
+      } else {
+        expect(sent.reasoning_effort).toBe('xhigh')
+        expect(sent).not.toHaveProperty('reasoning')
+      }
+      expect(ctx.request.body).not.toHaveProperty('reasoning')
+    }
+  })
+
   it.each([{ input: ['text'] }, { input: ['text', 'image'] }])('allows OpenCode images regardless of model metadata $input', async ({ input }) => {
     makeHome()
     const capabilities = vi.spyOn(providerRuntime, 'getModelRuntimeCapabilities').mockReturnValue({
@@ -3460,6 +3501,38 @@ describe('coding agent launch preparation', () => {
       reasoning: { effort: 'high', summary: 'auto' },
     })
     expect(sse).toContain('"usage":{"input_tokens":11,"output_tokens":2,"total_tokens":13}')
+  })
+
+  it.each([
+    { selected: 'high', native: { effort: 'low', summary: 'auto' }, expected: { effort: 'high', summary: 'auto' } },
+    { selected: 'none', native: { effort: 'high', summary: 'auto' }, expected: { effort: 'none', summary: 'auto' } },
+    { selected: undefined, native: { effort: 'medium', summary: 'auto' }, expected: { effort: 'medium', summary: 'auto' } },
+    { selected: '', native: undefined, expected: undefined },
+    { selected: 'invalid', native: { summary: 'auto' }, expected: { summary: 'auto' } },
+  ])('merges selected Responses effort $selected without discarding native reasoning options', async ({ selected, native, expected }) => {
+    const target = registerCodexProxyTarget({
+      profile: 'default', provider: 'test', model: 'test-model', baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-upstream', apiMode: 'codex_responses', reasoningEffort: selected, agentId: 'opencode',
+      agentSessionId: 'opencode-effort-options',
+    })
+    const response = { id: 'resp_options', object: 'response', status: 'completed', output: [] }
+    for (const stream of [false, true]) {
+      const fetchMock = vi.fn<typeof fetch>(async () => stream
+        ? new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response })}\n\n`, {
+          headers: { 'Content-Type': 'text/event-stream' },
+        })
+        : Response.json(response))
+      vi.stubGlobal('fetch', fetchMock)
+      const body = { input: 'hello', stream, ...(native ? { reasoning: { ...native } } : {}) }
+      const ctx = makeProxyContext(target.routeKey, target.token, body)
+      await codexProxyResponses(ctx)
+      expect(ctx.status).toBeUndefined()
+      if (stream) for await (const _chunk of ctx.body) { /* consume the proxy stream */ }
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      const sent = JSON.parse(String(fetchMock.mock.calls[0][1]!.body))
+      expect(sent.reasoning).toEqual(expected)
+      expect(body.reasoning).toEqual(native)
+    }
   })
 
   it('maps Grok system messages before forwarding native Responses requests', async () => {

@@ -18,6 +18,7 @@ import {
   responsesToAnthropicMessages,
   responsesToOpenAiChat,
   stripHistoricalResponsesInlineImages,
+  targetReasoningEffort,
   truncateResponsesToolOutputs,
 } from '../../protocol/adapters/responses'
 import {
@@ -134,9 +135,12 @@ export function normalizeGrokResponsesRequest(body: any): any {
 
 function nativeResponsesBody(target: CodexProxyTarget, body: any, stream?: boolean): any {
   const normalized = target.agentId === 'grok' ? normalizeGrokResponsesRequest(body) : body
+  const reasoningEffort = targetReasoningEffort(target)
   return truncateResponsesToolOutputs({
     ...normalized,
     model: target.model,
+    // Scoped clients such as OpenCode may omit effort from their native request.
+    ...(reasoningEffort ? { reasoning: { ...normalized?.reasoning, effort: reasoningEffort } } : {}),
     ...(stream === undefined ? {} : { stream }),
   })
 }
