@@ -52,8 +52,10 @@ acceptance for this integration has been performed on macOS only.
    successful capture or input.
 2. `computer_use({action: "list"})` lists supported desktop operations. The list
    comes from the SDK's canonical tool schema and an explicit Ekko allowlist.
-3. `computer_use({action: "describe", tool: "list_windows"})` returns the exact
-   argument schema. Describe each operation before calling it.
+3. `computer_use({action: "describe", tool: "list_windows"})` returns the
+   caller-facing argument schema. Ekko removes its managed session/output fields
+   and disables permission prompts/probes. Describe each operation before calling
+   it in each new run, and again after `close`.
 4. `computer_use({action: "call", tool: "list_windows", arguments: {}})` discovers
    native process/window IDs. Describe and call `get_window_state` for one target.
 5. Use the returned `element_token` with input operations. Always supply exact
@@ -62,6 +64,17 @@ acceptance for this integration has been performed on macOS only.
 6. Verify the requested result with `verify_state` or a fresh window observation.
    A dispatched action or `effect: unverifiable` is not success. Never blindly
    replay input after cancellation or a timeout.
+
+Typing or drafting stops at the filled field. Send, submit or press Return only
+when that action is part of the user's request; a tool approval does not expand
+the task. If background input fails, prefer an exact-window foreground delivery
+before desktop scope. Desktop input acts on whichever app is frontmost, so
+confirm the target immediately before acting.
+
+Pixel coordinates refer to the returned screenshot, including any size cap.
+Use the current capture's geometry and the operation's schema; do not multiply
+coordinates by an assumed Retina/DPI factor. `zoom` takes screenshot pixels.
+For operations that advertise `from_zoom`, use coordinates from the latest zoom.
 
 The surface covers application/window discovery, window/desktop observations,
 accessibility trees, screenshots and zoom, click/double/right/middle click
@@ -78,6 +91,11 @@ as unique files under the workspace's `.ekko-tmp/tool-assets`. The returned
 accessibility tree; whole-desktop image observations require vision. These
 artifact files remain available after the driver exits and can be removed with
 the workspace's other temporary outputs.
+
+The native structured result is included in model-visible text, alongside the
+native summary and image parts. This preserves window IDs, capture geometry,
+snapshot handles and verification fields even when the summary only says
+"Found 2 window(s)." `data.result` retains the same payload for direct callers.
 
 Input uses Ekko's existing approval service. Grants are keyed by operation and
 background/foreground mode, so permission for background clicks does not cover
@@ -104,7 +122,10 @@ npx vitest run tests/ekko-agent/computer-use.test.ts tests/ekko-agent/runtime.te
 npx playwright test tests/e2e/ekko-computer-use-settings.spec.ts
 ```
 
-The SDK fixture exercises snapshot expiry, image delivery, approval denial,
+The SDK fixture uses native-style short summaries with separate structured
+payloads; a full AgentRuntime regression checks the next model request for
+window identities, screenshot geometry, image parts and input verification.
+It also exercises snapshot expiry, image delivery, approval denial,
 controller contention, serialization, cancellation, timeout handling and late
 initialization cleanup. It does not prove native UI behavior on every platform.
 Native desktop acceptance requires a graphical session with the host's OS grants

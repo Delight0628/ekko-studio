@@ -8,7 +8,7 @@ vi.mock('../../packages/ekko-agent/src/tools/computer-use/sdk', () => ({ loadCom
 
 import { ComputerUseTool } from '../../packages/ekko-agent/src/tools/computer-use'
 import { FakeCuaSdkDriver } from '../fixtures/fake-cua-sdk'
-import { createDefaultToolRegistry, EkkoToolApprovalService, setupEkkoAgent, type AgentToolContext } from '../../packages/ekko-agent/src'
+import { AgentRuntime, AgentToolRegistry, createDefaultToolRegistry, EkkoToolApprovalService, setupEkkoAgent, type AgentToolContext, type ModelClient } from '../../packages/ekko-agent/src'
 
 let directory: string
 const scopes: AbortController[] = []
@@ -104,6 +104,75 @@ describe('Ekko Computer Use', () => {
     await describeTool('check_permissions')
     const check = await call('check_permissions', { prompt: true, probe_direct_capture: true })
     expect((check.data as any).result.args).toMatchObject({ prompt: false, probe_direct_capture: false })
+  })
+
+  it('describes only caller-owned arguments while retaining native session injection', async () => {
+    const { describeTool, call } = fixture()
+    const described = JSON.parse((await describeTool('get_window_state')).content)
+    expect(described.inputSchema.required).toEqual(['pid', 'window_id'])
+    expect(described.inputSchema.properties).toMatchObject({ pid: { type: 'integer' }, window_id: { type: 'integer' } })
+    for (const field of ['session', 'screenshot_out_file', 'debug_image_out', '_internal']) {
+      expect(described.inputSchema.properties).not.toHaveProperty(field)
+      expect((await call('get_window_state', { pid: 123, window_id: 456, [field]: 'caller-owned' })).ok).toBe(false)
+    }
+    expect(drivers[0].calls).toHaveLength(0)
+    expect((await call('get_window_state', { pid: 123, window_id: 456 })).ok).toBe(true)
+    expect(drivers[0].calls[0].args.session).toMatch(/^ekko-/)
+    const permissions = JSON.parse((await describeTool('check_permissions')).content)
+    expect(permissions.inputSchema.properties).not.toHaveProperty('prompt')
+    expect(permissions.inputSchema.properties).not.toHaveProperty('probe_direct_capture')
+  })
+
+  it('delivers window identities, capture geometry and input verification to the next model request', async () => {
+    const tool = new ComputerUseTool()
+    const registry = new AgentToolRegistry()
+    registry.register(tool)
+    let turn = 0
+    let target: { pid: number; window_id: number }
+    const client: ModelClient = {
+      provider: 'test', requestStyle: 'custom-runtime',
+      capabilities: { streaming: false, tools: true, vision: true, jsonMode: false, systemPrompt: true },
+      stream: vi.fn(),
+      create: async request => {
+        turn++
+        const call = (args: Record<string, unknown>) => ({ content: '', toolCalls: [{ id: `step-${turn}`, name: 'computer_use', arguments: args }] })
+        if (turn === 1) return call({ action: 'describe', tool: 'list_windows' })
+        if (turn === 2) return call({ action: 'call', tool: 'list_windows', arguments: {} })
+        if (turn === 3) {
+          const message = request.messages.find(message => message.toolCallId === 'step-2')!
+          expect(message.content).toContain('Found 1 window(s).')
+          const window = JSON.parse(message.content.split('\n')[0]).windows[0]
+          expect(window).toMatchObject({ pid: 123, window_id: 456, title: 'Fixture window' })
+          target = { pid: window.pid, window_id: window.window_id }
+          return call({ action: 'describe', tool: 'get_window_state' })
+        }
+        if (turn === 4) return call({ action: 'call', tool: 'get_window_state', arguments: target })
+        if (turn === 5) {
+          const message = request.messages.find(message => message.toolCallId === 'step-4')!
+          const payload = JSON.parse(message.content.split('\n')[0])
+          expect(payload).toMatchObject({ snapshot_id: 's1', screenshot_scale: 0.5, window_bounds: { width: 1600 } })
+          expect(message.contentParts).toEqual(expect.arrayContaining([
+            expect.objectContaining({ type: 'text', text: expect.stringContaining('"screenshot_scale":0.5') }),
+            expect.objectContaining({ type: 'image', mimeType: 'image/png' }),
+          ]))
+          return call({ action: 'describe', tool: 'type_text' })
+        }
+        if (turn === 6) return call({ action: 'call', tool: 'type_text', arguments: { ...target, text: 'Draft only' } })
+        const message = request.messages.find(message => message.toolCallId === 'step-6')!
+        expect(JSON.parse(message.content.split('\n')[0])).toMatchObject({
+          effect: 'unverifiable', route: 'synthetic_events', delivery: { mode: 'background' },
+          escalation: { target: 'foreground', reason: 'effect_unconfirmed' },
+        })
+        return { content: 'Input still needs verification.' }
+      },
+    }
+    const result = await new AgentRuntime({ modelClient: client, tools: registry }).run({
+      messages: ['Enter a draft in the fixture window.'], toolContext: { workspaceRoot: directory }, skillReviewEnabled: false,
+    })
+    expect(result.output.content).toBe('Input still needs verification.')
+    expect(turn).toBe(7)
+    expect(drivers[0].calls.map(call => call.name)).toEqual(['list_windows', 'get_window_state', 'type_text'])
+    expect(drivers[0].closed).toBe(true)
   })
 
   it('uses the accessibility tree for text-only models', async () => {
