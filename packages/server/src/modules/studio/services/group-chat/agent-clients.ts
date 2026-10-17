@@ -2393,6 +2393,12 @@ export class AgentClients {
         return this.rooms.get(roomId)?.get(agentId)
     }
 
+    hasRoomWork(roomId: string): boolean {
+        return this.activeSessionIds(roomId).length > 0
+            || [...this._processingMentionQueues].some(key => this.mentionQueueRoomId(key) === roomId)
+            || [...this._mentionQueues].some(([key, queue]) => this.mentionQueueRoomId(key) === roomId && queue.length > 0)
+    }
+
     activeSessionIds(roomId: string): string[] {
         return this.getAgents(roomId)
             .map(agent => agent.getActiveSessionId(roomId))

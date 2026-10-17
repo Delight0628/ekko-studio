@@ -1605,3 +1605,29 @@ export async function updateRoomSummary(ctx: any) {
     const summary = await chatServer.getRoomSummaryService().updateSummaryText(roomId, text.trim())
     ctx.body = { summary }
 }
+
+
+async function withMessageManagement(ctx: any, remove: boolean) {
+    const server = chatServer
+    if (!server) { ctx.status = 503; ctx.body = { error: 'Group chat not initialized' }; return }
+    const roomId = String(ctx.params.roomId || '')
+    const storage = server.getStorage()
+    if (!storage.getRoom(roomId)) { ctx.status = 404; ctx.body = { error: 'Room not found' }; return }
+    if (!canManageRoom(storage, roomId, ctx.state?.user)) { ctx.status = 403; ctx.body = { error: 'Access denied' }; return }
+    try {
+        ctx.body = remove
+            ? await server.deleteMessages(roomId, ctx.request.body?.messageIds, ctx.request.body?.historyRevision)
+            : server.getMessageSelection(roomId)
+    } catch (error: any) {
+        ctx.status = Number(error?.status || 500)
+        ctx.body = { error: error?.message || 'Message deletion failed' }
+    }
+}
+
+export async function getRoomMessageSelection(ctx: any) {
+    await withMessageManagement(ctx, false)
+}
+
+export async function deleteRoomMessages(ctx: any) {
+    await withMessageManagement(ctx, true)
+}

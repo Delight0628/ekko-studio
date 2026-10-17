@@ -3213,6 +3213,9 @@ export default {
 
   // 변경 이력
   groupChat: {
+    messageAlreadySummarized: "이미 요약되어 삭제할 수 없습니다",
+    messageSummaryBoundaryUnknown: "요약 경계를 확인할 수 없어 삭제할 수 없습니다",
+    messageSelectionHint: "멤버 메시지 또는 에이전트 실행 전체를 선택하세요. 요약된 메시지는 선택할 수 없습니다.",
     routingHandoffIncomplete: '인계 정보가 불완전할 수 있습니다.',
     routingLoopDetected: '협업이 반복 공회전 중일 수 있습니다.',
     routingSuggested: 'JEV 추천: {agent}',

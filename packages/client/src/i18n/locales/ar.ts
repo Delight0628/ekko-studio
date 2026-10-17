@@ -3435,6 +3435,9 @@ export default {
 
   // Group Chat
   groupChat: {
+    messageAlreadySummarized: "تم تلخيصها بالفعل؛ لا يمكن حذفها",
+    messageSummaryBoundaryUnknown: "حد الملخص غير متاح؛ الحذف معطل",
+    messageSelectionHint: "حدد رسائل الأعضاء أو عمليات تشغيل الوكيل كاملة. لا يمكن تحديد الرسائل الملخصة.",
     routingHandoffIncomplete: 'قد تكون معلومات التسليم غير مكتملة.',
     routingLoopDetected: 'تم اكتشاف دوران متكرر محتمل في التعاون.',
     routingSuggested: 'يقترح JEV \u200f{agent}',

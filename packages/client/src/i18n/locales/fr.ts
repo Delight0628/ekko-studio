@@ -3214,6 +3214,9 @@ jobTriggered: 'Job declenche',
 
   // Journal des modifications
   groupChat: {
+    messageAlreadySummarized: "Déjà résumé ; suppression impossible",
+    messageSummaryBoundaryUnknown: "Limite du résumé indisponible ; suppression désactivée",
+    messageSelectionHint: "Sélectionnez des messages de membres ou des exécutions complètes. Les messages résumés ne peuvent pas être sélectionnés.",
     routingHandoffIncomplete: 'Les informations de transfert peuvent être incomplètes.',
     routingLoopDetected: 'Une boucle de collaboration répétitive est possible.',
     routingSuggested: 'JEV suggère {agent}',

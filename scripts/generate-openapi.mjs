@@ -937,6 +937,36 @@ openapi.paths['/api/studio/sessions/{id}/pin'].post.requestBody = {
   } } },
 }
 
+// Group chat deletion is manager-only and protects the rolling room summary.
+const groupSelectionPath = '/api/studio/group-chat/rooms/{roomId}/message-selection'
+const groupDeletePath = '/api/studio/group-chat/rooms/{roomId}/messages/delete'
+openapi.paths[groupSelectionPath].get.description = 'List complete persisted message/run groups for a managed group room. Summarized prefixes, runs crossing the summary anchor, and unknown summary boundaries are locked. Requires an idle room. Returns an opaque historyRevision to detect concurrent transcript or summary changes.'
+openapi.paths[groupSelectionPath].get.responses['200'] = {
+  description: 'Selection groups and opaque history revision',
+  content: { 'application/json': { schema: { type: 'object', required: ['groups', 'historyRevision'], properties: {
+    historyRevision: { type: 'string' },
+    groups: { type: 'array', items: { type: 'object', required: ['id', 'kind', 'messageIds'], properties: {
+      id: { type: 'string' }, kind: { type: 'string', enum: ['message', 'run'] },
+      messageIds: { type: 'array', items: { type: 'string' } },
+      deleteBlockedReason: { type: 'string', enum: ['summarized', 'summary_boundary_unknown'] },
+    } } },
+  } } } },
+}
+const groupDeleteOperation = openapi.paths[groupDeletePath].post
+groupDeleteOperation.description = 'Permanently delete selected unsummarized group messages. Requires room management permission and the historyRevision from message-selection. Each selected agent message expands to the entire run across pages. Rechecks summary boundaries, revision, active runs, queues and summary work atomically. Preserves the summary and unselected history, updates context token totals and messageDeletionRevision, and broadcasts messages_deleted to room clients. Returns 409 for stale, protected or busy selections.'
+groupDeleteOperation.requestBody = { required: true, content: { 'application/json': { schema: {
+  type: 'object', required: ['messageIds', 'historyRevision'], properties: {
+    messageIds: { type: 'array', minItems: 1, maxItems: 10000, items: { type: 'string', minLength: 1, maxLength: 500 } },
+    historyRevision: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+  },
+} } } }
+groupDeleteOperation.responses['200'] = { description: 'Deletion result; also emitted as messages_deleted', content: { 'application/json': { schema: {
+  type: 'object', required: ['roomId', 'messageIds', 'deletedGroups', 'messageCount', 'totalTokens', 'messageDeletionRevision'], properties: {
+    roomId: { type: 'string' }, messageIds: { type: 'array', items: { type: 'string' } },
+    deletedGroups: { type: 'integer' }, messageCount: { type: 'integer' }, totalTokens: { type: 'integer' }, messageDeletionRevision: { type: 'integer' },
+  },
+} } } }
+
 // Message selection uses persisted identities and a revision checked on deletion.
 const messageSelectionPath = '/api/studio/sessions/{id}/message-selection'
 openapi.paths[messageSelectionPath].get.description = 'List selection groups and historyRevision for a local Hermes or Ekko chat. User messages are individual items; agent replies, reasoning and tools are grouped by complete run across pages. Groups touching the compressed prefix are locked. Missing or invalid compression cursors lock all groups. Shared sessions are excluded.'

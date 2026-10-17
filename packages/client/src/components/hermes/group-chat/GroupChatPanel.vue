@@ -2476,6 +2476,7 @@ function handleClarifyKeydown(event: KeyboardEvent) {
                         <GroupMessageList
                             :allow-speech="!props.standalone"
                             :can-manage-handoff="currentRoomCanManage"
+                            :allow-message-deletion="currentRoomCanManage"
                             @mention-agent="handleMentionAgent"
                             @continue-handoff="handleContinueHandoff"
                             @adjust-handoff-settings="handleOpenRoomSettings"

@@ -3214,6 +3214,9 @@ jobTriggered: 'Job ausgelost',
 
   // Anderungsprotokoll
   groupChat: {
+    messageAlreadySummarized: "Bereits zusammengefasst; Löschen nicht möglich",
+    messageSummaryBoundaryUnknown: "Zusammenfassungsgrenze unbekannt; Löschen deaktiviert",
+    messageSelectionHint: "Mitgliedernachrichten oder ganze Agentenläufe auswählen. Zusammengefasste Nachrichten können nicht ausgewählt werden.",
     routingHandoffIncomplete: 'Die Übergabeinformationen könnten unvollständig sein.',
     routingLoopDetected: 'Mögliche wiederholte Kooperationsschleife erkannt.',
     routingSuggested: 'JEV empfiehlt {agent}',

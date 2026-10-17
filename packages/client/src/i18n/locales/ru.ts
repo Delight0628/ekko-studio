@@ -3090,6 +3090,9 @@ export default {
 
 
   groupChat: {
+    messageAlreadySummarized: "Уже включено в сводку; удаление невозможно",
+    messageSummaryBoundaryUnknown: "Граница сводки неизвестна; удаление отключено",
+    messageSelectionHint: "Выберите сообщения участников или целые запуски агента. Сообщения, включённые в сводку, выбрать нельзя.",
     routingHandoffIncomplete: 'Информация для передачи может быть неполной.',
     routingLoopDetected: 'Возможно повторное хождение по кругу.',
     routingSuggested: 'JEV предлагает {agent}',

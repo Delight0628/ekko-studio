@@ -414,6 +414,9 @@ export default {
     runUsageOutput: 'Çıktı jetonları', runUsageInput: 'Girdi jetonları', runUsageCache: 'Önbellek isabetleri', runUsageCost: 'Tahmini maliyet', runUsageSpeed: 'Jeton hızı', runUsageAverageSpeed: 'Ortalama hız', runUsageEstimatedSpeed: 'Tahmini hız',
   },
   groupChat: {
+    messageAlreadySummarized: "Zaten özetlendi; silinemez",
+    messageSummaryBoundaryUnknown: "Özet sınırı bilinmiyor; silme devre dışı",
+    messageSelectionHint: "Üye mesajlarını veya tüm ajan çalıştırmalarını seçin. Özetlenmiş mesajlar seçilemez.",
     routingHandoffIncomplete: 'Devir bilgileri eksik olabilir.',
     routingLoopDetected: 'Olası bir tekrarlanan iş birliği döngüsü algılandı.',
     routingSuggested: 'JEV, {agent} aracısını öneriyor',

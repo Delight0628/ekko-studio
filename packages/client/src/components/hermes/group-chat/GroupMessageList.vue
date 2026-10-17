@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, nextTick } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch, nextTick } from 'vue'
+import { NButton, NCheckbox, NDropdown, NModal, NSpin } from 'naive-ui'
+import { desktopBridge } from '@/utils/desktop-bridge'
+import type { ChatMessage } from '@/api/studio/group-chat'
+import { useGroupMessageSelection } from './useGroupMessageSelection'
 import { useI18n } from 'vue-i18n'
 import { groupAgentRunMessages, useGroupChatStore } from '@/stores/hermes/group-chat'
 import type { RoomAgentHandoffChain } from '@/api/studio/group-chat'
@@ -13,9 +17,11 @@ const store = useGroupChatStore()
 const props = withDefaults(defineProps<{
     allowSpeech?: boolean
     canManageHandoff?: boolean
+    allowMessageDeletion?: boolean
 }>(), {
     allowSpeech: true,
     canManageHandoff: false,
+    allowMessageDeletion: false,
 })
 const emit = defineEmits<{
     mentionAgent: [agent: import('@/api/studio/group-chat').RoomAgent]
@@ -41,6 +47,93 @@ const displayMessages = computed(() => groupAgentRunMessages(store.sortedMessage
     toolTraceVisible.value ||
     msg.toolStatus === 'running',
 )))
+const supportsMessageSelection = computed(() => props.allowMessageDeletion && !store.inviteGuest)
+const {
+    selecting, loading: selectionLoading, deleting: deletingMessages, selected: selectedMessages,
+    unavailable: selectionUnavailable, groupFor,
+    start: startSelection, cancel: cancelSelection, toggle: toggleSelection, remove: deleteSelectedMessages,
+} = useGroupMessageSelection(displayMessages, supportsMessageSelection)
+const showDeleteConfirmation = ref(false)
+watch(selecting, value => { if (!value) showDeleteConfirmation.value = false })
+const selectionMenu = ref({ show: false, x: 0, y: 0 });
+const selectionMenuOptions = computed(() => [{
+  key: 'select-messages', label: t('chat.selectMessages'), disabled: selectionUnavailable.value,
+}]);
+const desktopMessageMenu = desktopBridge()?.isDesktop ? desktopBridge()?.messageContextMenu : undefined;
+let selectionMenuGeneration = 0;
+let nativeSelectionMenuOpen = false;
+function closeSelectionMenu() {
+  selectionMenuGeneration += 1;
+  selectionMenu.value.show = false;
+  if (nativeSelectionMenuOpen) {
+    nativeSelectionMenuOpen = false;
+    void desktopMessageMenu?.close().catch(() => undefined);
+  }
+}
+async function openSelectionMenu(event: MouseEvent) {
+  if (!supportsMessageSelection.value || selecting.value) return;
+  const target = event.target instanceof Element ? event.target : null;
+  // Child menus and editable fields retain their own native editing actions.
+  if (event.defaultPrevented
+    || target?.closest('input, textarea, select')
+    || (target instanceof HTMLElement && target.isContentEditable)) {
+    closeSelectionMenu();
+    return;
+  }
+  const hasSelection = !!window.getSelection()?.toString();
+  if (desktopMessageMenu) {
+    event.preventDefault();
+    event.stopPropagation();
+    selectionMenu.value.show = false;
+    const generation = ++selectionMenuGeneration;
+    nativeSelectionMenuOpen = true;
+    try {
+      const action = await desktopMessageMenu.show({
+        label: t('chat.selectMessages'), enabled: !selectionUnavailable.value, hasSelection,
+      });
+      if (generation !== selectionMenuGeneration) return;
+      nativeSelectionMenuOpen = false;
+      if (action === 'select-messages' && supportsMessageSelection.value && !selectionUnavailable.value && !selecting.value) {
+        window.getSelection()?.removeAllRanges();
+        void startSelection();
+      }
+    } catch (error) {
+      console.warn('[group-chat] Could not open native message menu', error);
+      if (generation === selectionMenuGeneration && !hasSelection) {
+        selectionMenu.value = { show: true, x: event.clientX, y: event.clientY };
+      }
+    } finally {
+      if (generation === selectionMenuGeneration) nativeSelectionMenuOpen = false;
+    }
+    return;
+  }
+  // On the web (and older desktop shells), preserve the browser Copy menu.
+  if (hasSelection) {
+    selectionMenu.value.show = false;
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  selectionMenu.value = { show: true, x: event.clientX, y: event.clientY };
+}
+function selectFromMenu() {
+  selectionMenu.value.show = false;
+  void startSelection();
+}
+
+function handleSelectionRowClick(event: MouseEvent, message: ChatMessage) {
+    if (!selecting.value) return
+    if (event.target instanceof Element && event.target.closest('.message-selection-checkbox')) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (window.getSelection()?.toString()) return
+    const group = groupFor(message)
+    if (!group || group.deleteBlockedReason || selectionUnavailable.value) return
+    toggleSelection(group.id, !selectedMessages.value.has(group.id))
+}
+watch([() => store.currentRoomId, supportsMessageSelection, selectionUnavailable, selecting], closeSelectionMenu, { flush: 'sync' })
+onBeforeUnmount(closeSelectionMenu)
+
 const summaryAnchorMessageId = computed(() => {
     const roomId = store.currentRoomId
     return roomId ? String(store.roomSummaryStates.get(roomId)?.summaryThroughMessageId || '') : ''
@@ -162,6 +255,16 @@ defineExpose({ scrollToBottom })
 
 <template>
     <div class="group-message-list-shell">
+        <NDropdown trigger="manual" placement="bottom-start" :show="selectionMenu.show"
+            :x="selectionMenu.x" :y="selectionMenu.y" :options="selectionMenuOptions"
+            @select="selectFromMenu" @clickoutside="selectionMenu.show = false" @update:show="selectionMenu.show = $event" />
+        <NSpin v-if="selectionLoading" size="small" />
+        <NModal v-if="selecting" type="warning" v-model:show="showDeleteConfirmation" preset="dialog" :style="{ width: 'min(460px, calc(100vw - 32px))' }"
+            :title="t('chat.deleteSelectedMessages')" :content="t('chat.deleteMessagesConfirm', { count: selectedMessages.size })"
+            :positive-text="t('common.delete')" :negative-text="t('common.cancel')"
+            :positive-button-props="{ loading: deletingMessages, disabled: selectionUnavailable }"
+            :negative-button-props="{ disabled: deletingMessages }" :mask-closable="!deletingMessages" :closable="!deletingMessages"
+            @positive-click="deleteSelectedMessages" />
         <VirtualMessageList
             class="group-message-list"
             ref="listRef"
@@ -206,7 +309,16 @@ defineExpose({ scrollToBottom })
                 </div>
             </template>
             <template #item="{ message: msg }">
-                <div :data-group-message-id="msg.id">
+                <div :data-group-message-id="msg.id"
+                    :class="{ 'message-selection-row': selecting, 'is-selected': selecting && groupFor(msg) && selectedMessages.has(groupFor(msg)!.id), 'is-locked': selecting && (!groupFor(msg) || groupFor(msg)!.deleteBlockedReason) }"
+                    @contextmenu="openSelectionMenu" @click.capture="handleSelectionRowClick($event, msg)">
+                    <NCheckbox v-if="selecting" class="message-selection-checkbox"
+                        :checked="!!groupFor(msg) && selectedMessages.has(groupFor(msg)!.id)"
+                        :disabled="selectionUnavailable || !groupFor(msg) || !!groupFor(msg)!.deleteBlockedReason"
+                        :aria-disabled="selectionUnavailable || !groupFor(msg) || !!groupFor(msg)!.deleteBlockedReason"
+                        :aria-label="t(groupFor(msg)?.kind === 'run' ? 'chat.selectAgentRun' : 'chat.selectSingleMessage')"
+                        @update:checked="groupFor(msg) && toggleSelection(groupFor(msg)!.id, $event)" />
+                    <div class="message-selection-body">
                     <GroupAgentRunCard
                         v-if="msg.runItems?.length || isOtherMemberMessage(msg)"
                         :message="msg"
@@ -230,6 +342,9 @@ defineExpose({ scrollToBottom })
                         :allow-speech="props.allowSpeech"
                         @mention-agent="emit('mentionAgent', $event)"
                     />
+                    <div v-if="selecting && groupFor(msg)?.deleteBlockedReason" class="message-selection-locked-hint">
+                        {{ t(groupFor(msg)!.deleteBlockedReason === 'summarized' ? 'groupChat.messageAlreadySummarized' : 'groupChat.messageSummaryBoundaryUnknown') }}
+                    </div>
                     <div v-if="routingDecision(msg)?.status === 'suggested' && routingDecision(msg)?.targetAgentName" class="routing-suggestion" role="status">
                         <span>{{ t('groupChat.routingSuggested', { agent: routingDecision(msg)!.targetAgentName }) }}</span>
                         <button type="button" @click="store.acceptRoutingSuggestion(msg.id)">{{ t('groupChat.routingUseSuggestion') }}</button>
@@ -277,9 +392,18 @@ defineExpose({ scrollToBottom })
                         </div>
                         <div class="summary-anchor-divider-line" aria-hidden="true"></div>
                     </div>
+                    </div>
                 </div>
             </template>
         </VirtualMessageList>
+        <div v-if="selecting" class="message-selection-toolbar">
+            <span class="message-selection-count" role="status">{{ t('chat.messagesSelected', { count: selectedMessages.size }) }}</span>
+            <NButton size="small" type="error" :loading="deletingMessages" :disabled="selectionUnavailable || !selectedMessages.size" @click="showDeleteConfirmation = true">
+                {{ t('chat.deleteSelectedMessages') }}
+            </NButton>
+            <NButton size="small" :disabled="deletingMessages" @click="cancelSelection">{{ t('common.cancel') }}</NButton>
+            <span class="message-selection-hint">{{ t('groupChat.messageSelectionHint') }}</span>
+        </div>
         <button
             v-if="showScrollBottomButton"
             type="button"
@@ -314,6 +438,7 @@ defineExpose({ scrollToBottom })
     min-width: 0;
     position: relative;
     display: flex;
+    flex-direction: column;
 }
 
 .group-message-list {
@@ -547,6 +672,73 @@ defineExpose({ scrollToBottom })
         transform: rotate(360deg);
     }
 }
+.message-selection-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 20px;
+  margin-bottom: 4px;
+}
+
+.message-selection-count {
+  margin-inline-end: auto;
+}
+
+.message-selection-hint {
+  flex-basis: 100%;
+  color: $text-secondary;
+  font-size: 12px;
+}
+
+.message-selection-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-areas: 'checkbox body';
+  align-items: center;
+  gap: 12px;
+  // Selection boundaries remain visible even when the content surface is transparent.
+  border: 1px dashed color-mix(in srgb, var(--accent-primary) 40%, transparent);
+  border-radius: var(--radius-component, 8px);
+  padding: 12px;
+  cursor: pointer;
+
+  &.is-locked {
+    cursor: not-allowed;
+  }
+
+  &.is-selected {
+    border-style: solid;
+    border-color: var(--accent-primary);
+  }
+
+  &.message-selection-user {
+    grid-template-columns: minmax(0, 1fr) 20px;
+    grid-template-areas: 'body checkbox';
+  }
+
+  .message-selection-checkbox {
+    grid-area: checkbox;
+    justify-self: center;
+  }
+
+  .message-selection-body {
+    grid-area: body;
+    min-width: 0;
+  }
+
+  .message-selection-content + .message-selection-content {
+    margin-top: 16px;
+  }
+}
+
+.message-selection-locked-hint {
+  margin-top: 8px;
+  color: $text-secondary;
+  font-size: 12px;
+}
+
+
 </style>
 
 <style scoped>.routing-suggestion{margin:4px 12px 10px;padding:calc(8px * var(--spacing-scale, 1)) calc(10px * var(--spacing-scale, 1));border:var(--border-width, 1px) solid var(--border-color);border-radius: var(--radius-component, 8px);display:flex;gap:calc(8px * var(--spacing-scale, 1));align-items:center}.routing-warning{border-color:#f0a020}.routing-suggestion button{border:0;background:transparent;color:var(--primary-color);cursor:pointer}</style>

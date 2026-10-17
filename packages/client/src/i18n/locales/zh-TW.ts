@@ -3396,6 +3396,9 @@ export default {
 
   // 群聊
   groupChat: {
+    messageAlreadySummarized: "已被總結，無法刪除",
+    messageSummaryBoundaryUnknown: "無法確定總結邊界，暫不可刪除",
+    messageSelectionHint: "可選擇成員訊息或整次 Agent 回覆；已總結的訊息不可選擇。",
     routingHandoffIncomplete: '交接資訊可能不完整。',
     routingLoopDetected: '偵測到協作可能在重複空轉。',
     routingSuggested: 'JEV 建議交給 {agent}',

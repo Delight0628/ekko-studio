@@ -3213,6 +3213,9 @@ export default {
 
   // 更新履歴
   groupChat: {
+    messageAlreadySummarized: "要約済みのため削除できません",
+    messageSummaryBoundaryUnknown: "要約の境界を確認できないため削除できません",
+    messageSelectionHint: "メンバーのメッセージまたはエージェントの実行全体を選択できます。要約済みのメッセージは選択できません。",
     routingHandoffIncomplete: '引き継ぎ情報が不完全な可能性があります。',
     routingLoopDetected: '協力が同じ所を回っている可能性があります。',
     routingSuggested: 'JEV の提案: {agent}',

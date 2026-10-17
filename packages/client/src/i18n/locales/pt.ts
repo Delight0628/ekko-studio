@@ -3214,6 +3214,9 @@ jobTriggered: 'Job acionado',
 
   // Registro de alteracoes
   groupChat: {
+    messageAlreadySummarized: "Já resumido; não é possível excluir",
+    messageSummaryBoundaryUnknown: "Limite do resumo indisponível; exclusão desativada",
+    messageSelectionHint: "Selecione mensagens de membros ou execuções completas do agente. Mensagens resumidas não podem ser selecionadas.",
     routingHandoffIncomplete: 'As informações de passagem podem estar incompletas.',
     routingLoopDetected: 'Possível ciclo repetido de colaboração detectado.',
     routingSuggested: 'JEV sugere {agent}',

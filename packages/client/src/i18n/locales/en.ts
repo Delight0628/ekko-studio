@@ -3454,6 +3454,9 @@ export default {
 
   // Group Chat
   groupChat: {
+    messageAlreadySummarized: "Already summarized; cannot delete",
+    messageSummaryBoundaryUnknown: "Summary boundary unavailable; deletion disabled",
+    messageSelectionHint: "Select member messages or entire agent runs. Summarized messages cannot be selected.",
     routingHandoffIncomplete: 'Handoff information may be incomplete.',
     routingLoopDetected: 'Possible repeated collaboration loop detected.',
     routingSuggested: 'JEV suggests {agent}',

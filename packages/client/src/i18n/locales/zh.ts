@@ -3502,6 +3502,9 @@ export default {
 
   // 群聊
   groupChat: {
+    messageAlreadySummarized: "已被总结，无法删除",
+    messageSummaryBoundaryUnknown: "无法确定总结边界，暂不可删除",
+    messageSelectionHint: "可选择成员消息或整次 Agent 回复；已总结的消息不可选择。",
     routingHandoffIncomplete: '交接信息可能不完整。',
     routingLoopDetected: '检测到协作可能在重复空转。',
     routingSuggested: 'JEV 建议交给 {agent}',
