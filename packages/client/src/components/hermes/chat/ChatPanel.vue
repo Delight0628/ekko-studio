@@ -127,6 +127,7 @@ const activeSessionSupportsPersistence = computed(() =>
 );
 const showRealtimeVoice = ref(false);
 const messageListRef = ref<InstanceType<typeof MessageList> | null>(null);
+const messageSelectionActionsTarget = ref<HTMLElement | null>(null);
 const chatInputRef = ref<(InstanceType<typeof ChatInput> & {
   addFiles?: (files: File[]) => void;
   focusComposer?: () => void;
@@ -3228,6 +3229,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
             <template v-else>
             <MessageList
               ref="messageListRef"
+              :selection-actions-target="messageSelectionActionsTarget"
               :approval-portal-to-body="showRealtimeVoice"
               scroll-scope="chat"
             />
@@ -3242,7 +3244,11 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
               :persist-draft="composerPersistDraft"
               @model-click="handleHeaderModelClick"
               @voice-click="openRealtimeVoice"
-            />
+            >
+              <template #before-context-usage>
+                <div ref="messageSelectionActionsTarget" />
+              </template>
+            </ChatInput>
             </template>
           </div>
           <OutlinePanel

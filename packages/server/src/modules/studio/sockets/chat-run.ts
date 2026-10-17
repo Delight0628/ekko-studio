@@ -34,6 +34,7 @@ import { randomUUID } from 'crypto'
 import { logger } from '../public/logging'
 import { getSystemPrompt } from '../public/runs/prompt'
 import { clearSessionMessages, deleteSession, getSession, getSessionMetadata, listSessions, updateMessageDisplayContent } from '../repositories/session-store'
+import { deleteSessionMessageGroups } from '../repositories/session-message-deletion'
 import { listWorkspaceRunChangesForAssistantMessages } from '../repositories/workspace-run-changes-store'
 import { getSessionCategory } from '../repositories/session-category-store'
 import { getActiveProfileName, getProfileDir, listProfileNamesFromDisk } from '../public/profile-config'
@@ -43,6 +44,7 @@ import {
   chatCodingAgentRunManager as codingAgentRunManager,
   createPrimaryAgentBridge,
   getChatEkkoAgent as getGlobalEkkoAgent,
+  hasChatEkkoBackgroundTasks,
   getPrimaryAgentBridgeManager as getAgentBridgeManager,
   handleChatCodingAgentSessionCommand as handleCodingAgentSessionCommand,
   parseChatCodingAgentSessionCommand as parseCodingAgentSessionCommand,
@@ -57,6 +59,7 @@ import { handleEkkoSessionCommand, parseEkkoRunCommand } from '../services/chat-
 import { handleAbort } from '../services/chat-run/abort'
 import { getOrCreateSession } from '../services/chat-run/compression'
 import { loadSessionStateFromDb, resolveRunSource } from '../services/chat-run/load-state'
+import { getSessionContextOverhead, refreshContextUsageAfterDeletion } from '../services/chat-run/context-usage'
 import { handleSessionCommand, isSessionCommand, parseSessionCommand } from '../services/chat-run/session-command'
 import { contentBlocksToString } from '../services/chat-run/content-blocks'
 import {
@@ -2097,6 +2100,10 @@ export class ChatRunSocket {
       this.sessionMap.set(sid, state)
     }
     await this.reattachBridgeRun(socket, sid, state)
+    if (this.sessionMap.get(sid) !== state) {
+      state = this.sessionMap.get(sid) || await loadSessionStateFromDb(sid, this.sessionMap)
+      this.sessionMap.set(sid, state)
+    }
     const resumeEvents = state.isWorking
       ? state.events
       : (state.events || []).filter(evt => evt?.event === 'run.reattach_failed')
@@ -2896,6 +2903,47 @@ export class ChatRunSocket {
       const socket = this.socketForQueuedRun(sessionId, state.queue[0])
       if (socket) this.dequeueNextQueuedRun(socket, sessionId)
     }
+  }
+
+  private assertSessionMessageEditIdle(sessionId: string) {
+    const state = this.sessionMap.get(sessionId)
+    if (hasChatEkkoBackgroundTasks(sessionId)
+      || (state && (state.isWorking || state.isAborting || state.isCompressing || state.queue.length > 0 || this.backgroundPendingCount(state) > 0))) {
+      throw Object.assign(new Error('Wait for the run and pending tasks to finish before selecting or deleting messages.'), { status: 409 })
+    }
+  }
+
+  async assertSessionMessagesEditable(sessionId: string) {
+    this.assertSessionMessageEditIdle(sessionId)
+    const session = getSession(sessionId)
+    if (session && isHermesWorkerBackedSession(session)) {
+      const status = await this.bridge.statusIfLoaded(sessionId, session.profile, { timeoutMs: 1000 })
+      if (status.running) throw Object.assign(new Error('Wait for the run to finish before selecting or deleting messages.'), { status: 409 })
+    }
+    this.assertSessionMessageEditIdle(sessionId)
+  }
+
+  async deleteSessionMessages(sessionId: string, messageIds: number[], historyRevision: number) {
+    await this.assertSessionMessagesEditable(sessionId)
+    // No await between the final idle check, transaction, and cache invalidation.
+    this.assertSessionMessageEditIdle(sessionId)
+    const fixedTokens = getSessionContextOverhead(sessionId, this.sessionMap.get(sessionId))
+    const deletion = deleteSessionMessageGroups(sessionId, messageIds, historyRevision)
+    const contextTokens = refreshContextUsageAfterDeletion(sessionId, fixedTokens)
+    const result = { ...deletion, contextTokens: contextTokens ?? null }
+    this.sessionMap.delete(sessionId)
+    logger.info({
+      sessionId,
+      requestedMessageIds: messageIds,
+      deletedMessageIds: deletion.messageIds,
+      deletedGroups: deletion.deletedGroups,
+      previousHistoryRevision: historyRevision,
+      historyRevision: deletion.historyRevision,
+    }, '[chat-run-socket] session messages deleted')
+    this.nsp.to(`session:${sessionId}`).emit('session.command', {
+      event: 'session.command', session_id: sessionId, action: 'messages_deleted', ok: true, ...result,
+    })
+    return result
   }
 
   clearSessionHistory(sessionId: string): { deleted: number; hadMemoryState: boolean } {

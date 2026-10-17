@@ -55,6 +55,36 @@ export interface SessionDetail extends SessionSummary {
   messages: HermesMessage[]
 }
 
+export interface MessageSelectionGroup {
+  id: number
+  kind: 'message' | 'run'
+  messageIds: number[]
+  runMarker?: string
+  deleteBlockedReason?: 'compressed' | 'compression_boundary_unknown'
+}
+
+export interface MessageDeletionResult {
+  deleted: number
+  deletedGroups: number
+  messageIds: number[]
+  historyRevision: number
+  contextTokens?: number | null
+}
+
+export function fetchMessageSelection(sessionId: string, profile?: string) {
+  const query = profile ? `?profile=${encodeURIComponent(profile)}` : ''
+  return request<{ groups: MessageSelectionGroup[]; historyRevision: number }>(
+    `/api/studio/sessions/${encodeURIComponent(sessionId)}/message-selection${query}`,
+  )
+}
+
+export function deleteSessionMessages(sessionId: string, messageIds: number[], historyRevision: number, profile?: string) {
+  const query = profile ? `?profile=${encodeURIComponent(profile)}` : ''
+  return request<MessageDeletionResult>(`/api/studio/sessions/${encodeURIComponent(sessionId)}/messages/batch-delete${query}`, {
+    method: 'POST', body: JSON.stringify({ messageIds, historyRevision }),
+  })
+}
+
 export interface SessionContextMessage {
   id: number
   role: 'user' | 'assistant'

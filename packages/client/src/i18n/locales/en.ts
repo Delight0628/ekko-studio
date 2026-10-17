@@ -1037,6 +1037,18 @@ export default {
 
   // Chat
   chat: {
+    selectMessages: "Select messages",
+    messagesSelected: "{count} selected",
+    deleteSelectedMessages: "Delete selected",
+    deleteMessagesConfirm: "Permanently delete {count} selected items? Each agent run includes its replies, reasoning and tool records on all pages. Deleted content will be removed from future conversation context.",
+    messageSelectionHint: "Select user messages individually or an entire agent run. Compressed messages cannot be selected.",
+    messageAlreadyCompressed: "Already compressed; cannot delete",
+    messageCompressionBoundaryUnknown: "Compression boundary unavailable; deletion disabled",
+    selectAgentRun: "Agent run",
+    selectSingleMessage: "Message",
+    messageSelectionFailed: "Unable to load message selection",
+    messageDeleteFailed: "Unable to delete messages",
+    messagesDeleted: "Deleted {count} items",
     screenshot: {
       shortcut: {
         settings: "Set screenshot shortcut",

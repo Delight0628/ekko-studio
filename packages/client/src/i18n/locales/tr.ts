@@ -375,6 +375,18 @@ export default {
   },
 
   chat: {
+    selectMessages: "Mesajları seç",
+    messagesSelected: "{count} seçildi",
+    deleteSelectedMessages: "Seçilenleri sil",
+    deleteMessagesConfirm: "Seçilen {count} öğe kalıcı olarak silinsin mi? Her ajan çalışması tüm sayfalardaki yanıtları, düşünceleri ve araç kayıtlarını içerir. Silinen içerik sonraki konuşmaların bağlamından çıkarılır.",
+    messageSelectionHint: "Kullanıcı mesajlarını tek tek veya bir ajanın tüm çalışmasını seçin. Sıkıştırılmış mesajlar seçilemez.",
+    messageAlreadyCompressed: "Zaten sıkıştırılmış; silinemez",
+    messageCompressionBoundaryUnknown: "Sıkıştırma sınırı bilinmiyor; silme devre dışı",
+    selectAgentRun: "Ajan çalışması",
+    selectSingleMessage: "Mesaj",
+    messageSelectionFailed: "Mesaj seçimi yüklenemedi",
+    messageDeleteFailed: "Mesajlar silinemedi",
+    messagesDeleted: "{count} öğe silindi",
     approvalAgree: 'Onayla',
     reasoningEffort: {
       tooltip: 'Akıl yürütme çabası',

@@ -1030,6 +1030,18 @@ export default {
 
   // Chat
   chat: {
+    selectMessages: "تحديد الرسائل",
+    messagesSelected: "تم تحديد {count}",
+    deleteSelectedMessages: "حذف المحدد",
+    deleteMessagesConfirm: "هل تريد حذف {count} من العناصر المحددة نهائيًا؟ تشمل كل جولة للوكيل الردود والتفكير وسجلات الأدوات في جميع الصفحات. سيُستبعد المحتوى المحذوف من سياق المحادثات القادمة.",
+    messageSelectionHint: "حدد رسائل المستخدم منفردة أو جولة الوكيل كاملة. لا يمكن تحديد الرسائل المضغوطة.",
+    messageAlreadyCompressed: "تم ضغطها؛ لا يمكن حذفها",
+    messageCompressionBoundaryUnknown: "حد الضغط غير متاح؛ الحذف معطل",
+    selectAgentRun: "جولة الوكيل",
+    selectSingleMessage: "رسالة",
+    messageSelectionFailed: "تعذر تحميل الرسائل القابلة للتحديد",
+    messageDeleteFailed: "تعذر حذف الرسائل",
+    messagesDeleted: "تم حذف {count} من العناصر",
     screenshot: {
       shortcut: {
         settings: "تعيين اختصار لقطة الشاشة",

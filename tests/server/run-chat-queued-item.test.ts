@@ -4,6 +4,12 @@ const handleBridgeRunMock = vi.hoisted(() => vi.fn(async () => {}))
 const resumeBridgeRunMock = vi.hoisted(() => vi.fn(async () => {}))
 const handleCodingAgentRunMock = vi.hoisted(() => vi.fn(async () => {}))
 const loadSessionStateFromDbMock = vi.hoisted(() => vi.fn())
+const readSessionStateFromDbMock = vi.hoisted(() => vi.fn())
+const refreshContextUsageAfterDeletionMock = vi.hoisted(() => vi.fn())
+vi.mock('../../packages/server/src/modules/studio/services/chat-run/context-usage', () => ({
+  getSessionContextOverhead: vi.fn(() => 12_000),
+  refreshContextUsageAfterDeletion: refreshContextUsageAfterDeletionMock,
+}))
 const ensureReadyMock = vi.hoisted(() => vi.fn())
 const ekkoBoundaryInterruptMock = vi.hoisted(() => vi.fn())
 const codingAgentRunManagerMock = vi.hoisted(() => ({
@@ -29,6 +35,10 @@ const bridgeMock = vi.hoisted(() => ({
 const sessionStoreMocks = vi.hoisted(() => ({
   clearSessionMessages: vi.fn(),
 }))
+const deleteMessageGroupsMock = vi.hoisted(() => vi.fn())
+vi.mock('../../packages/server/src/modules/studio/repositories/session-message-deletion', () => ({
+  deleteSessionMessageGroups: deleteMessageGroupsMock,
+}))
 const listWorkspaceRunChangesForAssistantMessagesMock = vi.hoisted(() => vi.fn(() => []))
 
 vi.mock('../../packages/server/src/modules/studio/services/task-plans', () => ({
@@ -42,6 +52,7 @@ vi.mock('../../packages/server/src/modules/studio/services/chat-run/handle-bridg
 
 vi.mock('../../packages/server/src/modules/studio/services/chat-run/load-state', () => ({
   loadSessionStateFromDb: loadSessionStateFromDbMock,
+  readSessionStateFromDb: readSessionStateFromDbMock,
   resolveRunSource: vi.fn((source?: string) => source || 'cli'),
 }))
 
@@ -81,6 +92,7 @@ vi.mock('../../packages/server/src/modules/studio/public/chat-agent-runtime', ()
   handleChatCodingAgentSessionCommand: sessionCommandMocks.handleSessionCommand,
   parseChatCodingAgentSessionCommand: sessionCommandMocks.parseSessionCommand,
   getChatEkkoAgent: vi.fn(() => ({ requestBoundaryInterrupt: ekkoBoundaryInterruptMock })),
+  hasChatEkkoBackgroundTasks: vi.fn(() => false),
   respondToChatEkkoToolApproval: vi.fn(() => ({ handled: false, resolved: false })),
   respondToChatEkkoClarification: vi.fn(() => ({ handled: false, resolved: false })),
 }))
@@ -161,6 +173,8 @@ function makeServerHarness() {
 describe('ChatRunSocket queued bridge runs', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    readSessionStateFromDbMock.mockImplementation(() => ({ messages: [], isWorking: false, events: [], queue: [] }))
+    refreshContextUsageAfterDeletionMock.mockReturnValue(18_000)
     listWorkspaceRunChangesForAssistantMessagesMock.mockReset()
     listWorkspaceRunChangesForAssistantMessagesMock.mockReturnValue([])
     ensureReadyMock.mockResolvedValue({
@@ -896,6 +910,91 @@ describe('ChatRunSocket queued bridge runs', () => {
       bridgeMock,
       expect.any(Function),
     )
+  })
+
+  it.each([
+    { isWorking: true }, { isAborting: true }, { isCompressing: true }, { queue: [{ queue_id: 'q' }] },
+    { backgroundDelegations: { d: { status: 'delivering' } } },
+    { backgroundTasks: { d: { status: 'running' } } },
+  ])('rejects deletion during run or pending work: %j', async busy => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io } = makeServerHarness()
+    const server = new ChatRunSocket(io as any)
+    ;(server as any).sessionMap.set('session-1', { isWorking: false, queue: [], ...busy })
+    await expect(server.assertSessionMessagesEditable('session-1')).rejects.toMatchObject({ status: 409 })
+    await expect(server.deleteSessionMessages('session-1', [1], 0)).rejects.toMatchObject({ status: 409 })
+    expect(deleteMessageGroupsMock).not.toHaveBeenCalled()
+  })
+
+  it('rechecks local activity after checking the Hermes worker', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io } = makeServerHarness()
+    const server = new ChatRunSocket(io as any)
+    const state = { isWorking: false, queue: [] }
+    ;(server as any).sessionMap.set('session-1', state)
+    bridgeMock.statusIfLoaded.mockImplementationOnce(async () => {
+      state.isWorking = true
+      return { running: false }
+    })
+    await expect(server.deleteSessionMessages('session-1', [1], 0)).rejects.toMatchObject({ status: 409 })
+    expect(deleteMessageGroupsMock).not.toHaveBeenCalled()
+  })
+
+  it('invalidates the cached transcript and broadcasts deletion only after persistence succeeds', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { logger } = await import('../../packages/server/src/modules/studio/public/logging')
+    const { io, roomEmit } = makeServerHarness()
+    const server = new ChatRunSocket(io as any)
+    ;(server as any).sessionMap.set('session-1', { isWorking: false, queue: [], messages: [{ id: 1 }] })
+    const result = { deleted: 2, deletedGroups: 1, messageIds: [1, 2], historyRevision: 1 }
+    deleteMessageGroupsMock.mockImplementationOnce(() => { throw new Error('database failed') })
+    await expect(server.deleteSessionMessages('session-1', [1], 0)).rejects.toThrow('database failed')
+    expect((server as any).sessionMap.has('session-1')).toBe(true)
+    expect(roomEmit).not.toHaveBeenCalledWith('session.command', expect.anything())
+    expect(refreshContextUsageAfterDeletionMock).not.toHaveBeenCalled()
+    expect(logger.info).not.toHaveBeenCalledWith(expect.anything(), '[chat-run-socket] session messages deleted')
+    deleteMessageGroupsMock.mockReturnValueOnce(result)
+    expect(await server.deleteSessionMessages('session-1', [1], 0)).toEqual({ ...result, contextTokens: 18_000 })
+    expect(refreshContextUsageAfterDeletionMock).toHaveBeenCalledWith('session-1', 12_000)
+    expect((server as any).sessionMap.has('session-1')).toBe(false)
+    expect(logger.info).toHaveBeenCalledWith({
+      sessionId: 'session-1', requestedMessageIds: [1], deletedMessageIds: [1, 2],
+      deletedGroups: 1, previousHistoryRevision: 0, historyRevision: 1,
+    }, '[chat-run-socket] session messages deleted')
+    expect(roomEmit).toHaveBeenCalledWith('session.command', expect.objectContaining({ action: 'messages_deleted', ...result, contextTokens: 18_000 }))
+  })
+
+  it('loads retained history before dispatching the next run, then returns it on resume', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { handlers, io, socket } = makeServerHarness()
+    const server = new ChatRunSocket(io as any) as any
+    server.onConnection(socket)
+    const retained = [
+      { id: 10, role: 'user', content: 'keep old question', timestamp: 1 },
+      { id: 11, role: 'assistant', content: 'keep old answer', timestamp: 2 },
+    ]
+    server.sessionMap.set('session-1', { messages: [...retained, { id: 12, role: 'user', content: 'remove' }], isWorking: false, events: [], queue: [] })
+    deleteMessageGroupsMock.mockReturnValueOnce({ deleted: 1, deletedGroups: 1, messageIds: [12], historyRevision: 1 })
+    await server.deleteSessionMessages('session-1', [12], 0)
+    expect(server.sessionMap.has('session-1')).toBe(false)
+    readSessionStateFromDbMock.mockReturnValueOnce({ messages: [...retained], isWorking: false, events: [], queue: [],
+      messageTotal: 2, messageLoadedCount: 2, messageStateBaselineCount: 2, messagePageLimit: 150 })
+    handleBridgeRunMock.mockImplementationOnce(async (...args: any[]) => {
+      const state = args[4].get('session-1')
+      expect(state.messages).toEqual(retained)
+      state.messages.push({ id: 13, role: 'user', content: 'follow up', timestamp: 3 },
+        { id: 14, role: 'assistant', content: 'new answer', timestamp: 4 })
+    })
+    await server.handleRun(socket, { session_id: 'session-1', input: 'follow up', source: 'cli' }, 'default')
+    expect(handleBridgeRunMock).toHaveBeenCalled()
+    expect(readSessionStateFromDbMock).toHaveBeenCalledOnce()
+    socket.emit.mockClear()
+    await handlers.get('resume')?.({ session_id: 'session-1' })
+    expect(socket.emit).toHaveBeenCalledWith('resumed', expect.objectContaining({
+      messages: expect.arrayContaining(retained), messageTotal: 4, messageLoadedCount: 4, hasMoreBefore: false,
+    }))
+    const resumed = socket.emit.mock.calls.find(([event]: any[]) => event === 'resumed')?.[1]
+    expect(resumed.messages.map((m: any) => m.id)).toEqual([10, 11, 13, 14])
   })
 
   it('clears chat-run memory state when an external MCU clear removes history', async () => {

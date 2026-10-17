@@ -155,6 +155,10 @@ export interface DesktopScreenshotShortcutBridge {
 }
 
 export interface HermesDesktopBridge {
+  messageContextMenu?: {
+    show: (request: { label: string; enabled: boolean; hasSelection: boolean }) => Promise<'select-messages' | null>
+    close: () => Promise<void>
+  }
   screenshot?: {
     shortcut?: DesktopScreenshotShortcutBridge
     getCapabilities?: () => Promise<{

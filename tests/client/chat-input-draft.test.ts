@@ -445,6 +445,28 @@ describe('ChatInput draft persistence', () => {
     expect(wrapper.find('.context-bar').exists()).toBe(true)
   })
 
+  it.each(['hermes', 'ekko-agent'])('never substitutes historical usage for missing or zero %s context', async agent => {
+    const wrapper = mountForSession('session-context', {
+      source: agent === 'hermes' ? 'cli' : 'builtin_agent', agent,
+      inputTokens: 100_000, outputTokens: 36_100, contextTokens: 19_000,
+    })
+    await flushPromises()
+    expect(wrapper.get('.context-info').text()).toMatch(/^19\.0k\s+\//)
+    const session = useChatStore().activeSession!
+    session.contextTokens = 0
+    await nextTick()
+    expect(wrapper.get('.context-info').text()).toMatch(/^0\s+\//)
+    expect(wrapper.get('.context-info').text()).toContain('chat.contextRemaining 256.0k')
+    for (const value of [undefined, NaN, Infinity, -1]) {
+      session.contextTokens = value
+      await nextTick()
+      expect(wrapper.get('.context-info').text()).toMatch(/^—\s+\//)
+      expect(wrapper.get('.context-info').text()).toContain('chat.contextRemaining —')
+      expect(wrapper.find('.context-bar').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('136.1k')
+    }
+  })
+
   it.each(['cursor', 'codex', 'claude-code', 'pi', 'grok', 'opencode', 'dsh'])('shows only this session cumulative usage for %s', async agent => {
     const wrapper = mountForSession('session-usage', {
       source: 'coding_agent', agent, codingAgentId: agent as any,

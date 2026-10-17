@@ -937,6 +937,47 @@ openapi.paths['/api/studio/sessions/{id}/pin'].post.requestBody = {
   } } },
 }
 
+// Message selection uses persisted identities and a revision checked on deletion.
+const messageSelectionPath = '/api/studio/sessions/{id}/message-selection'
+openapi.paths[messageSelectionPath].get.description = 'List selection groups and historyRevision for a local Hermes or Ekko chat. User messages are individual items; agent replies, reasoning and tools are grouped by complete run across pages. Groups touching the compressed prefix are locked. Missing or invalid compression cursors lock all groups. Shared sessions are excluded.'
+openapi.paths[messageSelectionPath].get.responses['200'] = {
+  description: 'Message identities for selection (no message bodies)',
+  content: { 'application/json': { schema: {
+    type: 'object', required: ['groups', 'historyRevision'], properties: {
+      historyRevision: { type: 'integer', minimum: 0 },
+      groups: { type: 'array', items: { type: 'object', required: ['id', 'kind', 'messageIds'], properties: {
+        id: { type: 'integer' }, kind: { type: 'string', enum: ['message', 'run'] },
+        messageIds: { type: 'array', items: { type: 'integer' } }, runMarker: { type: 'string' },
+        deleteBlockedReason: { type: 'string', enum: ['compressed', 'compression_boundary_unknown'], description: 'Present when this group cannot be deleted. A run is locked if any of its messages is protected.' },
+      } } },
+    },
+  } } },
+}
+const deleteMessagesOperation = openapi.paths['/api/studio/sessions/{id}/messages/batch-delete'].post
+for (const operation of [openapi.paths[messageSelectionPath].get, deleteMessagesOperation]) {
+  operation.parameters.push({ name: 'profile', in: 'query', required: false, schema: { type: 'string' }, description: 'Profile owning the local session.' })
+}
+deleteMessagesOperation.description = 'Permanently delete selected uncompressed messages. Selecting any agent message removes its entire run. Requires an idle local Hermes/Ekko chat and the historyRevision from message-selection. Rechecks the current compression cursor inside the transaction; groups touching the compressed prefix are rejected. Preserves the summary, cursor and compression timestamp while advancing snapshot validity with the history revision. Cached transcript and context estimates are refreshed; billing usage is retained. Returns 409 for compressed or stale selections, unknown compression boundaries, or pending runs/tasks; shared sessions are forbidden.'
+deleteMessagesOperation.requestBody = {
+  required: true,
+  content: { 'application/json': { schema: {
+    type: 'object', required: ['messageIds', 'historyRevision'], properties: {
+      messageIds: { type: 'array', minItems: 1, maxItems: 10000, items: { type: 'integer', minimum: 1 } },
+      historyRevision: { type: 'integer', minimum: 0 },
+    },
+  } } },
+}
+deleteMessagesOperation.responses['200'] = {
+  description: 'Deleted message identities and new history revision',
+  content: { 'application/json': { schema: {
+    type: 'object', required: ['deleted', 'deletedGroups', 'messageIds', 'historyRevision'], properties: {
+      deleted: { type: 'integer' }, deletedGroups: { type: 'integer' }, historyRevision: { type: 'integer' },
+      contextTokens: { type: 'integer', nullable: true, minimum: 0, description: 'Estimated current context after deletion, including the retained summary; null if unavailable. Independent of billed usage.' },
+      messageIds: { type: 'array', items: { type: 'integer' } },
+    },
+  } } },
+}
+
 // Shared task planning is bound to an authenticated, active turn capability.
 openapi.paths['/api/studio/task-plans/update'] = {
   post: {

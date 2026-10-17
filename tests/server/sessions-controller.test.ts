@@ -52,6 +52,9 @@ const bridgeGetRuntimeStateMock = vi.fn()
 const emitSessionSettingsUpdatedMock = vi.fn()
 const getChatRunServerMock = vi.fn()
 const agentStatusMocks = vi.hoisted(() => ({ hermesAvailable: true }))
+vi.mock('../../packages/server/src/modules/studio/repositories/session-message-deletion', () => ({
+  getMessageSelectionGroups: vi.fn(() => []),
+}))
 const codingAgentRunManagerMock = vi.hoisted(() => ({
   stop: vi.fn(),
 }))
@@ -349,6 +352,57 @@ describe('session conversations controller', () => {
     bridgeGetRuntimeStateMock.mockReturnValue({ ready: false, running: false, endpoint: 'ipc:///tmp/hermes-agent-bridge.sock' })
     codingAgentRunManagerMock.stop.mockReset()
     invalidateCodingAgentSessionRuntimeMock.mockReset()
+  })
+
+  it('validates message deletion IDs, profile scope and supported agents before calling the runtime', async () => {
+    const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
+    const removeMessages = vi.fn(async () => ({ deleted: 2 }))
+    getChatRunServerMock.mockReturnValue({ deleteSessionMessages: removeMessages })
+    const localSession = { id: 's', profile: 'default', source: 'builtin_agent', agent: 'ekko-agent', history_revision: 2 }
+    const { getSession } = await import('../../packages/server/src/modules/studio/public/sessions')
+    vi.mocked(getSession).mockReturnValue(localSession as any)
+    const context = (body: any = { messageIds: [2, 2], historyRevision: 2 }) => ({
+      params: { id: 's' }, query: {}, state: {}, request: { body },
+    }) as any
+    for (const body of [{}, { messageIds: [], historyRevision: 2 }, { messageIds: ['2'], historyRevision: 2 }, { messageIds: [2], historyRevision: -1 }]) {
+      const ctx = context(body)
+      await mod.deleteMessages(ctx)
+      expect(ctx.status).toBe(400)
+    }
+    const shared = context(); shared.state.sessionShare = {}
+    await mod.deleteMessages(shared)
+    expect(shared.status).toBe(403)
+    const wrongProfile = context(); wrongProfile.query.profile = 'other'
+    await mod.deleteMessages(wrongProfile)
+    expect(wrongProfile.status).toBe(404)
+    const forbidden = context(); forbidden.state.user = { id: 3, role: 'user' }
+    listUserProfilesMock.mockReturnValue([{ profile_name: 'other' }])
+    await mod.deleteMessages(forbidden)
+    expect(forbidden.status).toBe(403)
+    vi.mocked(getSession).mockReturnValue({ ...localSession, source: 'coding_agent', agent: 'codex' } as any)
+    const coding = context()
+    await mod.deleteMessages(coding)
+    expect(coding.status).toBe(400)
+    expect(removeMessages).not.toHaveBeenCalled()
+    vi.mocked(getSession).mockReturnValue(localSession as any)
+    const ok = context()
+    await mod.deleteMessages(ok)
+    expect(removeMessages).toHaveBeenCalledWith('s', [2], 2)
+    expect(ok.body).toEqual({ deleted: 2 })
+  })
+
+  it('checks runtime activity before exposing selectable message identities', async () => {
+    const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
+    const { getSession, getMessageSelectionGroups } = await import('../../packages/server/src/modules/studio/public/sessions')
+    vi.mocked(getSession).mockReturnValue({ id: 's', profile: 'default', source: 'builtin_agent', agent: 'ekko-agent', history_revision: 0 } as any)
+    const assertEditable = vi.fn().mockRejectedValueOnce(Object.assign(new Error('running'), { status: 409 })).mockResolvedValue(undefined)
+    getChatRunServerMock.mockReturnValue({ assertSessionMessagesEditable: assertEditable })
+    const ctx = { params: { id: 's' }, query: {}, state: {} } as any
+    await expect(mod.messageSelection(ctx)).rejects.toMatchObject({ status: 409 })
+    expect(ctx.body).toBeUndefined()
+    await mod.messageSelection(ctx)
+    expect(assertEditable).toHaveBeenCalledWith('s')
+    expect(ctx.body).toEqual({ groups: getMessageSelectionGroups('s'), historyRevision: 0 })
   })
 
   it('returns shared session agent and workspace metadata without account secrets', async () => {

@@ -200,6 +200,8 @@ export const SESSIONS_SCHEMA: Record<string, string> = {
   history_revision: 'INTEGER NOT NULL DEFAULT 0',
   /** Milliseconds of the last history clear; provider usage before it describes deleted history. */
   history_cleared_at: 'INTEGER NOT NULL DEFAULT 0',
+  /** Context estimate after a history edit, separate from cumulative billed usage. */
+  context_usage_estimate: 'TEXT',
 }
 
 export const SESSIONS_INDEXES = {

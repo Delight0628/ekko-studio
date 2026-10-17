@@ -1,4 +1,5 @@
 import { chatSessionAgentAvatar } from '@/utils/chat-agent-avatar'
+import { deleteSessionMessages, type MessageDeletionResult } from '@/api/studio/sessions'
 import { isNativeCodingAgent } from '@/utils/agent-catalog'
 import { historySessionSource, isBuiltinEkkoSession } from '@/utils/hermes/session-agent'
 import { isKnownEkkoSessionCommand } from '@/utils/hermes/bridge-session-commands'
@@ -90,6 +91,7 @@ export interface Attachment {
 }
 
 export interface Message {
+  storedMessageId?: number
   taskPlan?: TaskPlanSnapshot
   id: string
   role: 'user' | 'assistant' | 'system' | 'tool' | 'command'
@@ -462,6 +464,7 @@ export interface QueueInsertionState {
 }
 
 export interface Session {
+  historyRevision?: number
   id: string
   profile?: string
   title: string
@@ -951,6 +954,7 @@ function mapHermesMessages(msgs: HermesMessage[], taskPlans: unknown[] = [], pre
           toolStatus: 'done',
           finishReason: readFinishReason(msg),
           runMarker: readRunMarker(msg),
+          storedMessageId: Number(msg.id),
         })
       }
       if (!msg.run_usage) continue
@@ -1032,6 +1036,7 @@ function mapHermesMessages(msgs: HermesMessage[], taskPlans: unknown[] = [], pre
           toolStatus: status === 'running' ? 'running' : status === 'completed' ? 'done' : 'error',
           finishReason: readFinishReason(msg),
           runMarker: readRunMarker(msg),
+          storedMessageId: Number(msg.id),
         })
         continue
       }
@@ -1063,6 +1068,7 @@ function mapHermesMessages(msgs: HermesMessage[], taskPlans: unknown[] = [], pre
               toolStatus: status === 'running' ? 'running' : status === 'completed' ? 'done' : 'error',
               finishReason: readFinishReason(msg),
               runMarker: readRunMarker(msg),
+              storedMessageId: Number(msg.id),
             })
           }
           continue
@@ -1092,6 +1098,7 @@ function mapHermesMessages(msgs: HermesMessage[], taskPlans: unknown[] = [], pre
             toolStatus: 'done',
             finishReason: readFinishReason(msg),
             runMarker: readRunMarker(msg),
+            storedMessageId: Number(msg.id),
           })
         }
         continue
@@ -1110,6 +1117,7 @@ function mapHermesMessages(msgs: HermesMessage[], taskPlans: unknown[] = [], pre
         toolStatus: readFinishReason(msg) === 'error' ? 'error' : 'done',
         finishReason: readFinishReason(msg),
         runMarker: readRunMarker(msg),
+        storedMessageId: Number(msg.id),
       })
       continue
     }
@@ -1127,6 +1135,7 @@ function mapHermesMessages(msgs: HermesMessage[], taskPlans: unknown[] = [], pre
       systemType: displayRole === 'command' ? 'command' : undefined,
       finishReason: readFinishReason(msg),
       runMarker: readRunMarker(msg),
+      storedMessageId: Number(msg.id),
     })
   }
   const restored = mergeTaskPlanMessages(result, taskPlans)
@@ -1334,6 +1343,7 @@ function removeItem(key: string) {
 // File objects don't serialize and we only need name/type/size/url for display.
 
 export const useChatStore = defineStore('chat', () => {
+  const messageHistoryRevisions = new Map<string, number>()
   const runtimeMode = ref<ChatRuntimeMode>(activeRuntimeMode)
   const seenSessionCommandEvents = new WeakSet<RunEvent>()
   const sessions = ref<Session[]>([])
@@ -1952,13 +1962,50 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  function applyMessageDeletion(sessionId: string, result: MessageDeletionResult) {
+    if ((messageHistoryRevisions.get(sessionId) ?? -1) >= result.historyRevision) return
+    messageHistoryRevisions.set(sessionId, result.historyRevision)
+    const target = sessions.value.find(session => session.id === sessionId)
+    if (!target) return
+    target.historyRevision = result.historyRevision
+    const ids = new Set(result.messageIds)
+    const runs = new Set(target.messages.filter(message => ids.has(message.storedMessageId ?? Number(message.id)))
+      .map(message => message.runMarker).filter(Boolean))
+    target.messages = target.messages.filter(message => !ids.has(message.storedMessageId ?? Number(message.id))
+      && !(message.taskPlan && runs.has(message.runMarker)))
+    target.messageTotal = Math.max(0, (target.messageTotal ?? target.messageCount ?? 0) - result.deleted)
+    target.messageCount = target.messageTotal
+    target.contextTokens = typeof result.contextTokens === 'number' && Number.isFinite(result.contextTokens) && result.contextTokens >= 0
+      ? result.contextTokens : undefined
+    target.loadedMessageCount = 0
+    clearMessageReference(sessionId)
+    pendingRunUsage.delete(sessionId)
+    if (activeSessionId.value === sessionId) {
+      focusMessageId.value = null
+      const messagesAtDeletion = target.messages
+      const countAtDeletion = messagesAtDeletion.length
+      // A subsequent run/resume owns the newer transcript, even if it finishes
+      // before this refresh returns.
+      void refreshActiveSession({ canApply: () => !isSessionWorking(sessionId)
+        && target.messages === messagesAtDeletion && target.messages.length === countAtDeletion })
+    }
+  }
+
+  async function deleteMessages(sessionId: string, messageIds: number[], historyRevision: number) {
+    const session = sessions.value.find(item => item.id === sessionId)
+    const result = await deleteSessionMessages(sessionId, messageIds, historyRevision, session?.profile)
+    applyMessageDeletion(sessionId, result)
+    return result
+  }
+
   // Re-pull active session from server. Used on tab-visible events.
-  async function refreshActiveSession(): Promise<boolean> {
+  async function refreshActiveSession(options: { canApply?: () => boolean } = {}): Promise<boolean> {
     const sid = activeSessionId.value
     if (!sid) return false
     try {
       const target = sessions.value.find(s => s.id === sid)
       if (!target) return false
+      const revision = messageHistoryRevisions.get(sid)
       const limit = focusMessageId.value
         ? Math.max(target.loadedMessageCount || LIVE_CHAT_MESSAGE_PAGE_SIZE, LIVE_CHAT_MESSAGE_PAGE_SIZE)
         : Math.min(
@@ -1966,6 +2013,7 @@ export const useChatStore = defineStore('chat', () => {
           LIVE_CHAT_MAX_LOADED_MESSAGES,
         )
       const detail = await fetchSessionMessagesPage(sid, 0, limit, activeSession.value?.profile)
+      if (revision !== messageHistoryRevisions.get(sid) || options.canApply?.() === false) return false
       if (!detail) return false
       const mapped = mapHermesMessages(detail.messages || [], detail.taskPlans, target.messages)
       target.messages = mapped
@@ -2955,6 +3003,10 @@ export const useChatStore = defineStore('chat', () => {
 
     const sid = evt.session_id
     if (!sid) return
+    if ((evt as any).action === 'messages_deleted') {
+      applyMessageDeletion(sid, evt as unknown as MessageDeletionResult)
+      return
+    }
     const target = sessions.value.find(s => s.id === sid)
     const action = (evt as any).action as string | undefined
     const command = String((evt as any).command || '').toLowerCase()
@@ -5324,6 +5376,10 @@ export const useChatStore = defineStore('chat', () => {
 
   function handleGlobalSessionCommand(evt: RunEvent) {
     const sid = evt.session_id
+    if (sid && (evt as any).action === 'messages_deleted') {
+      handleSessionCommandEvent(evt)
+      return
+    }
     if (!sid || activeSessionId.value !== sid || !activeSession.value) return
     const shouldAttachToStartedRun = (evt as any).started === true && (evt as any).terminal === false
     handleSessionCommandEvent(evt)
@@ -5656,6 +5712,7 @@ export const useChatStore = defineStore('chat', () => {
     loadSessions,
     refreshSessionListOnly,
     refreshActiveSession,
+    deleteMessages,
     getThinkingObservation,
     noteThinkingDelta,
     noteReasoningStart,

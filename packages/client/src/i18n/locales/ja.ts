@@ -1016,6 +1016,18 @@ export default {
 
   // チャット
   chat: {
+    selectMessages: "メッセージを選択",
+    messagesSelected: "{count} 件選択中",
+    deleteSelectedMessages: "選択項目を削除",
+    deleteMessagesConfirm: "選択した {count} 件を完全に削除しますか？エージェントの各実行には、全ページの応答・思考・ツール記録が含まれます。削除内容は今後の会話コンテキストから除外されます。",
+    messageSelectionHint: "ユーザーメッセージは個別に、エージェントは実行単位で選択します。圧縮済みのメッセージは選択できません。",
+    messageAlreadyCompressed: "圧縮済みのため削除できません",
+    messageCompressionBoundaryUnknown: "圧縮の境界を確認できないため削除できません",
+    selectAgentRun: "エージェントの実行",
+    selectSingleMessage: "メッセージ",
+    messageSelectionFailed: "選択項目を読み込めませんでした",
+    messageDeleteFailed: "メッセージを削除できませんでした",
+    messagesDeleted: "{count} 件を削除しました",
     screenshot: {
       shortcut: {
         settings: "スクリーンショットのショートカットを設定",

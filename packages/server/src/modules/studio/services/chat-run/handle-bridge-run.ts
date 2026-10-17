@@ -19,7 +19,7 @@ import type {
   PrimaryAgentBridgeOutput as AgentBridgeOutput,
 } from '../../public/chat-agent-runtime'
 import { contentBlocksToString, convertContentBlocksForAgent, extractTextForPreview, isContentBlockArray } from './content-blocks'
-import { buildCompressedHistory, buildDbSnapshotAwareHistory, forceCompressBridgeHistory, pushState, replaceState } from './compression'
+import { buildCompressedHistory, buildDbSnapshotAwareHistory, forceCompressBridgeHistory, getOrCreateSession, pushState, replaceState } from './compression'
 import {
   calcAndUpdateUsage,
   contextTokensWithCachedOverhead,
@@ -607,7 +607,7 @@ export async function handleBridgeRun(
   let messageId: number | string | undefined
 
   if (shouldPersistUserMessage) {
-    state.messages.push({
+    const userMessage = {
       id: state.messages.length + 1,
       session_id,
       runMarker,
@@ -617,7 +617,8 @@ export async function handleBridgeRun(
       display_content: displayContentForStorage,
       run_marker: runMarker,
       timestamp: now,
-    })
+    }
+    state.messages.push(userMessage)
 
     if (!getSession(session_id)) {
       const previewText = extractTextForPreview(displayInput || input)
@@ -632,6 +633,9 @@ export async function handleBridgeRun(
       display_content: displayContentForStorage,
       timestamp: now,
     })
+    // Deletion and paged restores leave gaps in IDs. An array-length ID can
+    // collide with a retained row and make Vue reuse the wrong message node.
+    if (messageId != null) userMessage.id = messageId
     data.onEvent?.('message.created', {
       event: 'message.created',
       session_id,
@@ -1037,11 +1041,7 @@ export async function resumeBridgeRun(
 ) {
   const { sessionId, runId, profile, instructions } = args
   const runSource = normalizeBridgeRunSource(args.source)
-  let state = sessionMap.get(sessionId)
-  if (!state) {
-    state = { messages: [], isWorking: false, events: [], queue: [] }
-    sessionMap.set(sessionId, state)
-  }
+  const state = getOrCreateSession(sessionMap, sessionId)
 
   const runMarker = state.activeRunMarker || `cli_resume_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
   state.isWorking = true

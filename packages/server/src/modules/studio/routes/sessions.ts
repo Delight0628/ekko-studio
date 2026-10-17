@@ -38,6 +38,8 @@ sessionRoutes.delete('/api/studio/sessions/:id/workspace-file/delete', ctrl.dele
 sessionRoutes.post('/api/studio/sessions/:id/workspace-file/rename', ctrl.renameWorkspaceFile)
 sessionRoutes.post('/api/studio/sessions/:id/workspace-file/copy', ctrl.copyWorkspaceFile)
 sessionRoutes.get('/api/studio/sessions/:id', ctrl.get)
+sessionRoutes.get('/api/studio/sessions/:id/message-selection', ctrl.messageSelection)
+sessionRoutes.post('/api/studio/sessions/:id/messages/batch-delete', ctrl.deleteMessages)
 sessionRoutes.get('/api/studio/sessions/:id/export', ctrl.exportSession)
 sessionRoutes.get('/api/studio/sessions/:id/usage', ctrl.usageSingle)
 sessionRoutes.delete('/api/studio/sessions/:id', ctrl.remove)

@@ -1037,6 +1037,18 @@ export default {
 
   // 对话
   chat: {
+    selectMessages: "多选消息",
+    messagesSelected: "已选 {count} 条",
+    deleteSelectedMessages: "删除所选",
+    deleteMessagesConfirm: "确定永久删除所选的 {count} 条吗？每轮 agent 会连同所有分页中的回复、思考和工具记录一起删除，后续对话上下文将排除这些内容。",
+    messageSelectionHint: "用户消息单独选择，agent 每轮 run 算一条；已压缩的消息不可选择。",
+    messageAlreadyCompressed: "已压缩，不能删除",
+    messageCompressionBoundaryUnknown: "压缩边界无法确认，暂不能删除",
+    selectAgentRun: "一轮 agent 回复",
+    selectSingleMessage: "单条消息",
+    messageSelectionFailed: "加载可选消息失败",
+    messageDeleteFailed: "删除消息失败",
+    messagesDeleted: "已删除 {count} 条",
     screenshot: {
       shortcut: {
         settings: "设置截图快捷键",

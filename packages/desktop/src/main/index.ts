@@ -33,7 +33,7 @@ import { t } from './desktop-i18n'
 import { resetDesktopDefaultLogin } from './desktop-login-reset'
 import { installHermesStudioCliShim, installHermesStudioMcpShim } from './cli-shim'
 import { parseHermesCliArgs, runBundledHermesCli } from './hermes-cli'
-import { installSelectionContextMenu } from './selection-context-menu'
+import { installSelectionContextMenu, registerMessageSelectionContextMenuIpc } from './selection-context-menu'
 import { cancelRegionScreenshot, captureRegionScreenshot, parseScreenshotRequest, getScreenshotCapabilities } from './screenshot'
 import { disposeScreenshotOverlays, warmScreenshotEditor } from './screenshot-windows'
 import { ScreenshotShortcutManager, ScreenshotShortcutTargets } from './screenshot-shortcut'
@@ -1135,18 +1135,20 @@ function requireDesktopUpdaterSender(event: IpcMainInvokeEvent): void {
   }
 }
 
-function screenshotWindow(event: IpcMainInvokeEvent): BrowserWindow {
+function studioChatWindow(event: IpcMainInvokeEvent): BrowserWindow {
   const target = BrowserWindow.fromWebContents(event.sender)
   if (!target || (target !== mainWindow && ![...chatWindows.values()].includes(target))
     || event.senderFrame !== event.sender.mainFrame
     || !isTrustedDesktopAppUrl(event.senderFrame?.url || '', serverUrl)) {
-    throw new Error('Screenshots can only be requested from a Studio chat window')
+    throw new Error('This operation requires a Studio chat window')
   }
   return target
 }
 
+registerMessageSelectionContextMenuIpc(studioChatWindow)
+
 ipcMain.handle('hermes-desktop:screenshot-capture-region', (event, request?: unknown) => {
-  const target = screenshotWindow(event)
+  const target = studioChatWindow(event)
   const parsed = parseScreenshotRequest(request)
   const windows = [mainWindow, petWindow, ...chatWindows.values()].filter((window): window is BrowserWindow => !!window)
   return captureRegionScreenshot(target, parsed, windows, () => {
@@ -1157,11 +1159,11 @@ ipcMain.handle('hermes-desktop:screenshot-capture-region', (event, request?: unk
   })
 })
 ipcMain.handle('hermes-desktop:screenshot-cancel', (event, requestId?: unknown) => {
-  screenshotWindow(event)
+  studioChatWindow(event)
   return typeof requestId === 'string' && cancelRegionScreenshot(event.sender.id, requestId)
 })
 ipcMain.handle('hermes-desktop:screenshot-capabilities', event => {
-  screenshotWindow(event)
+  studioChatWindow(event)
   return getScreenshotCapabilities()
 })
 
@@ -1171,15 +1173,15 @@ function screenshotShortcutTargetId(value: unknown): string {
 }
 
 ipcMain.handle('hermes-desktop:screenshot-shortcut-get', event => {
-  screenshotWindow(event)
+  studioChatWindow(event)
   return screenshotShortcut.getState()
 })
 ipcMain.handle('hermes-desktop:screenshot-shortcut-save', (event, input: unknown) => {
-  screenshotWindow(event)
+  studioChatWindow(event)
   return screenshotShortcut.save(input, screenshotEnvironment().hideWindows)
 })
 ipcMain.handle('hermes-desktop:screenshot-shortcut-target', (event, id: unknown, active: unknown) => {
-  screenshotWindow(event)
+  studioChatWindow(event)
   const targetId = screenshotShortcutTargetId(id)
   if (active !== true && active !== false && active !== null) throw new Error('Invalid screenshot shortcut target state')
   const owner = event.sender.id
@@ -1197,7 +1199,7 @@ ipcMain.handle('hermes-desktop:screenshot-shortcut-target', (event, id: unknown,
   return true
 })
 ipcMain.handle('hermes-desktop:screenshot-shortcut-editing', (event, id: unknown, editing: unknown) => {
-  screenshotWindow(event)
+  studioChatWindow(event)
   if (typeof editing !== 'boolean') throw new Error('Invalid screenshot shortcut editor state')
   return screenshotShortcut.setEditing(`${event.sender.id}:${screenshotShortcutTargetId(id)}`, editing)
 })

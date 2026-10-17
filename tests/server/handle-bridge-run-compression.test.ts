@@ -32,7 +32,7 @@ vi.mock('../../packages/server/src/modules/studio/repositories/session-store', (
   getSessionMessageCountByRole: vi.fn(() => 0),
   createSession: vi.fn(),
   addMessage: vi.fn((row: Partial<HermesMessageRow>) => {
-    const id = mocks.rows.length + 1
+    const id = Math.max(0, ...mocks.rows.map(m => Number(m.id) || 0)) + 1
     mocks.rows.push({ ...row, id })
     return id
   }),
@@ -204,5 +204,20 @@ describe('handle-bridge-run compression', () => {
     expect(bridge.compressionRespond).toHaveBeenCalledTimes(1)
     expect(bridge.compressionRespond.mock.calls[0][1]).not.toHaveProperty('error')
     expect((bridge.compressionRespond.mock.calls[0][1].messages ?? []).map(m => [m.role, m.content])).toEqual(PREVIOUS_TURN_HISTORY)
+  })
+
+  it('uses persisted input IDs without colliding with retained messages after deletion', async () => {
+    mocks.rows.forEach((row, index) => { row.id = index + 3 })
+    const retainedIds = mocks.rows.map(row => row.id)
+    const expectedInputId = Math.max(...retainedIds.map(Number)) + 1
+    const bridge = makeBridge()
+    const { nsp, socket } = makeSockets()
+    const state: SessionState = { messages: mocks.rows.map(row => ({ ...row })) as any, isWorking: false, events: [], queue: [] }
+    await handleBridgeRun(nsp, socket, { session_id: 'session-1', input: 'continue after deletion' }, 'default',
+      new Map([['session-1', state]]), bridge as unknown as PrimaryAgentBridgeClient, false, vi.fn(), vi.fn())
+    expect(state.messages.slice(0, retainedIds.length).map(m => m.id)).toEqual(retainedIds)
+    const input = state.messages.find(m => m.content === 'continue after deletion')!
+    expect(input.id).toBe(expectedInputId)
+    expect(new Set(state.messages.map(m => m.id)).size).toBe(state.messages.length)
   })
 })

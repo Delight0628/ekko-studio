@@ -45,6 +45,7 @@ export function saveCompressionSnapshot(
   lastMessageIndex: number,
   messageCountAtTime: number,
   cursor?: CompressionSnapshotCursorWrite,
+  expectedHistoryRevision?: number,
 ): boolean {
   if (!isSqliteAvailable()) return true
   const db = getDb()!
@@ -53,7 +54,8 @@ export function saveCompressionSnapshot(
   ).get(sessionId) as { historyRevision: number } | undefined
   if (!session) return false
   const historyRevision = Number(session.historyRevision || 0)
-  if (cursor && historyRevision !== cursor.expectedHistoryRevision) return false
+  const expectedRevision = cursor?.expectedHistoryRevision ?? expectedHistoryRevision
+  if (expectedRevision != null && historyRevision !== expectedRevision) return false
 
   if (cursor) {
     const compressedBoundary = db.prepare(

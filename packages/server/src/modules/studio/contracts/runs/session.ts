@@ -134,6 +134,8 @@ export interface QueueInsertionControl {
 }
 
 export interface SessionState {
+  /** Manual Hermes compression also holds history against message deletion. */
+  isCompressing?: boolean
   /** Explicit Stop suppresses automatic wakeups until the next user run. */
   backgroundWakeStopped?: boolean
   /** Snapshot the owning runtime's interrupted turn without waiting for model IO. */

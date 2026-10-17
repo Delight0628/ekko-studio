@@ -13,6 +13,7 @@ import { readCompressionPolicy } from '../../public/compression-policy'
 import { logger } from '../../public/logging'
 import { bridgeLogger } from '../../public/logging'
 import { calcAndUpdateUsage, estimateUsageTokensFromMessages, updateMessageContextTokenUsage } from './usage'
+import { readSessionStateFromDb } from './load-state'
 import {
   assembleCursorSnapshotHistory,
   buildDbHistory as queryDbHistory,
@@ -691,7 +692,12 @@ export async function forceCompressBridgeHistory(
 export function getOrCreateSession(sessionMap: Map<string, SessionState>, sessionId: string): SessionState {
   let state = sessionMap.get(sessionId)
   if (!state) {
-    state = { messages: [], isWorking: false, events: [], queue: [] }
+    // A deleted cache entry does not mean the conversation is new. Run setup
+    // calls this before the agent handler, so an empty placeholder would also
+    // bypass that handler's DB load and later replace history during resume.
+    state = getSession(sessionId)
+      ? readSessionStateFromDb(sessionId)
+      : { messages: [], isWorking: false, events: [], queue: [] }
     sessionMap.set(sessionId, state)
   }
   return state

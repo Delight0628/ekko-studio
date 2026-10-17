@@ -75,6 +75,7 @@ import {
   workspaceRelativePath,
 } from '../services/workspace/manager'
 import { getChatRunServer } from '../services/chat-run/server-registry'
+import { getMessageSelectionGroups } from '../public/sessions'
 import { isSensitivePath, MAX_DOWNLOAD_SIZE, MAX_EDIT_SIZE } from '../services/files/file-policy'
 import { buildFileContentHeaders, getFilePreviewDescriptor } from '../services/files/file-preview'
 import { decorateWorkspaceEntries, getWorkspaceFileGitDiff } from '../services/files/workspace-git-status'
@@ -1326,6 +1327,61 @@ export async function importHermesSession(ctx: any) {
   })
 
   ctx.body = { ok: true, imported: true, session: localGetSessionDetail(detail.id) }
+}
+
+function messageDeletionSession(ctx: any) {
+  const session = localGetSession(ctx.params.id)
+  if (ctx.state?.sessionShare) {
+    ctx.status = 403
+    ctx.body = { error: 'Shared sessions do not allow message deletion' }
+    return null
+  }
+  if (denySessionAccess(ctx, session)) return null
+  if (!session || (requestedProfile(ctx) && requestedProfile(ctx) !== session.profile)) {
+    ctx.status = 404
+    ctx.body = { error: 'Session not found' }
+    return null
+  }
+  if (!['cli', 'api_server', 'desktop', 'builtin_agent'].includes(session.source)
+    || (session.agent && session.agent !== 'hermes' && !isBuiltinEkkoAgent(session.agent))) {
+    ctx.status = 400
+    ctx.body = { error: 'Message deletion is supported for Hermes and Ekko chat sessions' }
+    return null
+  }
+  return session
+}
+
+export async function messageSelection(ctx: any) {
+  const session = messageDeletionSession(ctx)
+  if (!session) return
+  const server = getChatRunServer()
+  if (!server) {
+    ctx.status = 503
+    ctx.body = { error: 'Chat runtime is unavailable' }
+    return
+  }
+  await server.assertSessionMessagesEditable(session.id)
+  ctx.body = { groups: getMessageSelectionGroups(session.id), historyRevision: session.history_revision }
+}
+
+export async function deleteMessages(ctx: any) {
+  const session = messageDeletionSession(ctx)
+  if (!session) return
+  const { messageIds, historyRevision } = (ctx.request.body || {}) as { messageIds?: number[]; historyRevision?: number }
+  if (!Array.isArray(messageIds) || messageIds.length === 0 || messageIds.length > 10_000
+    || messageIds.some(id => !Number.isSafeInteger(id) || id <= 0)
+    || !Number.isSafeInteger(historyRevision) || historyRevision! < 0) {
+    ctx.status = 400
+    ctx.body = { error: 'messageIds and a nonnegative historyRevision are required' }
+    return
+  }
+  const server = getChatRunServer()
+  if (!server) {
+    ctx.status = 503
+    ctx.body = { error: 'Chat runtime is unavailable' }
+    return
+  }
+  ctx.body = await server.deleteSessionMessages(session.id, [...new Set(messageIds)], historyRevision)
 }
 
 export async function remove(ctx: any) {

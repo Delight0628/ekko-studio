@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { DesktopUpdateState } from '../main/updater-types'
+import type { MessageSelectionContextMenuRequest } from '../main/selection-context-menu'
 import type { ScreenshotShortcutConfig, ScreenshotShortcutState } from '../main/screenshot-shortcut'
 import type { BrowserBounds, BrowserProfileCreateInput, BrowserProfileSwitchImpact, BrowserProfileUpdateInput, BrowserSelection, DesktopBrowserProfile, DesktopBrowserState, DesktopBrowserTab } from '../main/browser/browser-types'
 
@@ -16,6 +17,10 @@ function desktopWindowKind(): DesktopWindowKind {
 const REMOTE_SERVER_MODE = process.argv.includes('--hermes-remote-mode')
 
 contextBridge.exposeInMainWorld('hermesDesktop', {
+  messageContextMenu: {
+    show: (request: MessageSelectionContextMenuRequest): Promise<'select-messages' | null> => ipcRenderer.invoke('hermes-desktop:message-context-menu-show', request),
+    close: (): Promise<void> => ipcRenderer.invoke('hermes-desktop:message-context-menu-close'),
+  },
   screenshot: {
     shortcut: {
       getState: (): Promise<ScreenshotShortcutState> => ipcRenderer.invoke('hermes-desktop:screenshot-shortcut-get'),

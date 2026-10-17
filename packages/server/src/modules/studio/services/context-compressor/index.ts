@@ -963,7 +963,9 @@ export class ChatContextCompressor {
                 : Number((typeof summarizer === 'object' && summarizer?.historyRevision) || 0),
             },
           )
-        : saveCompressionSnapshot(sessionId, summary, newLastIndex, total)
+        : typeof summarizer === 'object' && summarizer.historyRevision != null
+          ? saveCompressionSnapshot(sessionId, summary, newLastIndex, total, undefined, summarizer.historyRevision)
+          : saveCompressionSnapshot(sessionId, summary, newLastIndex, total)
       if (saved === false) throw new Error('Compression snapshot changed while summarizing')
     }
 
@@ -1049,7 +1051,9 @@ export class ChatContextCompressor {
               expectedHistoryRevision: Number((typeof summarizer === 'object' && summarizer?.historyRevision) || 0),
             },
           )
-        : saveCompressionSnapshot(sessionId, summary, tailStart - 1, total)
+        : typeof summarizer === 'object' && summarizer.historyRevision != null
+          ? saveCompressionSnapshot(sessionId, summary, tailStart - 1, total, undefined, summarizer.historyRevision)
+          : saveCompressionSnapshot(sessionId, summary, tailStart - 1, total)
       if (saved === false) throw new Error('Compression snapshot changed while summarizing')
     }
 

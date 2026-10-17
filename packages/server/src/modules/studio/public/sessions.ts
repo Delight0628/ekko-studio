@@ -1,4 +1,5 @@
 export * from '../repositories/session-store'
+export { getMessageSelectionGroups } from '../repositories/session-message-deletion'
 export * from '../repositories/session-category-store'
 export * from '../repositories/usage-store'
 export * from '../repositories/usage-accounts'

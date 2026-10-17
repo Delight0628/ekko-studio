@@ -42,11 +42,25 @@ function loadPreload(argv: string[], storedToken = 'remote-session') {
     remoteMode: boolean
     windowKind: string
     ensureAuth: () => Promise<boolean>
+    messageContextMenu: {
+      show: (request: { label: string; enabled: boolean; hasSelection: boolean }) => Promise<'select-messages' | null>
+      close: () => Promise<void>
+    }
   }
   return { bridge, invoke, listeners, storage, window }
 }
 
 describe('desktop preload auth', () => {
+  it.each(['main', 'chat'])('exposes the message menu bridge in the %s window', async kind => {
+    const { bridge, invoke } = loadPreload(['--hermes-remote-mode', `--hermes-window-kind=${kind}`])
+    const request = { label: '多选消息', enabled: true, hasSelection: true }
+    invoke.mockResolvedValueOnce('select-messages')
+    expect(await bridge.messageContextMenu.show(request)).toBe('select-messages')
+    expect(invoke).toHaveBeenLastCalledWith('hermes-desktop:message-context-menu-show', request)
+    await bridge.messageContextMenu.close()
+    expect(invoke).toHaveBeenLastCalledWith('hermes-desktop:message-context-menu-close')
+  })
+
   it.each(['main', 'pet', 'chat'])('preserves remote auth and password policy in the %s window', async kind => {
     const preload = loadPreload(['--hermes-remote-mode', `--hermes-window-kind=${kind}`])
 

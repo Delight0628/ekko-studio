@@ -1030,6 +1030,18 @@ export default {
 
   // 對話
   chat: {
+    selectMessages: "多選訊息",
+    messagesSelected: "已選 {count} 則",
+    deleteSelectedMessages: "刪除所選",
+    deleteMessagesConfirm: "確定永久刪除所選的 {count} 則嗎？每輪 agent 會連同所有分頁中的回覆、思考和工具記錄一起刪除，後續對話上下文將排除這些內容。",
+    messageSelectionHint: "使用者訊息單獨選取，agent 每輪 run 算一項；已壓縮的訊息無法選取。",
+    messageAlreadyCompressed: "已壓縮，無法刪除",
+    messageCompressionBoundaryUnknown: "無法確認壓縮邊界，暫時無法刪除",
+    selectAgentRun: "一輪 agent 回覆",
+    selectSingleMessage: "單則訊息",
+    messageSelectionFailed: "載入可選訊息失敗",
+    messageDeleteFailed: "刪除訊息失敗",
+    messagesDeleted: "已刪除 {count} 則",
     screenshot: {
       shortcut: {
         settings: "設定截圖快捷鍵",

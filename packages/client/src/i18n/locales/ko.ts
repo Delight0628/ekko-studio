@@ -1016,6 +1016,18 @@ export default {
 
   // 채팅
   chat: {
+    selectMessages: "메시지 선택",
+    messagesSelected: "{count}개 선택됨",
+    deleteSelectedMessages: "선택 항목 삭제",
+    deleteMessagesConfirm: "선택한 {count}개 항목을 영구 삭제할까요? 에이전트 실행에는 모든 페이지의 응답, 추론 및 도구 기록이 포함됩니다. 삭제된 내용은 이후 대화 컨텍스트에서 제외됩니다.",
+    messageSelectionHint: "사용자 메시지는 개별로, 에이전트는 실행 전체를 선택합니다. 압축된 메시지는 선택할 수 없습니다.",
+    messageAlreadyCompressed: "이미 압축되어 삭제할 수 없습니다",
+    messageCompressionBoundaryUnknown: "압축 경계를 확인할 수 없어 삭제할 수 없습니다",
+    selectAgentRun: "에이전트 실행",
+    selectSingleMessage: "메시지",
+    messageSelectionFailed: "선택 가능한 메시지를 불러오지 못했습니다",
+    messageDeleteFailed: "메시지를 삭제하지 못했습니다",
+    messagesDeleted: "{count}개 항목 삭제됨",
     screenshot: {
       shortcut: {
         settings: "스크린샷 단축키 설정",

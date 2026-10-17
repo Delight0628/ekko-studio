@@ -943,6 +943,18 @@ export default {
 
 
   chat: {
+    selectMessages: "Выбрать сообщения",
+    messagesSelected: "Выбрано: {count}",
+    deleteSelectedMessages: "Удалить выбранное",
+    deleteMessagesConfirm: "Навсегда удалить выбранные элементы ({count})? Каждый запуск агента включает ответы, рассуждения и записи инструментов на всех страницах. Удалённое содержимое будет исключено из контекста будущих разговоров.",
+    messageSelectionHint: "Выберите отдельные сообщения пользователя или весь запуск агента. Сжатые сообщения выбрать нельзя.",
+    messageAlreadyCompressed: "Уже сжато; удаление невозможно",
+    messageCompressionBoundaryUnknown: "Граница сжатия неизвестна; удаление отключено",
+    selectAgentRun: "Запуск агента",
+    selectSingleMessage: "Сообщение",
+    messageSelectionFailed: "Не удалось загрузить список сообщений",
+    messageDeleteFailed: "Не удалось удалить сообщения",
+    messagesDeleted: "Удалено элементов: {count}",
     screenshot: {
       shortcut: {
         settings: "Настроить сочетание для снимка экрана",

@@ -1016,6 +1016,18 @@ export default {
 
   // Chat
   chat: {
+    selectMessages: "Nachrichten auswählen",
+    messagesSelected: "{count} ausgewählt",
+    deleteSelectedMessages: "Auswahl löschen",
+    deleteMessagesConfirm: "{count} ausgewählte Einträge dauerhaft löschen? Jeder Agentenlauf umfasst Antworten, Überlegungen und Werkzeugprotokolle auf allen Seiten. Gelöschte Inhalte werden aus dem zukünftigen Gesprächskontext entfernt.",
+    messageSelectionHint: "Benutzernachrichten einzeln oder einen ganzen Agentenlauf auswählen. Komprimierte Nachrichten sind nicht auswählbar.",
+    messageAlreadyCompressed: "Bereits komprimiert; Löschen nicht möglich",
+    messageCompressionBoundaryUnknown: "Komprimierungsgrenze unbekannt; Löschen deaktiviert",
+    selectAgentRun: "Agentenlauf",
+    selectSingleMessage: "Nachricht",
+    messageSelectionFailed: "Nachrichtenauswahl konnte nicht geladen werden",
+    messageDeleteFailed: "Nachrichten konnten nicht gelöscht werden",
+    messagesDeleted: "{count} Einträge gelöscht",
     screenshot: {
       shortcut: {
         settings: "Screenshot-Tastenkürzel festlegen",

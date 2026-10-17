@@ -732,11 +732,12 @@ export async function handleSessionCommand(
     }
 
     case 'compress': {
-      if (state.isWorking) {
+      if (state.isWorking || state.isCompressing) {
         emitCommand({ ok: false, action: 'compress', terminal: false, message: 'Compression can only run while the session is idle.' })
         return
       }
       clearTransientRunState(state)
+      state.isCompressing = true
       const emit = (event: string, payload: any) => emitToSession(ctx.nsp, ctx.socket, sessionId, event, payload)
       try {
         const session = getSession(sessionId)
@@ -806,6 +807,8 @@ export async function handleSessionCommand(
           action: 'compress',
           message: `Compression failed: ${err instanceof Error ? err.message : String(err)}`,
         })
+      } finally {
+        state.isCompressing = false
       }
       return
     }

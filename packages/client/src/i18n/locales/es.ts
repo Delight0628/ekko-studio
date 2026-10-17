@@ -1016,6 +1016,18 @@ export default {
 
   // Chat
   chat: {
+    selectMessages: "Seleccionar mensajes",
+    messagesSelected: "{count} seleccionados",
+    deleteSelectedMessages: "Eliminar selección",
+    deleteMessagesConfirm: "¿Eliminar permanentemente los {count} elementos seleccionados? Cada ejecución incluye respuestas, razonamiento y registros de herramientas de todas las páginas. El contenido eliminado se excluirá del contexto futuro.",
+    messageSelectionHint: "Selecciona mensajes de usuario individuales o una ejecución completa del agente. Los mensajes comprimidos no se pueden seleccionar.",
+    messageAlreadyCompressed: "Ya comprimido; no se puede eliminar",
+    messageCompressionBoundaryUnknown: "Límite de compresión desconocido; eliminación desactivada",
+    selectAgentRun: "Ejecución del agente",
+    selectSingleMessage: "Mensaje",
+    messageSelectionFailed: "No se pudo cargar la selección",
+    messageDeleteFailed: "No se pudieron eliminar los mensajes",
+    messagesDeleted: "{count} elementos eliminados",
     screenshot: {
       shortcut: {
         settings: "Configurar atajo de captura",
