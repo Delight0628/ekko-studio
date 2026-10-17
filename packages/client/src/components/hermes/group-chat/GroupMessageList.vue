@@ -265,137 +265,166 @@ defineExpose({ scrollToBottom })
             :positive-button-props="{ loading: deletingMessages, disabled: selectionUnavailable }"
             :negative-button-props="{ disabled: deletingMessages }" :mask-closable="!deletingMessages" :closable="!deletingMessages"
             @positive-click="deleteSelectedMessages" />
-        <VirtualMessageList
-            class="group-message-list"
-            ref="listRef"
-            :messages="displayMessages"
-            :virtualized="false"
-            :estimated-item-height="170"
-            :row-gap="12"
-            :padding="listPadding"
-            @scroll="handleListScroll"
-            @top-reach="handleTopReach"
-        >
-            <template #empty>
-                <div class="empty-state">
-                    <div class="empty-agent-avatars">
-                        <span
-                            v-for="agent in emptyStateAgents"
-                            :key="agent.name"
-                            class="empty-agent-avatar"
-                        >
-                            <img :src="agent.src" :alt="agent.name" />
-                        </span>
-                    </div>
-                    <p>{{ t('groupChat.emptyState') }}</p>
-                </div>
-            </template>
-            <template #before>
-                <div
-                    v-if="store.olderMessagesError"
-                    class="history-load-error"
-                    role="alert"
-                >
-                    <span>{{ t('groupChat.olderMessagesLoadFailed') }}</span>
-                    <button type="button" @click="retryOlderMessages">
-                        {{ t('groupChat.retryOlderMessages') }}
-                    </button>
-                </div>
-                <div
-                    v-else-if="store.hasMoreBefore || store.isLoadingOlderMessages"
-                    class="history-loader"
-                >
-                    <span v-if="store.isLoadingOlderMessages" class="history-loader-spinner" role="status" :aria-label="t('common.loading')"></span>
-                </div>
-            </template>
-            <template #item="{ message: msg }">
-                <div :data-group-message-id="msg.id"
-                    :class="{ 'message-selection-row': selecting, 'is-selected': selecting && groupFor(msg) && selectedMessages.has(groupFor(msg)!.id), 'is-locked': selecting && (!groupFor(msg) || groupFor(msg)!.deleteBlockedReason) }"
-                    @contextmenu="openSelectionMenu" @click.capture="handleSelectionRowClick($event, msg)">
-                    <NCheckbox v-if="selecting" class="message-selection-checkbox"
-                        :checked="!!groupFor(msg) && selectedMessages.has(groupFor(msg)!.id)"
-                        :disabled="selectionUnavailable || !groupFor(msg) || !!groupFor(msg)!.deleteBlockedReason"
-                        :aria-disabled="selectionUnavailable || !groupFor(msg) || !!groupFor(msg)!.deleteBlockedReason"
-                        :aria-label="t(groupFor(msg)?.kind === 'run' ? 'chat.selectAgentRun' : 'chat.selectSingleMessage')"
-                        @update:checked="groupFor(msg) && toggleSelection(groupFor(msg)!.id, $event)" />
-                    <div class="message-selection-body">
-                    <GroupAgentRunCard
-                        v-if="msg.runItems?.length || isOtherMemberMessage(msg)"
-                        :message="msg"
-                        :agents="store.messageAgents"
-                        :members="store.members"
-                        :current-user-id="store.userId"
-                        :allow-speech="props.allowSpeech"
-                        :active="store.isAgentRunActive(
-                            msg.roomId,
-                            stableMessageAgentId(msg),
-                            msg.run_id,
-                        )"
-                        @mention-agent="emit('mentionAgent', $event)"
-                    />
-                    <GroupMessageItem
-                        v-else
-                        :message="msg"
-                        :agents="store.messageAgents"
-                        :members="store.members"
-                        :current-user-id="store.userId"
-                        :allow-speech="props.allowSpeech"
-                        @mention-agent="emit('mentionAgent', $event)"
-                    />
-                    <div v-if="selecting && groupFor(msg)?.deleteBlockedReason" class="message-selection-locked-hint">
-                        {{ t(groupFor(msg)!.deleteBlockedReason === 'summarized' ? 'groupChat.messageAlreadySummarized' : 'groupChat.messageSummaryBoundaryUnknown') }}
-                    </div>
-                    <div v-if="routingDecision(msg)?.status === 'suggested' && routingDecision(msg)?.targetAgentName" class="routing-suggestion" role="status">
-                        <span>{{ t('groupChat.routingSuggested', { agent: routingDecision(msg)!.targetAgentName }) }}</span>
-                        <button type="button" @click="store.acceptRoutingSuggestion(msg.id)">{{ t('groupChat.routingUseSuggestion') }}</button>
-                    </div>
-                    <div v-else-if="routingDecision(msg)?.status === 'queued'" class="routing-suggestion" role="status">{{ t('groupChat.routingAutoQueued', { agent: routingDecision(msg)!.targetAgentName }) }}</div>
-                    <div v-if="routingDecision(msg)?.handoffComplete === false" class="routing-suggestion routing-warning" role="status">{{ t('groupChat.routingHandoffIncomplete') }}</div>
-                    <div v-if="routingDecision(msg)?.loopDetected === true" class="routing-suggestion routing-warning" role="status">{{ t('groupChat.routingLoopDetected') }}</div>
-                    <div
-                        v-if="handoffChainFor(msg)"
-                        class="handoff-stop-card"
-                        role="status"
-                        :data-handoff-chain-id="handoffChainFor(msg)!.chainId"
-                    >
-                        <strong>{{ t(handoffChainFor(msg)!.status === 'outcome_unknown' ? 'groupChat.agentHandoffOutcomeUnknownTitle' : 'groupChat.agentHandoffStopped') }}</strong>
-                        <span>{{ t('groupChat.agentHandoffDepthState', { current: handoffChainFor(msg)!.currentDepth, max: handoffChainFor(msg)!.unlimited ? '∞' : handoffChainFor(msg)!.maxDepth }) }}</span>
-                        <span>{{ t('groupChat.agentHandoffTarget', { target: targetAgentName(handoffChainFor(msg)!) }) }}</span>
-                        <span v-if="handoffChainFor(msg)!.status === 'outcome_unknown'">{{ t('groupChat.agentHandoffOutcomeUnknownDescription') }}</span>
-                        <span v-else-if="handoffChainFor(msg)!.lastError">{{ handoffErrorText(handoffChainFor(msg)!.lastError) }}</span>
-                        <div v-if="props.canManageHandoff && handoffChainFor(msg)!.status === 'stopped' && !handoffChainFor(msg)!.continueUsed" class="handoff-stop-actions">
-                            <button type="button" @click="emit('continueHandoff', handoffChainFor(msg)!.chainId)">
-                                {{ t('groupChat.agentHandoffContinue') }}
-                            </button>
-                            <button type="button" @click="emit('adjustHandoffSettings')">
-                                {{ t('groupChat.agentHandoffAdjustSettings') }}
-                            </button>
-                        </div>
-                        <span v-else-if="handoffChainFor(msg)!.status !== 'stopped' || handoffChainFor(msg)!.continueUsed">{{ t('groupChat.agentHandoffContinueState', { state: handoffChainFor(msg)!.status, updated: new Date(handoffChainFor(msg)!.updatedAt).toLocaleString() }) }}</span>
-                    </div>
-                    <div
-                        v-if="containsSummaryAnchor(msg)"
-                        class="summary-anchor-divider"
-                        role="separator"
-                        :aria-label="t('groupChat.summaryMessagesAbove')"
-                        :data-summary-anchor-message-id="summaryAnchorMessageId"
-                    >
-                        <div class="summary-anchor-divider-line" aria-hidden="true"></div>
-                        <div class="summary-anchor-divider-pill">
-                            <span class="summary-anchor-divider-icon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" focusable="false">
-                                    <path d="M6 3h12a2 2 0 0 1 2 2v16l-8-4-8 4V5a2 2 0 0 1 2-2z" />
-                                    <path d="m8.5 10.5 2 2 5-5" />
-                                </svg>
+        <div class="group-message-scroll-region">
+            <VirtualMessageList
+                class="group-message-list"
+                ref="listRef"
+                :messages="displayMessages"
+                :virtualized="false"
+                :estimated-item-height="170"
+                :row-gap="12"
+                :padding="listPadding"
+                @scroll="handleListScroll"
+                @top-reach="handleTopReach"
+            >
+                <template #empty>
+                    <div class="empty-state">
+                        <div class="empty-agent-avatars">
+                            <span
+                                v-for="agent in emptyStateAgents"
+                                :key="agent.name"
+                                class="empty-agent-avatar"
+                            >
+                                <img :src="agent.src" :alt="agent.name" />
                             </span>
-                            <span class="summary-anchor-divider-text">{{ t('groupChat.summaryMessagesAbove') }}</span>
                         </div>
-                        <div class="summary-anchor-divider-line" aria-hidden="true"></div>
+                        <p>{{ t('groupChat.emptyState') }}</p>
                     </div>
+                </template>
+                <template #before>
+                    <div
+                        v-if="store.olderMessagesError"
+                        class="history-load-error"
+                        role="alert"
+                    >
+                        <span>{{ t('groupChat.olderMessagesLoadFailed') }}</span>
+                        <button type="button" @click="retryOlderMessages">
+                            {{ t('groupChat.retryOlderMessages') }}
+                        </button>
                     </div>
-                </div>
-            </template>
-        </VirtualMessageList>
+                    <div
+                        v-else-if="store.hasMoreBefore || store.isLoadingOlderMessages"
+                        class="history-loader"
+                    >
+                        <span v-if="store.isLoadingOlderMessages" class="history-loader-spinner" role="status" :aria-label="t('common.loading')"></span>
+                    </div>
+                </template>
+                <template #item="{ message: msg }">
+                    <div :data-group-message-id="msg.id"
+                        :class="{
+                            'message-selection-row': selecting,
+                            'message-selection-user': selecting && !!store.userId && msg.senderId === store.userId,
+                            'is-selected': selecting && groupFor(msg) && selectedMessages.has(groupFor(msg)!.id),
+                            'is-locked': selecting && (!groupFor(msg) || groupFor(msg)!.deleteBlockedReason),
+                        }"
+                        @contextmenu="openSelectionMenu" @click.capture="handleSelectionRowClick($event, msg)">
+                        <NCheckbox v-if="selecting" class="message-selection-checkbox"
+                            :checked="!!groupFor(msg) && selectedMessages.has(groupFor(msg)!.id)"
+                            :disabled="selectionUnavailable || !groupFor(msg) || !!groupFor(msg)!.deleteBlockedReason"
+                            :aria-disabled="selectionUnavailable || !groupFor(msg) || !!groupFor(msg)!.deleteBlockedReason"
+                            :aria-label="t(groupFor(msg)?.kind === 'run' ? 'chat.selectAgentRun' : 'chat.selectSingleMessage')"
+                            @update:checked="groupFor(msg) && toggleSelection(groupFor(msg)!.id, $event)" />
+                        <div class="message-selection-body">
+                        <GroupAgentRunCard
+                            v-if="msg.runItems?.length || isOtherMemberMessage(msg)"
+                            :message="msg"
+                            :agents="store.messageAgents"
+                            :members="store.members"
+                            :current-user-id="store.userId"
+                            :allow-speech="props.allowSpeech"
+                            :active="store.isAgentRunActive(
+                                msg.roomId,
+                                stableMessageAgentId(msg),
+                                msg.run_id,
+                            )"
+                            @mention-agent="emit('mentionAgent', $event)"
+                        />
+                        <GroupMessageItem
+                            v-else
+                            :message="msg"
+                            :agents="store.messageAgents"
+                            :members="store.members"
+                            :current-user-id="store.userId"
+                            :allow-speech="props.allowSpeech"
+                            @mention-agent="emit('mentionAgent', $event)"
+                        />
+                        <div v-if="selecting && groupFor(msg)?.deleteBlockedReason" class="message-selection-locked-hint">
+                            {{ t(groupFor(msg)!.deleteBlockedReason === 'summarized' ? 'groupChat.messageAlreadySummarized' : 'groupChat.messageSummaryBoundaryUnknown') }}
+                        </div>
+                        <div v-if="routingDecision(msg)?.status === 'suggested' && routingDecision(msg)?.targetAgentName" class="routing-suggestion" role="status">
+                            <span>{{ t('groupChat.routingSuggested', { agent: routingDecision(msg)!.targetAgentName }) }}</span>
+                            <button type="button" @click="store.acceptRoutingSuggestion(msg.id)">{{ t('groupChat.routingUseSuggestion') }}</button>
+                        </div>
+                        <div v-else-if="routingDecision(msg)?.status === 'queued'" class="routing-suggestion" role="status">{{ t('groupChat.routingAutoQueued', { agent: routingDecision(msg)!.targetAgentName }) }}</div>
+                        <div v-if="routingDecision(msg)?.handoffComplete === false" class="routing-suggestion routing-warning" role="status">{{ t('groupChat.routingHandoffIncomplete') }}</div>
+                        <div v-if="routingDecision(msg)?.loopDetected === true" class="routing-suggestion routing-warning" role="status">{{ t('groupChat.routingLoopDetected') }}</div>
+                        <div
+                            v-if="handoffChainFor(msg)"
+                            class="handoff-stop-card"
+                            role="status"
+                            :data-handoff-chain-id="handoffChainFor(msg)!.chainId"
+                        >
+                            <strong>{{ t(handoffChainFor(msg)!.status === 'outcome_unknown' ? 'groupChat.agentHandoffOutcomeUnknownTitle' : 'groupChat.agentHandoffStopped') }}</strong>
+                            <span>{{ t('groupChat.agentHandoffDepthState', { current: handoffChainFor(msg)!.currentDepth, max: handoffChainFor(msg)!.unlimited ? '∞' : handoffChainFor(msg)!.maxDepth }) }}</span>
+                            <span>{{ t('groupChat.agentHandoffTarget', { target: targetAgentName(handoffChainFor(msg)!) }) }}</span>
+                            <span v-if="handoffChainFor(msg)!.status === 'outcome_unknown'">{{ t('groupChat.agentHandoffOutcomeUnknownDescription') }}</span>
+                            <span v-else-if="handoffChainFor(msg)!.lastError">{{ handoffErrorText(handoffChainFor(msg)!.lastError) }}</span>
+                            <div v-if="props.canManageHandoff && handoffChainFor(msg)!.status === 'stopped' && !handoffChainFor(msg)!.continueUsed" class="handoff-stop-actions">
+                                <button type="button" @click="emit('continueHandoff', handoffChainFor(msg)!.chainId)">
+                                    {{ t('groupChat.agentHandoffContinue') }}
+                                </button>
+                                <button type="button" @click="emit('adjustHandoffSettings')">
+                                    {{ t('groupChat.agentHandoffAdjustSettings') }}
+                                </button>
+                            </div>
+                            <span v-else-if="handoffChainFor(msg)!.status !== 'stopped' || handoffChainFor(msg)!.continueUsed">{{ t('groupChat.agentHandoffContinueState', { state: handoffChainFor(msg)!.status, updated: new Date(handoffChainFor(msg)!.updatedAt).toLocaleString() }) }}</span>
+                        </div>
+                        <div
+                            v-if="containsSummaryAnchor(msg)"
+                            class="summary-anchor-divider"
+                            role="separator"
+                            :aria-label="t('groupChat.summaryMessagesAbove')"
+                            :data-summary-anchor-message-id="summaryAnchorMessageId"
+                        >
+                            <div class="summary-anchor-divider-line" aria-hidden="true"></div>
+                            <div class="summary-anchor-divider-pill">
+                                <span class="summary-anchor-divider-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" focusable="false">
+                                        <path d="M6 3h12a2 2 0 0 1 2 2v16l-8-4-8 4V5a2 2 0 0 1 2-2z" />
+                                        <path d="m8.5 10.5 2 2 5-5" />
+                                    </svg>
+                                </span>
+                                <span class="summary-anchor-divider-text">{{ t('groupChat.summaryMessagesAbove') }}</span>
+                            </div>
+                            <div class="summary-anchor-divider-line" aria-hidden="true"></div>
+                        </div>
+                        </div>
+                    </div>
+                </template>
+            </VirtualMessageList>
+            <button
+                v-if="showScrollBottomButton"
+                type="button"
+                class="scroll-bottom-button"
+                :aria-label="t('chat.scrollToBottom')"
+                :title="t('chat.scrollToBottom')"
+                @click="handleScrollBottomClick"
+            >
+                <svg
+                    class="scroll-bottom-icon"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <path d="m7 10 5 5 5-5" />
+                    <path d="M6 19h12" />
+                </svg>
+            </button>
+        </div>
         <div v-if="selecting" class="message-selection-toolbar">
             <span class="message-selection-count" role="status">{{ t('chat.messagesSelected', { count: selectedMessages.size }) }}</span>
             <NButton size="small" type="error" :loading="deletingMessages" :disabled="selectionUnavailable || !selectedMessages.size" @click="showDeleteConfirmation = true">
@@ -404,35 +433,14 @@ defineExpose({ scrollToBottom })
             <NButton size="small" :disabled="deletingMessages" @click="cancelSelection">{{ t('common.cancel') }}</NButton>
             <span class="message-selection-hint">{{ t('groupChat.messageSelectionHint') }}</span>
         </div>
-        <button
-            v-if="showScrollBottomButton"
-            type="button"
-            class="scroll-bottom-button"
-            :aria-label="t('chat.scrollToBottom')"
-            :title="t('chat.scrollToBottom')"
-            @click="handleScrollBottomClick"
-        >
-            <svg
-                class="scroll-bottom-icon"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-            >
-                <path d="m7 10 5 5 5-5" />
-                <path d="M6 19h12" />
-            </svg>
-        </button>
     </div>
 </template>
 
 <style scoped lang="scss">
 @use "@/styles/variables" as *;
 
-.group-message-list-shell {
+.group-message-list-shell,
+.group-message-scroll-region {
     flex: 1;
     min-height: 0;
     min-width: 0;
@@ -674,6 +682,7 @@ defineExpose({ scrollToBottom })
 }
 .message-selection-toolbar {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
