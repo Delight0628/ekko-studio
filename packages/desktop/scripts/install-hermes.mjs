@@ -557,10 +557,17 @@ if (TARGET_OS === 'win32' && TARGET_ARCH === 'arm64') {
     'from winpty import PtyProcess',
     'assert platform.machine().lower() in ("arm64", "aarch64"), platform.machine()',
     'child = PtyProcess.spawn("cmd.exe /c echo ARM64_PTY_OK")',
-    'output = child.read(4096)',
+    'output = ""',
+    'try:',
+    '    while "ARM64_PTY_OK" not in output:',
+    '        output += child.read(4096)',
+    'except EOFError:',
+    '    pass',
+    'finally:',
+    '    child.close(force=True)',
     'assert "ARM64_PTY_OK" in output, output',
     'print("Native ARM64 Python and ConPTY smoke test passed")',
-  ].join('; ')], { timeout: 30_000 })
+  ].join('\n')], { timeout: 30_000 })
 }
 
 const hermesBin = TARGET_OS === 'win32'
