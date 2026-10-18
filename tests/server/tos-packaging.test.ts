@@ -59,6 +59,7 @@ describe('standalone TOS test workflow', () => {
     expect(workflow.on.pull_request.paths).toEqual([
       '.github/workflows/tos-package-test.yml', 'packages/tos/**',
       'scripts/pack-tos-deb.mjs', 'scripts/test-tos-platform.mjs',
+      'scripts/test-tos-install.sh',
       'tests/server/tos-packaging.test.ts', 'tests/server/tos-platform.test.ts',
     ])
     expect(workflow.permissions).toEqual({ contents: 'read' })
@@ -76,7 +77,11 @@ describe('standalone TOS test workflow', () => {
     expect(sharpIndex).toBeGreaterThan(pruneIndex)
     expect(stageIndex).toBeGreaterThan(sharpIndex)
     expect(steps.indexOf(build)).toBeGreaterThan(stageIndex)
+    const install = steps.find((step: any) => step.name === 'Test clean installation without host venv')
+    expect(steps.indexOf(install)).toBeGreaterThan(steps.indexOf(build))
+    expect(install.run).toBe('bash scripts/test-tos-install.sh release/tos/*.deb')
     const upload = steps.find((step: any) => step.uses === 'actions/upload-artifact@v4')
+    expect(steps.indexOf(upload)).toBeGreaterThan(steps.indexOf(install))
     expect(upload.with['if-no-files-found']).toBe('error')
     expect(upload.with['retention-days']).toBe(7)
     expect(upload.with.path.trim().split('\n')).toEqual([
@@ -250,6 +255,7 @@ describe.runIf(process.platform === 'linux' && process.arch === 'x64')('TOS Debi
       expect(server.args?.[0]).toBe(join(app, 'depends/webui/bin/ekko-studio-mcp.mjs'))
     }
     expect(execFileSync('dpkg-deb', ['--field', deb, 'Depends'], { encoding: 'utf8' })).toContain('bzip2')
+    expect(execFileSync('dpkg-deb', ['--field', deb, 'Depends'], { encoding: 'utf8' })).not.toMatch(/python3(?:\.\d+)?-venv/)
     const languages = readFileSync(join(app, `${result.id}.lang`), 'utf8')
     for (const language of TOS_LANGUAGES) expect(languages).toContain(`[${language}]\n`)
     const icon = readFileSync(join(app, 'images/icons', `${result.id}.svg`), 'utf8')
@@ -290,6 +296,14 @@ describe.runIf(process.platform === 'linux' && process.arch === 'x64')('TOS Debi
     execFileSync('dpkg-deb', ['--raw-extract', deb, alteredStage])
     const alteredApp = join(alteredStage, 'usr/local', result.id)
     const alteredDeb = join(root, 'altered.deb')
+    const controlPath = join(alteredStage, 'DEBIAN/control')
+    const control = readFileSync(controlPath, 'utf8')
+    for (const unavailable of ['python3-venv', 'python3.10-venv']) {
+      writeFileSync(controlPath, control.replace(/^Depends: /m, `Depends: ${unavailable}, `))
+      execFileSync('dpkg-deb', ['-Znone', '--build', alteredStage, alteredDeb])
+      expect(() => verifyTosDeb(alteredDeb)).toThrow('unavailable host python3-venv')
+    }
+    writeFileSync(controlPath, control)
     // Rebuild actual artifacts with the reported regressions. The review guards
     // must reject them before the unrelated checksum checks.
     for (const invalid of [

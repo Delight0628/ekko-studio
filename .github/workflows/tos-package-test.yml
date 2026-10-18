@@ -19,6 +19,7 @@ on:
       - "packages/tos/**"
       - "scripts/pack-tos-deb.mjs"
       - "scripts/test-tos-platform.mjs"
+      - "scripts/test-tos-install.sh"
       - "tests/server/tos-packaging.test.ts"
       - "tests/server/tos-platform.test.ts"
 
@@ -118,6 +119,9 @@ jobs:
 
       - name: Build and verify TOS 7 Deb
         run: npm run pack:tos -- --webui-dir "$TOS_WEBUI_DIR" --output release/tos
+
+      - name: Test clean installation without host venv
+        run: bash scripts/test-tos-install.sh release/tos/*.deb
 
       - name: Upload TOS test artifacts
         uses: actions/upload-artifact@v4

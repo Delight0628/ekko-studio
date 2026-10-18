@@ -21,6 +21,11 @@ selected, it checks out that exact Git tag into a separate source directory;
 without a tag, PR/build-only runs use the event commit. It builds the chosen
 source on Ubuntu 22.04, prunes development dependencies, verifies Sharp and
 packages the staged production Web UI.
+Before uploading artifacts, it installs the actual Deb in a disposable Ubuntu
+22.04 container without a pre-existing application account or working host venv.
+The check covers non-root HTTP startup, reconfiguration, reinstall and data
+retention. Service-manager calls are recorded because the container has no
+systemd PID 1; TNAS App Center/systemd behavior still needs device acceptance.
 
 Download **tos7-x86_64-test** from the run's **Artifacts** section; artifacts
 are retained for 7 days. The download contains:
@@ -142,8 +147,11 @@ elements, event handlers, URL schemes and XML directives before uploading.
 
 ## Runtime and data
 
-The App Center creates the non-root user/group `ekko-studio-tos`, as declared
-by `config.ini`; installation scripts do not create system users. The unit
+The package creates the non-root system user/group `ekko-studio-tos` when absent,
+before creating writable directories or starting the service. It reuses existing
+identities on reconfiguration/upgrades, preserving UID/GID and data ownership.
+New accounts have the application data home and a non-login shell. Account creation
+failures stop installation; UID/GID 0 is rejected. The unit
 is registered with systemd from the application directory. The Web UI listens
 on `0.0.0.0:8648`. `config.ini` declares the portal route
 `/com.hermeswebui.studio/` and the separate numeric `port: 8648`.
@@ -157,9 +165,12 @@ start, stop and restart.
 It uses Studio's own login; configure your login and model provider before use.
 Port 8648 must be free. It is separate from TOS's system ports.
 
-The Debian package declares the host libraries, Git, Python 3.10+ and venv
-dependencies. The TOS repository must be able to resolve these dependencies;
-this is part of device acceptance. No Hermes Python runtime, model credentials
+The Debian package declares the host libraries, Git and Python 3.10+.
+It does not depend on `python3-venv` (or a versioned host venv package), which
+is unavailable in the reviewed TOS environment. Studio starts without host venv;
+use Studio's managed Hermes runtime, which supplies its own Python environment,
+instead of assuming the host supports `python3 -m venv`.
+The remaining dependencies still require TNAS validation. No Hermes Python runtime, model credentials
 or coding-agent CLI is preinstalled by this target. Ekko Agent is bundled in
 the Web UI. Other agents need their normal setup under the dedicated account.
 The system's Node.js 18 is not used.
@@ -192,7 +203,7 @@ machine-read configuration.
 | `logs/` | Reserved file-log directory; unit stdout/stderr uses journald | Configure / postinst | journald rotation is system-managed | Preserved |
 | systemd enablement links | Unit registration | Configure / systemctl | Fixed | Removed on uninstall |
 
-The removal and purge scripts deliberately retain data and the platform-managed user.
+The removal and purge scripts deliberately retain data and the dedicated user.
 TOS App Center handling of the installation volume must still be checked on a
 device. This initial test target uses a private application workspace; a stable
 submission must verify the guide's shared-folder mapping for user-visible business
@@ -217,6 +228,24 @@ upload its matching TOS Deb, and add `Rectified per review comments` to the
 submission remarks. Existing Release assets are immutable to the upload
 workflow; do not retry with different bytes under the old asset name.
 Package verification and platform parsing do not replace installation tests.
+
+### Installation remediation after the 2026-10-18 review
+
+The reviewed `0.7.36` package passed package self-test but failed manual
+installation because `python3-venv` is unavailable and the service account
+was not pre-created. This review explicitly requires account creation in
+`postinst`, overriding the older guide's assumption that the platform creates it.
+The corrected package omits the host venv dependency and idempotently creates
+the account before configuring the service. The verifier rejects reintroduced
+host venv dependencies.
+
+Run `bash scripts/test-tos-install.sh /absolute/path/to/package.deb` with Docker
+to reproduce the clean-install/lifecycle smoke. This uses real `dpkg`, account
+creation and the packaged server, but a recorded `systemctl` stub. It is not
+a TOS installation test or a claim that App Center/systemd integration passed.
+Withdraw the held `0.7.36` submission before submitting the next corrected
+version and include `Rectified per review comments` in the remarks. Do not
+silently overwrite previously published same-name Release assets.
 
 Static/package checks and an Ubuntu startup smoke test do not establish TOS
 compatibility. On an authorized TOS 7 x86_64 device:

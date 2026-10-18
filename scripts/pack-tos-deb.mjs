@@ -160,6 +160,9 @@ export function verifyTosDeb(deb) {
       || run('dpkg-deb', ['--field', deb, 'Architecture']).trim() !== 'amd64') {
       throw new Error('Debian and TOS identities differ')
     }
+    if (/\bpython3(?:\.\d+)?-venv\b/.test(run('dpkg-deb', ['--field', deb, 'Depends']))) {
+      throw new Error('TOS installation must not depend on unavailable host python3-venv packages')
+    }
     for (const file of ['bin/ekko-studio', `init.d/${config.system_id}.service`,
       `nginx/${config.id}.conf`, config.icon.replace(/^\//, ''), `${config.id}.lang`,
       'webui.bz2', 'depends/bin/node', 'depends/bin/npm', 'depends/bin/npx',
@@ -287,7 +290,7 @@ Architecture: amd64
 Section: web
 Priority: optional
 Maintainer: EKKOLearnAI <noreply@hermes-studio.local>
-Depends: libc6 (>= 2.35), libstdc++6, libgcc-s1, zlib1g, systemd, bash, bzip2, ca-certificates, git, python3 (>= 3.10), python3-venv
+Depends: libc6 (>= 2.35), libstdc++6, libgcc-s1, zlib1g, systemd, bash, bzip2, ca-certificates, git, python3 (>= 3.10)
 Description: Ekko Studio Web service for TerraMaster TOS 7
  Multi-agent chat, coding and visual workflows in your browser.
  Includes a private Node.js runtime. TOS device validation is required.
