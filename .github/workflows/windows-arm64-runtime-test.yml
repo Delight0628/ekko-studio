@@ -6,6 +6,8 @@ on:
       - ".github/workflows/windows-arm64-runtime-test.yml"
       - "packages/desktop/scripts/fetch-python.mjs"
       - "packages/desktop/scripts/fetch-git.mjs"
+      - "packages/desktop/scripts/python-build-env.mjs"
+      - "packages/desktop/scripts/install-hermes.mjs"
       - "packages/desktop/scripts/setup-windows-arm64-openssl.ps1"
 permissions:
   contents: read

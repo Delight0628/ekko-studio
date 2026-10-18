@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { pythonBuildEnvironment } from './python-build-env.mjs'
 // Install the checked-out Hermes Agent source into python/venv and prepare its
 // bundled browser and frontend assets. The Git checkout remains clean and is
 // retained so the upstream `hermes update` command can update it in place.
@@ -111,12 +112,7 @@ function optionalRunInvocation(invocation, args, options = {}) {
 }
 
 function pythonBuildEnv() {
-  if (TARGET_OS !== 'darwin') return process.env
-
-  const env = { ...process.env }
-  if (!env.AR && existsSync('/usr/bin/ar')) env.AR = '/usr/bin/ar'
-  if (!env.RANLIB && existsSync('/usr/bin/ranlib')) env.RANLIB = '/usr/bin/ranlib'
-  return env
+  return pythonBuildEnvironment(process.env, TARGET_OS, TARGET_ARCH)
 }
 
 function installHermesPythonRuntime() {
