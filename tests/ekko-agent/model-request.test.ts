@@ -1301,8 +1301,14 @@ describe('ekko-agent model requests', () => {
     ])
   })
 
-  it('replays encrypted OpenAI Responses reasoning items without flattening them', () => {
-    const response = normalizeOpenAIResponsesResponse({
+  it('replays encrypted OpenAI Responses reasoning items without flattening them', async () => {
+    const config: ModelProviderConfig = {
+      id: 'openai',
+      type: 'openai',
+      requestStyle: 'openai-responses',
+      defaultModel: 'gpt-5.4',
+    }
+    const nativeResponse = {
       id: 'resp_reasoning',
       model: 'gpt-5.4',
       status: 'completed',
@@ -1321,14 +1327,13 @@ describe('ekko-agent model requests', () => {
           arguments: '{"city":"Xiamen"}',
         },
       ],
+    }
+    const client = createModelClient(config, {
+      fetch: async () => new Response(JSON.stringify(nativeResponse)),
     })
+    const response = await client.create({ messages: [{ role: 'user', content: 'Weather?' }] })
     const message = modelResponseToAgentMessage(response)
-    const payload = toOpenAIResponsesPayload({
-      id: 'openai',
-      type: 'openai',
-      requestStyle: 'openai-responses',
-      defaultModel: 'gpt-5.4',
-    }, {
+    const payload = toOpenAIResponsesPayload(config, {
       messages: [message],
     })
 
@@ -1336,6 +1341,7 @@ describe('ekko-agent model requests', () => {
       text: 'Checked the weather.',
       native: {
         format: 'openai-responses-items',
+        replayScope: expect.any(String),
         data: [expect.objectContaining({
           id: 'rs_1',
           type: 'reasoning',

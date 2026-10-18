@@ -481,6 +481,8 @@ Studio 的 `ekkoSkillsEnabled` 映射到此字段；共用参数为 `skillsCandi
 
 `EkkoModelProviderSettings` 字段：可选 `label`；必填 `type` 和 `defaultModel`；可选 `apiMode`、`requestStyle`、`openAIChatReasoningReplayFormat`、`baseUrl`、`endpointPath`、`models`、`authType`、`source`、`apiKey`、`headers`、`timeoutMs`、`capabilities`。`capabilities` 可覆盖 `streaming`、`tools`、`vision`、`jsonMode`、`systemPrompt`、`maxInputTokens`。
 
+Responses 客户端会为原生推理历史记录 `reasoning.native.replayScope`，按实际请求的 Provider、模型和接口地址绑定来源。只有来源相同时才重放这些原生项；切换目标或读取缺少来源的旧记录时，只跳过请求中的原生推理项，保留正文、工具调用和结果，且不改写已存历史。标记使用摘要，不保存接口地址或密钥，也不会发送给 Provider。Chat Completions 的 `reasoning_content`、Anthropic thinking 和 Coding Agent 代理保持各自原有处理。
+
 `EkkoMcpServerConfig` 支持两种传输：stdio 使用 `command`，可选 `args` 和字符串 `env`；远程服务使用 `type: "streamable_http"`、`url` 和可选字符串 `headers`。`enabled` 控制是否加载。两种传输均使用官方 MCP Client；新 runtime 自动读取所选 Profile 的配置，显式 run-level `toolContext.mcpServers` 仍可覆盖它。
 
 `compression` 是供 Host 集成的策略配置，不属于 `AgentRuntime` 内部会话存储。独立 Host 可以读取 `ekko.readConfig().compression` 实现压缩生命周期；Ekko Studio 当前仍统一读取主配置中的压缩策略，暂不应用 Ekko 的该配置段。一次 Run 显式提供的消息和 runtime options 仍优先于安装级默认值。
@@ -2592,7 +2594,7 @@ export class OpenAIResponsesModelClient implements ModelClient {
 
 export function toOpenAIResponsesPayload(config: ModelProviderConfig, request: ModelRequest): OpenAIResponsesPayload
 
-export function normalizeOpenAIResponsesResponse(response: OpenAIResponsesResponse): ModelResponse
+export function normalizeOpenAIResponsesResponse(response: OpenAIResponsesResponse, replayScope?: string): ModelResponse
 ```
 ### `src/model/providers/prompt-completion.ts`
 
@@ -2642,6 +2644,7 @@ export type AgentMessageRole = 'system' | 'user' | 'assistant' | 'tool'
 export type AgentReasoningFormat = | 'openai-reasoning-details' | 'openai-responses-items' | 'anthropic-thinking-blocks' | 'gemini-content-parts'
 
 export interface AgentReasoningNative {
+  replayScope?: string
   format: AgentReasoningFormat
   data: unknown
 }
