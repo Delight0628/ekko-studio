@@ -96,6 +96,9 @@ state and does not require a running Gateway.
   and paid API calls are not required.
 - Playwright workflow: runs all browser tests across four independent shards,
   then merges their blob reports into the `playwright-report` HTML artifact.
+  Each shard has a 25-minute test-step limit within a 30-minute job limit,
+  leaving time for dependency setup and report upload. CI logs each test result
+  so an interrupted shard still shows which cases completed.
   The final `e2e` check requires every shard to pass. Keep route/viewport sweeps
   as independent route tests so they can be distributed across runners.
   Mock both HTTP and WebSocket channels: `page.route` does not intercept native

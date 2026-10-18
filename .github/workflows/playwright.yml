@@ -18,7 +18,8 @@ concurrency:
 jobs:
   e2e-shard:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Browser shards can take ~20 minutes; reserve time for setup and reports.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -44,6 +45,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run Playwright tests
+        timeout-minutes: 25
         run: npm run test:e2e -- --shard=${{ matrix.shard }}/4
 
       - name: Upload shard report
