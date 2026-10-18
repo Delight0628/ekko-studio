@@ -134,6 +134,15 @@ light/dark and wallpaper themes, and narrow windows. On a disposable macOS insta
 also verify first-time grants and any system-requested restart; never reset a user's
 TCC database to simulate a fresh install.
 
+The chat reminder uses only live tool-start events from the active Ekko session,
+never replayed history. Its native claim must stay atomic across all windows and
+renderer reloads, with one reminder per desktop launch. Run
+`tests/client/computer-use-permission-prompt.test.ts` and
+`tests/e2e/computer-use-permission-prompt.spec.ts` for notification changes, plus
+chat store regression tests. Verify both new runs and reattached live runs,
+standalone chat windows, dismissal, settings navigation, and silence in other
+agents/platforms/remote mode. No reminder check may request an OS grant.
+
 `Web UI server exited before becoming ready code=1 signal=null` reports a
 failed backend process, without identifying its cause. Desktop captures the
 last stdout/stderr separately, waits for the child pipes to close, and includes

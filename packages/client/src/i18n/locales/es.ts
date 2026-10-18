@@ -4,6 +4,11 @@ import { socialMessagesEs } from '../social-messages-locales'
 
 export default {
   computerUsePermissions: {
+    "promptTitle": "El control del ordenador necesita permiso",
+    "promptDescription": "Ekko Studio no tiene los siguientes permisos del sistema. Es posible que las operaciones correspondientes no se completen.",
+    "promptLaterHint": "También puedes autorizar más tarde en Ajustes → Herramientas → Control del ordenador.",
+    "promptGo": "Ir a permisos",
+    "promptLater": "Ahora no",
     "title": "Permisos de control del ordenador",
     "intro": "Permite que Ekko Studio vea y controle apps en este Mac.",
     "complete": "Ambos permisos del sistema están activados.",

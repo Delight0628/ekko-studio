@@ -4,6 +4,11 @@ import { socialMessagesZhTw } from '../social-messages'
 
 export default {
   computerUsePermissions: {
+    "promptTitle": "電腦操作需要授權",
+    "promptDescription": "Ekko Studio 尚未取得以下系統權限，相關電腦操作可能無法完成。",
+    "promptLaterHint": "稍後也可在「設定 → 工具 → 電腦操作」中授權。",
+    "promptGo": "前往授權",
+    "promptLater": "暫不",
     "title": "電腦操作權限",
     "intro": "允許 Ekko Studio 查看和操作這台 Mac 上的應用程式。",
     "complete": "兩項系統權限均已開啟。",

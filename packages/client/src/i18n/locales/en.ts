@@ -4,6 +4,11 @@ import { socialMessagesEn } from '../social-messages'
 
 export default {
   computerUsePermissions: {
+    "promptTitle": "Computer Use needs permission",
+    "promptDescription": "Ekko Studio is missing the following system permissions. Related desktop operations may not complete.",
+    "promptLaterHint": "You can also authorize later in Settings → Tools → Computer Use.",
+    "promptGo": "Go to permissions",
+    "promptLater": "Not now",
     "title": "Computer Use permissions",
     "intro": "Allow Ekko Studio to observe and control apps on this Mac.",
     "complete": "Both system permissions are enabled.",

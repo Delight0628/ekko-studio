@@ -30,6 +30,11 @@ const writeApprovalMessages = {
 
 export default {
   computerUsePermissions: {
+    "promptTitle": "Bilgisayar denetimi izin gerektiriyor",
+    "promptDescription": "Ekko Studio aşağıdaki sistem izinlerine sahip değil. İlgili masaüstü işlemleri tamamlanamayabilir.",
+    "promptLaterHint": "Daha sonra Ayarlar → Araçlar → Bilgisayar kullanımı bölümünden de izin verebilirsiniz.",
+    "promptGo": "İzinlere git",
+    "promptLater": "Şimdi değil",
     "title": "Bilgisayar denetimi izinleri",
     "intro": "Ekko Studio’nun bu Mac’teki uygulamaları görmesine ve denetlemesine izin verin.",
     "complete": "Her iki sistem izni de etkin.",

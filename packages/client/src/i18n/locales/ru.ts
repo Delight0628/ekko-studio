@@ -4,6 +4,11 @@ import { socialMessagesRu } from '../social-messages-locales'
 
 export default {
   computerUsePermissions: {
+    "promptTitle": "Для управления компьютером нужны разрешения",
+    "promptDescription": "У Ekko Studio нет следующих системных разрешений. Соответствующие действия могут не завершиться.",
+    "promptLaterHint": "Разрешения можно выдать позже: Настройки → Инструменты → Управление компьютером.",
+    "promptGo": "К разрешениям",
+    "promptLater": "Не сейчас",
     "title": "Разрешения для управления компьютером",
     "intro": "Разрешите Ekko Studio просматривать приложения на этом Mac и управлять ими.",
     "complete": "Оба системных разрешения включены.",

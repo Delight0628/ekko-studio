@@ -34,6 +34,18 @@ export async function requestComputerUsePermission(permission: unknown): Promise
 }
 
 export function registerComputerUsePermissionsIpc(authorize: (event: IpcMainInvokeEvent) => void): void {
+  // Shared by all Studio windows and renderer reloads; resets on app restart.
+  let reminderClaimed = false
+  ipcMain.handle('hermes-desktop:computer-use-claim-reminder', event => {
+    authorize(event)
+    if (reminderClaimed) return null
+    const status = getComputerUsePermissions()
+    if (!status.supported || ![status.accessibility, status.screenRecording].some(value =>
+      ['denied', 'not-determined', 'restricted'].includes(value),
+    )) return null
+    reminderClaimed = true
+    return status
+  })
   ipcMain.handle('hermes-desktop:computer-use-permissions', event => {
     authorize(event)
     return getComputerUsePermissions()

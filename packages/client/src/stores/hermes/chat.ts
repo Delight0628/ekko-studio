@@ -20,6 +20,7 @@ import { useProfilesStore } from './profiles'
 import { useSettingsStore } from './settings'
 import { primeCompletionSound, playCompletionSound } from '@/utils/completion-sound'
 import { showCompletionNotification } from '@/utils/completion-notification'
+import { notifyComputerUseStarted } from '@/composables/useComputerUsePermissionPrompt'
 import { detectThinkingBoundary } from '@/utils/thinking-parser'
 import { isKnownBridgeSessionCommand } from '@/utils/hermes/bridge-session-commands'
 import { responseErrorMessage } from '@/utils/http-error'
@@ -2621,8 +2622,11 @@ export const useChatStore = defineStore('chat', () => {
     )
   }
 
-  function handleToolStartedEvent(sessionId: string, evt: RunEvent, reasoning?: string) {
+  function handleToolStartedEvent(sessionId: string, evt: RunEvent, reasoning?: string, live = false) {
     const toolName = evt.tool || evt.name
+    if (live && activeSessionId.value === sessionId && isEkkoAgentSession(sessionId)) {
+      void notifyComputerUseStarted(toolName, runtimeObjectPayload(evt.arguments))
+    }
     if (
       isBackgroundDelegateToolPayload(toolName, evt.arguments)
       || (isEkkoAgentSession(sessionId) && toolName === 'delegate_task')
@@ -4358,7 +4362,7 @@ export const useChatStore = defineStore('chat', () => {
               }
               activeAssistantMessageId = null
               reasoningAssistantMessageId = null
-              handleToolStartedEvent(sid, evt, toolReasoning)
+              handleToolStartedEvent(sid, evt, toolReasoning, true)
 
               break
             }
@@ -5019,7 +5023,7 @@ export const useChatStore = defineStore('chat', () => {
           }
           activeAssistantMessageId = null
           reasoningAssistantMessageId = null
-          handleToolStartedEvent(sid, evt, toolReasoning)
+          handleToolStartedEvent(sid, evt, toolReasoning, true)
 
           break
         }

@@ -95,4 +95,36 @@ describe('desktop Computer Use permissions', () => {
     expect(authorize).toHaveBeenLastCalledWith(event)
     expect(native.trusted).toHaveBeenLastCalledWith(true)
   })
+
+  it('claims only one missing-permission reminder across windows and reloads', () => {
+    registerComputerUsePermissionsIpc(vi.fn())
+    const claim = new Map(native.handle.mock.calls).get('hermes-desktop:computer-use-claim-reminder')
+    expect(claim({ sender: 'main' })).toMatchObject({ supported: true, accessibility: 'denied' })
+    expect(claim({ sender: 'chat' })).toBeNull()
+    expect(claim({ sender: 'reloaded-main' })).toBeNull()
+    expect(native.trusted).toHaveBeenCalledExactlyOnceWith(false)
+    expect(native.sources).not.toHaveBeenCalled()
+    expect(native.open).not.toHaveBeenCalled()
+  })
+
+  it('does not consume the reminder for granted or unknown status; can notice later revocation', () => {
+    registerComputerUsePermissionsIpc(vi.fn())
+    const claim = new Map(native.handle.mock.calls).get('hermes-desktop:computer-use-claim-reminder')
+    native.trusted.mockReturnValue(true)
+    native.media.mockReturnValue('granted')
+    expect(claim({})).toBeNull()
+    native.media.mockReturnValue('unknown')
+    expect(claim({})).toBeNull()
+    native.media.mockReturnValue('restricted')
+    expect(claim({})).toMatchObject({ screenRecording: 'restricted' })
+    expect(claim({})).toBeNull()
+  })
+
+  it.each(['win32', 'linux'] as const)('never claims a Mac permission reminder on %s', platform => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue(platform)
+    registerComputerUsePermissionsIpc(vi.fn())
+    expect(new Map(native.handle.mock.calls).get('hermes-desktop:computer-use-claim-reminder')({})).toBeNull()
+    expect(native.trusted).not.toHaveBeenCalled()
+    expect(native.media).not.toHaveBeenCalled()
+  })
 })

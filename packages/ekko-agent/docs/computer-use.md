@@ -44,6 +44,14 @@ save your work and reopen the app. These OS grants are separate from tool approv
 The guide is hidden in browsers, older desktop bridges, remote-server mode, Windows,
 and Linux; it never reports those environments as authorized based on local Mac grants.
 
+An active Ekko chat also checks silently when a live `computer_use` call or status
+operation starts. Known missing grants show an in-app reminder with **Go to
+permissions** and **Not now**. The desktop main process allows one reminder per
+app launch across windows and page reloads. History replay, tool discovery, other
+agents, background sessions and unknown permission status do not trigger it.
+The reminder opens the settings guide; it does not grant access, pause the run or
+automatically retry desktop actions. Authorize from the guide and retry as needed.
+
 ```json
 {
   "tools": {

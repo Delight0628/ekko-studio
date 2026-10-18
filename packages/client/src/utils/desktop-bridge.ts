@@ -164,6 +164,7 @@ export type DesktopComputerUsePermissions = { supported: false } | {
 
 export interface HermesDesktopBridge {
   computerUsePermissions?: {
+    claimReminder?: () => Promise<DesktopComputerUsePermissions | null>
     getStatus: () => Promise<DesktopComputerUsePermissions>
     request: (permission: DesktopComputerUsePermission) => Promise<void>
   }

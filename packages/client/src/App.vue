@@ -86,6 +86,9 @@ const RuntimeRestartPrompt = defineAsyncComponent(
   async () =>
     (await import("@/components/layout/RuntimeRestartPrompt.vue")).default,
 );
+const ComputerUsePermissionPrompt = defineAsyncComponent(
+  async () => (await import('@/components/ekko/ComputerUsePermissionPrompt.vue')).default,
+);
 const StudioAnnouncementPrompt = defineAsyncComponent(
   async () => (await import('@/components/layout/StudioAnnouncementPrompt.vue')).default,
 );
@@ -426,6 +429,9 @@ useKeyboard();
           />
           <RuntimeRestartPrompt
             v-if="!isLoginPage && !isDesktopPetRoute && !isStandaloneChatPage && isStoredSuperAdmin()"
+          />
+          <ComputerUsePermissionPrompt
+            v-if="!isLoginPage && !isInviteOnlyPage && !isDesktopPetRoute && desktopBridge()?.computerUsePermissions?.claimReminder"
           />
           <StudioAnnouncementPrompt
             v-if="!isLoginPage && !isInviteOnlyPage && !isDesktopPetRoute && !isStandaloneChatPage"

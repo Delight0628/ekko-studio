@@ -43,6 +43,7 @@ function loadPreload(argv: string[], storedToken = 'remote-session', platform = 
     windowKind: string
     ensureAuth: () => Promise<boolean>
     computerUsePermissions?: {
+      claimReminder: () => Promise<unknown>
       getStatus: () => Promise<unknown>
       request: (permission: 'accessibility' | 'screenRecording') => Promise<void>
     }
@@ -58,6 +59,8 @@ describe('desktop preload auth', () => {
   it('exposes permission checks and explicit authorization only on a local Mac', async () => {
     const { bridge, invoke } = loadPreload([])
     expect(invoke).not.toHaveBeenCalled()
+    await bridge.computerUsePermissions!.claimReminder()
+    expect(invoke).toHaveBeenLastCalledWith('hermes-desktop:computer-use-claim-reminder')
     await bridge.computerUsePermissions!.getStatus()
     expect(invoke).toHaveBeenLastCalledWith('hermes-desktop:computer-use-permissions')
     await bridge.computerUsePermissions!.request('screenRecording')

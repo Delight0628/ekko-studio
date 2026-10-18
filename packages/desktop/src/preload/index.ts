@@ -19,6 +19,7 @@ const REMOTE_SERVER_MODE = process.argv.includes('--hermes-remote-mode')
 
 contextBridge.exposeInMainWorld('hermesDesktop', {
   ...(!REMOTE_SERVER_MODE && process.platform === 'darwin' ? { computerUsePermissions: {
+    claimReminder: (): Promise<ComputerUsePermissions | null> => ipcRenderer.invoke('hermes-desktop:computer-use-claim-reminder'),
     getStatus: (): Promise<ComputerUsePermissions> => ipcRenderer.invoke('hermes-desktop:computer-use-permissions'),
     request: (permission: ComputerUsePermission): Promise<void> => ipcRenderer.invoke('hermes-desktop:computer-use-request-permission', permission),
   } } : {}),

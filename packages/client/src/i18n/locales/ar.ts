@@ -4,6 +4,11 @@ import { socialMessagesAr } from '../social-messages-locales'
 
 export default {
   computerUsePermissions: {
+    "promptTitle": "التحكم بالكمبيوتر يحتاج إلى إذن",
+    "promptDescription": "يفتقد Ekko Studio أذونات النظام التالية. قد يتعذر إكمال عمليات سطح المكتب المتعلقة بها.",
+    "promptLaterHint": "يمكنك منح الأذونات لاحقًا من الإعدادات ← الأدوات ← التحكم بالكمبيوتر.",
+    "promptGo": "الانتقال إلى الأذونات",
+    "promptLater": "ليس الآن",
     "title": "أذونات التحكم بالكمبيوتر",
     "intro": "اسمح لـ Ekko Studio بعرض التطبيقات على هذا الـ Mac والتحكم بها.",
     "complete": "تم تفعيل إذنَي النظام.",

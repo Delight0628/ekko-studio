@@ -4,6 +4,11 @@ import { socialMessagesJa } from '../social-messages-locales'
 
 export default {
   computerUsePermissions: {
+    "promptTitle": "コンピューター操作には許可が必要です",
+    "promptDescription": "Ekko Studio に次のシステム権限がないため、該当する操作を完了できない場合があります。",
+    "promptLaterHint": "後から「設定 → ツール → コンピューター操作」で許可することもできます。",
+    "promptGo": "権限設定へ",
+    "promptLater": "今はしない",
     "title": "コンピューター操作の権限",
     "intro": "Ekko Studio に、この Mac のアプリの表示と操作を許可します。",
     "complete": "両方のシステム権限が有効です。",

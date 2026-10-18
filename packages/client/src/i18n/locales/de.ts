@@ -4,6 +4,11 @@ import { socialMessagesDe } from '../social-messages-locales'
 
 export default {
   computerUsePermissions: {
+    "promptTitle": "Computersteuerung benötigt Berechtigungen",
+    "promptDescription": "Ekko Studio fehlen die folgenden Systemberechtigungen. Betroffene Desktopaktionen können möglicherweise nicht abgeschlossen werden.",
+    "promptLaterHint": "Du kannst die Berechtigungen auch später unter Einstellungen → Werkzeuge → Computersteuerung erteilen.",
+    "promptGo": "Zu den Berechtigungen",
+    "promptLater": "Nicht jetzt",
     "title": "Berechtigungen für Computersteuerung",
     "intro": "Erlaube Ekko Studio, Apps auf diesem Mac zu sehen und zu bedienen.",
     "complete": "Beide Systemberechtigungen sind aktiviert.",
