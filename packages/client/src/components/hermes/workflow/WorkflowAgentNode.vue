@@ -14,7 +14,7 @@ import type { WorkflowAgentNodeData, WorkflowAgentNodeEditableData } from './typ
 import type { ChatCodingAgentId, CodingAgentApiMode, CodingAgentId } from '@/api/coding-agents'
 import type { ProviderApiMode } from '@/api/studio/provider-api-mode'
 import { getFileDownloadUrl } from '@/api/studio/files'
-import { canScopedCodingAgentUseProvider } from '@/utils/codingAgentProviders'
+import { configuredProviderApiMode, canScopedCodingAgentUseProvider } from '@/utils/codingAgentProviders'
 
 import '@vue-flow/node-resizer/dist/style.css'
 
@@ -48,6 +48,12 @@ const selectableModelGroups = computed(() => (
       ))
     : props.data.modelGroups
 ))
+const configuredApiMode = computed(() => configuredProviderApiMode(
+  props.data.modelGroups.find(group => group.provider === props.data.provider), props.data.model,
+))
+watch([configuredApiMode, () => props.data.apiMode], ([mode]) => {
+  if (mode && !props.data.readonly && usesScopedModel.value && props.data.apiMode !== mode) updateField('apiMode', mode)
+}, { immediate: true })
 const apiModeOptions = computed(() => [
   { label: t('codingAgents.protocolOpenAiChat'), value: 'chat_completions' },
   { label: t('codingAgents.protocolOpenAiResponses'), value: 'codex_responses' },
@@ -217,7 +223,7 @@ async function uploadImages(files: File[]) {
         :model="data.model" :reasoning-effort="data.reasoningEffort === 'default' ? '' : data.reasoningEffort"
         :disabled="data.readonly" @change="selection => data.onUpdate(id, { ...selection, reasoningEffort: selection.reasoningEffort || 'default' })" />
       <NSelect
-        v-if="isCodingAgent && usesScopedModel"
+        v-if="isCodingAgent && usesScopedModel && !configuredApiMode"
         :value="data.apiMode"
         :options="apiModeOptions"
         size="small"

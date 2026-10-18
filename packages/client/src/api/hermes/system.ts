@@ -34,6 +34,7 @@ export interface AvailableModelGroup {
   model_count?: number
   api_key: string
   api_mode?: ProviderApiMode
+  api_mode_by_model?: Record<string, ProviderApiMode | null>
   builtin?: boolean
   /** Env var used by Hermes to override this provider's base URL. If present, the preset URL is editable. */
   base_url_env?: string

@@ -458,7 +458,7 @@ for (const mobile of [false, true]) test(`missing required connection fields fit
   })
 })
 
-test('new chat shares the session model picker and sends the chosen model and protocol', async ({ page }) => {
+test('new chat shares the session model picker and automatically sends the Provider protocol and asks only when missing', async ({ page }, testInfo) => {
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   const api = await mockHermesApi(page, { modelGroups: [TEST_MODEL_GROUP, {
     ...TEST_MODEL_GROUP, provider: 'other-provider', label: 'Other Provider', models: ['other-model', 'disabled-model'],
@@ -482,16 +482,16 @@ test('new chat shares the session model picker and sends the chosen model and pr
   await models.locator('.model-cascader-search input').fill('other-model')
   await models.locator('.model-cascader-item').filter({ hasText: 'other-model' }).click()
   const protocol = page.getByRole('dialog').filter({ hasText: 'Protocol' })
-  await expect(protocol).toContainText('Anthropic Messages')
-  await protocol.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(protocol).toBeHidden()
-  await expect(models.locator('.model-cascader-search input')).toHaveValue('other-model')
-  await expect(draft.locator('.input-model-button')).toContainText('test-model')
-  await models.locator('.model-cascader-item').filter({ hasText: 'other-model' }).click()
-  await protocol.getByRole('button', { name: 'Confirm', exact: true }).click()
   await expect(models).toBeHidden()
   await expect(draft.locator('.input-model-button')).toContainText('other-model')
   await expect(draft.locator('textarea')).toHaveValue('Use the model I selected')
+  await draft.getByRole('button', { name: 'Chat settings', exact: true }).click()
+  const settings = page.getByRole('dialog', { name: 'Chat settings', exact: true })
+  await expect(settings).toBeVisible()
+  await expect(settings.locator('.new-chat-field').filter({ hasText: /^Protocol/ })).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('provider-protocol-settings.png'), animations: 'disabled' })
+  await settings.getByRole('button', { name: 'Close', exact: true }).click()
   expect(api.requests.filter(request => request.pathname.endsWith('/model') && request.method !== 'GET')).toEqual([])
   await draft.getByRole('button', { name: 'Send', exact: true }).click()
   await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__?.emitted?.find((item: any) => item.event === 'run')?.payload)).toMatchObject({
@@ -503,6 +503,7 @@ test('new chat shares the session model picker and sends the chosen model and pr
   await expect(models).toContainText('Test Provider')
   await models.locator('.model-cascader-provider').filter({ hasText: 'Test Provider' }).click()
   await models.locator('.model-cascader-item').filter({ hasText: 'test-model' }).click()
+  await expect(protocol).toBeVisible()
   await protocol.getByRole('button', { name: 'Confirm', exact: true }).click()
   await expect(models).toBeHidden()
   await expect(page.locator('.input-model-button')).toContainText('test-model')

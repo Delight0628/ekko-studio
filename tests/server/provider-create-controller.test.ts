@@ -64,6 +64,17 @@ describe('providers controller create', () => {
     expect(envAfter).not.toContain('DEEPSEEK_BASE_URL')
   })
 
+  it.each(['deepseek', 'opencode-zen', 'opencode-go'])('does not persist catalog protocol metadata when adding %s', async provider => {
+    const { create } = await loadProvidersController()
+    const ctx = makeCtx({ name: provider, providerKey: provider, api_key: 'test-key', model: 'dynamic-model' })
+    await create(ctx)
+    expect(ctx.body).toEqual({ success: true })
+    const saved = readYaml(join(hermesHome, 'config.yaml'))
+    expect(saved.model).toEqual({ default: 'dynamic-model', provider })
+    expect(saved.custom_providers).toBeUndefined()
+    expect(JSON.stringify(saved)).not.toContain('api_mode')
+  })
+
   it.each(['', 'stale-key'])('rejects retired OpenCode Free without changing configuration (key: %s)', async apiKey => {
     const { create } = await loadProvidersController()
     const before = readFileSync(join(hermesHome, 'config.yaml'), 'utf-8')

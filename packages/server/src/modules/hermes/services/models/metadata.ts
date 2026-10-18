@@ -1,9 +1,11 @@
 import { getModelCatalog, resolveCatalogModel, catalogReasoningEfforts } from '../../../studio/public/model-catalog'
+import { PROVIDER_PRESETS, resolveProviderCatalogApiMode, type ProviderApiMode } from '../../../studio/contracts/providers'
 
 interface CatalogModelGroup {
   provider: string
   base_url: string
   models: string[]
+  api_mode_by_model?: Record<string, ProviderApiMode | null>
   model_meta?: Record<string, { reasoning?: boolean; reasoning_efforts?: string[] }>
 }
 
@@ -15,8 +17,13 @@ export function createCatalogModelMetadataEnricher(
   const catalog = getModelCatalog()
   const scannedByProvider = new Map<string, Map<string, ReturnType<typeof resolveCatalogModel>>>()
   return function applyCatalogModelMetadata<T extends CatalogModelGroup>(groups: T[]): T[] {
-    if (!catalog) return groups
     return groups.map(group => {
+      const protocol = PROVIDER_PRESETS.find(preset => preset.value === group.provider)?.catalog_api_mode
+      if (protocol === 'per_model') {
+        group = { ...group, api_mode_by_model: Object.fromEntries(selectModels(group)
+          .map(id => [id, resolveProviderCatalogApiMode(group.provider, id) ?? null])) }
+      }
+      if (!catalog) return group
       let scanned = scannedByProvider.get(group.provider)
       if (!scanned) {
         scanned = new Map()

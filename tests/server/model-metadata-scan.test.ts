@@ -23,6 +23,32 @@ beforeEach(() => {
 })
 
 describe('visible catalog metadata scans', () => {
+  it('routes dynamic OpenCode models without a models.dev snapshot and distinguishes Zen from Go', () => {
+    getModelCatalog.mockReturnValue(null)
+    const models = ['gpt-new-release', 'claude-new-release', 'minimax-m2.7', 'gemini-new-release', 'brand-new-model']
+    const [zen, go, custom] = createCatalogModelMetadataEnricher()([
+      { ...group, provider: 'opencode-zen', models },
+      { ...group, provider: 'opencode-go', models },
+      { ...group, provider: 'custom:opencode-zen', models, api_mode: 'anthropic_messages' },
+    ])
+    expect(zen.api_mode_by_model).toEqual({
+      'gpt-new-release': 'codex_responses', 'claude-new-release': 'anthropic_messages',
+      'minimax-m2.7': 'chat_completions', 'gemini-new-release': 'chat_completions', 'brand-new-model': 'chat_completions',
+    })
+    expect(go.api_mode_by_model).toEqual({ ...zen.api_mode_by_model, 'minimax-m2.7': 'anthropic_messages' })
+    expect(custom.api_mode_by_model).toBeUndefined()
+    expect(custom.api_mode).toBe('anthropic_messages')
+    expect(resolveCatalogModel).not.toHaveBeenCalled()
+  })
+
+  it('uses the selected models for protocol metadata and recomputes after a model refresh', () => {
+    const enrich = createCatalogModelMetadataEnricher(g => g.models.filter(id => id !== 'hidden'))
+    const [first] = enrich([{ ...group, provider: 'opencode-go', models: ['qwen-next', 'hidden'] }])
+    const [next] = enrich([{ ...group, provider: 'opencode-go', models: ['qwen-next', 'muse-spark-next'] }])
+    expect(first.api_mode_by_model).toEqual({ 'qwen-next': 'anthropic_messages' })
+    expect(next.api_mode_by_model).toEqual({ 'qwen-next': 'anthropic_messages', 'muse-spark-next': 'codex_responses' })
+  })
+
   it('resolves all 3,000 selected models while retaining existing metadata', () => {
     const model_meta = { 'model-2999': { alias: 'Last model', preview: true, disabled: true } }
     const [result] = createCatalogModelMetadataEnricher()([{ ...group, model_meta }])

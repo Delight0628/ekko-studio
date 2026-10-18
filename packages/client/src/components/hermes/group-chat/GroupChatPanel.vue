@@ -73,7 +73,7 @@ import {
     createBrowserAnnotationAttachment,
     type BrowserAnnotationSubmission,
 } from '@/utils/browser-annotation-submit'
-import { canScopedCodingAgentUseProvider } from '@/utils/codingAgentProviders'
+import { configuredProviderApiMode, canScopedCodingAgentUseProvider } from '@/utils/codingAgentProviders'
 import {
     inferCodingAgentApiMode,
     normalizeCodingAgentApiMode,
@@ -353,6 +353,10 @@ const selectedAgentProviderGroup = computed(() =>
         .find(item => item.provider === selectedAgentProvider.value)
 )
 
+const configuredAgentApiMode = computed(() => configuredProviderApiMode(selectedAgentProviderGroup.value, selectedAgentModel.value))
+watch([configuredAgentApiMode, selectedAgentApiMode], ([mode]) => {
+  if (mode && selectedAgentApiMode.value !== mode) selectedAgentApiMode.value = mode
+}, { flush: 'sync' })
 const agentApiModeOptions = computed(() => [
     { label: t('codingAgents.protocolOpenAiChat'), value: 'chat_completions' },
     { label: t('codingAgents.protocolOpenAiResponses'), value: 'codex_responses' },
@@ -408,6 +412,10 @@ const summaryModelOptions = computed(() =>
         value: model,
     }))
 )
+const configuredSummaryApiMode = computed(() => configuredProviderApiMode(selectedSummaryProviderGroup.value, summaryConfig.value.summaryModel))
+watch([configuredSummaryApiMode, () => summaryConfig.value.summaryApiMode], ([mode]) => {
+  if (mode && summaryConfig.value.summaryApiMode !== mode) summaryConfig.value.summaryApiMode = mode
+}, { flush: 'sync' })
 const summaryApiModeOptions = computed(() => [
     { label: t('codingAgents.protocolOpenAiChat'), value: 'chat_completions' },
     { label: t('codingAgents.protocolOpenAiResponses'), value: 'codex_responses' },
@@ -517,7 +525,7 @@ const canConfirmAddAgent = computed(() =>
 function syncAgentApiMode() {
     const group = selectedAgentProviderGroup.value
     selectedAgentApiMode.value = normalizeCodingAgentApiMode(
-        group?.api_mode,
+        configuredAgentApiMode.value,
         inferCodingAgentApiMode(group?.provider || selectedAgentProvider.value, group?.base_url),
     )
 }
@@ -1418,7 +1426,7 @@ function applyAgentPreset(presetId: string | null) {
     selectedAgentProvider.value = input.provider || ''
     selectedAgentModel.value = input.model || ''
     selectedAgentApiMode.value = normalizeCodingAgentApiMode(
-        input.apiMode,
+        configuredAgentApiMode.value || input.apiMode,
         inferCodingAgentApiMode(input.provider),
     )
     selectedAgentReasoningEffort.value = usesGlobalAgentMode.value ? '' : input.reasoningEffort || ''
@@ -1578,7 +1586,7 @@ function handleEditAgent(agent: RoomAgent) {
     selectedAgentProvider.value = agent.provider || ''
     selectedAgentModel.value = agent.model || ''
     selectedAgentApiMode.value = normalizeCodingAgentApiMode(
-        agent.apiMode,
+        configuredAgentApiMode.value || agent.apiMode,
         inferCodingAgentApiMode(agent.provider),
     )
     selectedAgentReasoningEffort.value = usesGlobalAgentMode.value ? '' : agent.reasoningEffort || ''
@@ -2898,7 +2906,7 @@ function handleClarifyKeydown(event: KeyboardEvent) {
                             :disabled="isLoadingAgentForm || isSavingAgent"
                             @select="handleAgentModelSelect" />
                     </div>
-                    <div v-if="selectedAgentType !== 'hermes' && !usesGlobalAgentMode" class="form-group">
+                    <div v-if="selectedAgentType !== 'hermes' && !usesGlobalAgentMode && !configuredAgentApiMode" class="form-group">
                         <label class="form-label">{{ t('codingAgents.protocolScope') }}</label>
                         <NSelect
                             v-model:value="selectedAgentApiMode"
@@ -3405,7 +3413,7 @@ function handleClarifyKeydown(event: KeyboardEvent) {
                                     :disabled="!summaryConfig.summaryProvider"
                                 />
                             </div>
-                            <div class="form-group">
+                            <div v-if="!configuredSummaryApiMode" class="form-group">
                                 <label class="form-label">{{ t('groupChat.summaryApiMode') }}</label>
                                 <NSelect v-model:value="summaryConfig.summaryApiMode" :options="summaryApiModeOptions" />
                             </div>

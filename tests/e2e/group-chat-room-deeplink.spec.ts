@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 import { authenticate, TEST_MODEL_GROUP } from './fixtures'
+import type { AvailableModelGroup } from '../../packages/client/src/api/hermes/system'
 
 type DesktopPlatform = 'darwin' | 'win32'
 
@@ -96,7 +97,7 @@ const agentsByRoom: Record<string, unknown[]> = {
   ],
 }
 
-async function mockGroupChatApi(page: Page, offlinePresence = false) {
+async function mockGroupChatApi(page: Page, offlinePresence = false, modelGroups: AvailableModelGroup[] = [TEST_MODEL_GROUP]) {
   const rooms = baseRooms.map(room => ({ ...room }))
   let roomMessages = structuredClone(messagesByRoom)
   const roomDetailRequests: Array<{ roomId: string, offset: number, limit: number, before: string, history: boolean }> = []
@@ -193,13 +194,13 @@ async function mockGroupChatApi(page: Page, offlinePresence = false) {
       return json({
         default: 'test-model',
         default_provider: 'test-provider',
-        groups: [TEST_MODEL_GROUP],
-        allProviders: [TEST_MODEL_GROUP],
+        groups: modelGroups,
+        allProviders: modelGroups,
         profiles: [{
           profile: 'default',
           default: 'test-model',
           default_provider: 'test-provider',
-          groups: [TEST_MODEL_GROUP],
+          groups: modelGroups,
         }],
         model_aliases: {},
         model_visibility: {},
@@ -576,11 +577,11 @@ async function installMockVoiceCapture(page: Page) {
   })
 }
 
-async function setup(page: Page, path: string, platform?: DesktopPlatform, offlinePresence = false) {
+async function setup(page: Page, path: string, platform?: DesktopPlatform, offlinePresence = false, modelGroups?: AvailableModelGroup[]) {
   if (platform) await installDesktopBridge(page, platform)
   await authenticate(page)
   await mockGroupChatSocket(page)
-  const api = await mockGroupChatApi(page, offlinePresence)
+  const api = await mockGroupChatApi(page, offlinePresence, modelGroups)
   await page.goto(path)
   return api
 }
@@ -1458,6 +1459,35 @@ test.describe('group chat room deep links', () => {
     }])
   })
 
+  test('uses per-model Provider protocols in the Agent drawer and retains selection for missing metadata', async ({ page }, testInfo) => {
+    const api = await setup(page, '/#/hermes/group-chat/room/room-alpha', undefined, false, [{
+      ...TEST_MODEL_GROUP, models: ['test-model', 'claude-next', 'unknown-model'],
+      api_mode_by_model: { 'test-model': 'codex_responses', 'claude-next': 'anthropic_messages' },
+    }])
+    await page.locator('.agent-avatar-rail-add').click()
+    const drawer = page.locator('.n-drawer').filter({ hasText: 'Add Agent' })
+    await expect(drawer.locator('.agent-form-loading')).toBeHidden()
+    await drawer.locator('.n-select').first().click()
+    await page.locator('.n-base-select-option__content:visible').getByText('Codex', { exact: true }).click()
+    const protocol = drawer.locator('.form-group').filter({ hasText: /^Protocol/ })
+    await expect(protocol).toHaveCount(0)
+    const selectModel = async (model: string) => {
+      await drawer.locator('.model-trigger').click()
+      await page.locator('.model-cascader:visible').getByRole('menuitemradio').filter({ hasText: model }).click()
+    }
+    await selectModel('unknown-model')
+    await expect(protocol).toBeVisible()
+    await selectModel('claude-next')
+    await expect(protocol).toHaveCount(0)
+    await page.screenshot({ path: testInfo.outputPath('provider-protocol-agent.png'), animations: 'disabled' })
+    await drawer.getByPlaceholder('Custom name (leave empty to use profile name)').fill('Provider Protocol Worker')
+    await drawer.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect.poll(() => api.addedAgents.length).toBe(1)
+    expect(api.addedAgents[0]).toMatchObject({ roomId: 'room-alpha', body: {
+      agent: 'codex', agentMode: 'scoped', provider: 'test-provider', model: 'claude-next', apiMode: 'anthropic_messages',
+    } })
+  })
+
   for (const mobile of [false, true]) test(`adds DSH from the ${mobile ? 'mobile' : 'desktop'} Agent drawer with the selected mode`, async ({ page }) => {
     if (mobile) await page.setViewportSize({ width: 390, height: 844 })
     const api = await setup(page, '/#/hermes/group-chat/room/room-alpha')
@@ -1502,6 +1532,23 @@ test.describe('group chat room deep links', () => {
     await presetDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
     await expect(presetDialog).toHaveCount(0)
     await expect(nameInput).toHaveValue('Keep this draft')
+  })
+
+  for (const apiMode of [undefined, 'anthropic_messages'] as const) test(`room summary protocol ${apiMode ? 'comes from the Provider' : 'remains selectable when unknown'}`, async ({ page }) => {
+    const api = await setup(page, '/#/hermes/group-chat', undefined, false, [{ ...TEST_MODEL_GROUP, api_mode: apiMode }])
+    await page.getByRole('button', { name: 'Create Room', exact: true }).click()
+    const drawer = page.locator('.n-drawer').filter({ hasText: 'Create Room' })
+    const protocol = drawer.locator('.form-group').filter({ hasText: /^API Mode/ })
+    if (apiMode) await expect(protocol).toHaveCount(0)
+    else await expect(protocol).toBeVisible()
+    await drawer.getByPlaceholder('Enter room name').fill('Protocol Room')
+    await drawer.getByPlaceholder('Enter your display name').fill('Owner')
+    await drawer.getByRole('button', { name: 'Create', exact: true }).click()
+    await expect.poll(() => api.createdRooms.length).toBe(1)
+    expect(api.createdRooms[0]).toMatchObject({
+      name: 'Protocol Room',
+      summary: { provider: 'test-provider', model: 'test-model', apiMode: apiMode || 'chat_completions' },
+    })
   })
 
   test('does not offer or apply Agent presets while creating a Room', async ({ page }) => {

@@ -74,7 +74,7 @@ import { getStoredUserId, isStoredSuperAdmin } from "@/api/client";
 import { loadNewChatFormPreferences, saveNewChatFormPreferences } from "@/utils/new-chat-form-preferences";
 import { useDefaultWorkspace } from "@/composables/useDefaultWorkspace";
 import ModelCascader from "@/components/hermes/models/ModelCascader.vue";
-import { canScopedCodingAgentUseProvider, usesServerManagedProviderAuth } from "@/utils/codingAgentProviders";
+import { configuredProviderApiMode, canScopedCodingAgentUseProvider, usesServerManagedProviderAuth } from "@/utils/codingAgentProviders";
 import { OPEN_SUBAGENT_STREAM_EVENT, type OpenSubagentStreamDetail } from "@/utils/hermes/subagent-stream";
 import { desktopBridge, hasDesktopBrowserBridge } from "@/utils/desktop-bridge";
 import { OPEN_DESKTOP_BROWSER_PANEL_EVENT } from "@/utils/desktop-browser";
@@ -1264,11 +1264,16 @@ const newChatMissingCredentials = computed(() =>
   || (newChatNeedsApiKey.value && !newChatApiKey.value.trim())),
 );
 
+const newChatConfiguredApiMode = computed(() => configuredProviderApiMode(selectedNewChatProviderGroup.value, newChatModel.value));
+watch([newChatConfiguredApiMode, newChatApiMode], ([mode]) => {
+  if (mode && newChatApiMode.value !== mode) newChatApiMode.value = mode;
+}, { flush: "sync" });
+
 function defaultNewChatApiMode(group?: AvailableModelGroup): CodingAgentApiMode {
   const providerKey = String(group?.provider || newChatProvider.value || "").toLowerCase();
   const baseUrl = String(group?.base_url || newChatBaseUrl.value || "").toLowerCase();
   return normalizeCodingAgentApiMode(
-    group?.api_mode,
+    configuredProviderApiMode(group, newChatModel.value),
     inferCodingAgentApiMode(providerKey, baseUrl),
   );
 }
@@ -2435,6 +2440,11 @@ async function selectSessionModel(model: string, provider: string) {
   const meta = sessionModelBaseGroups.value.find((group) => group.provider === provider)?.model_meta?.[model];
   if (meta?.disabled || (!sessionModelSessionId.value && !sessionModelIsDraft.value) || sessionModelSwitching.value) return;
   if (isSessionModelScopedCodingAgent.value) {
+    const mode = configuredProviderApiMode(sessionModelBaseGroups.value.find(group => group.provider === provider), model);
+    if (mode) {
+      await applySessionModelSwitch(model, provider, mode);
+      return;
+    }
     pendingSessionModelSwitch.value = { model, provider };
     sessionModelApiMode.value = sessionModelSession.value?.provider === provider && sessionModelSession.value.apiMode
       ? normalizeCodingAgentApiMode(sessionModelSession.value.apiMode, defaultSessionModelApiMode(provider))
@@ -2797,8 +2807,8 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
               />
             </label>
           </div>
-          <div v-if="(isNewChatCodingAgent && effectiveNewChatAgentMode === 'scoped') || newChatNeedsBaseUrl || newChatNeedsApiKey" class="new-chat-settings-group">
-            <label v-if="isNewChatCodingAgent && effectiveNewChatAgentMode === 'scoped'" class="new-chat-field">
+          <div v-if="(isNewChatCodingAgent && effectiveNewChatAgentMode === 'scoped' && !newChatConfiguredApiMode) || newChatNeedsBaseUrl || newChatNeedsApiKey" class="new-chat-settings-group">
+            <label v-if="isNewChatCodingAgent && effectiveNewChatAgentMode === 'scoped' && !newChatConfiguredApiMode" class="new-chat-field">
               <span class="new-chat-label">{{ t("codingAgents.protocolScope") }}</span>
               <NSelect
                 v-bind="newChatSettingsSelectProps"

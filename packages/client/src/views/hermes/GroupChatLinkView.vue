@@ -15,7 +15,7 @@ import {
   parseStoredAvatar,
 } from '@/utils/group-agent-avatar'
 import { nextCodingAgentMode, storedPriorAgentMode, submittedCodingAgentSelection } from '@/utils/coding-agent-mode'
-import { canScopedCodingAgentUseProvider } from '@/utils/codingAgentProviders'
+import { configuredProviderApiMode, canScopedCodingAgentUseProvider } from '@/utils/codingAgentProviders'
 import {
   inferCodingAgentApiMode,
   normalizeCodingAgentApiMode,
@@ -169,6 +169,10 @@ const agentModelOptions = computed(() => (selectedAgentProviderGroup.value?.mode
   label: appStore.displayModelName(model, selectedAgentProvider.value),
   value: model,
 })))
+const configuredAgentApiMode = computed(() => configuredProviderApiMode(selectedAgentProviderGroup.value, selectedAgentModel.value))
+watch([configuredAgentApiMode, selectedAgentApiMode], ([mode]) => {
+  if (mode && selectedAgentApiMode.value !== mode) selectedAgentApiMode.value = mode
+}, { flush: 'sync' })
 const agentApiModeOptions = computed(() => [
   { label: t('codingAgents.protocolOpenAiChat'), value: 'chat_completions' },
   { label: t('codingAgents.protocolOpenAiResponses'), value: 'codex_responses' },
@@ -277,7 +281,7 @@ function closeWindow(): void {
 function syncAgentApiMode(): void {
   const group = selectedAgentProviderGroup.value
   selectedAgentApiMode.value = normalizeCodingAgentApiMode(
-    group?.api_mode,
+    configuredAgentApiMode.value,
     inferCodingAgentApiMode(group?.provider || selectedAgentProvider.value, group?.base_url),
   )
 }
@@ -334,7 +338,7 @@ function applyAgentConfiguration(agent: RemoteGroupAgentDescriptor): void {
   selectedAgentProvider.value = agent.provider
   selectedAgentModel.value = agent.model
   selectedAgentApiMode.value = normalizeCodingAgentApiMode(
-    agent.apiMode,
+    configuredAgentApiMode.value || agent.apiMode,
     inferCodingAgentApiMode(agent.provider),
   )
   selectedAgentReasoningEffort.value = agent.reasoningEffort
@@ -722,7 +726,7 @@ onUnmounted(() => {
               @update:value="handleAgentModelChange"
             />
           </div>
-          <div v-if="selectedAgentType !== 'hermes' && !usesGlobalAgentMode" class="field">
+          <div v-if="selectedAgentType !== 'hermes' && !usesGlobalAgentMode && !configuredAgentApiMode" class="field">
             <label>{{ t('codingAgents.protocolScope') }}</label>
             <NSelect
               v-model:value="selectedAgentApiMode"

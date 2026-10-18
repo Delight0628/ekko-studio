@@ -80,6 +80,7 @@ vi.mock('../../packages/server/src/modules/studio/contracts/providers', async im
     },
     {
       value: 'deepseek',
+      catalog_api_mode: 'chat_completions',
       label: 'DeepSeek',
       base_url: 'https://api.deepseek.com/v1',
       models: ['deepseek-chat', 'deepseek-reasoner'],
@@ -116,6 +117,7 @@ vi.mock('../../packages/server/src/modules/studio/contracts/providers', async im
     },
     {
       value: 'copilot',
+      catalog_api_mode: 'per_model',
       label: 'GitHub Copilot',
       base_url: 'https://api.githubcopilot.com',
       models: ['gpt-5.5'],
@@ -848,6 +850,20 @@ describe('models controller — model visibility', () => {
         models: ['gpt-5.5', 'gpt-5.4'],
       }),
     ]))
+  })
+
+  it('does not infer a custom Provider protocol from a matching builtin name', async () => {
+    mockReadFile.mockResolvedValue('')
+    mockReadConfigYamlForProfile.mockResolvedValue({
+      model: { default: 'model', provider: 'custom:deepseek' },
+      custom_providers: [{ name: 'deepseek', base_url: 'https://proxy.invalid/v1', model: 'model', api_key: 'test' }],
+    })
+    const ctx = makeCtx()
+    ctx.query = { profile: 'default' }
+    await ctrl.getAvailable(ctx)
+    expect(ctx.body.groups.find((g: any) => g.provider === 'custom:deepseek').api_mode).toBeUndefined()
+    expect(ctx.body.allProviders.find((g: any) => g.provider === 'deepseek').api_mode).toBe('chat_completions')
+    expect(mockWriteAppConfig).not.toHaveBeenCalled()
   })
 
   it('loads api_mode from custom provider config entries', async () => {
