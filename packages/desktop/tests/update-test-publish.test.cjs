@@ -29,7 +29,7 @@ async function fixture(t, version = '0.7.900', target = 'darwin-arm64') {
     }
   }
   const manifest = linux ? (target.endsWith('arm64') ? 'latest-linux-arm64.yml' : 'latest-linux.yml')
-    : target.startsWith('darwin') ? 'latest-mac.yml' : 'latest.yml'
+    : target.startsWith('darwin') ? 'latest-mac.yml' : target === 'win32-arm64' ? 'latest-arm64.yml' : 'latest.yml'
   await writeFile(join(config.feed, manifest), JSON.stringify({ version, files, path: files[0].url, sha512: files[0].sha512 }))
   await writeFile(join(config.feed, 'update-test-build.json'), JSON.stringify({
     version, target, source: config.metadata.desktopUpdate, manifest,
@@ -71,7 +71,7 @@ function fakeGithub() {
 test('GitHub publisher fixes the repo and separates all five target feeds', async () => {
   const { TEST_REPOSITORY, publishConfig, checkRepository } = await script()
   assert.equal(TEST_REPOSITORY, 'EKKOLearnAI/ekko-studio-update-test')
-  for (const target of ['darwin-arm64', 'darwin-x64', 'win32-x64', 'linux-x64', 'linux-arm64']) {
+  for (const target of ['darwin-arm64', 'darwin-x64', 'win32-x64', 'win32-arm64', 'linux-x64', 'linux-arm64']) {
     const env = { DESKTOP_UPDATE_TEST_TARGET: target, DESKTOP_UPDATE_TEST_VERSION: '0.7.900' }
     assert.equal(publishConfig(env).url, `https://github.com/${TEST_REPOSITORY}/releases/download/update-test-${target}/`)
     assert.throws(() => publishConfig({ ...env, DESKTOP_UPDATE_TEST_URL: 'https://github.com/EKKOLearnAI/ekko-studio/releases/latest/download/' }), /fixed/)
@@ -109,7 +109,7 @@ test('GitHub CLI adapter always uses the test repo, paginates, and never marks l
 
 test('A → B uploads installers first, switches manifest last, retains A, and supports exact retries on every target', async t => {
   const { publishFeed } = await script()
-  for (const target of ['darwin-arm64', 'darwin-x64', 'win32-x64', 'linux-x64', 'linux-arm64']) {
+  for (const target of ['darwin-arm64', 'darwin-x64', 'win32-x64', 'win32-arm64', 'linux-x64', 'linux-arm64']) {
     const a = await fixture(t, '0.7.900', target), b = await fixture(t, '0.7.901', target)
     const { state, client, current } = fakeGithub()
     await publishFeed(a, client)

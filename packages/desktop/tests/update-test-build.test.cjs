@@ -48,7 +48,7 @@ test('test build rejects missing feed/version, ambiguous versions and unsupporte
     { DESKTOP_UPDATE_TEST_URL: '' },
     { DESKTOP_UPDATE_TEST_URL: 'https://download.ekkolearnai.com/latest' },
     ...['', 'v1.0.0', '1.0.1-beta.1', '1.0.0+test', '01.0.0', '1.0.999999'].map(DESKTOP_UPDATE_TEST_VERSION => ({ DESKTOP_UPDATE_TEST_VERSION })),
-    { DESKTOP_UPDATE_TEST_TARGET: 'win32-arm64' }, { DESKTOP_UPDATE_TEST_TARGET: 'constructor' },
+    { DESKTOP_UPDATE_TEST_TARGET: 'win32-ia32' }, { DESKTOP_UPDATE_TEST_TARGET: 'constructor' },
   ]) assert.throws(() => createTestBuildConfig({ ...baseEnv, ...patch }))
 })
 
@@ -84,9 +84,9 @@ async function artifactsFixture(t, target = 'darwin-arm64') {
   const metadata = config.extraMetadata
   const mac = target.startsWith('darwin')
   const linux = target.startsWith('linux')
-  const manifestName = linux ? (target.endsWith('arm64') ? 'latest-linux-arm64.yml' : 'latest-linux.yml') : mac ? 'latest-mac.yml' : 'latest.yml'
+  const manifestName = linux ? (target.endsWith('arm64') ? 'latest-linux-arm64.yml' : 'latest-linux.yml') : mac ? 'latest-mac.yml' : target === 'win32-arm64' ? 'latest-arm64.yml' : 'latest.yml'
   const resources = join(output, mac ? `${target.endsWith('arm64') ? 'mac-arm64' : 'mac'}/Ekko Studio.app/Contents/Resources`
-    : linux ? `${target.endsWith('arm64') ? 'linux-arm64-unpacked' : 'linux-unpacked'}/resources` : 'win-unpacked/resources')
+    : linux ? `${target.endsWith('arm64') ? 'linux-arm64-unpacked' : 'linux-unpacked'}/resources` : target === 'win32-arm64' ? 'win-arm64-unpacked/resources' : 'win-unpacked/resources')
   const source = join(output, 'package-source')
   await mkdir(source)
   await mkdir(resources, { recursive: true })
@@ -121,7 +121,7 @@ async function artifactsFixture(t, target = 'darwin-arm64') {
 
 test('artifact verification accepts real ASAR packages and complete manifests for every supported target', async t => {
   const { verifyTestArtifacts } = await script()
-  for (const target of ['darwin-arm64', 'darwin-x64', 'win32-x64', 'linux-x64', 'linux-arm64']) {
+  for (const target of ['darwin-arm64', 'darwin-x64', 'win32-x64', 'win32-arm64', 'linux-x64', 'linux-arm64']) {
     const fixture = await artifactsFixture(t, target)
     const files = await verifyTestArtifacts(fixture.output, target, fixture.metadata)
     assert(files.includes(fixture.manifestName))
@@ -180,7 +180,7 @@ test('test workflow isolates cross-repo credentials and requires signing on macO
   assert.equal(workflow.on.workflow_dispatch.inputs.release_tag, undefined)
   assert.equal(workflow.on.workflow_dispatch.inputs.update_feed_url, undefined)
   assert.deepEqual(workflow.on.workflow_dispatch.inputs.target.options,
-    ['darwin-arm64', 'darwin-x64', 'win32-x64', 'linux-x64', 'linux-arm64'])
+    ['darwin-arm64', 'darwin-x64', 'win32-x64', 'win32-arm64', 'linux-x64', 'linux-arm64'])
   assert(workflow.jobs.build['runs-on'].includes('"linux-x64":"ubuntu-22.04"'))
   assert(workflow.jobs.build['runs-on'].includes('"linux-arm64":"ubuntu-22.04-arm"'))
   assert.equal(workflow.concurrency.group, 'desktop-update-test-${{ inputs.target }}')

@@ -149,11 +149,18 @@ Expected desktop release outputs:
 | Target | Required release globs |
 | --- | --- |
 | macOS | `*.dmg`, `*.dmg.blockmap`, `*.zip`, `*.zip.blockmap`, `latest*.yml` |
-| Windows | `*.exe`, `*.exe.blockmap`, `latest*.yml` |
+| Windows x64 | `*-x64.exe`, `*-x64.exe.blockmap`, `latest.yml` |
+| Windows ARM64 | `*-arm64.exe`, `*-arm64.exe.blockmap`, `latest-arm64.yml` |
 | Linux x64 | `*.AppImage`, `*.deb`, `latest*.yml` |
 | Linux arm64 | `*.AppImage`, `latest*.yml` |
 
 ### Desktop updater changes
+
+For Windows ARM64 packaging changes, also run
+`npm run test -- tests/desktop/windows-arm64-packaging.test.ts tests/desktop/packaged-webui.test.ts`
+and build `win32` / `arm64` through the manual workflow without a release tag.
+Follow [Windows ARM64 acceptance](../../packages/desktop/WINDOWS-ARM64.md) before
+publishing; the installer and its first-launch Hermes runtime ship separately.
 
 Run `npm --prefix packages/desktop run test:updater` after installing desktop
 dependencies. This builds the production main process and exercises the installed

@@ -378,7 +378,7 @@ function directManagedRuntimeCandidate(
   const nodePath = process.platform === 'win32' ? join(nodeBin, 'node.exe') : join(nodeBin, 'node')
   const gitBin = process.platform === 'win32' ? join(directory, 'git', 'cmd', 'git.exe') : undefined
   const gitPath = process.platform === 'win32'
-    ? [join(directory, 'git', 'cmd'), join(directory, 'git', 'mingw64', 'bin')].filter(existsSync).join(delimiter)
+    ? [join(directory, 'git', 'cmd'), join(directory, 'git', 'mingw64', 'bin'), join(directory, 'git', 'clangarm64', 'bin')].filter(existsSync).join(delimiter)
     : ''
   const agentBrowserHome = join(agentRoot, 'agent-browser')
   const agentBrowserBin = process.platform === 'win32'

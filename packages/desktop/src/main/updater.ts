@@ -8,7 +8,7 @@ import { t } from './desktop-i18n'
 import { isWindowsUpdaterLockError, pendingUpdateDirectories } from './updater-helpers'
 import type { DesktopUpdateState } from './updater-types'
 import { bindUpdateRequestCancellation } from './updater-cancellation'
-import { readDesktopUpdateSource } from './updater-source'
+import { desktopUpdateChannel, readDesktopUpdateSource } from './updater-source'
 
 let initialized = false
 let checking = false
@@ -148,6 +148,7 @@ function configureUpdateFeed(url: string): void {
   autoUpdater.setFeedURL({
     provider: 'generic',
     url,
+    channel: desktopUpdateChannel(),
   })
 }
 

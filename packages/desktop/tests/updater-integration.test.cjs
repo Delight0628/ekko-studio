@@ -181,10 +181,10 @@ async function fixture(t, mac = false, testSource, linuxArch) {
     realUpdater.quitAndInstall = () => { control.installs++ }
   }
   const setFeed = realUpdater.setFeedURL.bind(realUpdater)
-  realUpdater.setFeedURL = ({ url }) => {
+  realUpdater.setFeedURL = ({ url, channel }) => {
     control.feedUrls.push(url)
     const path = url.startsWith('https://updates.example.com/') ? 'test' : url.includes('github.com') ? 'gh' : 'cf'
-    setFeed({ provider: 'generic', url: `${base}/${path}` })
+    setFeed({ provider: 'generic', url: `${base}/${path}`, channel })
   }
   const controllerPath = require.resolve('../dist/main/updater.js')
   delete require.cache[controllerPath]
@@ -280,6 +280,21 @@ test('packaged test source downloads exclusively through its own feed', { timeou
   assert.deepEqual(control.feedUrls, ['https://updates.example.com/windows/'])
   assert(control.requests.length >= 2)
   assert(control.requests.every(url => url.startsWith('/test/')))
+})
+
+test('Windows ARM64 uses its own manifest through primary and fallback feeds', { timeout: 20000 }, async t => {
+  const { control, controller, ready } = await fixture(t)
+  const originalArch = process.arch
+  t.after(() => Object.defineProperty(process, 'arch', { value: originalArch }))
+  Object.defineProperty(process, 'platform', { value: 'win32' })
+  Object.defineProperty(process, 'arch', { value: 'arm64' })
+  control.failPrimary = true
+  control.slow = false
+  await controller.checkForDesktopUpdates(false)
+  await ready('downloaded')
+  assert(control.requests.some(url => url.startsWith('/cf/latest-arm64.yml')))
+  assert(control.requests.some(url => url.startsWith('/gh/latest-arm64.yml')))
+  assert(!control.requests.some(url => /\/latest\.yml/.test(url)))
 })
 
 test('offline test feed never retries against production and can recover on the same feed', { timeout: 20000 }, async t => {

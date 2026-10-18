@@ -2,9 +2,16 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { readDesktopUpdateSource, resolveDesktopUpdateSource, validateTestUpdateUrl } from '../../packages/desktop/src/main/updater-source'
+import { desktopUpdateChannel, readDesktopUpdateSource, resolveDesktopUpdateSource, validateTestUpdateUrl } from '../../packages/desktop/src/main/updater-source'
 
 describe('packaged desktop update source', () => {
+  it('isolates Windows ARM64 updates without moving existing Windows x64 clients', () => {
+    expect(desktopUpdateChannel('win32', 'arm64')).toBe('latest-arm64')
+    expect(desktopUpdateChannel('win32', 'x64')).toBe('latest')
+    expect(desktopUpdateChannel('darwin', 'arm64')).toBe('latest')
+    expect(desktopUpdateChannel('linux', 'arm64')).toBe('latest')
+  })
+
   it('preserves production primary and fallback feeds for normal packages', () => {
     expect(resolveDesktopUpdateSource({ name: 'hermes-studio', version: '1.0.0' })).toEqual({
       channel: 'stable', url: 'https://download.ekkolearnai.com/latest',
