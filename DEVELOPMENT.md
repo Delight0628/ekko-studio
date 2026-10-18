@@ -178,8 +178,8 @@ update its version and image digest using `packages/startos/UPDATING.md`.
 
 Start9's Community Registry review currently forks a standalone public wrapper
 repository into Start9-Community. `packages/startos` remains exportable as such a
-repository; its nested `.github` workflow is only used after export. The existing
-`wtj-0527/ekko-studio-startos` repository is the review copy named by `packageRepo`.
+repository; its nested `.github` workflow is only used after export. The organization
+`EKKOLearnAI/ekko-studio-startOS` repository is the review copy named by `packageRepo`.
 Main-repository CI does not require creating an EKKOLearnAI organization wrapper
 repository. Synchronize the review copy before submitting it and confirm the
 review layout with Start9; a main-repository build alone is not listing approval.

@@ -5,7 +5,7 @@ export const manifest = setupManifest({
   id: 'ekko-studio',
   title: 'Ekko Studio',
   license: 'BUSL-1.1',
-  packageRepo: 'https://github.com/wtj-0527/ekko-studio-startos',
+  packageRepo: 'https://github.com/EKKOLearnAI/ekko-studio-startOS',
   upstreamRepo: 'https://github.com/EKKOLearnAI/ekko-studio',
   marketingUrl: 'https://ekkostudio.xyz',
   donationUrl: null,
