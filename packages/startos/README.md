@@ -30,8 +30,10 @@ This repository retains upstream branding and its Business Source License.
 
 ## Image and Container Runtime
 
-The package wraps the unmodified upstream `ekkoye8888/hermes-web-ui` image,
-pinned by tag and multi-architecture digest in the manifest. It supports x86_64
+The package copies the prebuilt `/app` payload from the upstream
+`ekkoye8888/hermes-web-ui` image into a Node-based image. Both source images
+are pinned by digest in `Dockerfile`. Hermes source and its Python environment
+are excluded from the final image; the upstream Studio entrypoint is preserved. It supports x86_64
 and aarch64 and runs the upstream entrypoint in the `studio` subcontainer.
 The image's root user remains confined to the service container; no host Docker
 socket or host directories are mounted. The temporary `credential-setup`
@@ -49,6 +51,12 @@ outside the package's persistence contract.
 
 Studio data is under `.hermes-web-ui/`, Hermes data under `.hermes/`, and the
 workspace browser is rooted at `workspaces/`, all inside the mounted home.
+Hermes runtimes installed through Studio live under
+`.hermes-web-ui/desktop-runtime/hermes/` and are included in persistence and backups.
+The package neither installs Hermes at startup nor replaces an installed runtime
+on application upgrade. Runtime installation and selection use Studio’s existing
+version manager; the bundled Ekko Agent remains available without Hermes.
+
 Runtime-installed npm tools use `.hermes-web-ui/coding-agent/npm/`.
 
 ## File Models
@@ -158,7 +166,6 @@ startos_managed_env_vars:
   - HERMES_WEBUI_STATE_DIR
   - WORKSPACE_BASE
   - NPM_CONFIG_PREFIX
-  - HERMES_BIN
   - HERMES_WEB_UI_MANAGED_GATEWAY
   - HERMES_ALLOW_ROOT_GATEWAY
   - HERMES_WEB_UI_DISABLE_UPDATE_CHECK

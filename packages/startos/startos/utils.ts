@@ -9,7 +9,6 @@ export const runtimeEnv = {
   HERMES_WEBUI_STATE_DIR: '/home/agent/.hermes-web-ui',
   WORKSPACE_BASE: '/home/agent/workspaces',
   NPM_CONFIG_PREFIX: '/home/agent/.hermes-web-ui/coding-agent/npm',
-  HERMES_BIN: '/opt/hermes/.venv/bin/hermes',
   HERMES_WEB_UI_MANAGED_GATEWAY: '1',
   HERMES_ALLOW_ROOT_GATEWAY: '1',
   HERMES_WEB_UI_DISABLE_UPDATE_CHECK: '1',

@@ -10,6 +10,7 @@
 2. Start Ekko Studio and open **Web Interface**.
 3. Sign in as `admin` with the generated password.
 4. Add your preferred model provider in Studio and configure an agent before starting a chat.
+5. To use Hermes, open Studio’s version management page, download a Hermes runtime for your architecture, install it, and select it. Follow the restart prompt. This requires network access for the initial runtime download; Ekko Agent does not require this step.
 
 Your conversations, uploaded files, agent settings, and files created in the
 default workspace remain in this instance. Use the default workspace for files
@@ -28,3 +29,10 @@ UDP peer connections, preview development servers, and separate OAuth callback
 listeners are not exposed by this package. Configure provider API credentials
 when a provider's callback-based sign-in is unavailable. Model providers may
 require their own accounts and fees; none are included with the package.
+
+## Hermes runtime and upgrades
+
+Hermes is managed independently of the application package. Updating this package
+does not reinstall or reset a downloaded runtime. After upgrading from a package
+that bundled Hermes, download and select a managed runtime if none is installed;
+your Hermes profiles and Studio data remain preserved.
