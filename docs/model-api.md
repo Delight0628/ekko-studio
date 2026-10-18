@@ -49,6 +49,11 @@ includes `api_mode` and `responses_supported`; it contains no keys or upstream U
 Slashes and percent signs in custom provider names are escaped in the provider
 segment (`%2F`, `%25`) to avoid collisions; use the exact ID returned by the list.
 
+A custom provider pointing at this instance's Model API using a locally issued
+Model API key is not re-exported. It can still be used by Studio chats, but its
+cached model IDs must not create recursive copies of the public catalog.
+Providers connected to another instance with its own key remain available.
+
 Duplicate IDs use a callable configuration before a disabled/unsupported one.
 Among equivalent candidates, `default` takes priority, followed by Profile names
 in lexical order. This order is independent of load timing or the UI's active

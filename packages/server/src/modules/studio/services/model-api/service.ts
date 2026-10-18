@@ -11,11 +11,13 @@ import { ModelApiError, modelApiErrorBody } from './errors'
 import { responsesModelRequest, validateResponsesBody } from './input'
 import { ResponsesOutput, type ResponsesEvent } from './output'
 import { reasoningCodec } from './reasoning'
+import { findModelApiKey } from './keys'
 
 interface ModelGroup {
   provider: string
   models: string[]
   base_url?: string
+  api_key?: string
   api_mode?: string
   api_mode_by_model?: Record<string, string>
   model_meta?: Record<string, { disabled?: boolean }>
@@ -39,6 +41,16 @@ function callable(entry: CatalogEntry): boolean {
   return supported(entry.group, entry.model) && !entry.group.model_meta?.[entry.model]?.disabled
 }
 
+function isSelfModelApi(group: ModelGroup): boolean {
+  if (!group.base_url || !group.api_key) return false
+  let url: URL
+  try { url = new URL(group.base_url) } catch { return false }
+  if (!['http:', 'https:'].includes(url.protocol) || !url.pathname.replace(/\/+$/, '').endsWith('/api/studio/models/v1')) return false
+  // A locally issued key identifies this instance even behind a proxy or LAN URL.
+  // Do not re-export the cached catalog of a provider pointing back to ourselves.
+  return findModelApiKey(group.api_key.trim()) !== null
+}
+
 async function unifiedCatalog(profiles: string[]): Promise<Map<string, CatalogEntry>> {
   const names = [...new Set(profiles)]
   const groupsByProfile = await Promise.all(names.map(profile => getSessionAvailableModelGroups(profile) as Promise<ModelGroup[]>))
@@ -46,7 +58,7 @@ async function unifiedCatalog(profiles: string[]): Promise<Map<string, CatalogEn
   for (const [index, groups] of groupsByProfile.entries()) {
     for (const group of groups) {
       // MoA presets require agent orchestration and are not public API models.
-      if (group.provider === 'moa') continue
+      if (group.provider === 'moa' || isSelfModelApi(group)) continue
       for (const model of group.models) {
         const id = qualifiedId(group.provider, model)
         const entry = { profile: names[index], group, model }

@@ -7,7 +7,7 @@ import { resolveModelProviderConfigs } from '../../packages/ekko-agent/src/model
 import type { ModelEvent } from '../../packages/ekko-agent/src/model/types'
 
 const mocks = vi.hoisted(() => ({
-  groups: vi.fn(), runtime: vi.fn(), record: vi.fn(), fetch: vi.fn(), createClient: vi.fn(),
+  groups: vi.fn(), runtime: vi.fn(), record: vi.fn(), fetch: vi.fn(), createClient: vi.fn(), findKey: vi.fn(),
   config: { appHome: '' },
 }))
 vi.mock('../../packages/server/src/modules/studio/public/config', () => ({ config: mocks.config }))
@@ -20,6 +20,7 @@ vi.mock('../../packages/server/src/modules/studio/public/chat-agent-runtime', ()
   resolveChatEkkoModelProviderConfigs: (input: any) => resolveModelProviderConfigs(input),
 }))
 vi.mock('../../packages/server/src/modules/studio/services/usage/usage-recorder', () => ({ recordSessionUsage: mocks.record }))
+vi.mock('../../packages/server/src/modules/studio/services/model-api/keys', () => ({ findModelApiKey: mocks.findKey }))
 
 import { prepareModelResponse, listApiModels } from '../../packages/server/src/modules/studio/services/model-api/service'
 import { reasoningCodec } from '../../packages/server/src/modules/studio/services/model-api/reasoning'
@@ -35,6 +36,7 @@ const sse = (chunks: any[]) => new Response(chunks.map(chunk => `data: ${typeof 
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.findKey.mockReturnValue(null)
   mocks.groups.mockResolvedValue([{ provider: 'deepseek', models: ['deepseek-reasoner'], api_mode: 'chat_completions', api_key: 'must-not-leak' }])
   mocks.runtime.mockImplementation(async input => ({ provider: input.provider, apiKey: 'upstream-secret', baseUrl: 'https://api.deepseek.com/v1', apiMode: input.apiMode }))
   mocks.createClient.mockImplementation(createModelClient)
@@ -69,6 +71,22 @@ describe('public Responses model API', () => {
     expect(mocks.runtime).not.toHaveBeenCalled()
     expect(mocks.createClient).not.toHaveBeenCalled()
     expect(mocks.fetch).not.toHaveBeenCalled()
+    expect(mocks.record).not.toHaveBeenCalled()
+  })
+
+  it.each(['http://localhost:8647', 'http://127.0.0.1:8649', 'https://studio.example/proxy'])('excludes self-imported models via %s without blocking direct providers or another Studio instance', async origin => {
+    mocks.findKey.mockImplementation(key => key === 'local-key' ? { id: 'key-1', userId: 1 } : null)
+    mocks.groups.mockResolvedValue([
+      { provider: 'glm', models: ['glm-5.3'], api_mode: 'chat_completions' },
+      { provider: 'custom:self', base_url: `${origin}/api/studio/models/v1/`, api_key: 'local-key', models: ['moa/aa', 'glm/glm-5.3', 'custom:self/moa/default'], api_mode: 'codex_responses' },
+      { provider: 'custom:remote', base_url: 'https://other.example/api/studio/models/v1', api_key: 'remote-key', models: ['glm/glm-5.3'], api_mode: 'codex_responses' },
+      { provider: 'custom:other-api', base_url: 'https://other.example/v1', api_key: 'local-key', models: ['moa/real-model'], api_mode: 'chat_completions' },
+    ])
+    expect((await listApiModels(['default'])).data.map(model => model.id)).toEqual(['glm/glm-5.3', 'custom:remote/glm/glm-5.3', 'custom:other-api/moa/real-model'])
+    for (const model of ['custom:self/moa/aa', 'custom:self/glm/glm-5.3', 'custom:self/custom:self/moa/default']) {
+      await expect(prepare(body({ model }))).rejects.toMatchObject({ status: 404, param: 'model' })
+    }
+    expect(mocks.runtime).not.toHaveBeenCalled()
     expect(mocks.record).not.toHaveBeenCalled()
   })
 
