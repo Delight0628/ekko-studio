@@ -34,45 +34,58 @@ function supported(group: ModelGroup, model: string): boolean {
   return group.provider !== 'moa' && !['bedrock_converse', 'codex_app_server'].includes(apiMode(group, model) || '')
 }
 
-export async function listApiModels(profile: string) {
-  const groups: ModelGroup[] = await getSessionAvailableModelGroups(profile)
-  const models = new Map<string, Record<string, unknown>>()
-  for (const group of groups) for (const model of group.models) {
-    const id = qualifiedId(group.provider, model)
-    models.set(id, {
-      id, object: 'model', created: 0, owned_by: group.provider,
-      api_mode: apiMode(group, model) || null,
-      responses_supported: supported(group, model) && !group.model_meta?.[model]?.disabled,
-    })
+interface CatalogEntry { profile: string; group: ModelGroup; model: string }
+function callable(entry: CatalogEntry): boolean {
+  return supported(entry.group, entry.model) && !entry.group.model_meta?.[entry.model]?.disabled
+}
+
+async function unifiedCatalog(profiles: string[]): Promise<Map<string, CatalogEntry>> {
+  const names = [...new Set(profiles)]
+  const groupsByProfile = await Promise.all(names.map(profile => getSessionAvailableModelGroups(profile) as Promise<ModelGroup[]>))
+  const catalog = new Map<string, CatalogEntry>()
+  for (const [index, groups] of groupsByProfile.entries()) {
+    for (const group of groups) for (const model of group.models) {
+      const id = qualifiedId(group.provider, model)
+      const entry = { profile: names[index], group, model }
+      const existing = catalog.get(id)
+      // Keep a callable configuration over a disabled/unsupported duplicate.
+      // Otherwise the caller's stable Profile order wins, independent of fetch timing.
+      if (!existing || (!callable(existing) && callable(entry))) catalog.set(id, entry)
+    }
   }
-  return { object: 'list', data: [...models.values()] }
+  return catalog
+}
+
+export async function listApiModels(profiles: string[]) {
+  const catalog = await unifiedCatalog(profiles)
+  return { object: 'list', data: [...catalog].map(([id, entry]) => ({
+    id, object: 'model', created: 0, owned_by: entry.group.provider,
+    api_mode: apiMode(entry.group, entry.model) || null,
+    responses_supported: callable(entry),
+  })) }
 }
 
 export async function prepareModelResponse(input: {
-  profile: string
+  profiles: string[]
   accountId?: string
   body: unknown
   signal: AbortSignal
 }) {
   validateResponsesBody(input.body)
   const body = input.body
-  const groups: ModelGroup[] = await getSessionAvailableModelGroups(input.profile)
-  let selected: { group: ModelGroup; model: string } | undefined
-  for (const group of groups) {
-    const model = group.models.find(model => qualifiedId(group.provider, model) === body.model)
-    if (model) { selected = { group, model }; break }
-  }
-  if (!selected || selected.group.model_meta?.[selected.model]?.disabled) throw new ModelApiError('Model is not available in this Profile.', 404, 'model')
-  const { group, model } = selected
+  const catalog = await unifiedCatalog(input.profiles)
+  const selected = catalog.get(body.model)
+  if (!selected || selected.group.model_meta?.[selected.model]?.disabled) throw new ModelApiError('Model is not available.', 404, 'model')
+  const { profile, group, model } = selected
   if (!supported(group, model)) throw new ModelApiError('This provider requires a runtime that does not support direct model requests.', 501, 'model')
-  const runtime = await resolveChatEkkoProviderRuntimeConfig({ profile: input.profile, provider: group.provider, model, apiMode: apiMode(group, model) })
+  const runtime = await resolveChatEkkoProviderRuntimeConfig({ profile, provider: group.provider, model, apiMode: apiMode(group, model) })
   const resolved: { providerConfig: ModelProviderConfig } = resolveChatEkkoModelProviderConfigs({
     ...runtime, provider: group.provider, model,
   })
-  const codec = await reasoningCodec(JSON.stringify([input.profile, group.provider, model, resolved.providerConfig.baseUrl, resolved.providerConfig.requestStyle]))
+  const codec = await reasoningCodec(JSON.stringify([profile, group.provider, model, resolved.providerConfig.baseUrl, resolved.providerConfig.requestStyle]))
   const request = responsesModelRequest(body, model, codec, input.signal)
   const client: ModelClient = createChatEkkoModelClient(resolved.providerConfig, { fetch: createChatEkkoAuthorizedProviderFetch({
-    profile: input.profile, provider: group.provider, model, accessToken: runtime.apiKey,
+    profile, provider: group.provider, model, accessToken: runtime.apiKey,
   }) })
   if (request.messages.some(message => message.contentParts?.some(part => part.type === 'image')) && !client.capabilities.vision) {
     throw new ModelApiError('This model does not support images.', 400, 'input')
@@ -85,7 +98,7 @@ export async function prepareModelResponse(input: {
     recordSessionUsage({
       sessionId: '', runId: output.id, origin: 'external', accountId: input.accountId,
       source: 'model_api', agent: 'model_api', usageScope: 'model_call', apiCalls: 1,
-      profile: input.profile, provider: group.provider, model, baseUrl: runtime.baseUrl,
+      profile, provider: group.provider, model, baseUrl: runtime.baseUrl,
       usage: output.usage, apiDuration: (performance.now() - startedAt) / 1000,
     })
   }

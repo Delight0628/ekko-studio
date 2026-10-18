@@ -29,6 +29,42 @@ const writeApprovalMessages = {
 }
 
 export default {
+  modelApi: {
+    "refresh": "Yenile",
+    "title": "Model API",
+    "description": "Kullanılabilir modellerinizi OpenAI Responses API destekleyen istemcilerden çağırın.",
+    "failed": "İşlem başarısız oldu. Tekrar deneyin.",
+    "copyFailed": "Kopyalanamadı. Metni seçip elle kopyalayın.",
+    "unsupported": "Bu API için kullanılamıyor",
+    "connection": "Bağlantı",
+    "baseUrl": "Temel URL",
+    "addressHint": "İstemcinin erişebileceği bir adres kullanın. Başka bir cihazdan bağlanırken localhost yerine uygun adresi yazın.",
+    "keys": "API anahtarlarım",
+    "keysHint": "Anahtarlar hesabınıza bağlıdır. Yalnızca model isteklerine izin verir ve iptal edilene kadar geçerlidir. Sağlayıcı kimlik bilgileri sunucuda kalır.",
+    "namePlaceholder": "Örn. kodlama istemcim",
+    "keyName": "Anahtar adı",
+    "createKey": "Anahtar oluştur",
+    "noKeys": "Henüz API anahtarı yok",
+    "createdAt": "Oluşturulma: {date}",
+    "lastUsed": "Son kullanım: {date}",
+    "neverUsed": "Henüz kullanılmadı",
+    "revoke": "İptal et",
+    "revokeConfirm": "“{name}” iptal edilsin mi? Bu anahtarla yapılan yeni istekler reddedilir.",
+    "revoked": "API anahtarı iptal edildi",
+    "models": "Modeller",
+    "modelsHint": "{total} modelin {available} tanesi destekleniyor. Erişilebilir profillerin modelleri birleştirilir; yinelenen kimlikler bir kez listelenir.",
+    "selectModel": "Model seçin",
+    "copyModel": "Model kimliğini kopyala",
+    "noModels": "Önce Genel sekmesinde sağlayıcıları ve modelleri ayarlayın.",
+    "example": "Python örneği",
+    "historyHint": "Her istekte tüm konuşma geçmişini gönderin. Araç çağrılarını sürdürürken akıl yürütme verileri dâhil döndürülen output öğelerini koruyun.",
+    "usage": "Harici kullanım",
+    "usageHint": "Studio’nun kendi çağrıları dâhil bu uç noktaya yapılan tüm çağrılar harici kullanım sayılır. Dahili kullanım ayrı kaydedilir.",
+    "viewUsage": "Harici kullanımı görüntüle",
+    "created": "API anahtarı oluşturuldu",
+    "oneTimeHint": "Anahtarı şimdi kopyalayıp kaydedin. Tam anahtar yalnızca bir kez gösterilir.",
+    "savedKey": "Anahtarı kaydettim"
+  },
   usage: {
     origin: {
       label: "Kullanım kategorisi",

@@ -37,13 +37,13 @@ const headers = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'appl
 
 it('requires authentication and Profile membership before resolving models or upstream credentials', async () => {
   expect((await fetch(`${url}/models`)).status).toBe(401)
-  expect((await fetch(`${url}/models`, { headers: { ...headers(), 'x-hermes-profile': 'default' } })).status).toBe(403)
   expect(mocks.models).not.toHaveBeenCalled()
   expect(mocks.prepare).not.toHaveBeenCalled()
   expect(await (await fetch(`${url}/models`, { headers: headers() })).json()).toMatchObject({ object: 'list' })
-  expect(mocks.models).toHaveBeenCalledWith('work')
+  expect(mocks.models).toHaveBeenCalledWith(['work'])
   mocks.profiles = ['work', 'default']
-  expect((await fetch(`${url}/models`, { headers: headers() })).status).toBe(400)
+  expect((await fetch(`${url}/models`, { headers: { ...headers(), 'x-hermes-profile': 'other' } })).status).toBe(200)
+  expect(mocks.models).toHaveBeenLastCalledWith(['default', 'work'])
 })
 
 it('returns JSON with server-owned account attribution and a request ID', async () => {
@@ -52,7 +52,7 @@ it('returns JSON with server-owned account attribution and a request ID', async 
   expect(response.status).toBe(200)
   expect(response.headers.get('x-request-id')).toBe('resp_1')
   expect(await response.json()).toMatchObject({ object: 'response' })
-  expect(mocks.prepare).toHaveBeenCalledWith(expect.objectContaining({ accountId: '7', profile: 'work' }))
+  expect(mocks.prepare).toHaveBeenCalledWith(expect.objectContaining({ accountId: '7', profiles: ['work'] }))
 })
 
 it('streams named SSE events and aborts upstream work when the HTTP client disconnects', async () => {

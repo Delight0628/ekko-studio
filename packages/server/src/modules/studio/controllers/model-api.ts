@@ -1,25 +1,50 @@
 import { Readable } from 'node:stream'
 import type { Context } from 'koa'
-import { getActiveProfileName, listProfileNamesFromDisk } from '../public/profile-config'
+import { listProfileNamesFromDisk } from '../public/profile-config'
 import { listApiModels, prepareModelResponse } from '../services/model-api/service'
 import { ModelApiError, modelApiErrorBody } from '../services/model-api/errors'
+import { createModelApiKey, listModelApiKeys, revokeModelApiKey } from '../services/model-api/keys'
 
-function profileForRequest(ctx: Context): string {
+function profilesForRequest(ctx: Context): string[] {
   const user = ctx.state.user
-  let profile = ctx.state.profile?.name
-  if (!profile && user?.role !== 'super_admin') {
-    if (user?.profiles?.length !== 1) throw new ModelApiError('Select a Profile using the x-hermes-profile header.', 400, 'profile')
-    profile = user.profiles[0]
-  }
-  profile ||= getActiveProfileName() || 'default'
-  if (user?.role !== 'super_admin' && !user?.profiles?.includes(profile)) throw new ModelApiError('Profile is not available for this user.', 403, 'profile')
-  if (!listProfileNamesFromDisk().includes(profile)) throw new ModelApiError('Profile does not exist.', 404, 'profile')
-  return profile
+  if (!user) throw new ModelApiError('Authentication is required.', 401)
+  // The API is account-wide. UI-selected or caller-supplied Profile headers
+  // must not alter its directory or credential routing.
+  return [...new Set(listProfileNamesFromDisk())]
+    .filter(profile => user.role === 'super_admin' || user.profiles?.includes(profile))
+    .sort((a, b) => a === 'default' ? -1 : b === 'default' ? 1 : a < b ? -1 : a > b ? 1 : 0)
 }
 
 export async function modelApiModels(ctx: Context) {
-  try { ctx.body = await listApiModels(profileForRequest(ctx)) }
+  ctx.set('Cache-Control', 'no-store')
+  try { ctx.body = await listApiModels(profilesForRequest(ctx)) }
   catch (error) { const result = modelApiErrorBody(error); ctx.status = result.status; ctx.body = result.body }
+}
+
+async function manageKeys(ctx: Context, operation: (userId: number) => unknown) {
+  ctx.set('Cache-Control', 'no-store')
+  try {
+    if (!ctx.state.user) throw new ModelApiError('Studio login is required.', 401)
+    ctx.body = operation(ctx.state.user.id)
+  } catch (error) { const result = modelApiErrorBody(error); ctx.status = result.status; ctx.body = result.body }
+}
+export async function modelApiKeys(ctx: Context) {
+  await manageKeys(ctx, userId => ({ keys: listModelApiKeys(userId) }))
+}
+export async function modelApiCreateKey(ctx: Context) {
+  await manageKeys(ctx, userId => {
+    const body = ctx.request.body as Record<string, unknown> | undefined
+    if (!body || Object.keys(body).some(key => key !== 'name')) throw new ModelApiError('Only a key name is accepted.', 400)
+    const result = createModelApiKey(userId, body.name)
+    ctx.status = 201
+    return result
+  })
+}
+export async function modelApiRevokeKey(ctx: Context) {
+  await manageKeys(ctx, userId => {
+    if (!revokeModelApiKey(userId, ctx.params.id)) throw new ModelApiError('API key not found.', 404)
+    return { success: true }
+  })
 }
 
 export async function modelApiResponses(ctx: Context) {
@@ -29,7 +54,7 @@ export async function modelApiResponses(ctx: Context) {
   let streaming = false
   try {
     const request = await prepareModelResponse({
-      profile: profileForRequest(ctx), accountId: ctx.state.user ? String(ctx.state.user.id) : undefined,
+      profiles: profilesForRequest(ctx), accountId: ctx.state.user ? String(ctx.state.user.id) : undefined,
       body: ctx.request.body, signal: abort.signal,
     })
     ctx.set('x-request-id', request.id)

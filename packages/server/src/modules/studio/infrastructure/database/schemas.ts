@@ -9,6 +9,17 @@
 
 export const USAGE_TABLE = 'session_usage'
 
+export const MODEL_API_KEYS_TABLE = 'model_api_keys'
+export const MODEL_API_KEYS_SCHEMA: Record<string, string> = {
+  id: 'TEXT PRIMARY KEY',
+  user_id: 'INTEGER NOT NULL',
+  name: 'TEXT NOT NULL',
+  preview: 'TEXT NOT NULL',
+  token_hash: 'TEXT NOT NULL UNIQUE',
+  created_at: 'INTEGER NOT NULL',
+  last_used_at: 'INTEGER',
+}
+
 export const USAGE_SCHEMA: Record<string, string> = {
   id: 'INTEGER PRIMARY KEY AUTOINCREMENT',
   session_id: 'TEXT NOT NULL',
@@ -1770,6 +1781,9 @@ export function initAllHermesTables(): void {
 
     // Users and profile access
     syncTable(USERS_TABLE, USERS_SCHEMA)
+    syncTable(MODEL_API_KEYS_TABLE, MODEL_API_KEYS_SCHEMA, {
+      indexes: { idx_model_api_keys_owner: `CREATE INDEX IF NOT EXISTS idx_model_api_keys_owner ON ${MODEL_API_KEYS_TABLE}(user_id)` },
+    })
     syncTable(USER_PROFILES_TABLE, USER_PROFILES_SCHEMA, {
       primaryKey: 'user_id, profile_name',
       indexes: USER_PROFILES_INDEXES,

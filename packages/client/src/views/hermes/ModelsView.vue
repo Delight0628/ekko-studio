@@ -8,6 +8,7 @@ import { useI18n } from 'vue-i18n'
 import AuxiliaryModelsPanel from '@/components/hermes/models/AuxiliaryModelsPanel.vue'
 import CombinationModelsPanel from '@/components/hermes/models/CombinationModelsPanel.vue'
 import JevSettingsPanel from '@/components/hermes/models/JevSettingsPanel.vue'
+import ModelApiPanel from '@/components/hermes/models/ModelApiPanel.vue'
 import ProvidersPanel from '@/components/hermes/models/ProvidersPanel.vue'
 import ProviderFormModal from '@/components/hermes/models/ProviderFormModal.vue'
 import ProviderVisibilityModal from '@/components/hermes/models/ProviderVisibilityModal.vue'
@@ -68,9 +69,9 @@ watch(() => route.query.modelProfile, profile => {
   showModal.value = false
   void loadProvidersForProfile()
 })
-type ModelsTab = 'general' | 'auxiliary' | 'combination' | 'stt' | 'tts' | 'jev'
+type ModelsTab = 'general' | 'auxiliary' | 'combination' | 'stt' | 'tts' | 'jev' | 'api'
 
-const MODELS_TABS = new Set<ModelsTab>(['general', 'auxiliary', 'combination', 'stt', 'tts', 'jev'])
+const MODELS_TABS = new Set<ModelsTab>(['general', 'auxiliary', 'combination', 'stt', 'tts', 'jev', 'api'])
 const activeTab = ref<ModelsTab>('general')
 
 function normalizeTab(value: unknown): ModelsTab {
@@ -189,6 +190,7 @@ async function handleRefreshModelCache() {
       </div>
       <div class="header-actions">
         <NSelect
+          v-if="activeTab !== 'api'"
           class="models-profile-select"
           data-testid="models-profile-select"
           :value="selectedProfile"
@@ -236,11 +238,14 @@ async function handleRefreshModelCache() {
       <div v-if="profileLoading" class="models-profile-loading" role="status" aria-live="polite">
 
       </div>
-      <NTabs v-else-if="selectedProfile" :key="selectedProfile" v-model:value="activeTab" type="line" animated @update:value="handleTabUpdate">
+      <NTabs v-else-if="selectedProfile || activeTab === 'api'" :key="activeTab === 'api' ? 'api' : selectedProfile" v-model:value="activeTab" type="line" animated @update:value="handleTabUpdate">
         <NTabPane name="general" :tab="t('models.generalTitle')">
           <div>
             <ProvidersPanel />
           </div>
+        </NTabPane>
+        <NTabPane name="api" :tab="t('modelApi.title')">
+          <ModelApiPanel />
         </NTabPane>
         <NTabPane name="auxiliary" :tab="t('models.auxiliaryTitle')">
           <AuxiliaryModelsPanel />
@@ -266,7 +271,7 @@ async function handleRefreshModelCache() {
       @saved="handleSaved"
     />
     <ModelCatalogNotice
-      v-if="largeCatalogProviders.length > 0 && !profileLoading && !modelsStore.loading && !modelsStore.refreshingModelCache && !showModal && !visibilityProvider && !catalogBusy"
+      v-if="activeTab !== 'api' && largeCatalogProviders.length > 0 && !profileLoading && !modelsStore.loading && !modelsStore.refreshingModelCache && !showModal && !visibilityProvider && !catalogBusy"
       v-model:show="showLargeCatalogNotice"
       :providers="largeCatalogProviders"
       @manage="manageLargeCatalog"

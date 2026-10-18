@@ -3,6 +3,8 @@ import type { Context, Next } from 'koa'
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto'
 import { getToken } from '../services/auth/token-auth'
 import { runMcpCredentials } from '../services/auth/run-mcp-credentials'
+import { MODEL_API_KEY_PREFIX, findModelApiKey, touchModelApiKey } from '../services/model-api/keys'
+import { ModelApiError, modelApiErrorBody } from '../services/model-api/errors'
 import {
   findUserById,
   listUserProfiles,
@@ -316,6 +318,11 @@ export async function isAuthEnabled(): Promise<boolean> {
   return true
 }
 
+function isAccountModelApiPath(path: string | undefined): boolean {
+  return path === '/api/studio/models/api-keys' || !!path?.startsWith('/api/studio/models/api-keys/')
+    || path === '/api/studio/models/v1/models' || path === '/api/studio/models/v1/responses'
+}
+
 export async function requireUserJwt(ctx: Context, next: Next): Promise<void> {
   if (!isProtectedHttpPath(ctx.path)) {
     await next()
@@ -326,7 +333,36 @@ export async function requireUserJwt(ctx: Context, next: Next): Promise<void> {
 
   const secret = await getJwtSecret()
   const token = requestToken(ctx)
+  if (token.startsWith(MODEL_API_KEY_PREFIX)) {
+    try {
+      // Keys never authenticate UI, management, proxy or WebSocket endpoints.
+      if (!(ctx.method === 'GET' && ctx.path === '/api/studio/models/v1/models')
+        && !(ctx.method === 'POST' && ctx.path === '/api/studio/models/v1/responses')) {
+        throw new ModelApiError('This key only permits Model API requests.', 403)
+      }
+      if (ctx.get('authorization') !== `Bearer ${token}`) throw new ModelApiError('Send the API key in the Authorization header.', 401)
+      const key = findModelApiKey(token)
+      if (!key) throw new ModelApiError('Invalid or revoked API key.', 401)
+      const user = findUserById(key.userId)
+      if (!user || user.status !== 'active') throw new ModelApiError('The key owner is disabled or no longer exists.', 403)
+      ctx.state.user = toAuthenticatedUser(user)
+      touchModelApiKey(key.id)
+    } catch (error) {
+      const result = modelApiErrorBody(error)
+      ctx.status = result.status; ctx.body = result.body
+      return
+    }
+    await next()
+    return
+  }
   if (runMcpCredentials.recognizes(token)) {
+    // A turn-scoped credential must not mint permanent account-wide keys or
+    // escape its bound Profile through the aggregated model directory.
+    if (isAccountModelApiPath(ctx.path)) {
+      ctx.status = 403
+      ctx.body = { error: 'Model API requires a Studio login token or a Model API key' }
+      return
+    }
     const binding = runMcpCredentials.authenticate(token)
     if (!binding) {
       ctx.status = 401
@@ -427,6 +463,7 @@ export function resolveRequestedProfile(ctx: Context): string {
 }
 
 export async function resolveUserProfile(ctx: Context, next: Next): Promise<void> {
+  if (isAccountModelApiPath(ctx.path)) { await next(); return }
   if (ctx.state.sessionShare) { await next(); return }
   const user = ctx.state.user
   if (!user) {

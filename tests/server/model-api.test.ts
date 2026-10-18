@@ -29,7 +29,7 @@ const dir = mkdtempSync(join(tmpdir(), 'studio-model-api-'))
 mocks.config.appHome = dir
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 const body = (extra: Record<string, any> = {}) => ({ model: 'deepseek/deepseek-reasoner', input: 'Hello', ...extra })
-const prepare = (value = body()) => prepareModelResponse({ profile: 'default', accountId: '7', body: value, signal: new AbortController().signal })
+const prepare = (value = body()) => prepareModelResponse({ profiles: ['default'], accountId: '7', body: value, signal: new AbortController().signal })
 const response = (message = { content: 'Hello' } as any) => Response.json({ id: 'chat-id', choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 120, completion_tokens: 30, prompt_tokens_details: { cached_tokens: 20 } } })
 const sse = (chunks: any[]) => new Response(chunks.map(chunk => `data: ${typeof chunk === 'string' ? chunk : JSON.stringify(chunk)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } })
 
@@ -49,10 +49,30 @@ describe('public Responses model API', () => {
       { provider: 'custom:relay', models: ['gpt-model'], api_mode: 'codex_responses' },
       { provider: 'bedrock', models: ['claude'], api_mode: 'bedrock_converse' },
     ])
-    const result = await listApiModels('default')
+    const result = await listApiModels(['default'])
     expect(result.data.map(item => item.id)).toEqual(['glm/glm-5.3', 'openrouter/vendor/model', 'custom:relay/gpt-model', 'bedrock/claude'])
     expect(result.data.at(-1)).toMatchObject({ responses_supported: false })
     expect(JSON.stringify(result)).not.toMatch(/secret|private|api_key/)
+  })
+
+  it('unifies duplicate providers/models and routes unique models through their own source credentials', async () => {
+    mocks.groups.mockImplementation(async profile => profile === 'default' ? [
+      { provider: 'deepseek', models: ['deepseek-reasoner'], api_mode: 'chat_completions' },
+      { provider: 'glm', models: ['shared', 'disabled'], model_meta: { disabled: { disabled: true } } },
+    ] : [
+      { provider: 'deepseek', models: ['deepseek-reasoner', 'deepseek-chat'], api_mode: 'chat_completions' },
+      { provider: 'glm', models: ['shared', 'disabled'] },
+    ])
+    const profiles = ['default', 'research']
+    const models = await listApiModels(profiles)
+    expect(models.data.map(model => model.id)).toEqual(['deepseek/deepseek-reasoner', 'glm/shared', 'glm/disabled', 'deepseek/deepseek-chat'])
+    expect(models.data.find(model => model.id === 'glm/disabled')?.responses_supported).toBe(true)
+    expect(JSON.stringify(models)).not.toMatch(/default|research/)
+    for (const [id, expectedProfile] of [['deepseek/deepseek-reasoner', 'default'], ['deepseek/deepseek-chat', 'research'], ['glm/disabled', 'research']]) {
+      await (await prepareModelResponse({ profiles, accountId: '7', body: body({ model: id }), signal: new AbortController().signal })).create()
+      expect(mocks.runtime).toHaveBeenLastCalledWith(expect.objectContaining({ profile: expectedProfile }))
+      expect(mocks.record).toHaveBeenLastCalledWith(expect.objectContaining({ profile: expectedProfile, accountId: '7', origin: 'external' }))
+    }
   })
 
   it('resolves model and protocol on the server and records only external usage', async () => {
@@ -72,7 +92,7 @@ describe('public Responses model API', () => {
       { provider: 'custom:foo', models: ['bar/baz'], api_mode: 'chat_completions' },
       { provider: 'custom:foo%2Fbar', models: ['baz'], api_mode: 'chat_completions' },
     ])
-    expect((await listApiModels('default')).data.map(item => item.id)).toEqual(['custom:foo%2Fbar/baz', 'custom:foo/bar/baz', 'custom:foo%252Fbar/baz'])
+    expect((await listApiModels(['default'])).data.map(item => item.id)).toEqual(['custom:foo%2Fbar/baz', 'custom:foo/bar/baz', 'custom:foo%252Fbar/baz'])
     await (await prepare(body({ model: 'custom:foo%2Fbar/baz' }))).create()
     expect(mocks.runtime).toHaveBeenCalledWith(expect.objectContaining({ provider: 'custom:foo/bar', model: 'baz' }))
   })

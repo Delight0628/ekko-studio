@@ -4,6 +4,7 @@ import PageHeader from '@/components/layout/PageHeader.vue'
 import { NButton, NSelect } from 'naive-ui'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { useUsageStore } from '@/stores/hermes/usage'
 import { useProfilesStore } from '@/stores/hermes/profiles'
 import StatCards from '@/components/hermes/usage/StatCards.vue'
@@ -25,7 +26,10 @@ const periodOptions = [
 ] as const
 
 const selectedPeriod = ref(30)
-const filters = ref<UsageStatsFilters>({})
+const route = useRoute()
+const filters = ref<UsageStatsFilters>({
+  ...(route.query.origin === 'external' ? { origin: 'external' } : {}),
+})
 const profileScope = computed(() => filters.value.profile || t('usage.dashboard.allProfiles'))
 const profileOptions = computed(() => [
   { label: t('usage.dashboard.allProfiles'), value: '' },

@@ -6,29 +6,58 @@ Studio exposes a stateless OpenAI Responses-compatible model endpoint:
 - `POST /api/studio/models/v1/responses`
 
 Use `http://localhost:8648/api/studio/models/v1` as the OpenAI SDK `base_url`
-(replace the host and port for your instance). Authentication uses an existing
-Studio **user JWT**, obtained through Studio login, as `Authorization: Bearer …`.
-Provider API keys stay on the server. This endpoint does not create a separate
-API-key system. User tokens retain their configured expiry and existing account
-permissions; clients must refresh them through login when expired.
+(replace the host and port for your instance). Authentication accepts a dedicated
+**Model API key** or a Studio **user JWT** as `Authorization: Bearer …`. Provider
+API keys stay on the server.
 
-Select a Profile with `x-hermes-profile`. A regular user with exactly one assigned
-Profile may omit it. Users with several Profiles must select one; super admins
-default to the active Profile. A caller cannot access another user's unassigned
-Profile by putting its name in the request.
+In **Models → Model API**, create a named API key. Keys belong to the current
+Studio account and are **not bound to a Profile**. Copy the key when created:
+plaintext is shown once, and only a SHA-256 hash is persisted in Studio storage.
+Use it as the SDK `api_key` or `Authorization: Bearer …`. No Profile header is
+needed. The API always aggregates the caller's accessible Provider configurations;
+UI selections and caller-supplied Profile selectors do not change that directory.
+
+Keys authenticate only `GET /models` and `POST /responses` below this API base URL.
+They cannot access Studio settings, key management, other proxies or WebSocket
+authentication. Each request rechecks the owner's active status and accessible
+Profiles. Revocation blocks new requests, without cancelling requests in progress.
+Keys remain valid until revoked. Account deletion or disabling also blocks them.
+
+The settings tab lists the account's keys with creation and last-use times. It
+provides the base URL, combined model IDs, a Python example and external usage.
+Switching the Models page's Profile does not create a separate key configuration.
+Existing Studio user JWTs remain supported with their configured expiry; clients
+must log in again when they expire. Dedicated keys are preferable for clients.
+
+Key management requires Studio user authentication:
+
+- `GET /api/studio/models/api-keys` — list the account's key metadata.
+- `POST /api/studio/models/api-keys` with `{"name":"My client"}` — returns
+  `{key, apiKey}`; `apiKey` is the one-time plaintext secret.
+- `DELETE /api/studio/models/api-keys/:id` — revoke a key owned by the caller.
+
+Responses use `Cache-Control: no-store`. A key name is required (1–80 characters);
+up to 50 keys may be active per account. Settings do not modify Hermes config.
 
 ## Models and routing
 
-The list contains all configured models visible in the selected Profile, with IDs
+The list combines configured models from every accessible Profile (all Profiles
+for a super admin), deduplicated by provider/model, with IDs
 such as `glm/glm-5.3`, `deepseek/deepseek-reasoner`, and
 `openrouter/vendor/model`. Native IDs containing slashes remain intact. The list
 includes `api_mode` and `responses_supported`; it contains no keys or upstream URLs.
 Slashes and percent signs in custom provider names are escaped in the provider
 segment (`%2F`, `%25`) to avoid collisions; use the exact ID returned by the list.
 
-The server matches the complete ID against the Profile's catalog, resolves its
-credentials and API mode, and calls the existing Ekko ModelClient adapter. This
-supports Chat Completions, Responses, Anthropic Messages and Gemini Contents,
+Duplicate IDs use a callable configuration before a disabled/unsupported one.
+Among equivalent candidates, `default` takes priority, followed by Profile names
+in lexical order. This order is independent of load timing or the UI's active
+Profile. Distinct models from duplicate Providers are retained and each uses its
+own source configuration. There is no retry/fallback to a different Profile.
+
+The server matches the complete ID against this unified catalog, resolves the
+source configuration's credentials and API mode, and calls the existing Ekko
+ModelClient adapter. This supports Chat Completions, Responses, Anthropic Messages and Gemini Contents,
 including configured custom providers using these protocols. Disabled models are
 not callable. Bedrock Converse, Codex app-server and MoA need separate runtimes;
 they remain listed with `responses_supported: false` and requests return an
@@ -45,8 +74,7 @@ from openai import OpenAI
 
 client = OpenAI(
     base_url="http://localhost:8648/api/studio/models/v1",
-    api_key="YOUR_STUDIO_USER_JWT",
-    default_headers={"x-hermes-profile": "default"},
+    api_key="YOUR_MODEL_API_KEY",
 )
 models = client.models.list()
 response = client.responses.create(
@@ -115,7 +143,8 @@ views and must not be summed as a deduplicated provider bill.
 
 The usage page switches between Internal and External. The stats endpoint accepts
 `origin=internal|external` and defaults to internal for existing clients. API usage
-belongs to the authenticated Studio user and selected Profile, with one API call
+belongs to the authenticated Studio user and the source Profile used for the
+model credentials, with one API call
 per request and no synthetic chat session. Repeated usage snapshots within one
 stream produce one external record. Failure/cancellation retains usage already
 reported; missing usage remains unknown instead of claiming a measured zero cost.

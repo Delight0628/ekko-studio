@@ -93,6 +93,7 @@ vi.mock('@/components/common/PageLoading.vue', () => ({ default: { template: '<d
 
 vi.mock('@/components/hermes/models/AuxiliaryModelsPanel.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('@/components/hermes/models/CombinationModelsPanel.vue', () => ({ default: { template: '<div />' } }))
+vi.mock('@/components/hermes/models/ModelApiPanel.vue', () => ({ default: { props: ['profile'], template: '<div class="model-api-stub" :data-profile="profile" />' } }))
 vi.mock('@/components/hermes/models/JevSettingsPanel.vue', () => ({ default: { props: ['profile'], template: '<div class="jev-settings-stub" :data-profile="profile" />' } }))
 vi.mock('@/components/hermes/models/ProvidersPanel.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('@/components/hermes/models/ProviderVisibilityModal.vue', () => ({

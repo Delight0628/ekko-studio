@@ -1672,17 +1672,36 @@ if (usageStatsOperation) {
   usageStatsOperation.responses['403'] = { description: 'Selected Profile is not accessible to this user' }
 }
 
-// Public model requests use existing Studio user authentication and Profile permissions.
-const modelApiParameters = [{ name: 'x-hermes-profile', in: 'header', required: false, schema: { type: 'string' }, description: 'Profile name. Defaults to the single assigned Profile, or the active Profile for a super admin. Required when a regular user has multiple Profiles.' }]
+// Model keys are account-wide; management still requires Studio login.
+const modelApiParameters = []
 const modelApiErrors = Object.fromEntries([
-  ['400', 'Invalid input or unsupported Responses feature'], ['401', 'Missing or expired Studio user JWT'],
+  ['400', 'Invalid input or unsupported Responses feature'], ['401', 'Missing, invalid or revoked Model API key, or expired Studio user JWT'],
   ['403', 'User or Profile access denied'], ['404', 'Profile or configured model not found'],
   ['501', 'Provider requires an unsupported direct-request runtime'], ['502', 'Upstream model request failed'],
 ].map(([status, description]) => [status, { description }]))
+const keyMetadata = { type: 'object', properties: {
+  id: { type: 'string' }, name: { type: 'string' }, preview: { type: 'string' },
+  createdAt: { type: 'integer', description: 'Unix milliseconds' }, lastUsedAt: { type: 'integer', nullable: true, description: 'Unix milliseconds' },
+} }
+const keyManagementPath = openapi.paths['/api/studio/models/api-keys']
+keyManagementPath.get.summary = 'List my account-wide Model API keys'
+keyManagementPath.get.parameters = modelApiParameters
+keyManagementPath.get.description = 'Requires Studio user authentication. Lists only the caller’s keys, independent of Profile selection. Never returns plaintext keys or hashes.'
+keyManagementPath.get.responses = { '200': { description: 'Key metadata', content: { 'application/json': { schema: { type: 'object', properties: { keys: { type: 'array', items: keyMetadata } } } } } }, '401': { description: 'Studio login required' }, '403': { description: 'Profile access denied' } }
+keyManagementPath.post.summary = 'Create an account-wide Model API key'
+keyManagementPath.post.parameters = modelApiParameters
+keyManagementPath.post.description = 'Requires Studio user authentication. Key allows only model listing and Responses inference; valid until revoked. Only the hash is persisted. Limit: 50 keys per account. Cache-Control: no-store.'
+keyManagementPath.post.requestBody = { required: true, content: { 'application/json': { schema: { type: 'object', required: ['name'], additionalProperties: false, properties: { name: { type: 'string', minLength: 1, maxLength: 80 } } } } } }
+keyManagementPath.post.responses = { '201': { description: 'Save the plaintext API key now; it is returned only once', content: { 'application/json': { schema: { type: 'object', properties: { key: keyMetadata, apiKey: { type: 'string' } } } } } }, '400': { description: 'Invalid key name or key limit reached' }, '401': { description: 'Studio login required' }, '403': { description: 'Profile access denied' } }
+const revokeKeyOperation = openapi.paths['/api/studio/models/api-keys/{id}'].delete
+revokeKeyOperation.summary = 'Revoke my Model API key'
+revokeKeyOperation.description = 'Requires Studio user authentication. Revokes only the caller’s key. Profile selection does not affect key ownership. New requests are rejected; already-running requests are not cancelled.'
+revokeKeyOperation.parameters = [...modelApiParameters, { name: 'id', in: 'path', required: true, schema: { type: 'string' } }]
+revokeKeyOperation.responses = { '200': { description: 'Key revoked' }, '401': { description: 'Studio login required' }, '403': { description: 'Profile access denied' }, '404': { description: 'No matching key owned by caller' } }
 const modelListOperation = openapi.paths['/api/studio/models/v1/models'].get
 modelListOperation.summary = 'List configured models with provider-qualified IDs'
 modelListOperation.parameters = modelApiParameters
-modelListOperation.description = 'Lists all models visible in the selected Profile as provider/model, preserving slashes inside the native model ID. Never returns credentials. responses_supported=false marks disabled models and providers requiring Bedrock, Codex app-server or MoA runtimes.'
+modelListOperation.description = 'Aggregates all accessible Profiles as provider/model and deduplicates IDs, preserving slashes inside native model IDs. Callable configurations win over disabled/unsupported duplicates, then default Profile, then Profile names in lexical order. Caller Profile selectors are ignored. Never returns credentials. responses_supported=false marks disabled models and providers requiring Bedrock, Codex app-server or MoA runtimes.'
 modelListOperation.responses = { ...modelApiErrors, '200': { description: 'OpenAI-compatible model list', content: { 'application/json': { schema: { type: 'object', properties: {
   object: { type: 'string', enum: ['list'] }, data: { type: 'array', items: { type: 'object', properties: {
     id: { type: 'string', example: 'glm/glm-5.3' }, object: { type: 'string', enum: ['model'] }, created: { type: 'integer' },
@@ -1692,7 +1711,7 @@ modelListOperation.responses = { ...modelApiErrors, '200': { description: 'OpenA
 const modelResponseOperation = openapi.paths['/api/studio/models/v1/responses'].post
 modelResponseOperation.summary = 'Request a configured model using OpenAI Responses format'
 modelResponseOperation.parameters = modelApiParameters
-modelResponseOperation.description = 'Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.'
+modelResponseOperation.description = 'Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side from the same unified catalog as GET /models. No Profile selector is required. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.'
 modelResponseOperation.requestBody = { required: true, content: { 'application/json': { schema: {
   type: 'object', required: ['model', 'input'], properties: {
     model: { type: 'string', example: 'glm/glm-5.3' },

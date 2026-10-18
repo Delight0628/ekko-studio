@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 
+const routeState = vi.hoisted(() => ({ query: {} as Record<string, string> }))
+vi.mock('vue-router', () => ({ useRoute: () => routeState }))
+
 const mockUsageStore = vi.hoisted(() => ({
   isLoading: false,
   hasData: true,
@@ -79,6 +82,7 @@ import UsageView from '@/views/hermes/UsageView.vue'
 
 describe('UsageView period selector', () => {
   beforeEach(() => {
+    routeState.query = {}
     mockUsageStore.isLoading = false
     mockUsageStore.hasData = true
     mockUsageStore.loadSessions.mockReset()
@@ -92,6 +96,15 @@ describe('UsageView period selector', () => {
     await flushPromises()
 
     expect(mockUsageStore.loadSessions).toHaveBeenCalledWith(30)
+  })
+
+  it('opens external usage from the Model API link and preserves that category on refresh', async () => {
+    routeState.query = { origin: 'external' }
+    const wrapper = mount(UsageView)
+    await flushPromises()
+    expect(mockUsageStore.loadSessions).toHaveBeenCalledWith(30, { origin: 'external' })
+    await wrapper.find('.refresh-button').trigger('click')
+    expect(mockUsageStore.loadSessions).toHaveBeenLastCalledWith(30, { origin: 'external' })
   })
 
   it('lets users switch usage statistics between common dashboard periods', async () => {

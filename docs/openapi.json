@@ -18862,13 +18862,198 @@
         }
       }
     },
+    "/api/studio/models/api-keys": {
+      "get": {
+        "tags": [
+          "Model API"
+        ],
+        "summary": "List my account-wide Model API keys",
+        "description": "Requires Studio user authentication. Lists only the caller’s keys, independent of Profile selection. Never returns plaintext keys or hashes.",
+        "operationId": "modelApiKeys",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Key metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "keys": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "preview": {
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "type": "integer",
+                            "description": "Unix milliseconds"
+                          },
+                          "lastUsedAt": {
+                            "type": "integer",
+                            "nullable": true,
+                            "description": "Unix milliseconds"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Studio login required"
+          },
+          "403": {
+            "description": "Profile access denied"
+          }
+        },
+        "parameters": []
+      },
+      "post": {
+        "tags": [
+          "Model API"
+        ],
+        "summary": "Create an account-wide Model API key",
+        "description": "Requires Studio user authentication. Key allows only model listing and Responses inference; valid until revoked. Only the hash is persisted. Limit: 50 keys per account. Cache-Control: no-store.",
+        "operationId": "modelApiCreateKey",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Save the plaintext API key now; it is returned only once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "preview": {
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "type": "integer",
+                          "description": "Unix milliseconds"
+                        },
+                        "lastUsedAt": {
+                          "type": "integer",
+                          "nullable": true,
+                          "description": "Unix milliseconds"
+                        }
+                      }
+                    },
+                    "apiKey": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid key name or key limit reached"
+          },
+          "401": {
+            "description": "Studio login required"
+          },
+          "403": {
+            "description": "Profile access denied"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/studio/models/api-keys/{id}": {
+      "delete": {
+        "tags": [
+          "Model API"
+        ],
+        "summary": "Revoke my Model API key",
+        "description": "Requires Studio user authentication. Revokes only the caller’s key. Profile selection does not affect key ownership. New requests are rejected; already-running requests are not cancelled.",
+        "operationId": "modelApiRevokeKey",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Key revoked"
+          },
+          "401": {
+            "description": "Studio login required"
+          },
+          "403": {
+            "description": "Profile access denied"
+          },
+          "404": {
+            "description": "No matching key owned by caller"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/api/studio/models/v1/models": {
       "get": {
         "tags": [
           "Model API"
         ],
         "summary": "List configured models with provider-qualified IDs",
-        "description": "Lists all models visible in the selected Profile as provider/model, preserving slashes inside the native model ID. Never returns credentials. responses_supported=false marks disabled models and providers requiring Bedrock, Codex app-server or MoA runtimes.",
+        "description": "Aggregates all accessible Profiles as provider/model and deduplicates IDs, preserving slashes inside native model IDs. Callable configurations win over disabled/unsupported duplicates, then default Profile, then Profile names in lexical order. Caller Profile selectors are ignored. Never returns credentials. responses_supported=false marks disabled models and providers requiring Bedrock, Codex app-server or MoA runtimes.",
         "operationId": "modelApiModels",
         "security": [
           {
@@ -18929,7 +19114,7 @@
             "description": "Invalid input or unsupported Responses feature"
           },
           "401": {
-            "description": "Missing or expired Studio user JWT"
+            "description": "Missing, invalid or revoked Model API key, or expired Studio user JWT"
           },
           "403": {
             "description": "User or Profile access denied"
@@ -18944,17 +19129,7 @@
             "description": "Upstream model request failed"
           }
         },
-        "parameters": [
-          {
-            "name": "x-hermes-profile",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Profile name. Defaults to the single assigned Profile, or the active Profile for a super admin. Required when a regular user has multiple Profiles."
-          }
-        ]
+        "parameters": []
       }
     },
     "/api/studio/models/v1/responses": {
@@ -18963,7 +19138,7 @@
           "Model API"
         ],
         "summary": "Request a configured model using OpenAI Responses format",
-        "description": "Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.",
+        "description": "Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side from the same unified catalog as GET /models. No Profile selector is required. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.",
         "operationId": "modelApiResponses",
         "security": [
           {
@@ -19033,7 +19208,7 @@
             "description": "Invalid input or unsupported Responses feature"
           },
           "401": {
-            "description": "Missing or expired Studio user JWT"
+            "description": "Missing, invalid or revoked Model API key, or expired Studio user JWT"
           },
           "403": {
             "description": "User or Profile access denied"
@@ -19179,17 +19354,7 @@
             }
           }
         },
-        "parameters": [
-          {
-            "name": "x-hermes-profile",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Profile name. Defaults to the single assigned Profile, or the active Profile for a super admin. Required when a regular user has multiple Profiles."
-          }
-        ]
+        "parameters": []
       }
     },
     "/api/studio/performance/runtime": {
