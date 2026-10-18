@@ -8,6 +8,10 @@ on:
         type: choice
         default: inspect
         options: [inspect, submit]
+      resume_task:
+        description: 'Resume the saved parse task after an interrupted run; otherwise leave empty'
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -28,6 +32,7 @@ jobs:
         env:
           TDP_API_TOKEN: ${{ secrets.TDP_API_TOKEN }}
           TOS_MODE: ${{ inputs.mode }}
+          TOS_RESUME_TASK: ${{ inputs.resume_task }}
         run: node scripts/tos-resubmit-once.mjs
       - uses: actions/upload-artifact@v4
         if: always()
