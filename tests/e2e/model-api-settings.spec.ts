@@ -26,7 +26,7 @@ async function mockModelApi(page: Page) {
     : route.fulfill({ json: { object: 'list', data: state === 'empty' ? [] : [
       { id: 'glm/glm-5.3', owned_by: 'glm', api_mode: 'chat_completions', responses_supported: true },
       { id: 'deepseek/deepseek-reasoner', owned_by: 'deepseek', api_mode: 'chat_completions', responses_supported: true },
-      { id: 'moa/review', owned_by: 'moa', api_mode: null, responses_supported: false },
+      { id: 'bedrock/claude', owned_by: 'bedrock', api_mode: 'bedrock_converse', responses_supported: false },
     ] } }))
   return { writes, setState: (next: typeof state) => { state = next } }
 }
@@ -79,7 +79,7 @@ for (const width of [390, 1280]) {
     expect(api.writes.at(-1)?.profile).toBe('')
 
     await page.getByLabel('Select a model', { exact: true }).click()
-    await expect(page.locator('.n-base-select-option--disabled')).toContainText('moa/review')
+    await expect(page.locator('.n-base-select-option--disabled')).toContainText('bedrock/claude')
     await page.locator('.n-base-select-option').filter({ hasText: /^deepseek\/deepseek-reasoner$/ }).click()
     await expect(page.locator('.request-example')).toContainText('model="deepseek/deepseek-reasoner"')
     await expect(page.locator('.request-example')).not.toContainText(secret)

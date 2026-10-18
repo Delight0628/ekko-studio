@@ -42,7 +42,7 @@ beforeEach(() => {
 })
 
 describe('public Responses model API', () => {
-  it('lists every configured visible model with a qualified ID, retaining nested model IDs and no credentials', async () => {
+  it('lists configured provider models with qualified IDs, retaining nested model IDs and no credentials', async () => {
     mocks.groups.mockResolvedValue([
       { provider: 'glm', models: ['glm-5.3'] },
       { provider: 'openrouter', models: ['vendor/model'], api_key: 'secret', base_url: 'private' },
@@ -53,6 +53,23 @@ describe('public Responses model API', () => {
     expect(result.data.map(item => item.id)).toEqual(['glm/glm-5.3', 'openrouter/vendor/model', 'custom:relay/gpt-model', 'bedrock/claude'])
     expect(result.data.at(-1)).toMatchObject({ responses_supported: false })
     expect(JSON.stringify(result)).not.toMatch(/secret|private|api_key/)
+  })
+
+  it('excludes MoA presets from every Profile and rejects stale IDs without invoking a provider or recording usage', async () => {
+    mocks.groups.mockImplementation(async profile => [
+      { provider: 'moa', models: [profile === 'default' ? 'review' : 'research'], api_mode: 'chat_completions' },
+      { provider: 'custom:moa', models: ['model'], api_mode: 'chat_completions' },
+    ])
+    const profiles = ['default', 'research']
+    expect((await listApiModels(profiles)).data.map(model => model.id)).toEqual(['custom:moa/model'])
+    for (const model of ['moa/review', 'moa/research']) {
+      await expect(prepareModelResponse({ profiles, body: body({ model }), signal: new AbortController().signal }))
+        .rejects.toMatchObject({ status: 404, param: 'model' })
+    }
+    expect(mocks.runtime).not.toHaveBeenCalled()
+    expect(mocks.createClient).not.toHaveBeenCalled()
+    expect(mocks.fetch).not.toHaveBeenCalled()
+    expect(mocks.record).not.toHaveBeenCalled()
   })
 
   it('unifies duplicate providers/models and routes unique models through their own source credentials', async () => {

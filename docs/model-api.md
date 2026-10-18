@@ -59,7 +59,9 @@ The server matches the complete ID against this unified catalog, resolves the
 source configuration's credentials and API mode, and calls the existing Ekko
 ModelClient adapter. This supports Chat Completions, Responses, Anthropic Messages and Gemini Contents,
 including configured custom providers using these protocols. Disabled models are
-not callable. Bedrock Converse, Codex app-server and MoA need separate runtimes;
+not callable. MoA presets are excluded from this catalog and direct requests to
+`moa/...` return `model_not_found`; internal MoA features are unchanged.
+Bedrock Converse and Codex app-server need separate runtimes;
 they remain listed with `responses_supported: false` and requests return an
 explicit error. OpenAI Codex OAuth using the Responses HTTP transport is supported.
 

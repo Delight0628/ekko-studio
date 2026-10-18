@@ -31,7 +31,7 @@ function apiMode(group: ModelGroup, model: string): string | undefined {
 }
 
 function supported(group: ModelGroup, model: string): boolean {
-  return group.provider !== 'moa' && !['bedrock_converse', 'codex_app_server'].includes(apiMode(group, model) || '')
+  return !['bedrock_converse', 'codex_app_server'].includes(apiMode(group, model) || '')
 }
 
 interface CatalogEntry { profile: string; group: ModelGroup; model: string }
@@ -44,13 +44,17 @@ async function unifiedCatalog(profiles: string[]): Promise<Map<string, CatalogEn
   const groupsByProfile = await Promise.all(names.map(profile => getSessionAvailableModelGroups(profile) as Promise<ModelGroup[]>))
   const catalog = new Map<string, CatalogEntry>()
   for (const [index, groups] of groupsByProfile.entries()) {
-    for (const group of groups) for (const model of group.models) {
-      const id = qualifiedId(group.provider, model)
-      const entry = { profile: names[index], group, model }
-      const existing = catalog.get(id)
-      // Keep a callable configuration over a disabled/unsupported duplicate.
-      // Otherwise the caller's stable Profile order wins, independent of fetch timing.
-      if (!existing || (!callable(existing) && callable(entry))) catalog.set(id, entry)
+    for (const group of groups) {
+      // MoA presets require agent orchestration and are not public API models.
+      if (group.provider === 'moa') continue
+      for (const model of group.models) {
+        const id = qualifiedId(group.provider, model)
+        const entry = { profile: names[index], group, model }
+        const existing = catalog.get(id)
+        // Keep a callable configuration over a disabled/unsupported duplicate.
+        // Otherwise the caller's stable Profile order wins, independent of fetch timing.
+        if (!existing || (!callable(existing) && callable(entry))) catalog.set(id, entry)
+      }
     }
   }
   return catalog
