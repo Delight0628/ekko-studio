@@ -68,7 +68,7 @@ function fakeGithub() {
   return { state, client, current: name => state.assets.find(asset => asset.name === name)?.bytes.toString() }
 }
 
-test('GitHub publisher fixes the repo and separates all five target feeds', async () => {
+test('GitHub publisher fixes the repo and separates all six target feeds', async () => {
   const { TEST_REPOSITORY, publishConfig, checkRepository } = await script()
   assert.equal(TEST_REPOSITORY, 'EKKOLearnAI/ekko-studio-update-test')
   for (const target of ['darwin-arm64', 'darwin-x64', 'win32-x64', 'win32-arm64', 'linux-x64', 'linux-arm64']) {

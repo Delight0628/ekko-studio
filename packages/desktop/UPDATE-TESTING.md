@@ -20,6 +20,7 @@
 | macOS Apple Silicon | `https://github.com/EKKOLearnAI/ekko-studio-update-test/releases/download/update-test-darwin-arm64/` | `latest-mac.yml` |
 | macOS Intel | `https://github.com/EKKOLearnAI/ekko-studio-update-test/releases/download/update-test-darwin-x64/` | `latest-mac.yml` |
 | Windows x64 | `https://github.com/EKKOLearnAI/ekko-studio-update-test/releases/download/update-test-win32-x64/` | `latest.yml` |
+| Windows ARM64 | `https://github.com/EKKOLearnAI/ekko-studio-update-test/releases/download/update-test-win32-arm64/` | `latest-arm64.yml` |
 | Linux x64 | `https://github.com/EKKOLearnAI/ekko-studio-update-test/releases/download/update-test-linux-x64/` | `latest-linux.yml` |
 | Linux arm64 | `https://github.com/EKKOLearnAI/ekko-studio-update-test/releases/download/update-test-linux-arm64/` | `latest-linux-arm64.yml` |
 
@@ -29,7 +30,7 @@
 
 在 GitHub Actions 运行 **Desktop Update Test Build**（`desktop-update-test.yml`），选择包含新更新逻辑的分支，填写：
 
-- `target`：测试机器的系统和架构：`darwin-arm64`、`darwin-x64`、`win32-x64`、`linux-x64`、`linux-arm64`。
+- `target`：测试机器的系统和架构：`darwin-arm64`、`darwin-x64`、`win32-x64`、`win32-arm64`、`linux-x64`、`linux-arm64`。
 - `version`：纯数字 `X.Y.Z`，例如 A=`0.7.900`、B=`0.7.901`。必须 B > A，不使用 `-beta` 等预发布后缀。
 - `runtime_release_tag`：可选的现有运行时版本，A 和 B 保持一致，以便只测试桌面更新。
 
