@@ -66,6 +66,17 @@ describe('public Responses model API', () => {
     expect(JSON.parse(mocks.fetch.mock.calls[0][1].body).model).toBe('deepseek-reasoner')
   })
 
+  it('does not confuse a slash in a custom provider name with a nested model ID', async () => {
+    mocks.groups.mockResolvedValue([
+      { provider: 'custom:foo/bar', models: ['baz'], api_mode: 'chat_completions' },
+      { provider: 'custom:foo', models: ['bar/baz'], api_mode: 'chat_completions' },
+      { provider: 'custom:foo%2Fbar', models: ['baz'], api_mode: 'chat_completions' },
+    ])
+    expect((await listApiModels('default')).data.map(item => item.id)).toEqual(['custom:foo%2Fbar/baz', 'custom:foo/bar/baz', 'custom:foo%252Fbar/baz'])
+    await (await prepare(body({ model: 'custom:foo%2Fbar/baz' }))).create()
+    expect(mocks.runtime).toHaveBeenCalledWith(expect.objectContaining({ provider: 'custom:foo/bar', model: 'baz' }))
+  })
+
   it.each([false, true])('round trips DeepSeek reasoning and parallel tool results (stream=%s)', async stream => {
     const calls = ['a', 'b'].map(id => ({ id, type: 'function', function: { name: 'lookup', arguments: JSON.stringify({ id }) } }))
     mocks.fetch.mockResolvedValueOnce(stream ? sse([

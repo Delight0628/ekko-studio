@@ -23,6 +23,8 @@ The list contains all configured models visible in the selected Profile, with ID
 such as `glm/glm-5.3`, `deepseek/deepseek-reasoner`, and
 `openrouter/vendor/model`. Native IDs containing slashes remain intact. The list
 includes `api_mode` and `responses_supported`; it contains no keys or upstream URLs.
+Slashes and percent signs in custom provider names are escaped in the provider
+segment (`%2F`, `%25`) to avoid collisions; use the exact ID returned by the list.
 
 The server matches the complete ID against the Profile's catalog, resolves its
 credentials and API mode, and calls the existing Ekko ModelClient adapter. This

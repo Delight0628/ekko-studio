@@ -21,6 +21,11 @@ interface ModelGroup {
   model_meta?: Record<string, { disabled?: boolean }>
 }
 
+function qualifiedId(provider: string, model: string): string {
+  // Custom provider names may contain slashes; avoid colliding with a nested model ID.
+  return `${provider.replaceAll('%', '%25').replaceAll('/', '%2F')}/${model}`
+}
+
 function apiMode(group: ModelGroup, model: string): string | undefined {
   return group.api_mode_by_model?.[model] || group.api_mode || resolveProviderCatalogApiMode(group.provider, model)
 }
@@ -33,7 +38,7 @@ export async function listApiModels(profile: string) {
   const groups: ModelGroup[] = await getSessionAvailableModelGroups(profile)
   const models = new Map<string, Record<string, unknown>>()
   for (const group of groups) for (const model of group.models) {
-    const id = `${group.provider}/${model}`
+    const id = qualifiedId(group.provider, model)
     models.set(id, {
       id, object: 'model', created: 0, owned_by: group.provider,
       api_mode: apiMode(group, model) || null,
@@ -54,7 +59,7 @@ export async function prepareModelResponse(input: {
   const groups: ModelGroup[] = await getSessionAvailableModelGroups(input.profile)
   let selected: { group: ModelGroup; model: string } | undefined
   for (const group of groups) {
-    const model = group.models.find(model => `${group.provider}/${model}` === body.model)
+    const model = group.models.find(model => qualifiedId(group.provider, model) === body.model)
     if (model) { selected = { group, model }; break }
   }
   if (!selected || selected.group.model_meta?.[selected.model]?.disabled) throw new ModelApiError('Model is not available in this Profile.', 404, 'model')
