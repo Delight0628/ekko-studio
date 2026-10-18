@@ -78,8 +78,8 @@ describe('public Responses model API', () => {
     mocks.findKey.mockImplementation(key => key === 'local-key' ? { id: 'key-1', userId: 1 } : null)
     mocks.groups.mockResolvedValue([
       { provider: 'glm', models: ['glm-5.3'], api_mode: 'chat_completions' },
-      { provider: 'custom:self', base_url: `${origin}/api/studio/models/v1/`, api_key: 'local-key', models: ['moa/aa', 'glm/glm-5.3', 'custom:self/moa/default'], api_mode: 'codex_responses' },
-      { provider: 'custom:remote', base_url: 'https://other.example/api/studio/models/v1', api_key: 'remote-key', models: ['glm/glm-5.3'], api_mode: 'codex_responses' },
+      { provider: 'custom:self', base_url: `${origin}/api/ekko-studio/models/v1/`, api_key: 'local-key', models: ['moa/aa', 'glm/glm-5.3', 'custom:self/moa/default'], api_mode: 'codex_responses' },
+      { provider: 'custom:remote', base_url: 'https://other.example/api/ekko-studio/models/v1', api_key: 'remote-key', models: ['glm/glm-5.3'], api_mode: 'codex_responses' },
       { provider: 'custom:other-api', base_url: 'https://other.example/v1', api_key: 'local-key', models: ['moa/real-model'], api_mode: 'chat_completions' },
     ])
     expect((await listApiModels(['default'])).data.map(model => model.id)).toEqual(['glm/glm-5.3', 'custom:remote/glm/glm-5.3', 'custom:other-api/moa/real-model'])

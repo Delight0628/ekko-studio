@@ -316,7 +316,7 @@ it('round-trips real MCP processes through HTTP auth for simultaneous fresh prof
 
 it('does not let a turn credential mint account-wide API keys or enumerate other Profiles', async () => {
   const credential = await issue('model-api', { userId: 7 })
-  for (const path of ['/api/studio/models/api-keys', '/api/studio/models/v1/models', '/api/studio/models/v1/responses']) {
+  for (const path of ['/api/studio/models/api-keys', '/api/ekko-studio/models/v1/models', '/api/ekko-studio/models/v1/responses']) {
     const ctx = context(credential, path)
     const next = vi.fn()
     await requireUserJwt(ctx, next)

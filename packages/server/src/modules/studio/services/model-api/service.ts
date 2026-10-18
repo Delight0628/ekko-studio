@@ -45,7 +45,7 @@ function isSelfModelApi(group: ModelGroup): boolean {
   if (!group.base_url || !group.api_key) return false
   let url: URL
   try { url = new URL(group.base_url) } catch { return false }
-  if (!['http:', 'https:'].includes(url.protocol) || !url.pathname.replace(/\/+$/, '').endsWith('/api/studio/models/v1')) return false
+  if (!['http:', 'https:'].includes(url.protocol) || !url.pathname.replace(/\/+$/, '').endsWith('/api/ekko-studio/models/v1')) return false
   // A locally issued key identifies this instance even behind a proxy or LAN URL.
   // Do not re-export the cached catalog of a provider pointing back to ourselves.
   return findModelApiKey(group.api_key.trim()) !== null

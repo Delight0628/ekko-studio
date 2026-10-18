@@ -2,10 +2,10 @@
 
 Studio exposes a stateless OpenAI Responses-compatible model endpoint:
 
-- `GET /api/studio/models/v1/models`
-- `POST /api/studio/models/v1/responses`
+- `GET /api/ekko-studio/models/v1/models`
+- `POST /api/ekko-studio/models/v1/responses`
 
-Use `http://localhost:8648/api/studio/models/v1` as the OpenAI SDK `base_url`
+Use `http://localhost:8648/api/ekko-studio/models/v1` as the OpenAI SDK `base_url`
 (replace the host and port for your instance). Authentication accepts a dedicated
 **Model API key** or a Studio **user JWT** as `Authorization: Bearer …`. Provider
 API keys stay on the server.
@@ -80,7 +80,7 @@ executing tools, or modifying Hermes provider configuration.
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="http://localhost:8648/api/studio/models/v1",
+    base_url="http://localhost:8648/api/ekko-studio/models/v1",
     api_key="YOUR_MODEL_API_KEY",
 )
 models = client.models.list()

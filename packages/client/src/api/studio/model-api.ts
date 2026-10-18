@@ -16,7 +16,7 @@ export interface ApiModel {
 // This account-level feature must not inherit the page's active Profile.
 const headers = { 'X-Hermes-Profile': '' }
 export function modelApiBaseUrl(): string {
-  return new URL(`${getBaseUrl().replace(/\/$/, '')}/api/studio/models/v1`, window.location.origin).href
+  return new URL(`${getBaseUrl().replace(/\/$/, '')}/api/ekko-studio/models/v1`, window.location.origin).href
 }
 export function getModelApiKeys(signal?: AbortSignal) {
   return request<{ keys: ModelApiKey[] }>('/api/studio/models/api-keys', { headers, signal })
@@ -28,5 +28,5 @@ export function revokeModelApiKey(id: string) {
   return request<{ success: boolean }>(`/api/studio/models/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE', headers })
 }
 export function getApiModels(signal?: AbortSignal) {
-  return request<{ data: ApiModel[] }>('/api/studio/models/v1/models', { headers, signal })
+  return request<{ data: ApiModel[] }>('/api/ekko-studio/models/v1/models', { headers, signal })
 }

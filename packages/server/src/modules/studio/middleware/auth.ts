@@ -320,7 +320,7 @@ export async function isAuthEnabled(): Promise<boolean> {
 
 function isAccountModelApiPath(path: string | undefined): boolean {
   return path === '/api/studio/models/api-keys' || !!path?.startsWith('/api/studio/models/api-keys/')
-    || path === '/api/studio/models/v1/models' || path === '/api/studio/models/v1/responses'
+    || path === '/api/ekko-studio/models/v1/models' || path === '/api/ekko-studio/models/v1/responses'
 }
 
 export async function requireUserJwt(ctx: Context, next: Next): Promise<void> {
@@ -336,8 +336,8 @@ export async function requireUserJwt(ctx: Context, next: Next): Promise<void> {
   if (token.startsWith(MODEL_API_KEY_PREFIX)) {
     try {
       // Keys never authenticate UI, management, proxy or WebSocket endpoints.
-      if (!(ctx.method === 'GET' && ctx.path === '/api/studio/models/v1/models')
-        && !(ctx.method === 'POST' && ctx.path === '/api/studio/models/v1/responses')) {
+      if (!(ctx.method === 'GET' && ctx.path === '/api/ekko-studio/models/v1/models')
+        && !(ctx.method === 'POST' && ctx.path === '/api/ekko-studio/models/v1/responses')) {
         throw new ModelApiError('This key only permits Model API requests.', 403)
       }
       if (ctx.get('authorization') !== `Bearer ${token}`) throw new ModelApiError('Send the API key in the Authorization header.', 401)

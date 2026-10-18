@@ -21,7 +21,7 @@ async function mockModelApi(page: Page) {
     }
     return route.fulfill({ json: { keys } })
   })
-  await page.route('**/api/studio/models/v1/models', route => state === 'error'
+  await page.route('**/api/ekko-studio/models/v1/models', route => state === 'error'
     ? route.fulfill({ status: 502, json: { error: { message: 'Catalog unavailable' } } })
     : route.fulfill({ json: { object: 'list', data: state === 'empty' ? [] : [
       { id: 'glm/glm-5.3', owned_by: 'glm', api_mode: 'chat_completions', responses_supported: true },
@@ -44,7 +44,7 @@ for (const width of [390, 1280]) {
     const panel = page.getByTestId('model-api-panel')
     await expect(panel).toHaveAttribute('aria-busy', 'false')
     await expect(page.getByTestId('models-profile-select')).toHaveCount(0)
-    await expect(page.getByLabel('Base URL', { exact: true })).toHaveValue(/\/api\/studio\/models\/v1$/)
+    await expect(page.getByLabel('Base URL', { exact: true })).toHaveValue(/\/api\/ekko-studio\/models\/v1$/)
     await expect(page.getByText('No API keys yet', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Create key', exact: true })).toBeDisabled()
     await page.getByRole('textbox', { name: 'Key name', exact: true }).fill('My coding client')

@@ -29,7 +29,7 @@ beforeEach(async () => {
   app.use(modelApiRoutes.routes())
   server = app.listen(0, '127.0.0.1')
   await new Promise<void>(resolve => server.once('listening', resolve))
-  url = `http://127.0.0.1:${(server.address() as any).port}/api/studio/models/v1`
+  url = `http://127.0.0.1:${(server.address() as any).port}/api/ekko-studio/models/v1`
   token = await issueUserJwt(mocks.user as any)
 })
 afterEach(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); vi.unstubAllEnvs() })

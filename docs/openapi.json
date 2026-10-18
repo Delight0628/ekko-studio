@@ -5097,6 +5097,316 @@
         ]
       }
     },
+    "/api/ekko-studio/models/v1/models": {
+      "get": {
+        "tags": [
+          "Model API"
+        ],
+        "summary": "List configured models with provider-qualified IDs",
+        "description": "Aggregates all accessible Profiles as provider/model and deduplicates IDs, preserving slashes inside native model IDs. Callable configurations win over disabled/unsupported duplicates, then default Profile, then Profile names in lexical order. Caller Profile selectors are ignored. Never returns credentials. MoA presets and self-referencing Model API providers using a locally issued Model API key are excluded from this catalog. responses_supported=false marks disabled models and providers requiring Bedrock or Codex app-server runtimes.",
+        "operationId": "modelApiModels",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OpenAI-compatible model list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "object": {
+                      "type": "string",
+                      "enum": [
+                        "list"
+                      ]
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "example": "glm/glm-5.3"
+                          },
+                          "object": {
+                            "type": "string",
+                            "enum": [
+                              "model"
+                            ]
+                          },
+                          "created": {
+                            "type": "integer"
+                          },
+                          "owned_by": {
+                            "type": "string"
+                          },
+                          "api_mode": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "responses_supported": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or unsupported Responses feature"
+          },
+          "401": {
+            "description": "Missing, invalid or revoked Model API key, or expired Studio user JWT"
+          },
+          "403": {
+            "description": "User or Profile access denied"
+          },
+          "404": {
+            "description": "Profile or configured model not found"
+          },
+          "501": {
+            "description": "Provider requires an unsupported direct-request runtime"
+          },
+          "502": {
+            "description": "Upstream model request failed"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/ekko-studio/models/v1/responses": {
+      "post": {
+        "tags": [
+          "Model API"
+        ],
+        "summary": "Request a configured model using OpenAI Responses format",
+        "description": "Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side from the same unified catalog as GET /models. No Profile selector is required. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.",
+        "operationId": "modelApiResponses",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response object, or named Responses SSE events ending in response.completed, response.incomplete or response.failed. Usage may be null if the upstream did not report it.",
+            "headers": {
+              "x-request-id": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "type": "string",
+                      "enum": [
+                        "response"
+                      ]
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "completed",
+                        "incomplete",
+                        "failed"
+                      ]
+                    },
+                    "output": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "usage": {
+                      "type": "object",
+                      "nullable": true
+                    },
+                    "error": {
+                      "type": "object",
+                      "nullable": true
+                    }
+                  }
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or unsupported Responses feature"
+          },
+          "401": {
+            "description": "Missing, invalid or revoked Model API key, or expired Studio user JWT"
+          },
+          "403": {
+            "description": "User or Profile access denied"
+          },
+          "404": {
+            "description": "Profile or configured model not found"
+          },
+          "501": {
+            "description": "Provider requires an unsupported direct-request runtime"
+          },
+          "502": {
+            "description": "Upstream model request failed"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "model",
+                  "input"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "example": "glm/glm-5.3"
+                  },
+                  "input": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "description": "Responses message, reasoning, function_call or function_call_output item."
+                        }
+                      }
+                    ]
+                  },
+                  "instructions": {
+                    "type": "string"
+                  },
+                  "stream": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "store": {
+                    "type": "boolean",
+                    "enum": [
+                      false
+                    ],
+                    "default": false
+                  },
+                  "max_output_tokens": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "temperature": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  "reasoning": {
+                    "type": "object",
+                    "properties": {
+                      "effort": {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "minimal",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      },
+                      "summary": {
+                        "type": "string",
+                        "enum": [
+                          "auto",
+                          "concise",
+                          "detailed"
+                        ]
+                      }
+                    }
+                  },
+                  "tools": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "type",
+                        "name"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "function"
+                          ]
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "parameters": {
+                          "type": "object"
+                        },
+                        "strict": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "tool_choice": {
+                    "type": "string",
+                    "enum": [
+                      "auto",
+                      "none",
+                      "required"
+                    ]
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "maxProperties": 16,
+                    "additionalProperties": {
+                      "type": "string",
+                      "maxLength": 512
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": []
+      }
+    },
     "/api/ekko/config": {
       "get": {
         "tags": [
@@ -19045,316 +19355,6 @@
             }
           }
         ]
-      }
-    },
-    "/api/studio/models/v1/models": {
-      "get": {
-        "tags": [
-          "Model API"
-        ],
-        "summary": "List configured models with provider-qualified IDs",
-        "description": "Aggregates all accessible Profiles as provider/model and deduplicates IDs, preserving slashes inside native model IDs. Callable configurations win over disabled/unsupported duplicates, then default Profile, then Profile names in lexical order. Caller Profile selectors are ignored. Never returns credentials. MoA presets and self-referencing Model API providers using a locally issued Model API key are excluded from this catalog. responses_supported=false marks disabled models and providers requiring Bedrock or Codex app-server runtimes.",
-        "operationId": "modelApiModels",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OpenAI-compatible model list",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "object": {
-                      "type": "string",
-                      "enum": [
-                        "list"
-                      ]
-                    },
-                    "data": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "string",
-                            "example": "glm/glm-5.3"
-                          },
-                          "object": {
-                            "type": "string",
-                            "enum": [
-                              "model"
-                            ]
-                          },
-                          "created": {
-                            "type": "integer"
-                          },
-                          "owned_by": {
-                            "type": "string"
-                          },
-                          "api_mode": {
-                            "type": "string",
-                            "nullable": true
-                          },
-                          "responses_supported": {
-                            "type": "boolean"
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid input or unsupported Responses feature"
-          },
-          "401": {
-            "description": "Missing, invalid or revoked Model API key, or expired Studio user JWT"
-          },
-          "403": {
-            "description": "User or Profile access denied"
-          },
-          "404": {
-            "description": "Profile or configured model not found"
-          },
-          "501": {
-            "description": "Provider requires an unsupported direct-request runtime"
-          },
-          "502": {
-            "description": "Upstream model request failed"
-          }
-        },
-        "parameters": []
-      }
-    },
-    "/api/studio/models/v1/responses": {
-      "post": {
-        "tags": [
-          "Model API"
-        ],
-        "summary": "Request a configured model using OpenAI Responses format",
-        "description": "Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side from the same unified catalog as GET /models. No Profile selector is required. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.",
-        "operationId": "modelApiResponses",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Response object, or named Responses SSE events ending in response.completed, response.incomplete or response.failed. Usage may be null if the upstream did not report it.",
-            "headers": {
-              "x-request-id": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "object": {
-                      "type": "string",
-                      "enum": [
-                        "response"
-                      ]
-                    },
-                    "model": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "completed",
-                        "incomplete",
-                        "failed"
-                      ]
-                    },
-                    "output": {
-                      "type": "array",
-                      "items": {
-                        "type": "object"
-                      }
-                    },
-                    "usage": {
-                      "type": "object",
-                      "nullable": true
-                    },
-                    "error": {
-                      "type": "object",
-                      "nullable": true
-                    }
-                  }
-                }
-              },
-              "text/event-stream": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid input or unsupported Responses feature"
-          },
-          "401": {
-            "description": "Missing, invalid or revoked Model API key, or expired Studio user JWT"
-          },
-          "403": {
-            "description": "User or Profile access denied"
-          },
-          "404": {
-            "description": "Profile or configured model not found"
-          },
-          "501": {
-            "description": "Provider requires an unsupported direct-request runtime"
-          },
-          "502": {
-            "description": "Upstream model request failed"
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "model",
-                  "input"
-                ],
-                "properties": {
-                  "model": {
-                    "type": "string",
-                    "example": "glm/glm-5.3"
-                  },
-                  "input": {
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "description": "Responses message, reasoning, function_call or function_call_output item."
-                        }
-                      }
-                    ]
-                  },
-                  "instructions": {
-                    "type": "string"
-                  },
-                  "stream": {
-                    "type": "boolean",
-                    "default": false
-                  },
-                  "store": {
-                    "type": "boolean",
-                    "enum": [
-                      false
-                    ],
-                    "default": false
-                  },
-                  "max_output_tokens": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "temperature": {
-                    "type": "number",
-                    "minimum": 0,
-                    "maximum": 2
-                  },
-                  "reasoning": {
-                    "type": "object",
-                    "properties": {
-                      "effort": {
-                        "type": "string",
-                        "enum": [
-                          "none",
-                          "minimal",
-                          "low",
-                          "medium",
-                          "high",
-                          "xhigh",
-                          "max"
-                        ]
-                      },
-                      "summary": {
-                        "type": "string",
-                        "enum": [
-                          "auto",
-                          "concise",
-                          "detailed"
-                        ]
-                      }
-                    }
-                  },
-                  "tools": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "required": [
-                        "type",
-                        "name"
-                      ],
-                      "properties": {
-                        "type": {
-                          "type": "string",
-                          "enum": [
-                            "function"
-                          ]
-                        },
-                        "name": {
-                          "type": "string"
-                        },
-                        "description": {
-                          "type": "string"
-                        },
-                        "parameters": {
-                          "type": "object"
-                        },
-                        "strict": {
-                          "type": "boolean",
-                          "enum": [
-                            false
-                          ]
-                        }
-                      }
-                    }
-                  },
-                  "tool_choice": {
-                    "type": "string",
-                    "enum": [
-                      "auto",
-                      "none",
-                      "required"
-                    ]
-                  },
-                  "metadata": {
-                    "type": "object",
-                    "maxProperties": 16,
-                    "additionalProperties": {
-                      "type": "string",
-                      "maxLength": 512
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "parameters": []
       }
     },
     "/api/studio/performance/runtime": {

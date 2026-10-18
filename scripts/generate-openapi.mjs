@@ -1698,7 +1698,7 @@ revokeKeyOperation.summary = 'Revoke my Model API key'
 revokeKeyOperation.description = 'Requires Studio user authentication. Revokes only the caller’s key. Profile selection does not affect key ownership. New requests are rejected; already-running requests are not cancelled.'
 revokeKeyOperation.parameters = [...modelApiParameters, { name: 'id', in: 'path', required: true, schema: { type: 'string' } }]
 revokeKeyOperation.responses = { '200': { description: 'Key revoked' }, '401': { description: 'Studio login required' }, '403': { description: 'Profile access denied' }, '404': { description: 'No matching key owned by caller' } }
-const modelListOperation = openapi.paths['/api/studio/models/v1/models'].get
+const modelListOperation = openapi.paths['/api/ekko-studio/models/v1/models'].get
 modelListOperation.summary = 'List configured models with provider-qualified IDs'
 modelListOperation.parameters = modelApiParameters
 modelListOperation.description = 'Aggregates all accessible Profiles as provider/model and deduplicates IDs, preserving slashes inside native model IDs. Callable configurations win over disabled/unsupported duplicates, then default Profile, then Profile names in lexical order. Caller Profile selectors are ignored. Never returns credentials. MoA presets and self-referencing Model API providers using a locally issued Model API key are excluded from this catalog. responses_supported=false marks disabled models and providers requiring Bedrock or Codex app-server runtimes.'
@@ -1708,7 +1708,7 @@ modelListOperation.responses = { ...modelApiErrors, '200': { description: 'OpenA
     owned_by: { type: 'string' }, api_mode: { type: 'string', nullable: true }, responses_supported: { type: 'boolean' },
   } } },
 } } } } } }
-const modelResponseOperation = openapi.paths['/api/studio/models/v1/responses'].post
+const modelResponseOperation = openapi.paths['/api/ekko-studio/models/v1/responses'].post
 modelResponseOperation.summary = 'Request a configured model using OpenAI Responses format'
 modelResponseOperation.parameters = modelApiParameters
 modelResponseOperation.description = 'Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side from the same unified catalog as GET /models. No Profile selector is required. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.'
