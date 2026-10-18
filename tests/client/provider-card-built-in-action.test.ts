@@ -179,17 +179,17 @@ describe('ProviderCard built-in destructive action labels', () => {
     copilotAuthMock.disableCopilot.mockResolvedValue(undefined)
   })
 
-  it('shows clear credentials instead of delete for built-in providers', async () => {
+  it('deletes built-in providers with an explicit remove-entry request', async () => {
     const wrapper = mountCard(provider({ provider: 'deepseek', label: 'DeepSeek', builtin: true }))
 
-    expect(wrapper.text()).toContain('Clear credentials')
-    expect(wrapper.text()).not.toContain('Delete provider')
+    expect(wrapper.text()).toContain('Delete')
+    expect(wrapper.text()).not.toContain('Clear credentials')
 
-    await wrapper.findAll('button').find(button => button.text() === 'Clear credentials')!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === 'Delete')!.trigger('click')
     expect(dialogMock.warning).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Clear credentials',
-      content: expect.stringContaining('will stay listed'),
-      positiveText: 'Clear credentials',
+      title: 'Delete provider',
+      content: 'Delete "DeepSeek"?',
+      positiveText: 'Delete',
     }))
 
     const dialogOptions = dialogMock.warning.mock.calls[0][0]
@@ -198,11 +198,12 @@ describe('ProviderCard built-in destructive action labels', () => {
     expect(modelsStoreMock.removeProvider).toHaveBeenCalledWith('deepseek', {
       source: undefined,
       providerKey: undefined,
+      deleteEntry: true,
     })
-    expect(messageMock.success).toHaveBeenCalledWith('Provider credentials cleared')
+    expect(messageMock.success).toHaveBeenCalledWith('Provider deleted')
   })
 
-  it('keeps clear-credentials wording for built-in providers loaded from config', async () => {
+  it('offers deletion for built-in providers loaded from config', async () => {
     const wrapper = mountCard(provider({
       provider: 'deepseek',
       label: 'DeepSeek',
@@ -211,13 +212,13 @@ describe('ProviderCard built-in destructive action labels', () => {
       provider_key: 'deepseek',
     }))
 
-    expect(wrapper.text()).toContain('Clear credentials')
-    expect(wrapper.text()).not.toContain('Delete provider')
+    expect(wrapper.text()).toContain('Delete')
+    expect(wrapper.text()).not.toContain('Clear credentials')
 
-    await wrapper.findAll('button').find(button => button.text() === 'Clear credentials')!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === 'Delete')!.trigger('click')
     expect(dialogMock.warning).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Clear credentials',
-      positiveText: 'Clear credentials',
+      title: 'Delete provider',
+      positiveText: 'Delete',
     }))
   })
 
@@ -270,24 +271,24 @@ describe('ProviderCard built-in destructive action labels', () => {
     }))
   })
 
-  it('uses disable wording for Copilot instead of delete', async () => {
+  it('deletes Copilot through its safe disable operation', async () => {
     const wrapper = mountCard(provider({ provider: 'copilot', label: 'GitHub Copilot', builtin: true, api_key: '' }))
 
-    expect(wrapper.text()).toContain('Disable provider')
-    expect(wrapper.text()).not.toContain('Delete')
+    expect(wrapper.text()).toContain('Delete')
+    expect(wrapper.text()).not.toContain('Clear credentials')
 
-    await wrapper.findAll('button').find(button => button.text() === 'Disable provider')!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === 'Delete')!.trigger('click')
     expect(dialogMock.warning).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Disable provider',
-      content: expect.stringContaining('Disable built-in provider "GitHub Copilot"'),
-      positiveText: 'Disable provider',
+      title: 'Delete provider',
+      content: 'Delete "GitHub Copilot"?',
+      positiveText: 'Delete',
     }))
 
     const dialogOptions = dialogMock.warning.mock.calls[0][0]
     await dialogOptions.onPositiveClick()
 
     expect(copilotAuthMock.disableCopilot).toHaveBeenCalled()
-    expect(messageMock.success).toHaveBeenCalledWith('Provider disabled')
+    expect(messageMock.success).toHaveBeenCalledWith('Provider deleted')
   })
 
   it('exposes an explicit set-default-provider action on non-default providers', async () => {

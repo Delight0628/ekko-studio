@@ -213,13 +213,18 @@ export async function addCustomProvider(data: CustomProvider): Promise<void> {
   })
 }
 
-export async function removeCustomProvider(name: string, options: { source?: 'custom_providers' | 'providers'; providerKey?: string } = {}): Promise<void> {
+export async function removeCustomProvider(name: string, options: { source?: 'custom_providers' | 'providers'; providerKey?: string; deleteEntry?: boolean } = {}): Promise<void> {
   const query = new URLSearchParams()
   if (options.source) query.set('source', options.source)
   if (options.providerKey) query.set('providerKey', options.providerKey)
+  if (options.deleteEntry) query.set('deleteEntry', 'true')
   await request(`/api/hermes/config/providers/${encodeURIComponent(name)}${query.size ? `?${query}` : ''}`, {
     method: 'DELETE',
   })
+}
+
+export async function restoreBuiltinProvider(name: string): Promise<void> {
+  await request(`/api/hermes/config/providers/${encodeURIComponent(name)}/restore`, { method: 'POST' })
 }
 
 export async function updateProvider(poolKey: string, data: {

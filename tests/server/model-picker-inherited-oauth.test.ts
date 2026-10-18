@@ -3,6 +3,10 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('../../packages/server/src/modules/studio/public/provider-runtime', () => ({
+  invalidateProviderRuntime: vi.fn(),
+}))
+
 let home = ''
 const providers = ['nous', 'openai-codex', 'xai-oauth', 'claude-oauth']
 
@@ -40,6 +44,33 @@ async function models(profile = 'research') {
 }
 
 describe('model picker inherited OAuth', () => {
+  it('persists removal only in the selected profile, and restores inherited OAuth on re-add', async () => {
+    writeAuth('default', { providers: { anthropic: { access_token: 'synthetic-root-token' } } })
+    writeAuth('research', {})
+    const rootBefore = readFileSync(join(home, 'auth.json'), 'utf8')
+    expect((await models()).some(group => group.provider === 'claude-oauth')).toBe(true)
+    const { remove, restore } = await import('../../packages/server/src/modules/hermes/controllers/providers')
+    const ctx = {
+      params: { poolKey: 'claude-oauth' }, query: { deleteEntry: 'true' },
+      state: { profile: { name: 'research' } }, status: 200, body: undefined as any,
+    }
+    await remove(ctx)
+    expect(ctx.body).toEqual({ success: true })
+    vi.resetModules()
+    expect((await models()).some(group => group.provider === 'claude-oauth')).toBe(false)
+    expect((await models('default')).some(group => group.provider === 'claude-oauth')).toBe(true)
+    expect(readFileSync(join(home, 'auth.json'), 'utf8')).toBe(rootBefore)
+    const { getAvailable } = await import('../../packages/server/src/modules/hermes/controllers/models')
+    const aggregate = { query: {}, body: undefined as any }
+    await getAvailable(aggregate)
+    expect(aggregate.body.profiles.find((p: any) => p.profile === 'research').groups
+      .some((g: any) => g.provider === 'claude-oauth')).toBe(false)
+    expect(aggregate.body.allProviders.some((p: any) => p.provider === 'claude-oauth')).toBe(true)
+    await restore(ctx)
+    expect((await models()).some(group => group.provider === 'claude-oauth')).toBe(true)
+    expect(readFileSync(join(home, 'auth.json'), 'utf8')).toBe(rootBefore)
+  })
+
   it.each(providers)('includes root %s authorization for a named profile without copying tokens', async provider => {
     const key = provider === 'claude-oauth' ? 'anthropic' : provider
     writeAuth('default', { providers: { [key]: { access_token: 'synthetic-root-token', refresh_token: 'synthetic-refresh-token' } } })

@@ -13,6 +13,7 @@ providerRoutes.post('/api/hermes/config/providers', ctrl.create)
 // resource below for field capabilities and revision-checked writes.
 providerRoutes.put('/api/hermes/config/providers/:poolKey', ctrl.update)
 providerRoutes.delete('/api/hermes/config/providers/:poolKey', ctrl.remove)
+providerRoutes.post('/api/hermes/config/providers/:poolKey/restore', requireUserProfile, requireAdmin, ctrl.restore)
 providerRoutes.get('/api/hermes/config/providers/:poolKey/editor', requireUserProfile, requireAdmin, ctrl.getEditor)
 providerRoutes.patch('/api/hermes/config/providers/:poolKey/editor', requireUserProfile, requireAdmin, ctrl.patchEditor)
 providerRoutes.post('/api/hermes/config/providers/:poolKey/editor/test', requireUserProfile, requireAdmin, ctrl.testEditor)

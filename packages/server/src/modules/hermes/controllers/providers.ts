@@ -18,6 +18,7 @@ import {
 import { refreshProviderModels, restoreProviderModels } from '../services/providers/provider-model-refresh'
 import { appendProviderAuditEvent } from '../../studio/public/provider-audit'
 import { invalidateProviderRuntime } from '../../studio/public/provider-runtime'
+import { setProviderRemoved } from '../services/providers/provider-removal'
 
 const OPTIONAL_API_KEY_PROVIDERS = new Set(['cliproxyapi', 'xai-oauth', 'openai-codex', 'claude-oauth', 'minimax-oauth'])
 const DIRECT_CONFIG_PROVIDERS = new Set(['xai-oauth', 'openai-codex', 'claude-oauth', 'minimax-oauth'])
@@ -90,7 +91,10 @@ async function clearStoredAuthProvider(profile: string, poolKey: string) {
     if (changed) {
       await writeFile(authPath, JSON.stringify(auth, null, 2) + '\n', 'utf-8')
     }
-  } catch (err: any) { logger.error(err, 'Failed to clear auth credentials for %s', poolKey) }
+  } catch (err: any) {
+    logger.error(err, 'Failed to clear auth credentials for %s', poolKey)
+    throw err
+  }
 }
 
 function normalizeApiMode(value: unknown): ProviderApiMode | undefined {
@@ -309,6 +313,7 @@ export async function create(ctx: any) {
   try {
     const profile = requestedProfile(ctx)
     await updateConfigYamlForProfile(profile, async (config) => {
+      setProviderRemoved(config, poolKey, false)
       if (typeof config.model !== 'object' || config.model === null) { config.model = {} }
       if (!isBuiltin) {
         if (!Array.isArray(config.custom_providers)) { config.custom_providers = [] }
@@ -428,7 +433,8 @@ export async function update(ctx: any) {
 
 export async function remove(ctx: any) {
   const poolKey = decodeURIComponent(ctx.params.poolKey)
-  const query = ctx.query as { source?: string; providerKey?: string }
+  const query = ctx.query as { source?: string; providerKey?: string; deleteEntry?: string }
+  const deleteEntry = query?.deleteEntry === 'true'
   const requestedSource = query?.source === 'providers' || query?.source === 'custom_providers'
     ? query.source
     : ''
@@ -436,6 +442,9 @@ export async function remove(ctx: any) {
   try {
     const profile = requestedProfile(ctx)
     const isCustom = poolKey.startsWith('custom:')
+    if (!isCustom && !Object.prototype.hasOwnProperty.call(PROVIDER_ENV_MAP, poolKey)) {
+      ctx.status = 404; ctx.body = { error: `Provider "${poolKey}" not found` }; return
+    }
     const removed = await updateConfigYamlForProfile(profile, async (config) => {
       if (isCustom) {
         const removeLegacy = requestedSource !== 'providers'
@@ -457,6 +466,14 @@ export async function remove(ctx: any) {
         }
         if (!didRemove) return { data: config, result: false, write: false }
       } else {
+        if (deleteEntry) {
+          setProviderRemoved(config, poolKey, true)
+          // Remove only this identity, never an arbitrary client-supplied key.
+          if (config.providers && typeof config.providers === 'object') delete config.providers[poolKey]
+          if (Array.isArray(config.custom_providers)) {
+            config.custom_providers = config.custom_providers.filter((entry: any) => entry?.name !== poolKey)
+          }
+        }
         const envMapping = PROVIDER_ENV_MAP[poolKey]
         if (envMapping?.api_key_env) {
           await saveEnvValueForProfile(profile, envMapping.api_key_env, '')
@@ -484,16 +501,28 @@ export async function remove(ctx: any) {
     if (!removed) {
       ctx.status = 404; ctx.body = { error: `Custom provider "${poolKey}" not found` }; return
     }
-    if (!isCustom) {
-      const envMapping = PROVIDER_ENV_MAP[poolKey]
-      if (!envMapping) {
-        ctx.status = 404; ctx.body = { error: `Provider "${poolKey}" not found` }; return
-      }
-    }
     await clearStoredAuthProvider(profile, poolKey)
     invalidateProviderRuntime(profile, poolKey)
     // TODO: Test if provider works without gateway restart
     // try { await hermesCli.restartGateway() } catch (e: any) { logger.error(e, 'Gateway restart failed') }
+    ctx.body = { success: true }
+  } catch (err: any) {
+    ctx.status = 500; ctx.body = { error: err.message }
+  }
+}
+
+export async function restore(ctx: any) {
+  const poolKey = decodeURIComponent(ctx.params.poolKey)
+  if (!Object.prototype.hasOwnProperty.call(PROVIDER_ENV_MAP, poolKey)) {
+    ctx.status = 404; ctx.body = { error: `Provider "${poolKey}" not found` }; return
+  }
+  try {
+    const profile = requestedProfile(ctx)
+    await updateConfigYamlForProfile(profile, config => {
+      setProviderRemoved(config, poolKey, false)
+      return { data: config, result: true }
+    })
+    invalidateProviderRuntime(profile, poolKey)
     ctx.body = { success: true }
   } catch (err: any) {
     ctx.status = 500; ctx.body = { error: err.message }

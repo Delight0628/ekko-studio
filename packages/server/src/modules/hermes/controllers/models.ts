@@ -26,6 +26,7 @@ import { readProviderModelCatalogCache,
 } from '../services/providers/model-catalog-cache'
 import { providerEditorCapabilities, type ProviderEditableField } from '../services/providers/provider-editor'
 import { providerModelRefreshCapabilities } from '../services/providers/provider-model-refresh'
+import { isProviderRemoved } from '../services/providers/provider-removal'
 
 const PROVIDER_MODEL_CATALOG = buildProviderModelMap()
 
@@ -440,7 +441,7 @@ async function buildAvailableForProfile(
   const groups: AvailableGroup[] = []
   const seenProviders = new Set<string>()
   const addGroup = (provider: string, label: string, base_url: string, models: string[], api_key: string, builtin?: boolean, model_meta?: Record<string, ModelMeta>, extra?: Pick<AvailableGroup, 'provider_source' | 'provider_key' | 'api_mode'>) => {
-    if (isRetiredProvider(provider) || seenProviders.has(provider)) return
+    if (isRetiredProvider(provider) || isProviderRemoved(config, provider) || seenProviders.has(provider)) return
     seenProviders.add(provider)
     const availableModels = [...new Set(models)]
     const apiMode = providerApiMode(provider, extra?.api_mode)

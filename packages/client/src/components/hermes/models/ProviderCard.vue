@@ -38,23 +38,19 @@ const deleting = ref(false)
 const refreshingModels = ref(false)
 const restoringModels = ref(false)
 const destructiveActionLabel = computed(() => {
-  if (isConfigBackedProvider.value) return t('common.delete')
-  if (isCopilot.value) return t('models.disableProvider')
-  return t('models.clearProviderCredentials')
+  return t('common.delete')
 })
 const destructiveActionTitle = computed(() => {
-  if (isConfigBackedProvider.value) return t('models.deleteProvider')
-  if (isCopilot.value) return t('models.disableProvider')
-  return t('models.clearProviderCredentials')
+  return t('models.deleteProvider')
 })
 
 function destructiveConfirmContent(copilotMsg: string) {
   if (isConfigBackedProvider.value) return t('models.deleteConfirm', { name: displayName.value })
   if (isCopilot.value) {
-    const base = t('models.disableProviderConfirm', { name: displayName.value })
+    const base = t('models.deleteConfirm', { name: displayName.value })
     return copilotMsg ? `${base}\n\n${copilotMsg}` : base
   }
-  return t('models.clearCredentialsConfirm', { name: displayName.value })
+  return t('models.deleteConfirm', { name: displayName.value })
 }
 
 const showAliasListModal = ref(false)
@@ -186,6 +182,7 @@ async function handleDelete() {
           await modelsStore.removeProvider(props.provider.provider, {
             source: props.provider.provider_source,
             providerKey: props.provider.provider_key,
+            ...(!isConfigBackedProvider.value ? { deleteEntry: true } : {}),
           })
         }
         // 删完之后若已没有默认模型，自动从剩余 provider 里挑一个，避免 chat 页
@@ -196,11 +193,7 @@ async function handleDelete() {
             await appStore.switchModel(first.models[0], first.provider)
           }
         }
-        message.success(isConfigBackedProvider.value
-          ? t('models.providerDeleted')
-          : isCopilot.value
-            ? t('models.providerDisabled')
-            : t('models.providerCredentialsCleared'))
+        message.success(t('models.providerDeleted'))
       } catch (e: any) {
         message.error(e.message)
       } finally {

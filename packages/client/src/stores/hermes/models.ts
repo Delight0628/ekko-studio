@@ -99,7 +99,7 @@ export const useModelsStore = defineStore('models', () => {
     await useAppStore().reloadModels({ preserveSelection: true })
   }
 
-  async function removeProvider(name: string, options: { source?: 'custom_providers' | 'providers'; providerKey?: string } = {}) {
+  async function removeProvider(name: string, options: { source?: 'custom_providers' | 'providers'; providerKey?: string; deleteEntry?: boolean } = {}) {
     await systemApi.removeCustomProvider(name, options)
     await fetchProviders()
     await useAppStore().reloadModels()

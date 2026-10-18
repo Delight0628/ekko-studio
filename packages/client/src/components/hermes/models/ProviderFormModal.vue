@@ -10,7 +10,7 @@ import XaiOAuthLoginModal from './XaiOAuthLoginModal.vue'
 import AnthropicLoginModal from './AnthropicLoginModal.vue'
 import MiniMaxOAuthLoginModal from './MiniMaxOAuthLoginModal.vue'
 import { checkCopilotToken, enableCopilot, type CopilotTokenSource } from '@/api/hermes/copilot-auth'
-import { fetchProviderModels } from '@/api/hermes/system'
+import { fetchProviderModels, restoreBuiltinProvider } from '@/api/hermes/system'
 import type { ProviderApiMode } from '@/api/studio/provider-api-mode'
 import { inferApiKeyFunPresetProvider, isApiKeyFunBaseUrl, type ApiKeyFunPresetProvider } from '@/utils/providerBaseUrl'
 
@@ -371,14 +371,12 @@ async function handleSave() {
 
 async function handleCodexSuccess() {
   showCodexLogin.value = false
-  message.success(t('models.providerAdded'))
-  emit('saved')
+  await finishBuiltinLogin('openai-codex')
 }
 
 async function handleNousSuccess() {
   showNousLogin.value = false
-  message.success(t('models.providerAdded'))
-  emit('saved')
+  await finishBuiltinLogin('nous')
 }
 
 async function handleCopilotSuccess() {
@@ -389,22 +387,28 @@ async function handleCopilotSuccess() {
 
 async function handleXaiSuccess() {
   showXaiLogin.value = false
-  message.success(t('models.providerAdded'))
-  emit('saved')
+  await finishBuiltinLogin('xai-oauth')
 }
 
 async function handleAnthropicSuccess() {
   showAnthropicLogin.value = false
-  message.success(t('models.providerAdded'))
-  emit('saved')
+  await finishBuiltinLogin('claude-oauth')
 }
 
 async function handleMiniMaxSuccess() {
   showMiniMaxLogin.value = false
-  message.success(t('models.providerAdded'))
-  emit('saved')
+  await finishBuiltinLogin('minimax-oauth')
 }
 
+async function finishBuiltinLogin(provider: string) {
+  try {
+    await restoreBuiltinProvider(provider)
+    message.success(t('models.providerAdded'))
+    emit('saved')
+  } catch (error: any) {
+    message.error(error.message)
+  }
+}
 function copilotSourceLabel(source: CopilotTokenSource): string {
   if (source === 'env') return t('models.copilotAddSourceEnv')
   if (source === 'gh-cli') return t('models.copilotAddSourceGhCli')

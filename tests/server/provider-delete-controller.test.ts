@@ -97,6 +97,66 @@ describe('providers controller delete', () => {
     expect(mockInvalidateProviderRuntime).toHaveBeenCalledWith('default', 'deepseek')
   })
 
+  it('deletes explicit built-in configuration, keeps unrelated providers and supports re-add', async () => {
+    writeFileSync(join(hermesHome, 'config.yaml'), YAML.dump({
+      model: { provider: 'deepseek', default: 'deepseek-chat', context_length: 128000 },
+      providers: {
+        deepseek: { base_url: 'https://relay.example/v1', api_key: 'local-key', model: 'deepseek-chat' },
+        keep: { base_url: 'https://keep.example/v1', model: 'keep-model' },
+      },
+      custom_providers: [{ name: 'deepseek', base_url: 'https://legacy.example/v1', model: 'deepseek-chat' }],
+    }))
+    writeFileSync(join(hermesHome, '.env'), 'DEEPSEEK_API_KEY=local-key\nOTHER_KEY=keep-key\n')
+    writeFileSync(join(hermesHome, 'auth.json'), JSON.stringify({
+      providers: { deepseek: { access_token: 'local-token' }, nous: { agent_key: 'keep' } },
+    }))
+    const { remove, create } = await loadProvidersController()
+    const ctx = makeCtx('deepseek', { query: { deleteEntry: 'true', providerKey: 'keep' } })
+    await remove(ctx)
+    expect(ctx.body).toEqual({ success: true })
+    const config = readYaml(join(hermesHome, 'config.yaml'))
+    expect(config.studio_removed_providers).toEqual(['deepseek'])
+    expect(config.providers).not.toHaveProperty('deepseek')
+    expect(config.providers).toHaveProperty('keep')
+    expect(config.custom_providers).toEqual([])
+    expect(config.model.provider).not.toBe('deepseek')
+    expect(config.model.context_length).toBe(128000)
+    expect(readFileSync(join(hermesHome, '.env'), 'utf8')).not.toContain('local-key')
+    expect(readAuth().providers).toEqual({ nous: { agent_key: 'keep' } })
+    await remove(ctx)
+    expect(readYaml(join(hermesHome, 'config.yaml')).studio_removed_providers).toEqual(['deepseek'])
+    const add = makeCtx('deepseek', {
+      request: { body: { name: 'DeepSeek', providerKey: 'deepseek', base_url: 'https://relay.example/v1', model: 'deepseek-chat', api_key: 'new-local-key' } },
+    })
+    await create(add)
+    expect(add.status).toBe(200)
+    expect(readYaml(join(hermesHome, 'config.yaml')).studio_removed_providers).toBeUndefined()
+  })
+
+  it('does not mark a provider removed when only clearing credentials', async () => {
+    const { remove } = await loadProvidersController()
+    await remove(makeCtx('deepseek'))
+    expect(readYaml(join(hermesHome, 'config.yaml')).studio_removed_providers).toBeUndefined()
+  })
+
+  it('rejects an unknown built-in before changing any config', async () => {
+    const before = readFileSync(join(hermesHome, 'config.yaml'), 'utf8')
+    const { remove } = await loadProvidersController()
+    const ctx = makeCtx('missing', { query: { deleteEntry: 'true' } })
+    await remove(ctx)
+    expect(ctx.status).toBe(404)
+    expect(readFileSync(join(hermesHome, 'config.yaml'), 'utf8')).toBe(before)
+  })
+
+  it('reports malformed credential storage rather than claiming deletion succeeded', async () => {
+    writeFileSync(join(hermesHome, 'auth.json'), 'invalid-json')
+    const { remove } = await loadProvidersController()
+    const ctx = makeCtx('deepseek', { query: { deleteEntry: 'true' } })
+    await remove(ctx)
+    expect(ctx.status).toBe(500)
+    expect(ctx.body).not.toEqual({ success: true })
+  })
+
   it('does not invalidate a runtime when a custom provider removal is rejected', async () => {
     const { remove } = await loadProvidersController()
     const ctx = makeCtx('custom:missing-provider')
