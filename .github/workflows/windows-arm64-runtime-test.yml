@@ -1,6 +1,11 @@
 name: Test Windows ARM64 Runtime
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-arm64-runtime-test.yml"
+      - "packages/desktop/scripts/fetch-python.mjs"
+      - "packages/desktop/scripts/fetch-git.mjs"
 permissions:
   contents: read
 jobs:
