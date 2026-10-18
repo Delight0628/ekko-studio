@@ -14,5 +14,5 @@ export function windowsBuildArgs(args, platform = process.platform, arch = proce
     throw new Error('Windows update channels are selected by architecture')
   }
   return [...args, ...(architectures.length ? [] : [`--${target}`]),
-    `--config.publish.channel=${target === 'arm64' ? 'latest-arm64' : 'latest'}`]
+    ...(target === 'arm64' ? ['--config.publish.channel=latest-arm64'] : [])]
 }

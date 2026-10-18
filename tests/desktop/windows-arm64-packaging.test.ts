@@ -11,7 +11,7 @@ describe('Windows ARM64 packaging', () => {
     expect(windowsBuildArgs(['--win', 'nsis', '--arm64'], 'darwin', 'arm64'))
       .toEqual(['--win', 'nsis', '--arm64', '--config.publish.channel=latest-arm64'])
     expect(windowsBuildArgs(['--win', 'nsis', '--x64'], 'win32', 'arm64'))
-      .toEqual(['--win', 'nsis', '--x64', '--config.publish.channel=latest'])
+      .toEqual(['--win', 'nsis', '--x64'])
     expect(windowsBuildArgs([], 'win32', 'arm64')).toEqual(['--arm64', '--config.publish.channel=latest-arm64'])
     expect(windowsBuildArgs(['--mac', '--arm64'], 'darwin', 'arm64')).toEqual(['--mac', '--arm64'])
     expect(() => windowsBuildArgs(['--win', '--arm64', '--x64'])).toThrow('one architecture')

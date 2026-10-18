@@ -76,9 +76,14 @@ async function main() {
     if (!existsSync(npmCli)) throw new Error('Cannot locate the Node.js npm CLI')
     run(process.execPath, [npmCli, 'install', '--prefix', temporary, '--ignore-scripts', '--no-audit', '--no-fund', 'node-addon-api@8.3.0'])
     const build = join(temporary, 'build')
+    // CMake writes these values into generated scripts. Backslashes in Windows
+    // paths (notably C:\Users) would otherwise become invalid escape sequences.
+    const definitions = Object.entries({
+      SHERPA_SOURCE: source, SHERPA_INSTALL: libraries, NODE_HEADERS: headers,
+      NODE_LIBRARY: nodeLibrary, NODE_ADDON_API: join(temporary, 'node_modules/node-addon-api'),
+    }).map(([name, path]) => `-D${name}:PATH=${path.replaceAll('\\', '/')}`)
     run('cmake', ['-S', join(scripts, 'windows-arm64-speech'), '-B', build, '-A', 'ARM64',
-      `-DSHERPA_SOURCE=${source}`, `-DSHERPA_INSTALL=${libraries}`, `-DNODE_HEADERS=${headers}`,
-      `-DNODE_LIBRARY=${nodeLibrary}`, `-DNODE_ADDON_API=${join(temporary, 'node_modules/node-addon-api')}`])
+      ...definitions])
     run('cmake', ['--build', build, '--config', 'Release', '--parallel', '2'])
 
     rmSync(output, { recursive: true, force: true })
