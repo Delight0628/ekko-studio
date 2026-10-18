@@ -1774,6 +1774,13 @@ jobTriggered: 'Job ausgelost',
 
   // Models
   models: {
+    importTitle: "Anbieter importieren",
+    importNotice: "Prüfen Sie Adresse, Modell und Zielprofil. Nach der Bestätigung speichert Studio den API-Schlüssel und setzt das Modell als Profilstandard. Vorher wird nichts importiert.",
+    importConfirm: "Import bestätigen",
+    importInvalid: "Ungültiger oder nicht unterstützter Importlink.",
+    importRequired: "Geben Sie einen Anbieternamen und API-Schlüssel ein.",
+    importDuplicate: "Dieser Anbietername existiert bereits. Wählen Sie einen anderen Namen; bestehende Einstellungen werden nicht überschrieben.",
+    importFailed: "Import fehlgeschlagen. Prüfen Sie Ihre Berechtigungen und versuchen Sie es erneut.",
     providerColumn: 'Anbieter',
     title: 'Modelle',
     addProvider: 'Anbieter hinzufugen',

@@ -2217,6 +2217,13 @@ export default {
 
   // 模型
   models: {
+    importTitle: "匯入供應商",
+    importNotice: "請核對位址、模型與目標 Profile。確認後將 API Key 儲存至 Studio，並將此模型設為該 Profile 的預設模型。確認前不會匯入。",
+    importConfirm: "確認匯入",
+    importInvalid: "匯入連結無效或格式不受支援。",
+    importRequired: "請填寫供應商名稱與 API Key。",
+    importDuplicate: "供應商名稱已存在，請使用其他名稱；不會覆寫現有設定。",
+    importFailed: "匯入失敗，請檢查權限後重試。",
     providerColumn: '供應商',
     title: '模型',
     searchPlaceholder: '搜尋模型...',

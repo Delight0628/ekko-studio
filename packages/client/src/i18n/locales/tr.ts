@@ -748,6 +748,13 @@ export default {
     writeApprovalUnsupported: 'Bu Hermes Aracısı sürümü yazma onaylarını desteklemiyor. Bu özelliği kullanmak için Hermes Aracısını yükseltin.',
   },
   models: {
+    importTitle: "Sağlayıcıyı içe aktar",
+    importNotice: "Adresi, modeli ve hedef profili kontrol edin. Onaylandığında API anahtarı Studio’ya kaydedilir ve model profilin varsayılanı olur. Onaydan önce hiçbir şey içe aktarılmaz.",
+    importConfirm: "İçe aktarmayı onayla",
+    importInvalid: "Geçersiz veya desteklenmeyen içe aktarma bağlantısı.",
+    importRequired: "Sağlayıcı adı ve API anahtarı girin.",
+    importDuplicate: "Bu ad zaten var. Başka bir ad seçin; mevcut ayarların üzerine yazılmaz.",
+    importFailed: "İçe aktarma başarısız. İzinlerinizi kontrol edip tekrar deneyin.",
     searchPlaceholder: 'Modellerde ara...',
     noResults: 'Sonuç yok',
     manageVisibleModels: "Görünür modelleri yönet",

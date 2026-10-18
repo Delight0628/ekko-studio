@@ -1774,6 +1774,13 @@ jobTriggered: 'Job acionado',
 
   // Models
   models: {
+    importTitle: "Importar fornecedor",
+    importNotice: "Verifique o endereço, o modelo e o perfil de destino. A confirmação salva a chave API no Studio e define o modelo como padrão do perfil. Nada é importado antes da confirmação.",
+    importConfirm: "Confirmar importação",
+    importInvalid: "Link de importação inválido ou não suportado.",
+    importRequired: "Informe um nome de fornecedor e uma chave API.",
+    importDuplicate: "Este nome já existe. Escolha outro; as configurações existentes não serão sobrescritas.",
+    importFailed: "Falha na importação. Verifique suas permissões e tente novamente.",
     providerColumn: 'Provedor',
     title: 'Modelos',
     addProvider: 'Adicionar provedor',

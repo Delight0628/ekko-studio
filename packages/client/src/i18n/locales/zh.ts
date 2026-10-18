@@ -2229,6 +2229,13 @@ export default {
 
   // 模型
   models: {
+    importTitle: "导入供应商",
+    importNotice: "请核对地址、模型和目标 Profile。确认后将 API Key 保存到 Studio，并将此模型设为该 Profile 的默认模型。确认前不会导入。",
+    importConfirm: "确认导入",
+    importInvalid: "导入链接无效或格式不受支持。",
+    importRequired: "请填写供应商名称和 API Key。",
+    importDuplicate: "供应商名称已存在，请换一个名称；不会覆盖已有配置。",
+    importFailed: "导入失败，请检查权限后重试。",
     providerColumn: '服务商',
     title: '模型',
     searchPlaceholder: '搜索模型...',

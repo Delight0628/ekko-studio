@@ -1774,6 +1774,13 @@ export default {
 
   // モデル
   models: {
+    importTitle: "プロバイダーをインポート",
+    importNotice: "アドレス、モデル、対象の Profile を確認してください。確認すると API キーが Studio に保存され、このモデルが Profile の既定になります。確認前にはインポートされません。",
+    importConfirm: "インポートを確認",
+    importInvalid: "インポートリンクが無効、または未対応の形式です。",
+    importRequired: "プロバイダー名と API キーを入力してください。",
+    importDuplicate: "同じ名前が存在します。別の名前を指定してください。既存の設定は上書きされません。",
+    importFailed: "インポートに失敗しました。権限を確認して再試行してください。",
     providerColumn: 'プロバイダー',
     title: 'モデル',
     addProvider: 'プロバイダーを追加',

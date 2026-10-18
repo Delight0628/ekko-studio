@@ -1774,6 +1774,13 @@ export default {
 
   // 모델
   models: {
+    importTitle: "공급자 가져오기",
+    importNotice: "주소, 모델 및 대상 Profile을 확인하세요. 확인하면 API 키가 Studio에 저장되고 이 모델이 Profile의 기본 모델로 설정됩니다. 확인 전에는 가져오지 않습니다.",
+    importConfirm: "가져오기 확인",
+    importInvalid: "가져오기 링크가 잘못되었거나 지원되지 않습니다.",
+    importRequired: "공급자 이름과 API 키를 입력하세요.",
+    importDuplicate: "같은 공급자 이름이 있습니다. 다른 이름을 사용하세요. 기존 설정은 덮어쓰지 않습니다.",
+    importFailed: "가져오기에 실패했습니다. 권한을 확인하고 다시 시도하세요.",
     providerColumn: '제공업체',
     title: '모델',
     addProvider: 'Provider 추가',

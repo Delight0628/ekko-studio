@@ -1774,6 +1774,13 @@ jobTriggered: 'Job ejecutado',
 
   // Models
   models: {
+    importTitle: "Importar proveedor",
+    importNotice: "Comprueba la dirección, el modelo y el perfil de destino. Al confirmar, Studio guarda la clave API y establece el modelo como predeterminado del perfil. No se importa nada antes de confirmar.",
+    importConfirm: "Confirmar importación",
+    importInvalid: "Enlace de importación no válido o no compatible.",
+    importRequired: "Introduce un nombre de proveedor y una clave API.",
+    importDuplicate: "El nombre ya existe. Elige otro; no se sobrescribirá la configuración existente.",
+    importFailed: "Error al importar. Comprueba tus permisos e inténtalo de nuevo.",
     providerColumn: 'Proveedor',
     title: 'Modelos',
     addProvider: 'Anadir proveedor',

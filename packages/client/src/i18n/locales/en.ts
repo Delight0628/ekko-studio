@@ -2183,6 +2183,13 @@ export default {
 
   // Models
   models: {
+    importTitle: "Import provider",
+    importNotice: "Review the address, model and target Profile. Confirming saves the API key to Studio and selects this model as the Profile default. Nothing is imported before confirmation.",
+    importConfirm: "Confirm import",
+    importInvalid: "Invalid or unsupported provider import link.",
+    importRequired: "Enter a provider name and API key.",
+    importDuplicate: "This provider name already exists. Choose another name; existing settings will not be overwritten.",
+    importFailed: "Import failed. Check your permissions and try again.",
     providerColumn: 'Provider',
     title: 'Models',
     searchPlaceholder: 'Search models...',

@@ -289,8 +289,8 @@ export async function restoreModels(ctx: any) {
 }
 
 export async function create(ctx: any) {
-  const { name, base_url, api_key, model, context_length, providerKey, api_mode } = ctx.request.body as {
-    name: string; base_url: string; api_key: string; model: string; context_length?: number; providerKey?: string | null; api_mode?: ProviderApiMode
+  const { name, base_url, api_key, model, context_length, providerKey, api_mode, create_only } = ctx.request.body as {
+    name: string; base_url: string; api_key: string; model: string; context_length?: number; providerKey?: string | null; api_mode?: ProviderApiMode; create_only?: boolean
   }
   const normalizedName = String(name || '').trim()
   const poolKey = providerKey || `custom:${normalizedName.toLowerCase().replace(/ /g, '-')}`
@@ -309,6 +309,12 @@ export async function create(ctx: any) {
   try {
     const profile = requestedProfile(ctx)
     await updateConfigYamlForProfile(profile, async (config) => {
+      if (create_only === true && (isBuiltin
+        || findLegacyCustomProviderIndex(config, poolKey) !== -1
+        || Object.keys(config.providers || {}).some(key => providerKeyForCustomName(key) === poolKey)
+        || getCompatibleCustomProviders(config).some(cp => providerKeyForCustomName(cp.name) === poolKey))) {
+        throw Object.assign(new Error('Provider already exists; choose another name'), { status: 409 })
+      }
       if (typeof config.model !== 'object' || config.model === null) { config.model = {} }
       if (!isBuiltin) {
         if (!Array.isArray(config.custom_providers)) { config.custom_providers = [] }
@@ -380,7 +386,7 @@ export async function create(ctx: any) {
     // try { await hermesCli.restartGateway() } catch (e: any) { logger.error(e, 'Gateway restart failed') }
     ctx.body = { success: true }
   } catch (err: any) {
-    ctx.status = 500; ctx.body = { error: err.message }
+    ctx.status = err.status === 409 ? 409 : 500; ctx.body = { error: err.message }
   }
 }
 

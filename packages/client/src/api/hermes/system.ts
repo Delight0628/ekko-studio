@@ -77,6 +77,7 @@ export interface CustomProvider {
   context_length?: number
   api_mode?: ProviderApiMode
   providerKey?: string | null
+  create_only?: boolean
 }
 
 export type ProviderEditableField =
@@ -206,9 +207,10 @@ export async function updateModelAlias(data: {
   })
 }
 
-export async function addCustomProvider(data: CustomProvider): Promise<void> {
+export async function addCustomProvider(data: CustomProvider, profile?: string): Promise<void> {
   await request('/api/hermes/config/providers', {
     method: 'POST',
+    ...(profile ? { headers: { 'X-Hermes-Profile': profile } } : {}),
     body: JSON.stringify(data),
   })
 }

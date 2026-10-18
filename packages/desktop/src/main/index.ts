@@ -59,6 +59,7 @@ import { createDesktopAppLifecycle } from './app-lifecycle'
 import { configureDesktopIdentity } from './desktop-identity'
 import { migrateWindowsLoginItem } from './login-item-migration'
 import { getOpenAtLogin as readOpenAtLogin, setOpenAtLogin as writeOpenAtLogin, refreshLinuxLoginItem } from './login-item-settings'
+import { PROVIDER_IMPORT_SCHEME, providerImportPayload, providerImportFromArgs, providerImportTarget } from './provider-import'
 
 configureDesktopIdentity(app)
 
@@ -84,6 +85,7 @@ let petWindow: BrowserWindow | null = null
 let petWindowLoadPromise: Promise<void> | null = null
 const chatWindows = new Map<string, BrowserWindow>()
 let serverUrl: string | null = null
+let pendingProviderImport: string | null = null
 // Resolved once at startup so createWindow can flag remote mode into the main
 // window's preload; bootstrap() re-resolves it on every (re)start attempt.
 let activeRemoteServerUrl: string | null = resolveRemoteServerUrl()
@@ -250,6 +252,20 @@ function webUiHashUrl(hashPath: string): string | null {
 
 function mainRouteUrl(): string | null {
   return webUiHashUrl('/hermes/chat')
+}
+
+async function openPendingProviderImport(bootstrapped = false): Promise<void> {
+  if (!pendingProviderImport || !serverUrl || !mainWindow || mainWindow.isDestroyed()
+    || (isBootstrapping && !bootstrapped)) return
+  const data = pendingProviderImport
+  pendingProviderImport = null
+  try {
+    await mainWindow.loadURL(providerImportTarget(serverUrl, data))
+    showMainWindow()
+  } catch {
+    // loadURL errors can include their URL. Do not expose the credential fragment.
+    console.warn('[desktop] provider import page could not be opened')
+  }
 }
 
 function petRouteUrl(): string | null {
@@ -615,6 +631,7 @@ async function createWindow(): Promise<void> {
   // will swap in the real URL once the server is ready.
   if (serverUrl) {
     await mainWindow.loadURL(mainRouteUrl() || serverUrl)
+    await openPendingProviderImport()
   } else {
     await mainWindow.loadURL(splashHtml(t('runtime.checking')))
   }
@@ -1000,6 +1017,7 @@ async function bootstrap(source?: RuntimeDownloadSource) {
       serverUrl = remoteUrl
       updateTrayMenu()
       if (mainWindow) await mainWindow.loadURL(mainRouteUrl() || remoteUrl)
+      await openPendingProviderImport(true)
       await loadPetWindowRoute()
     } catch (err) {
       console.error(`[desktop] failed to connect to the remote Web UI at ${remoteUrl}:`, err)
@@ -1050,6 +1068,7 @@ async function bootstrap(source?: RuntimeDownloadSource) {
     serverUrl = url
     updateTrayMenu()
     if (mainWindow) await mainWindow.loadURL(mainRouteUrl() || url)
+    await openPendingProviderImport(true)
     await loadPetWindowRoute()
   } catch (err) {
     console.error('Failed to start Web UI server:', err)
@@ -1470,6 +1489,15 @@ ipcMain.handle('hermes-desktop:retry-bootstrap', async (_event, source?: Runtime
 })
 
 function runDesktopApp() {
+  pendingProviderImport = providerImportFromArgs(process.argv)
+  app.on('open-url', (event, url) => {
+    const data = providerImportPayload(url)
+    if (!data) return
+    event.preventDefault()
+    pendingProviderImport = data
+    if (app.isReady() && (!mainWindow || mainWindow.isDestroyed())) void createWindow()
+    else void openPendingProviderImport()
+  })
   setWebUiRestartRequestHandler(() => {
     // Leave enough time for the authenticated relay HTTP request to flush its 202 response.
     scheduleAppRestart(250)
@@ -1488,6 +1516,11 @@ function runDesktopApp() {
       quitApp()
       return
     }
+    const data = providerImportFromArgs(argv)
+    if (data) {
+      pendingProviderImport = data
+      void openPendingProviderImport()
+    }
     showMainWindow()
   })
 
@@ -1495,6 +1528,15 @@ function runDesktopApp() {
     if (QUIT_EXISTING) {
       quitApp()
       return
+    }
+    if (app.isPackaged) {
+      try {
+        if (!app.setAsDefaultProtocolClient(PROVIDER_IMPORT_SCHEME)) {
+          console.warn('[desktop] provider import protocol registration was unavailable')
+        }
+      } catch {
+        console.warn('[desktop] provider import protocol registration failed')
+      }
     }
 
     // Drop the default File/Edit/View/Window menu on Windows/Linux. The web

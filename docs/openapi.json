@@ -7506,6 +7506,9 @@
                   "context_length": {
                     "type": "number"
                   },
+                  "create_only": {
+                    "type": "boolean"
+                  },
                   "model": {
                     "type": "string"
                   },

@@ -1774,6 +1774,13 @@ jobTriggered: 'Job declenche',
 
   // Models
   models: {
+    importTitle: "Importer un fournisseur",
+    importNotice: "Vérifiez l’adresse, le modèle et le profil cible. La confirmation enregistre la clé API dans Studio et définit ce modèle par défaut pour le profil. Rien n’est importé avant confirmation.",
+    importConfirm: "Confirmer l’importation",
+    importInvalid: "Lien d’importation invalide ou non pris en charge.",
+    importRequired: "Saisissez un nom de fournisseur et une clé API.",
+    importDuplicate: "Ce nom existe déjà. Choisissez-en un autre ; les paramètres existants ne seront pas remplacés.",
+    importFailed: "Échec de l’importation. Vérifiez vos autorisations et réessayez.",
     providerColumn: 'Fournisseur',
     title: 'Modeles',
     addProvider: 'Ajouter un fournisseur',
