@@ -7,6 +7,13 @@ identity, symlinks and glibc compatibility. Follow `packages/tos/README.md` for
 non-root startup and TNAS install/start/stop/upgrade/remove acceptance; an
 Ubuntu smoke test is not a substitute for TOS device validation.
 
+For StartOS packaging, install dependencies in `packages/startos`, run its
+`npx tsc --noEmit`, the focused `tests/server/startos-packaging.test.ts` tests,
+`npm run harness:check`, and the independent StartOS package workflow. Validate
+real authentication/rotation and persistence in the pinned image after runtime
+changes. Successful builds and Docker smoke tests do not establish StartOS
+installation, task, interface, or backup/restore compatibility.
+
 Run the smallest relevant checks while iterating. Escalate to the broad checks
 when touching shared behavior, release automation, auth, persistence, or chat.
 
