@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { load } from 'js-yaml'
 import { windowsBuildArgs } from '../../packages/desktop/scripts/windows-build-args.mjs'
-import { pythonBuildEnvironment } from '../../packages/desktop/scripts/python-build-env.mjs'
+import { pythonBuildEnvironment, pythonDependencyBuildArgs } from '../../packages/desktop/scripts/python-build-env.mjs'
 
 const read = (path: string) => readFileSync(path, 'utf8')
 const workflow = (name: string) => load(read(`.github/workflows/${name}.yml`)) as any
@@ -57,4 +57,12 @@ describe('ARM64 Python dependency build environment', () => {
     expect(pythonBuildEnvironment(env, 'win32', 'x64', exists)).toEqual(env)
     expect(env.Path).toBe('/git/cmd;/git/usr/bin;/system')
   })
+})
+
+it('enables ConPTY through pywinpty-specific build settings only on Windows ARM64', () => {
+  expect(pythonDependencyBuildArgs('win32', 'arm64')).toEqual([
+    '--config-settings-package', 'pywinpty:build-args=--features winpty-rs/conpty',
+  ])
+  expect(pythonDependencyBuildArgs('win32', 'x64')).toEqual([])
+  expect(pythonDependencyBuildArgs('linux', 'arm64')).toEqual([])
 })

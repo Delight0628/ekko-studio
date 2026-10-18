@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { pythonBuildEnvironment } from './python-build-env.mjs'
+import { pythonBuildEnvironment, pythonDependencyBuildArgs } from './python-build-env.mjs'
 // Install the checked-out Hermes Agent source into python/venv and prepare its
 // bundled browser and frontend assets. The Git checkout remains clean and is
 // retained so the upstream `hermes update` command can update it in place.
@@ -151,6 +151,7 @@ function installHermesPythonRuntime() {
       '--require-hashes',
       '--no-deps',
       '--requirement', requirementsPath,
+      ...pythonDependencyBuildArgs(TARGET_OS, TARGET_ARCH),
     ], { cwd: PY_DIR, env })
 
     console.log('→ Installing Hermes source as a relocatable editable project')

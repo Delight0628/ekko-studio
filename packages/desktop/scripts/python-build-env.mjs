@@ -19,3 +19,11 @@ export function pythonBuildEnvironment(env = process.env, platform = process.pla
   }
   return result
 }
+
+export function pythonDependencyBuildArgs(platform = process.platform, arch = process.arch) {
+  // winpty-rs 0.4's runtime API probe can miss ConPTY on ARM64. Windows 11
+  // provides it; select the upstream Cargo feature for this dependency only.
+  return platform === 'win32' && arch === 'arm64'
+    ? ['--config-settings-package', 'pywinpty:build-args=--features winpty-rs/conpty']
+    : []
+}
