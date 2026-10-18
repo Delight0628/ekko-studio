@@ -132,6 +132,22 @@ describe('ekko-agent model requests', () => {
     ]))
   })
 
+  it.each([false, true])('still rejects an empty tool-call termination when completed calls exist=%s', async completed => {
+    const frames = [
+      ...(completed ? [{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'valid', function: { name: 'weather', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] }] : []),
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'invalid', function: { name: '', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] },
+    ]
+    const client = createModelClient(providerConfig, { fetch: async () => new Response(frames.map(frame => `data: ${JSON.stringify(frame)}\n\n`).join('')) })
+    await expect(collectModelEvents(client.stream({ messages: [{ role: 'user', content: 'Check weather' }] })))
+      .rejects.toThrow('complete id and function name')
+  })
+
+  it('rejects a tool-call finish reason with no tool data', async () => {
+    const client = createModelClient(providerConfig, { fetch: async () => new Response('data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n') })
+    await expect(collectModelEvents(client.stream({ messages: [{ role: 'user', content: 'Check weather' }] })))
+      .rejects.toThrow('complete id and function name')
+  })
+
   it('filters invalid Chat tool history and its orphaned tool result', () => {
     const payload = toOpenAIChatPayload(providerConfig, {
       messages: [

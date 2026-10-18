@@ -201,6 +201,36 @@ describe('public Responses model API', () => {
     expect(events[0].response.output).toEqual([])
   })
 
+  it('completes OpenRouter tool streams when the usage trailer repeats the tool finish reason', async () => {
+    mocks.groups.mockResolvedValue([{ provider: 'openrouter', models: ['qwen/qwen3.8-flash'], api_mode: 'chat_completions' }])
+    mocks.runtime.mockResolvedValue({ provider: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', apiMode: 'chat_completions', apiKey: 'secret' })
+    mocks.fetch.mockResolvedValueOnce(sse([
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_weather', type: 'function', function: { name: 'weather', arguments: '' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"city":"Guiyang"}' } }] } }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 319, completion_tokens: 54, prompt_tokens_details: { cached_tokens: 256 } } },
+      '[DONE]',
+    ]))
+    const tools = [{ type: 'function', name: 'weather', parameters: { type: 'object', properties: { city: { type: 'string' } } } }]
+    const request = await prepare(body({ model: 'openrouter/qwen/qwen3.8-flash', stream: true, tools }))
+    const events = await Array.fromAsync(request.events())
+    expect(events.at(-1)!.type).toBe('response.completed')
+    expect(events.filter(event => event.type === 'response.function_call_arguments.done')).toHaveLength(1)
+    const result = events.at(-1)!.response
+    expect(result.output).toHaveLength(1)
+    expect(result.output[0]).toMatchObject({ type: 'function_call', name: 'weather', arguments: '{"city":"Guiyang"}', status: 'completed' })
+    expect(result.usage).toMatchObject({ input_tokens: 319, output_tokens: 54, input_tokens_details: { cached_tokens: 256 } })
+    expect(mocks.record).toHaveBeenCalledTimes(1)
+    expect(mocks.record).toHaveBeenCalledWith(expect.objectContaining({ origin: 'external', usage: expect.objectContaining({ inputTokens: 63, cacheReadTokens: 256, outputTokens: 54 }) }))
+
+    await (await prepare(body({ model: 'openrouter/qwen/qwen3.8-flash', tools, input: [...result.output,
+      { type: 'function_call_output', call_id: result.output[0].call_id, output: 'Sunny' }],
+    }))).create()
+    expect(JSON.parse(mocks.fetch.mock.calls[1][1].body).messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'tool', tool_call_id: result.output[0].call_id, content: 'Sunny' }),
+    ]))
+  })
+
   it('keeps DeepSeek cache hits separate and reports output-token exhaustion', async () => {
     mocks.fetch.mockResolvedValue(Response.json({ choices: [{ message: { content: 'Partial' }, finish_reason: 'length' }], usage: { prompt_tokens: 120, prompt_cache_hit_tokens: 100, completion_tokens: 5 } }))
     const result = await (await prepare()).create()
