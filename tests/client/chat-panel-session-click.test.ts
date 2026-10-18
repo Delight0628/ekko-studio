@@ -65,7 +65,7 @@ describe('ChatPanel session clicks', () => {
     expect(source).toContain('@model-click="openSessionModelPicker(null, $event)"')
   })
 
-  it('uses codingAgentId to filter scoped agent models and requests an API mode for all scoped agents', () => {
+  it('uses codingAgentId to filter scoped agent models and handles API mode for scoped agents', () => {
     const source = readFileSync('packages/client/src/components/hermes/chat/ChatPanel.vue', 'utf8')
 
     expect(source).toContain('const sessionModelCodingAgentId = computed<ChatCodingAgentId | undefined>')
@@ -102,11 +102,11 @@ describe('ChatPanel session clicks', () => {
     expect(source).toContain('codingAgentId: newChatAgent.value === "hermes" ? undefined : newChatAgent.value')
   })
 
-  it('shows and persists the API mode for Ekko chats and model switches', () => {
+  it('persists Ekko API mode and offers manual selection only when the Provider mode is unknown', () => {
     const source = readFileSync('packages/client/src/components/hermes/chat/ChatPanel.vue', 'utf8')
 
     expect(source).toContain('apiMode: isNewChatCodingAgent.value && !isGlobalCodingAgent ? newChatApiMode.value : undefined')
-    expect(source).toContain('v-if="isNewChatCodingAgent && effectiveNewChatAgentMode === \'scoped\'"')
+    expect(source).toContain('v-if="isNewChatCodingAgent && effectiveNewChatAgentMode === \'scoped\' && !newChatConfiguredApiMode"')
     expect(source).toContain('if (isSessionModelScopedCodingAgent.value)')
     expect(source).toContain('await applySessionModelSwitch(pending.model, pending.provider, sessionModelApiMode.value)')
   })

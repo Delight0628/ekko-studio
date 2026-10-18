@@ -547,8 +547,8 @@ describe('GroupChatPanel workspace save handling', () => {
     }
     expect(source).toContain('inferCodingAgentApiMode(')
     expect(source).toContain('normalizeCodingAgentApiMode(')
-    expect(source).toContain("v-if=\"selectedAgentType !== 'hermes' && !usesGlobalAgentMode\"")
     for (const modelSource of [source, linkView]) {
+      expect(modelSource).toContain("v-if=\"selectedAgentType !== 'hermes' && !usesGlobalAgentMode && !configuredAgentApiMode\"")
       expect(modelSource).toContain("const supportsGlobalAgentMode = computed(() => ['claude', 'codex', 'pi', 'grok', 'opencode', 'dsh', 'cursor', 'antigravity', 'qwen', 'kimi', 'codebuddy', 'qoder', 'copilot', 'zcode'].includes(selectedAgentType.value))")
       expect(modelSource).toContain("v-if=\"!usesGlobalAgentMode\"")
     }
