@@ -6,6 +6,7 @@ on:
       - ".github/workflows/windows-arm64-runtime-test.yml"
       - "packages/desktop/scripts/fetch-python.mjs"
       - "packages/desktop/scripts/fetch-git.mjs"
+      - "packages/desktop/scripts/setup-windows-arm64-openssl.ps1"
 permissions:
   contents: read
 jobs:
@@ -23,6 +24,9 @@ jobs:
           node-version: 24
       - uses: astral-sh/setup-uv@v3
       - run: npm ci --prefix packages/desktop --no-audit --no-fund
+      - name: Prepare ARM64 OpenSSL for locked Python dependencies
+        shell: pwsh
+        run: ./packages/desktop/scripts/setup-windows-arm64-openssl.ps1
       - name: Prepare native runtime
         env:
           GH_TOKEN: ${{ github.token }}

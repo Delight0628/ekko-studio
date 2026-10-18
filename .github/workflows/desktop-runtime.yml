@@ -134,6 +134,11 @@ jobs:
         if: steps.check.outputs.missing == 'true'
         run: npm ci --prefix packages/desktop --no-audit --no-fund
 
+      - name: Prepare native ARM64 OpenSSL
+        if: steps.check.outputs.missing == 'true' && matrix.target_os == 'win32' && matrix.target_arch == 'arm64'
+        shell: pwsh
+        run: ./packages/desktop/scripts/setup-windows-arm64-openssl.ps1
+
       - name: Prepare runtime resources
         if: steps.check.outputs.missing == 'true'
         env:
