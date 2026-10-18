@@ -20,6 +20,7 @@ describe('usage store agent breakdown', () => {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id TEXT NOT NULL,
         account_id TEXT,
+        origin TEXT NOT NULL DEFAULT 'internal',
         source TEXT NOT NULL DEFAULT '',
         agent TEXT NOT NULL DEFAULT '',
         input_tokens INTEGER NOT NULL DEFAULT 0,

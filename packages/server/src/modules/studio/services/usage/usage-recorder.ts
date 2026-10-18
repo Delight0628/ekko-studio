@@ -16,14 +16,16 @@ export interface NormalizedTokenUsage {
 
 export interface RecordSessionUsageInput {
   sessionId: string
+  origin?: 'internal' | 'external'
+  accountId?: string
   runId?: string | null
   /** The foreground run, separate from the deduplication key for each API call. */
   parentRunId?: string
   createdAt?: number
   /** Model request duration in seconds, excluding tool execution. */
   apiDuration?: number
-  source: 'hermes' | 'coding_agent' | 'ekko_agent'
-  agent: 'hermes' | 'claude_code' | 'codex' | 'pi' | 'grok' | 'opencode' | 'dsh' | 'cursor' | 'antigravity' | 'qwen' | 'kimi' | 'codebuddy' | 'qoder' | 'copilot' | 'zcode' | 'ekko_agent'
+  source: 'hermes' | 'coding_agent' | 'ekko_agent' | 'model_api'
+  agent: 'hermes' | 'claude_code' | 'codex' | 'pi' | 'grok' | 'opencode' | 'dsh' | 'cursor' | 'antigravity' | 'qwen' | 'kimi' | 'codebuddy' | 'qoder' | 'copilot' | 'zcode' | 'ekko_agent' | 'model_api'
   profile?: string | null
   model?: string | null
   provider?: string | null
@@ -121,10 +123,11 @@ export function normalizeTokenUsage(
 
 export function recordSessionUsage(input: RecordSessionUsageInput): NormalizedTokenUsage {
   const usage = normalizeTokenUsage(input.usage, input.fallbackUsage)
+  const canPrice = input.origin !== 'external' || !usage.isEstimated
   try {
     let cost: UsageCost | undefined
     let hasManualPricing = false
-    if (input.model && input.provider) {
+    if (canPrice && input.model && input.provider) {
       try {
         const pricing = getUsagePricing(input.profile || 'default')
           .find(row => row.provider === input.provider && row.model === input.model)
@@ -141,10 +144,12 @@ export function recordSessionUsage(input: RecordSessionUsageInput): NormalizedTo
       try { baseUrl = resolveModelBaseUrl(input.profile || 'default', input.provider || '', input.model) } catch {}
     }
     const catalog = !cost && !hasManualPricing ? getModelCatalogSnapshot() : undefined
-    if (!cost && !hasManualPricing && input.model) {
+    if (canPrice && !cost && !hasManualPricing && input.model) {
       cost = estimateCatalogUsageCost(catalog, input.provider || '', input.model, usage, input.usageScope, input.apiCalls, baseUrl)
     }
     const row = updateUsage(input.sessionId, {
+      ...(input.origin ? { origin: input.origin } : {}),
+      ...(input.accountId ? { accountId: input.accountId } : {}),
       runId: input.runId || '',
       ...(input.createdAt != null ? { createdAt: input.createdAt } : {}),
       ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
@@ -167,7 +172,7 @@ export function recordSessionUsage(input: RecordSessionUsageInput): NormalizedTo
     })
     // Cold start: persist tokens immediately, then fill this new row after the shared download.
     // Replays return no inserted row, so a later catalog never reprices historical usage.
-    if (row && !cost && !hasManualPricing && !catalog && input.model) {
+    if (canPrice && row && !cost && !hasManualPricing && !catalog && input.model) {
       const provider = input.provider || ''
       const model = input.model
       void refreshModelCatalog().then(snapshot => {

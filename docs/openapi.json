@@ -129,6 +129,10 @@
       "description": "Cross-agent chat session management"
     },
     {
+      "name": "Model API",
+      "description": "OpenAI Responses-compatible inference across configured providers; external usage accounting"
+    },
+    {
       "name": "Session Shares",
       "description": "App-bound single-session share tokens, first claim, permissions and revocation"
     },
@@ -18858,6 +18862,336 @@
         }
       }
     },
+    "/api/studio/models/v1/models": {
+      "get": {
+        "tags": [
+          "Model API"
+        ],
+        "summary": "List configured models with provider-qualified IDs",
+        "description": "Lists all models visible in the selected Profile as provider/model, preserving slashes inside the native model ID. Never returns credentials. responses_supported=false marks disabled models and providers requiring Bedrock, Codex app-server or MoA runtimes.",
+        "operationId": "modelApiModels",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OpenAI-compatible model list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "object": {
+                      "type": "string",
+                      "enum": [
+                        "list"
+                      ]
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "example": "glm/glm-5.3"
+                          },
+                          "object": {
+                            "type": "string",
+                            "enum": [
+                              "model"
+                            ]
+                          },
+                          "created": {
+                            "type": "integer"
+                          },
+                          "owned_by": {
+                            "type": "string"
+                          },
+                          "api_mode": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "responses_supported": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or unsupported Responses feature"
+          },
+          "401": {
+            "description": "Missing or expired Studio user JWT"
+          },
+          "403": {
+            "description": "User or Profile access denied"
+          },
+          "404": {
+            "description": "Profile or configured model not found"
+          },
+          "501": {
+            "description": "Provider requires an unsupported direct-request runtime"
+          },
+          "502": {
+            "description": "Upstream model request failed"
+          }
+        },
+        "parameters": [
+          {
+            "name": "x-hermes-profile",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Profile name. Defaults to the single assigned Profile, or the active Profile for a super admin. Required when a regular user has multiple Profiles."
+          }
+        ]
+      }
+    },
+    "/api/studio/models/v1/responses": {
+      "post": {
+        "tags": [
+          "Model API"
+        ],
+        "summary": "Request a configured model using OpenAI Responses format",
+        "description": "Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.",
+        "operationId": "modelApiResponses",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response object, or named Responses SSE events ending in response.completed, response.incomplete or response.failed. Usage may be null if the upstream did not report it.",
+            "headers": {
+              "x-request-id": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "type": "string",
+                      "enum": [
+                        "response"
+                      ]
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "completed",
+                        "incomplete",
+                        "failed"
+                      ]
+                    },
+                    "output": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "usage": {
+                      "type": "object",
+                      "nullable": true
+                    },
+                    "error": {
+                      "type": "object",
+                      "nullable": true
+                    }
+                  }
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or unsupported Responses feature"
+          },
+          "401": {
+            "description": "Missing or expired Studio user JWT"
+          },
+          "403": {
+            "description": "User or Profile access denied"
+          },
+          "404": {
+            "description": "Profile or configured model not found"
+          },
+          "501": {
+            "description": "Provider requires an unsupported direct-request runtime"
+          },
+          "502": {
+            "description": "Upstream model request failed"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "model",
+                  "input"
+                ],
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "example": "glm/glm-5.3"
+                  },
+                  "input": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "description": "Responses message, reasoning, function_call or function_call_output item."
+                        }
+                      }
+                    ]
+                  },
+                  "instructions": {
+                    "type": "string"
+                  },
+                  "stream": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "store": {
+                    "type": "boolean",
+                    "enum": [
+                      false
+                    ],
+                    "default": false
+                  },
+                  "max_output_tokens": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "temperature": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  "reasoning": {
+                    "type": "object",
+                    "properties": {
+                      "effort": {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "minimal",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      },
+                      "summary": {
+                        "type": "string",
+                        "enum": [
+                          "auto",
+                          "concise",
+                          "detailed"
+                        ]
+                      }
+                    }
+                  },
+                  "tools": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "type",
+                        "name"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "function"
+                          ]
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "parameters": {
+                          "type": "object"
+                        },
+                        "strict": {
+                          "type": "boolean",
+                          "enum": [
+                            false
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "tool_choice": {
+                    "type": "string",
+                    "enum": [
+                      "auto",
+                      "none",
+                      "required"
+                    ]
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "maxProperties": 16,
+                    "additionalProperties": {
+                      "type": "string",
+                      "maxLength": 512
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "x-hermes-profile",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Profile name. Defaults to the single assigned Profile, or the active Profile for a super admin. Required when a regular user has multiple Profiles."
+          }
+        ]
+      }
+    },
     "/api/studio/performance/runtime": {
       "get": {
         "tags": [
@@ -23951,7 +24285,7 @@
           "Sessions"
         ],
         "summary": "Get stats",
-        "description": "Aggregates all recorded usage across accessible Profiles by default. Account means the Studio user who owns the session, not a provider account. Account options include newly created sessions before their first usage event. Legacy rows use confirmed Studio ownership; unknown ownership remains unassigned.",
+        "description": "Aggregates one usage origin across accessible Profiles. Defaults to internal (existing sessions, workflows and coding agents). External includes every Model API request, even when Studio calls its own endpoint. The categories can represent the same physical upstream call and must not be summed as a deduplicated total. Account means the session owner for internal usage and the authenticated API caller for external usage; unknown historical ownership remains unassigned.",
         "operationId": "usageStats",
         "security": [
           {
@@ -23963,7 +24297,7 @@
             "description": "Success"
           },
           "400": {
-            "description": "Invalid account ID or timezone"
+            "description": "Invalid origin, account ID or timezone"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -24035,6 +24369,19 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "origin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "internal",
+                "external"
+              ],
+              "default": "internal"
             }
           }
         ]

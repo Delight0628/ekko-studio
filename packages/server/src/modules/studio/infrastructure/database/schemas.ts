@@ -13,6 +13,7 @@ export const USAGE_SCHEMA: Record<string, string> = {
   id: 'INTEGER PRIMARY KEY AUTOINCREMENT',
   session_id: 'TEXT NOT NULL',
   account_id: 'TEXT',
+  origin: "TEXT NOT NULL DEFAULT 'internal'",
   run_id: "TEXT NOT NULL DEFAULT ''",
   parent_run_id: "TEXT NOT NULL DEFAULT ''",
   api_duration: 'REAL',

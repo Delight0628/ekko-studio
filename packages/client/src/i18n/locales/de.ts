@@ -2966,6 +2966,13 @@ jobTriggered: 'Job ausgelost',
 
   // Usage
   usage: {
+    origin: {
+      label: "Nutzungskategorie",
+      internal: "Interne Nutzung",
+      external: "Externe Nutzung",
+      description: "Studio-Sitzungen und Modell-API werden getrennt gezählt. Ein API-Aufruf aus Studio erscheint einmal in jeder Kategorie.",
+      accountScope: "Externe Nutzung wird dem authentifizierten Studio-Benutzer des API-Aufrufs zugeordnet.",
+    },
     dashboard: {
       profile: "Profil",
       allProfiles: "Alle Profile",

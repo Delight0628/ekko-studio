@@ -651,6 +651,7 @@ describe('Database Schema Synchronization', () => {
       const row = db.prepare(`SELECT * FROM "${USAGE_TABLE}" WHERE session_id = ?`).get(sessionId)
       expect(row).toBeTruthy()
       expect(row.session_id).toBe(sessionId)
+      expect(row.origin).toBe('internal')
 
       const cols = getTableColumns(db, USAGE_TABLE)
       expect(cols.has('input_tokens')).toBe(true)

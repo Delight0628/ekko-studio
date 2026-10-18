@@ -2966,6 +2966,13 @@ jobTriggered: 'Job ejecutado',
 
   // Usage
   usage: {
+    origin: {
+      label: "Categoría de uso",
+      internal: "Uso interno",
+      external: "Uso externo",
+      description: "Las sesiones de Studio y la API se contabilizan por separado. Una llamada desde Studio aparece una vez en cada categoría.",
+      accountScope: "El uso externo se atribuye al usuario de Studio autenticado que llama a la API.",
+    },
     dashboard: {
       profile: "Perfil",
       allProfiles: "Todos los perfiles",

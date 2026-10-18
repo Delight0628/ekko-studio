@@ -3711,6 +3711,13 @@ export default {
 
   // Usage
   usage: {
+    origin: {
+      label: "Usage category",
+      internal: "Internal usage",
+      external: "External usage",
+      description: "Studio sessions and model API requests are counted separately. Calling this API from Studio appears once in each category.",
+      accountScope: "External usage is attributed to the authenticated Studio user making the API request.",
+    },
     dashboard: {
       profile: "Profile",
       allProfiles: "All Profiles",

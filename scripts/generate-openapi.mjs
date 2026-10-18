@@ -75,6 +75,7 @@ const tagMappings = {
   'modules/ekko/routes/config.ts': { name: 'Ekko Config', description: 'Ekko runtime configuration management' },
   'modules/studio/routes/workflows.ts': { name: 'Workflows', description: 'Cross-agent workflow orchestration' },
   'modules/studio/routes/sessions.ts': { name: 'Sessions', description: 'Cross-agent chat session management' },
+  'modules/studio/routes/model-api.ts': { name: 'Model API', description: 'OpenAI Responses-compatible inference across configured providers; external usage accounting' },
   'modules/studio/routes/session-shares.ts': { name: 'Session Shares', description: 'App-bound single-session share tokens, first claim, permissions and revocation' },
   'modules/studio/routes/logs.ts': { name: 'Logs', description: 'Cross-agent log file access' },
   'modules/studio/routes/social-messages.ts': { name: 'Social Messages', description: 'Unified outbound messaging for configured social platforms' },
@@ -1661,13 +1662,52 @@ openapi.paths['/api/coding-agents/models'] = { get: {
 
 const usageStatsOperation = openapi.paths['/api/studio/usage/stats']?.get
 if (usageStatsOperation) {
-  usageStatsOperation.description = 'Aggregates all recorded usage across accessible Profiles by default. Account means the Studio user who owns the session, not a provider account. Account options include newly created sessions before their first usage event. Legacy rows use confirmed Studio ownership; unknown ownership remains unassigned.'
+  usageStatsOperation.description = 'Aggregates one usage origin across accessible Profiles. Defaults to internal (existing sessions, workflows and coding agents). External includes every Model API request, even when Studio calls its own endpoint. The categories can represent the same physical upstream call and must not be summed as a deduplicated total. Account means the session owner for internal usage and the authenticated API caller for external usage; unknown historical ownership remains unassigned.'
+  usageStatsOperation.parameters = usageStatsOperation.parameters.filter(parameter => parameter.name !== 'origin')
+  usageStatsOperation.parameters.push({ name: 'origin', in: 'query', required: false, schema: { type: 'string', enum: ['internal', 'external'], default: 'internal' } })
   const accountParameter = usageStatsOperation.parameters.find(parameter => parameter.name === 'account')
   accountParameter.schema = { type: 'string', pattern: '^(?:[1-9][0-9]*|unassigned)$' }
   accountParameter.description = 'Studio user ID, or unassigned. Omit to include all accounts.'
-  usageStatsOperation.responses['400'] = { description: 'Invalid account ID or timezone' }
+  usageStatsOperation.responses['400'] = { description: 'Invalid origin, account ID or timezone' }
   usageStatsOperation.responses['403'] = { description: 'Selected Profile is not accessible to this user' }
 }
+
+// Public model requests use existing Studio user authentication and Profile permissions.
+const modelApiParameters = [{ name: 'x-hermes-profile', in: 'header', required: false, schema: { type: 'string' }, description: 'Profile name. Defaults to the single assigned Profile, or the active Profile for a super admin. Required when a regular user has multiple Profiles.' }]
+const modelApiErrors = Object.fromEntries([
+  ['400', 'Invalid input or unsupported Responses feature'], ['401', 'Missing or expired Studio user JWT'],
+  ['403', 'User or Profile access denied'], ['404', 'Profile or configured model not found'],
+  ['501', 'Provider requires an unsupported direct-request runtime'], ['502', 'Upstream model request failed'],
+].map(([status, description]) => [status, { description }]))
+const modelListOperation = openapi.paths['/api/studio/models/v1/models'].get
+modelListOperation.summary = 'List configured models with provider-qualified IDs'
+modelListOperation.parameters = modelApiParameters
+modelListOperation.description = 'Lists all models visible in the selected Profile as provider/model, preserving slashes inside the native model ID. Never returns credentials. responses_supported=false marks disabled models and providers requiring Bedrock, Codex app-server or MoA runtimes.'
+modelListOperation.responses = { ...modelApiErrors, '200': { description: 'OpenAI-compatible model list', content: { 'application/json': { schema: { type: 'object', properties: {
+  object: { type: 'string', enum: ['list'] }, data: { type: 'array', items: { type: 'object', properties: {
+    id: { type: 'string', example: 'glm/glm-5.3' }, object: { type: 'string', enum: ['model'] }, created: { type: 'integer' },
+    owned_by: { type: 'string' }, api_mode: { type: 'string', nullable: true }, responses_supported: { type: 'boolean' },
+  } } },
+} } } } } }
+const modelResponseOperation = openapi.paths['/api/studio/models/v1/responses'].post
+modelResponseOperation.summary = 'Request a configured model using OpenAI Responses format'
+modelResponseOperation.parameters = modelApiParameters
+modelResponseOperation.description = 'Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.'
+modelResponseOperation.requestBody = { required: true, content: { 'application/json': { schema: {
+  type: 'object', required: ['model', 'input'], properties: {
+    model: { type: 'string', example: 'glm/glm-5.3' },
+    input: { oneOf: [{ type: 'string' }, { type: 'array', items: { type: 'object', description: 'Responses message, reasoning, function_call or function_call_output item.' } }] },
+    instructions: { type: 'string' }, stream: { type: 'boolean', default: false }, store: { type: 'boolean', enum: [false], default: false },
+    max_output_tokens: { type: 'integer', minimum: 1 }, temperature: { type: 'number', minimum: 0, maximum: 2 },
+    reasoning: { type: 'object', properties: { effort: { type: 'string', enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] }, summary: { type: 'string', enum: ['auto', 'concise', 'detailed'] } } },
+    tools: { type: 'array', items: { type: 'object', required: ['type', 'name'], properties: { type: { type: 'string', enum: ['function'] }, name: { type: 'string' }, description: { type: 'string' }, parameters: { type: 'object' }, strict: { type: 'boolean', enum: [false] } } } },
+    tool_choice: { type: 'string', enum: ['auto', 'none', 'required'] }, metadata: { type: 'object', maxProperties: 16, additionalProperties: { type: 'string', maxLength: 512 } },
+  },
+} } } }
+modelResponseOperation.responses = { ...modelApiErrors, '200': { description: 'Response object, or named Responses SSE events ending in response.completed, response.incomplete or response.failed. Usage may be null if the upstream did not report it.', headers: { 'x-request-id': { schema: { type: 'string' } } }, content: {
+  'application/json': { schema: { type: 'object', properties: { id: { type: 'string' }, object: { type: 'string', enum: ['response'] }, model: { type: 'string' }, status: { type: 'string', enum: ['completed', 'incomplete', 'failed'] }, output: { type: 'array', items: { type: 'object' } }, usage: { type: 'object', nullable: true }, error: { type: 'object', nullable: true } } } },
+  'text/event-stream': { schema: { type: 'string' } },
+} } }
 
 // Named user themes use the same customization payload as /api/theme.
 const themeNameSchema = { type: 'string', minLength: 1, maxLength: 80 }

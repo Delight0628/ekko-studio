@@ -188,6 +188,7 @@ describe('Usage Store (SQLite path)', () => {
     expect(runMock).toHaveBeenCalledWith(
       's1',
       null, // accountId: no known Studio session owner
+      'internal', // origin
       '', // runId
       '', // parentRunId
       null, // apiDuration
@@ -224,6 +225,7 @@ describe('Usage Store (SQLite path)', () => {
     expect(runMock).toHaveBeenCalledWith(
       's1',
       null, // accountId
+      'internal', // origin
       '', // runId
       '', // parentRunId
       null, // apiDuration

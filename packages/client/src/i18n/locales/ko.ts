@@ -2965,6 +2965,13 @@ export default {
 
   // 사용량
   usage: {
+    origin: {
+      label: "사용량 구분",
+      internal: "내부 사용량",
+      external: "외부 사용량",
+      description: "Studio 세션과 모델 API는 별도로 집계됩니다. Studio에서 API를 호출하면 각 구분에 한 번씩 기록됩니다.",
+      accountScope: "외부 사용량은 API를 호출한 인증된 Studio 사용자에게 귀속됩니다.",
+    },
     dashboard: {
       profile: "프로필",
       allProfiles: "모든 프로필",

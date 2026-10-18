@@ -46,6 +46,8 @@ export type UsageRowRef = { id: number } | { id: string; sessionId: string }
 export function updateUsage(
   sessionId: string,
   data: {
+    origin?: 'internal' | 'external'
+    accountId?: string
     runId?: string
     parentRunId?: string
     createdAt?: number
@@ -77,7 +79,7 @@ export function updateUsage(
   const model = data.model || ''
   const provider = data.provider || ''
   const profile = data.profile || 'default'
-  const account = getSessionUsageAccount(sessionId, profile) ?? null
+  const account = data.accountId ?? getSessionUsageAccount(sessionId, profile) ?? null
   const costUsd = finiteCost(data.costUsd) ?? null
   const costSource = costUsd == null ? 'unknown' : data.costSource || 'reported'
   const costPricing = costUsd == null || !data.costPricing ? null : JSON.stringify(data.costPricing)
@@ -86,6 +88,7 @@ export function updateUsage(
     const columns = [
       'session_id',
       'account_id',
+      'origin',
       'run_id',
       'parent_run_id',
       'api_duration',
@@ -112,6 +115,7 @@ export function updateUsage(
     const params = [
       sessionId,
       account,
+      data.origin || 'internal',
       data.runId || '',
       data.parentRunId || '',
       typeof data.apiDuration === 'number' && Number.isFinite(data.apiDuration) && data.apiDuration > 0 ? data.apiDuration : null,
@@ -146,8 +150,9 @@ export function updateUsage(
     return result?.changes ? { id: Number(result.lastInsertRowid) } : undefined
   } else {
     const id = randomUUID()
-    jsonSet(TABLE, sessionId, {
+    jsonSet(TABLE, data.origin === 'external' ? `external:${data.runId || id}` : sessionId, {
       id,
+      origin: data.origin || 'internal',
       account_id: account,
       run_id: data.runId || '',
       parent_run_id: data.parentRunId || '',
@@ -171,7 +176,7 @@ export function updateUsage(
       cost_source: costSource,
       cost_pricing: costPricing,
     })
-    return { id, sessionId }
+    return { id, sessionId: data.origin === 'external' ? `external:${data.runId || id}` : sessionId }
   }
 }
 
@@ -337,6 +342,7 @@ export function getRecordedUsageSessionIds(profile?: string): string[] {
     return rows.map(row => String(row.session_id || '')).filter(Boolean)
   }
   return Object.entries(jsonGetAll(TABLE))
+    .filter(([, row]) => row.origin !== 'external')
     .filter(([, row]) => !profile || (row.profile || 'default') === profile)
     .map(([sessionId]) => sessionId)
     .filter(Boolean)
@@ -363,6 +369,8 @@ export function getLocalUsageStats(profile?: string, days = 30, selection: Usage
     filters.unshift('profile = ?')
     params.unshift(profile)
   }
+  filters.push('origin = ?')
+  params.push(selection.origin || 'internal')
   // Options remain scoped to the period/profile, rather than shrinking with each selection.
   const baseWhere = `WHERE ${filters.join(' AND ')}`
   const optionRows = db.prepare(`SELECT DISTINCT
@@ -391,7 +399,7 @@ export function getLocalUsageStats(profile?: string, days = 30, selection: Usage
       COALESCE(SUM(reasoning_tokens),0) as reasoning_tokens,
       COALESCE(SUM(api_calls),0) as total_api_calls,
       ${costSelect},
-      COUNT(DISTINCT session_id) as sessions
+      COUNT(DISTINCT NULLIF(session_id, '')) as sessions
     FROM ${TABLE}
     ${whereClause}
   `).get(...params) as any
@@ -403,7 +411,7 @@ export function getLocalUsageStats(profile?: string, days = 30, selection: Usage
       COALESCE(SUM(cache_read_tokens),0) as cache_read_tokens,
       COALESCE(SUM(cache_write_tokens),0) as cache_write_tokens,
       COALESCE(SUM(reasoning_tokens),0) as reasoning_tokens,
-      COUNT(DISTINCT session_id) as sessions
+      COUNT(DISTINCT NULLIF(session_id, '')) as sessions
     FROM ${TABLE}
     ${whereClause}
     GROUP BY model
@@ -417,7 +425,7 @@ export function getLocalUsageStats(profile?: string, days = 30, selection: Usage
       COALESCE(SUM(cache_read_tokens),0) as cache_read_tokens,
       COALESCE(SUM(cache_write_tokens),0) as cache_write_tokens,
       COALESCE(SUM(reasoning_tokens),0) as reasoning_tokens,
-      COUNT(DISTINCT session_id) as sessions
+      COUNT(DISTINCT NULLIF(session_id, '')) as sessions
     FROM ${TABLE}
     ${whereClause}
     GROUP BY agent
@@ -431,7 +439,7 @@ export function getLocalUsageStats(profile?: string, days = 30, selection: Usage
       COALESCE(SUM(output_tokens),0) as output_tokens,
       COALESCE(SUM(cache_read_tokens),0) as cache_read_tokens,
       COALESCE(SUM(cache_write_tokens),0) as cache_write_tokens,
-      COUNT(DISTINCT session_id) as sessions
+      COUNT(DISTINCT NULLIF(session_id, '')) as sessions
     FROM ${TABLE}
     ${whereClause}
     GROUP BY date

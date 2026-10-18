@@ -55,6 +55,17 @@ describe('usage cost accounting', () => {
     expect(getLocalUsageStats('other', 30).cost).toBe(0)
   })
 
+  it('keeps missing external measurements unknown despite configured prices, preserving reported costs', () => {
+    saveUsagePricing('p', [{ provider: 'global', model: 'test-model', input: 2, output: 8 }])
+    const external = { sessionId: '', source: 'model_api', agent: 'model_api', origin: 'external', accountId: '7', apiCalls: 1 }
+    record('missing', undefined, external)
+    record('partial', { outputTokens: 20 }, external)
+    record('reported', { cost: 0.02 }, external)
+    expect(getLocalUsageStats('p', 30, { origin: 'external' })).toMatchObject({ total_api_calls: 3, cost: 0.02, cost_coverage: { unknown: 2, reported: 1, estimated: 0 } })
+    expect(getLocalUsageStats('p', 30).total_api_calls).toBe(0)
+    expect(catalogMock.refreshModelCatalog).not.toHaveBeenCalled()
+  })
+
   it('estimates disjoint input/output/cache tokens using saved prices without repricing history', () => {
     const price = { provider: 'global', model: 'test-model', input: 2, output: 8, cacheRead: 0.2, cacheWrite: 2.5 }
     saveUsagePricing('p', [price])

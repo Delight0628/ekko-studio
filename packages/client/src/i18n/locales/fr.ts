@@ -2966,6 +2966,13 @@ jobTriggered: 'Job declenche',
 
   // Usage
   usage: {
+    origin: {
+      label: "Catégorie d’utilisation",
+      internal: "Utilisation interne",
+      external: "Utilisation externe",
+      description: "Les sessions Studio et les appels API sont comptés séparément. Un appel depuis Studio apparaît une fois dans chaque catégorie.",
+      accountScope: "L’utilisation externe est attribuée à l’utilisateur Studio authentifié qui appelle l’API.",
+    },
     dashboard: {
       profile: "Profil",
       allProfiles: "Tous les profils",

@@ -225,7 +225,13 @@ export class OpenAIResponsesModelClient implements ModelClient {
         yield { type: 'error', error: message }
         return
       }
-      if (chunk.type === 'response.completed' && isPlainRecord(chunk.response)) {
+      if (chunk.type === 'response.failed' && isPlainRecord(chunk.response)) {
+        const failed = normalizeOpenAIResponsesResponse(chunk.response as OpenAIResponsesResponse)
+        if (failed.usage) yield { type: 'usage', usage: failed.usage }
+        yield { type: 'error', error: 'Model provider response failed.' }
+        return
+      }
+      if ((chunk.type === 'response.completed' || chunk.type === 'response.incomplete') && isPlainRecord(chunk.response)) {
         yield {
           type: 'done',
           response: normalizeStreamedResponse(

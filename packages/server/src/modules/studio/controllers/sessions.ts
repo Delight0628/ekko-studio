@@ -1795,6 +1795,12 @@ export async function contextLength(ctx: any) {
 }
 
 export async function usageStats(ctx: any) {
+  const origin = ctx.query?.origin || 'internal'
+  if (origin !== 'internal' && origin !== 'external') {
+    ctx.status = 400
+    ctx.body = { error: 'origin must be internal or external.' }
+    return
+  }
   const rawDays = parseInt(String(ctx.query?.days ?? '30'), 10)
   const days = ctx.query?.period === 'today' ? 1 : Number.isFinite(rawDays) && rawDays > 0 ? Math.min(rawDays, 365) : 30
   const readFilter = (value: unknown) => typeof value === 'string' ? value.trim() || undefined : undefined
@@ -1807,7 +1813,7 @@ export async function usageStats(ctx: any) {
     ctx.body = { error: 'account must be a Studio user ID or unassigned.' }
     return
   }
-  const selection = { model, agent, account } as import('../contracts/runs/usage').UsageStatsFilters
+  const selection = { model, agent, account, origin } as import('../contracts/runs/usage').UsageStatsFilters
   if (ctx.query?.period === 'today') {
     const timeZone = readFilter(ctx.query?.time_zone) || Intl.DateTimeFormat().resolvedOptions().timeZone
     try {

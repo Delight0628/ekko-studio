@@ -2965,6 +2965,13 @@ export default {
 
   // 使用統計
   usage: {
+    origin: {
+      label: "使用量の区分",
+      internal: "内部使用量",
+      external: "外部使用量",
+      description: "Studio のセッションとモデル API は別々に集計します。Studio から API を呼び出すと、各区分に一度ずつ記録されます。",
+      accountScope: "外部使用量は API を呼び出した認証済み Studio ユーザーに紐づきます。",
+    },
     dashboard: {
       profile: "プロファイル",
       allProfiles: "すべてのプロファイル",

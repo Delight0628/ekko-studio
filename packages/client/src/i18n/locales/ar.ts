@@ -3692,6 +3692,13 @@ export default {
 
   // Usage
   usage: {
+    origin: {
+      label: "فئة الاستخدام",
+      internal: "الاستخدام الداخلي",
+      external: "الاستخدام الخارجي",
+      description: "تُحسب جلسات Studio وطلبات واجهة النماذج بشكل منفصل. يظهر الطلب من Studio مرة واحدة في كل فئة.",
+      accountScope: "يُنسب الاستخدام الخارجي إلى مستخدم Studio الذي تمت مصادقته عند طلب الواجهة.",
+    },
     dashboard: {
       profile: "ملف الإعدادات",
       allProfiles: "كل ملفات الإعدادات",

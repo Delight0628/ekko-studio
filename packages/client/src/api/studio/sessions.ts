@@ -660,6 +660,7 @@ export async function exportSession(id: string, mode: 'full' | 'compressed' = 'f
 }
 
 export interface UsageStatsFilters {
+  origin?: 'internal' | 'external'
   profile?: string
   model?: string
   agent?: string
@@ -667,6 +668,7 @@ export interface UsageStatsFilters {
 }
 
 export interface UsageStatsResponse {
+  origin?: 'internal' | 'external'
   account_attribution_available?: boolean
   filter_options?: { models: string[]; agents: string[]; accounts?: Array<{ id: string; username: string }> }
   cost_coverage?: import('@/utils/usage-cost').UsageCostCoverage
@@ -723,6 +725,7 @@ export async function fetchUsageStats(days = 30, filters: UsageStatsFilters = {}
   if (filters.model) params.set('model', filters.model)
   if (filters.agent) params.set('agent', filters.agent)
   if (filters.account) params.set('account', filters.account)
+  if (filters.origin) params.set('origin', filters.origin)
   return request<UsageStatsResponse>(`/api/studio/usage/stats?${params}`)
 }
 

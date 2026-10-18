@@ -3759,6 +3759,13 @@ export default {
 
   // 用量统计
   usage: {
+    origin: {
+      label: "用量类别",
+      internal: "内部用量",
+      external: "外部用量",
+      description: "Studio 会话与模型接口分别统计。Studio 调用该接口时，两类用量各记录一次。",
+      accountScope: "外部用量归属于调用接口时通过认证的 Studio 用户。",
+    },
     dashboard: {
       profile: "配置",
       allProfiles: "全部配置",

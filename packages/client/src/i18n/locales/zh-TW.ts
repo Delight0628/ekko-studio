@@ -3653,6 +3653,13 @@ export default {
 
   // 用量統計
   usage: {
+    origin: {
+      label: "用量類別",
+      internal: "內部用量",
+      external: "外部用量",
+      description: "Studio 工作階段與模型介面分別統計。Studio 呼叫此介面時，兩類用量各記錄一次。",
+      accountScope: "外部用量歸屬於呼叫介面時通過驗證的 Studio 使用者。",
+    },
     dashboard: {
       profile: "設定檔",
       allProfiles: "全部設定檔",

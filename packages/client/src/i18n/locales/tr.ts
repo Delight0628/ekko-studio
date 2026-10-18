@@ -29,6 +29,15 @@ const writeApprovalMessages = {
 }
 
 export default {
+  usage: {
+    origin: {
+      label: "Kullanım kategorisi",
+      internal: "Dahili kullanım",
+      external: "Harici kullanım",
+      description: "Studio oturumları ve model API çağrıları ayrı sayılır. Studio içinden API çağrısı her kategoride bir kez kaydedilir.",
+      accountScope: "Harici kullanım, API çağrısını yapan kimliği doğrulanmış Studio kullanıcısına atanır.",
+    },
+  },
   computerUsePermissions: {
     "promptTitle": "Bilgisayar denetimi izin gerektiriyor",
     "promptDescription": "Ekko Studio aşağıdaki sistem izinlerine sahip değil. İlgili masaüstü işlemleri tamamlanamayabilir.",

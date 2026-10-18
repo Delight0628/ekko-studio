@@ -84,6 +84,14 @@ onMounted(() => {
     </PageHeader>
 
     <div class="usage-content" :aria-busy="usageStore.isLoading">
+      <div class="usage-origins period-selector" role="group" :aria-label="t('usage.origin.label')">
+        <NButton v-for="origin in (['internal', 'external'] as const)" :key="origin" size="small"
+          :data-usage-origin="origin" :aria-pressed="(filters.origin || 'internal') === origin"
+          :type="(filters.origin || 'internal') === origin ? 'primary' : 'default'"
+          :secondary="(filters.origin || 'internal') === origin" :quaternary="(filters.origin || 'internal') !== origin"
+          @click="applyFilters({ ...filters, origin })">{{ t(`usage.origin.${origin}`) }}</NButton>
+      </div>
+      <p class="account-note">{{ t('usage.origin.description') }}</p>
       <div class="overview-heading"><p>{{ t('usage.dashboard.overviewSubtitle') }}</p><span>{{ selectedPeriod === 1 ? t('usage.dashboard.todaySummary') : t('usage.dashboard.periodSummary', { days: selectedPeriod }) }} · {{ profileScope }}</span></div>
       <div class="overview-controls" :aria-label="t('usage.dashboard.filters')">
         <div class="period-selector" role="group" :aria-label="t('usage.dashboard.period')">
@@ -101,7 +109,7 @@ onMounted(() => {
           @update:value="applyFilters({ ...filters, profile: $event || undefined })" />
         <UsagePricing :profile="filters.profile" />
       </div>
-      <p class="account-note">{{ t('usage.dashboard.accountScope') }}</p>
+      <p class="account-note">{{ filters.origin === 'external' ? t('usage.origin.accountScope') : t('usage.dashboard.accountScope') }}</p>
       <div v-if="usageStore.isLoading" class="usage-loading" role="status">{{ t('common.loading') }}</div>
       <div v-else-if="usageStore.loadError" class="usage-empty" role="alert">{{ t('usage.dashboard.loadFailed') }}</div>
       <div v-if="usageStore.hasData && !usageStore.loadError" v-show="!usageStore.isLoading" class="overview-results">
