@@ -4,7 +4,7 @@ import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
 
-function loadPreload(argv: string[], storedToken = 'remote-session') {
+function loadPreload(argv: string[], storedToken = 'remote-session', platform = 'darwin') {
   const storage = new Map(storedToken ? [['hermes_api_key', storedToken], ['AUTH_TOKEN', storedToken]] : [])
   const localStorage = {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -32,7 +32,7 @@ function loadPreload(argv: string[], storedToken = 'remote-session') {
   runInNewContext(compiled, {
     exports: {},
     require: () => ({ contextBridge: { exposeInMainWorld: expose }, ipcRenderer: { invoke } }),
-    process: { argv, platform: 'darwin' },
+    process: { argv, platform },
     window,
     localStorage,
     Response,
@@ -42,6 +42,10 @@ function loadPreload(argv: string[], storedToken = 'remote-session') {
     remoteMode: boolean
     windowKind: string
     ensureAuth: () => Promise<boolean>
+    computerUsePermissions?: {
+      getStatus: () => Promise<unknown>
+      request: (permission: 'accessibility' | 'screenRecording') => Promise<void>
+    }
     messageContextMenu: {
       show: (request: { label: string; enabled: boolean; hasSelection: boolean }) => Promise<'select-messages' | null>
       close: () => Promise<void>
@@ -51,6 +55,16 @@ function loadPreload(argv: string[], storedToken = 'remote-session') {
 }
 
 describe('desktop preload auth', () => {
+  it('exposes permission checks and explicit authorization only on a local Mac', async () => {
+    const { bridge, invoke } = loadPreload([])
+    expect(invoke).not.toHaveBeenCalled()
+    await bridge.computerUsePermissions!.getStatus()
+    expect(invoke).toHaveBeenLastCalledWith('hermes-desktop:computer-use-permissions')
+    await bridge.computerUsePermissions!.request('screenRecording')
+    expect(invoke).toHaveBeenLastCalledWith('hermes-desktop:computer-use-request-permission', 'screenRecording')
+    expect(loadPreload(['--hermes-remote-mode']).bridge.computerUsePermissions).toBeUndefined()
+    for (const platform of ['win32', 'linux']) expect(loadPreload([], '', platform).bridge.computerUsePermissions).toBeUndefined()
+  })
   it.each(['main', 'chat'])('exposes the message menu bridge in the %s window', async kind => {
     const { bridge, invoke } = loadPreload(['--hermes-remote-mode', `--hermes-window-kind=${kind}`])
     const request = { label: '多选消息', enabled: true, hasSelection: true }

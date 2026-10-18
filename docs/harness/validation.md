@@ -10,6 +10,14 @@ Ubuntu smoke test is not a substitute for TOS device validation.
 Run the smallest relevant checks while iterating. Escalate to the broad checks
 when touching shared behavior, release automation, auth, persistence, or chat.
 
+When running unit tests from a Desktop-hosted shell, use a regular Node process
+with `NODE_ENV=test` and clear inherited `HERMES_*`, `EKKO_*`, `ELECTRON_*`,
+`AUTH_TOKEN`, and `PORT` from that test process's environment. Production Vue,
+locked runtime selection and the live server port otherwise cause unrelated
+assertion failures. Keep the running app's environment unchanged.
+Use the development shell's `PATH` as well: Desktop's bundled Hermes Python can
+import its installed agent instead of the Python fixtures used by bridge tests.
+
 ## Always Run For PRs
 
 ```bash
@@ -98,6 +106,33 @@ state and does not require a running Gateway.
 - Docker workflow: builds and publishes release images.
 
 ## Desktop startup failure evidence
+
+On macOS, Desktop starts the Web UI in Node mode using the bundle's generic
+Electron Helper (`LSUIElement=true`). Native Computer Use focus protection can
+register the backend with AppKit; using the GUI executable creates a second Dock
+icon that never finishes launching. Keep focus protection enabled and preserve
+the existing executable on Windows, Linux, and plain Node hosts. Do not silently
+fall back to the GUI executable if the Helper is missing. Startup diagnostics
+record the selected executable.
+
+`tests/desktop/webui-node-executable.test.ts` covers platform selection and, when
+macOS Electron is installed, real Helper IPC, SQLite and nested Node execution.
+Set `EKKO_TEST_ELECTRON_EXECUTABLE` to a packaged app's main executable to run that
+same smoke test against its signed Helper. Before release, also verify real
+Computer Use input, permissions, focus preservation and Dock registration, plus
+backend restart, PTY, local STT and managed MCP launches from an isolated state
+directory. Mocked tests do not establish OS permission or input compatibility.
+
+The macOS Computer Use permission guide reads Electron's host-app permissions via
+trusted local-window IPC. Reads must use `isTrustedAccessibilityClient(false)` and
+`getMediaAccessStatus('screen')`; only the user's Authorize action may request a
+grant or open a fixed System Settings pane. Remote-server pages must not query or
+change local permissions. Run `tests/desktop/computer-use-permissions.test.ts`,
+`tests/desktop/preload-auth.test.ts`, and `tests/e2e/computer-use-permissions.spec.ts`
+for changes. Verify missing/granted/restricted/error states, returning from Settings,
+light/dark and wallpaper themes, and narrow windows. On a disposable macOS install,
+also verify first-time grants and any system-requested restart; never reset a user's
+TCC database to simulate a fresh install.
 
 `Web UI server exited before becoming ready code=1 signal=null` reports a
 failed backend process, without identifying its cause. Desktop captures the

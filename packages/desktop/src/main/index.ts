@@ -38,6 +38,7 @@ import { cancelRegionScreenshot, captureRegionScreenshot, parseScreenshotRequest
 import { disposeScreenshotOverlays, warmScreenshotEditor } from './screenshot-windows'
 import { ScreenshotShortcutManager, ScreenshotShortcutTargets } from './screenshot-shortcut'
 import { screenshotEnvironment } from './screenshot-platform'
+import { registerComputerUsePermissionsIpc } from './computer-use-permissions'
 import { groupChatAgentLinkPopupResponse } from './group-chat-agent-popup'
 import { isTrustedDesktopAppUrl, normalizeExternalHttpUrl } from './window-open-policy'
 import { desktopPreloadArguments, remoteReadyTimeoutMs, resolveRemoteServerUrl, waitForRemoteServerReady } from './remote-server'
@@ -1146,6 +1147,11 @@ function studioChatWindow(event: IpcMainInvokeEvent): BrowserWindow {
 }
 
 registerMessageSelectionContextMenuIpc(studioChatWindow)
+
+registerComputerUsePermissionsIpc(event => {
+  studioChatWindow(event)
+  if (activeRemoteServerUrl) throw new Error('Computer Use permissions belong to the remote host')
+})
 
 ipcMain.handle('hermes-desktop:screenshot-capture-region', (event, request?: unknown) => {
   const target = studioChatWindow(event)

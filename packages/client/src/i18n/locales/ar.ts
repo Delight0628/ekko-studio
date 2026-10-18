@@ -3,6 +3,26 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesAr } from '../social-messages-locales'
 
 export default {
+  computerUsePermissions: {
+    "title": "أذونات التحكم بالكمبيوتر",
+    "intro": "اسمح لـ Ekko Studio بعرض التطبيقات على هذا الـ Mac والتحكم بها.",
+    "complete": "تم تفعيل إذنَي النظام.",
+    "refresh": "إعادة التحقق",
+    "checking": "جارٍ التحقق…",
+    "granted": "مفعّل",
+    "restricted": "مقيّد",
+    "unknown": "غير معروف",
+    "needed": "مطلوب",
+    "accessibility": "تسهيلات الاستخدام",
+    "screenRecording": "تسجيل الشاشة",
+    "accessibilityHint": "للنقر والكتابة وقراءة عناصر التحكم في التطبيقات الأخرى.",
+    "screenRecordingHint": "لالتقاط نوافذ التطبيقات حتى يتمكن Ekko من رؤية الشاشة.",
+    "authorize": "منح الإذن",
+    "guide": "في إعدادات النظام ← الخصوصية والأمان، فعّل كل إذن لـ Ekko Studio. إذا لم يظهر التطبيق، أضفه باستخدام +.",
+    "restartHint": "تُفحص الأذونات مجددًا عند العودة. إذا طلب macOS إعادة فتح التطبيق، احفظ عملك وأعد تشغيل Ekko Studio.",
+    "checkFailed": "تعذرت قراءة الأذونات. أعد التحقق.",
+    "openFailed": "تعذر فتح إعدادات الأذونات. افتح إعدادات النظام ← الخصوصية والأمان يدويًا."
+  },
   jev: {
     browserAutomation: "أتمتة المتصفح المدمج",
     browserAutomationHint: "تستخدم التقييمات الاختيارية اتصال JEV المحفوظ لهذا الملف الشخصي بدءًا من التقييم التالي. تُرسل التسميات المرئية دون قيم الإدخال. يستمر المسار المعتاد عند التعطيل أو عدم التوفر أو عدم اليقين.",

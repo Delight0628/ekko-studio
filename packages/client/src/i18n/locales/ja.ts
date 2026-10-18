@@ -3,6 +3,26 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesJa } from '../social-messages-locales'
 
 export default {
+  computerUsePermissions: {
+    "title": "コンピューター操作の権限",
+    "intro": "Ekko Studio に、この Mac のアプリの表示と操作を許可します。",
+    "complete": "両方のシステム権限が有効です。",
+    "refresh": "再確認",
+    "checking": "確認中…",
+    "granted": "有効",
+    "restricted": "制限あり",
+    "unknown": "不明",
+    "needed": "許可が必要",
+    "accessibility": "アクセシビリティ",
+    "screenRecording": "画面収録",
+    "accessibilityHint": "他のアプリのクリック、入力、コントロールの読み取りに使用します。",
+    "screenRecordingHint": "アプリのウインドウを撮影し、Ekko が画面を確認できるようにします。",
+    "authorize": "許可する",
+    "guide": "「システム設定 → プライバシーとセキュリティ」で Ekko Studio の各権限を有効にしてください。アプリがなければ「＋」で追加します。",
+    "restartHint": "このページに戻ると再確認します。macOS に再起動を求められた場合は、作業を保存して Ekko Studio を再起動してください。",
+    "checkFailed": "権限を読み取れませんでした。再確認してください。",
+    "openFailed": "権限設定を開けませんでした。「システム設定 → プライバシーとセキュリティ」を手動で開いてください。"
+  },
   jev: {
     browserAutomation: "内蔵ブラウザーの自動化",
     browserAutomationHint: "このプロファイルに保存した JEV 接続を使用し、次の判定から適用します。画面上のラベルを JEV に送信しますが、入力値は含みません。無効時、利用不可時、判定が不確かな場合は従来の処理を維持します。",

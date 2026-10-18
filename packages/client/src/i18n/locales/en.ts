@@ -3,6 +3,26 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesEn } from '../social-messages'
 
 export default {
+  computerUsePermissions: {
+    "title": "Computer Use permissions",
+    "intro": "Allow Ekko Studio to observe and control apps on this Mac.",
+    "complete": "Both system permissions are enabled.",
+    "refresh": "Check again",
+    "checking": "Checking…",
+    "granted": "Enabled",
+    "restricted": "Restricted",
+    "unknown": "Unknown",
+    "needed": "Required",
+    "accessibility": "Accessibility",
+    "screenRecording": "Screen Recording",
+    "accessibilityHint": "Click, type, and read controls in other apps.",
+    "screenRecordingHint": "Capture app windows so Ekko can see the screen.",
+    "authorize": "Authorize",
+    "guide": "In System Settings → Privacy & Security, enable each permission for Ekko Studio. If the app is missing, use + to add it.",
+    "restartHint": "This page checks again when you return. If macOS asks you to reopen the app, save your work and restart Ekko Studio.",
+    "checkFailed": "Could not read permissions. Try checking again.",
+    "openFailed": "Could not open authorization. Open System Settings → Privacy & Security manually."
+  },
   jev: {
     browserAutomation: "Built-in browser automation",
     browserAutomationHint: "Optional assessments use this Profile’s saved JEV connection and take effect on the next assessment. Rendered page labels are sent to JEV; input values are excluded. Disabled, unavailable or uncertain assessments preserve the original flow.",

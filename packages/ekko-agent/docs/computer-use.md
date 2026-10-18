@@ -34,6 +34,16 @@ applicable; the SDK's Linux builds target glibc, not musl. macOS and Windows
 packages support x64/arm64, as do the published Linux native packages. Native
 acceptance for this integration has been performed on macOS only.
 
+In the local macOS desktop app, **Ekko Settings → Tools → Computer Use** shows
+Accessibility and Screen Recording status while Computer Use is enabled. Opening
+the page, returning to it, or selecting **Check again** only reads permissions.
+**Authorize** explicitly requests the selected permission and opens its System
+Settings pane; the screen request registers the app without collecting thumbnails.
+Enable Ekko Studio in that pane and return to recheck. If macOS requires a restart,
+save your work and reopen the app. These OS grants are separate from tool approvals.
+The guide is hidden in browsers, older desktop bridges, remote-server mode, Windows,
+and Linux; it never reports those environments as authorized based on local Mac grants.
+
 ```json
 {
   "tools": {

@@ -3,6 +3,26 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesZh } from '../social-messages'
 
 export default {
+  computerUsePermissions: {
+    "title": "电脑操作权限",
+    "intro": "允许 Ekko Studio 查看和操作这台 Mac 上的应用。",
+    "complete": "两项系统权限均已开启。",
+    "refresh": "重新检测",
+    "checking": "检测中…",
+    "granted": "已开启",
+    "restricted": "受系统限制",
+    "unknown": "状态未知",
+    "needed": "待授权",
+    "accessibility": "辅助功能",
+    "screenRecording": "屏幕录制",
+    "accessibilityHint": "用于点击、输入和读取其他应用的界面控件。",
+    "screenRecordingHint": "用于获取应用窗口截图，让 Ekko 看见屏幕内容。",
+    "authorize": "前往授权",
+    "guide": "在「系统设置 → 隐私与安全性」中，为 Ekko Studio 开启对应权限；若列表中没有该应用，点击「＋」添加。",
+    "restartHint": "返回此页会自动重新检测。若 macOS 要求重新打开应用，请保存工作后重启 Ekko Studio。",
+    "checkFailed": "暂时无法读取权限，请重新检测。",
+    "openFailed": "无法打开授权设置，请手动前往「系统设置 → 隐私与安全性」。"
+  },
   jev: {
     browserAutomation: "内置浏览器自动化",
     browserAutomationHint: "可选判断复用当前 Profile 保存的 JEV 连接，下次判断生效。页面可见标签会发送给 JEV，不包含输入框的值。关闭、服务不可用或判断不确定时保留原有流程。",

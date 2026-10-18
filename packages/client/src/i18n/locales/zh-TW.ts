@@ -3,6 +3,26 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesZhTw } from '../social-messages'
 
 export default {
+  computerUsePermissions: {
+    "title": "電腦操作權限",
+    "intro": "允許 Ekko Studio 查看和操作這台 Mac 上的應用程式。",
+    "complete": "兩項系統權限均已開啟。",
+    "refresh": "重新偵測",
+    "checking": "偵測中…",
+    "granted": "已開啟",
+    "restricted": "受系統限制",
+    "unknown": "狀態未知",
+    "needed": "待授權",
+    "accessibility": "輔助使用",
+    "screenRecording": "螢幕錄製",
+    "accessibilityHint": "用於點擊、輸入和讀取其他應用程式的介面控制項。",
+    "screenRecordingHint": "用於擷取應用程式視窗，讓 Ekko 看見螢幕內容。",
+    "authorize": "前往授權",
+    "guide": "在「系統設定 → 隱私權與安全性」中，為 Ekko Studio 開啟對應權限；若清單中沒有該應用程式，點擊「＋」加入。",
+    "restartHint": "返回此頁會自動重新偵測。若 macOS 要求重新開啟應用程式，請儲存工作後重新啟動 Ekko Studio。",
+    "checkFailed": "暫時無法讀取權限，請重新偵測。",
+    "openFailed": "無法開啟授權設定，請手動前往「系統設定 → 隱私權與安全性」。"
+  },
   jev: {
     browserAutomation: "內建瀏覽器自動化",
     browserAutomationHint: "選用判斷沿用目前 Profile 儲存的 JEV 連線，下次判斷生效。頁面可見標籤會傳送給 JEV，不包含輸入欄位的值。關閉、服務無法使用或判斷不確定時保留原有流程。",

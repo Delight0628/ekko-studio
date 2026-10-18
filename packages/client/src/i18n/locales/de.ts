@@ -3,6 +3,26 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesDe } from '../social-messages-locales'
 
 export default {
+  computerUsePermissions: {
+    "title": "Berechtigungen für Computersteuerung",
+    "intro": "Erlaube Ekko Studio, Apps auf diesem Mac zu sehen und zu bedienen.",
+    "complete": "Beide Systemberechtigungen sind aktiviert.",
+    "refresh": "Erneut prüfen",
+    "checking": "Wird geprüft…",
+    "granted": "Aktiviert",
+    "restricted": "Eingeschränkt",
+    "unknown": "Unbekannt",
+    "needed": "Erforderlich",
+    "accessibility": "Bedienungshilfen",
+    "screenRecording": "Bildschirmaufnahme",
+    "accessibilityHint": "Zum Klicken, Tippen und Lesen von Bedienelementen anderer Apps.",
+    "screenRecordingHint": "Erfasst App-Fenster, damit Ekko den Bildschirm sehen kann.",
+    "authorize": "Autorisieren",
+    "guide": "Aktiviere unter Systemeinstellungen → Datenschutz & Sicherheit die Berechtigungen für Ekko Studio. Fehlt die App, füge sie mit + hinzu.",
+    "restartHint": "Bei der Rückkehr wird erneut geprüft. Falls macOS einen Neustart verlangt, speichere deine Arbeit und starte Ekko Studio neu.",
+    "checkFailed": "Berechtigungen konnten nicht gelesen werden. Bitte erneut prüfen.",
+    "openFailed": "Autorisierung konnte nicht geöffnet werden. Öffne Systemeinstellungen → Datenschutz & Sicherheit manuell."
+  },
   jev: {
     browserAutomation: "Automatisierung des integrierten Browsers",
     browserAutomationHint: "Optionale Bewertungen verwenden die gespeicherte JEV-Verbindung dieses Profils ab der nächsten Bewertung. Sichtbare Beschriftungen werden an JEV gesendet, Eingabewerte nicht. Bei deaktivierter, nicht verfügbarer oder unsicherer Bewertung bleibt der bisherige Ablauf erhalten.",

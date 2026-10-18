@@ -29,6 +29,26 @@ const writeApprovalMessages = {
 }
 
 export default {
+  computerUsePermissions: {
+    "title": "Bilgisayar denetimi izinleri",
+    "intro": "Ekko Studio’nun bu Mac’teki uygulamaları görmesine ve denetlemesine izin verin.",
+    "complete": "Her iki sistem izni de etkin.",
+    "refresh": "Tekrar denetle",
+    "checking": "Denetleniyor…",
+    "granted": "Etkin",
+    "restricted": "Kısıtlı",
+    "unknown": "Bilinmiyor",
+    "needed": "Gerekli",
+    "accessibility": "Erişilebilirlik",
+    "screenRecording": "Ekran Kaydı",
+    "accessibilityHint": "Diğer uygulamalarda tıklamak, yazmak ve denetimleri okumak için kullanılır.",
+    "screenRecordingHint": "Ekko’nun ekranı görebilmesi için uygulama pencerelerini yakalar.",
+    "authorize": "İzin ver",
+    "guide": "Sistem Ayarları → Gizlilik ve Güvenlik bölümünde Ekko Studio için izinleri etkinleştirin. Uygulama yoksa + ile ekleyin.",
+    "restartHint": "Bu sayfaya dönünce tekrar denetlenir. macOS uygulamayı yeniden açmanızı isterse çalışmanızı kaydedip Ekko Studio’yu yeniden başlatın.",
+    "checkFailed": "İzinler okunamadı. Tekrar denetleyin.",
+    "openFailed": "İzin ayarları açılamadı. Sistem Ayarları → Gizlilik ve Güvenlik bölümünü elle açın."
+  },
   ekkoConfig: {
     computerUseEnabled: 'Bilgisayar kullanımı',
     computerUseHint: 'Ekko çalıştığı bilgisayardaki uygulamaları görebilir ve yönetebilir. Giriş işlemleri araç onayı ayarlarınıza uyar.',

@@ -154,7 +154,19 @@ export interface DesktopScreenshotShortcutBridge {
   onStateChange: (callback: (state: DesktopScreenshotShortcutState) => void) => () => void
 }
 
+export type DesktopComputerUsePermission = 'accessibility' | 'screenRecording'
+export type DesktopComputerUsePermissionStatus = 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unknown'
+export type DesktopComputerUsePermissions = { supported: false } | {
+  supported: true
+  accessibility: DesktopComputerUsePermissionStatus
+  screenRecording: DesktopComputerUsePermissionStatus
+}
+
 export interface HermesDesktopBridge {
+  computerUsePermissions?: {
+    getStatus: () => Promise<DesktopComputerUsePermissions>
+    request: (permission: DesktopComputerUsePermission) => Promise<void>
+  }
   messageContextMenu?: {
     show: (request: { label: string; enabled: boolean; hasSelection: boolean }) => Promise<'select-messages' | null>
     close: () => Promise<void>

@@ -35,6 +35,7 @@ import {
 } from './hermes-environment-selection'
 import { canBindTcpPort, releaseOccupiedWebUiPort } from './webui-port'
 import { WebUiStartupDiagnostics } from './webui-startup-diagnostics'
+import { resolveWebUiNodeExecutable } from './webui-node-executable'
 
 const DEFAULT_PORT = 8748
 const DEFAULT_READY_TIMEOUT_MS = 120_000
@@ -670,7 +671,7 @@ export async function startWebUiServer(port = DEFAULT_PORT): Promise<string> {
     + `version=${hermesSelection.version || '-'} path=${hermesSelection.path || '-'}`,
   )
 
-  // Run via Electron's "run as Node" mode — Electron binary doubles as Node.
+  // Use Node mode for the macOS Helper and the Electron executable elsewhere.
   const env = withDesktopHermesSelection({
     ...process.env,
     ELECTRON_RUN_AS_NODE: '1',
@@ -750,13 +751,14 @@ export async function startWebUiServer(port = DEFAULT_PORT): Promise<string> {
 }
 
 async function launchWebUiServer(webUiDirectory: string, entry: string, env: NodeJS.ProcessEnv, port: number): Promise<string> {
+  const executable = resolveWebUiNodeExecutable()
   const diagnostics = new WebUiStartupDiagnostics(
     join(webUiHome(), 'logs', 'desktop-startup.log'),
     `Desktop ${app.getVersion()} ${process.platform}-${process.arch}; `
     + `Electron ${process.versions.electron || '-'}; Node ${process.versions.node}\n`
-    + `Executable: ${process.execPath}\nWeb UI: ${webUiDirectory}\nEntry: ${entry}`,
+    + `Executable: ${executable}\nWeb UI: ${webUiDirectory}\nEntry: ${entry}`,
   )
-  serverProc = spawn(process.execPath, [entry], {
+  serverProc = spawn(executable, [entry], {
     cwd: webUiDirectory,
     env,
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],

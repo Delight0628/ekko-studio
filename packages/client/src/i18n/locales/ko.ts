@@ -3,6 +3,26 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesKo } from '../social-messages-locales'
 
 export default {
+  computerUsePermissions: {
+    "title": "컴퓨터 조작 권한",
+    "intro": "Ekko Studio가 이 Mac의 앱을 보고 조작하도록 허용합니다.",
+    "complete": "두 시스템 권한이 모두 활성화되었습니다.",
+    "refresh": "다시 확인",
+    "checking": "확인 중…",
+    "granted": "활성화됨",
+    "restricted": "제한됨",
+    "unknown": "알 수 없음",
+    "needed": "권한 필요",
+    "accessibility": "손쉬운 사용",
+    "screenRecording": "화면 기록",
+    "accessibilityHint": "다른 앱에서 클릭, 입력 및 컨트롤 읽기에 사용합니다.",
+    "screenRecordingHint": "앱 창을 캡처하여 Ekko가 화면을 볼 수 있게 합니다.",
+    "authorize": "권한 허용",
+    "guide": "시스템 설정 → 개인정보 보호 및 보안에서 Ekko Studio의 각 권한을 켜세요. 앱이 없으면 +로 추가하세요.",
+    "restartHint": "이 페이지로 돌아오면 다시 확인합니다. macOS에서 앱 재실행을 요청하면 작업을 저장하고 Ekko Studio를 다시 시작하세요.",
+    "checkFailed": "권한을 읽을 수 없습니다. 다시 확인하세요.",
+    "openFailed": "권한 설정을 열 수 없습니다. 시스템 설정 → 개인정보 보호 및 보안을 직접 여세요."
+  },
   jev: {
     browserAutomation: "내장 브라우저 자동화",
     browserAutomationHint: "이 프로필에 저장된 JEV 연결을 사용하며 다음 판단부터 적용됩니다. 화면의 레이블을 JEV에 보내지만 입력값은 제외합니다. 비활성화, 서비스 오류 또는 불확실한 판단 시 기존 흐름을 유지합니다.",

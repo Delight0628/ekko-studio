@@ -3,6 +3,26 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesFr } from '../social-messages-locales'
 
 export default {
+  computerUsePermissions: {
+    "title": "Autorisations de contrôle de l’ordinateur",
+    "intro": "Autorisez Ekko Studio à voir et utiliser les apps sur ce Mac.",
+    "complete": "Les deux autorisations système sont activées.",
+    "refresh": "Vérifier à nouveau",
+    "checking": "Vérification…",
+    "granted": "Activée",
+    "restricted": "Restreinte",
+    "unknown": "Inconnue",
+    "needed": "Requise",
+    "accessibility": "Accessibilité",
+    "screenRecording": "Enregistrement de l’écran",
+    "accessibilityHint": "Pour cliquer, saisir du texte et lire les commandes des autres apps.",
+    "screenRecordingHint": "Capture les fenêtres des apps pour permettre à Ekko de voir l’écran.",
+    "authorize": "Autoriser",
+    "guide": "Dans Réglages Système → Confidentialité et sécurité, activez chaque autorisation pour Ekko Studio. Si l’app est absente, ajoutez-la avec +.",
+    "restartHint": "Cette page vérifie à nouveau à votre retour. Si macOS demande de rouvrir l’app, enregistrez votre travail et redémarrez Ekko Studio.",
+    "checkFailed": "Impossible de lire les autorisations. Réessayez.",
+    "openFailed": "Impossible d’ouvrir les autorisations. Ouvrez Réglages Système → Confidentialité et sécurité manuellement."
+  },
   jev: {
     browserAutomation: "Automatisation du navigateur intégré",
     browserAutomationHint: "Les évaluations facultatives utilisent la connexion JEV enregistrée pour ce profil dès la prochaine évaluation. Les libellés visibles sont envoyés à JEV, sans les valeurs saisies. Le fonctionnement habituel est conservé si le service est désactivé, indisponible ou incertain.",
