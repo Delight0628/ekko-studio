@@ -426,12 +426,21 @@ defineExpose({ scrollToBottom })
             </button>
         </div>
         <div v-if="selecting" class="message-selection-toolbar">
-            <span class="message-selection-count" role="status">{{ t('chat.messagesSelected', { count: selectedMessages.size }) }}</span>
-            <NButton size="small" type="error" :loading="deletingMessages" :disabled="selectionUnavailable || !selectedMessages.size" @click="showDeleteConfirmation = true">
-                {{ t('chat.deleteSelectedMessages') }}
+            <NButton size="small" quaternary circle :title="t('chat.deleteSelectedMessages')" :aria-label="t('chat.deleteSelectedMessages')"
+                :loading="deletingMessages" :disabled="selectionUnavailable || !selectedMessages.size" @click="showDeleteConfirmation = true">
+                <template #icon>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6" />
+                    </svg>
+                </template>
             </NButton>
-            <NButton size="small" :disabled="deletingMessages" @click="cancelSelection">{{ t('common.cancel') }}</NButton>
-            <span class="message-selection-hint">{{ t('groupChat.messageSelectionHint') }}</span>
+            <NButton size="small" quaternary circle :title="t('common.cancel')" :aria-label="t('common.cancel')" :disabled="deletingMessages" @click="cancelSelection">
+                <template #icon>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                        <path d="m6 6 12 12M18 6 6 18" />
+                    </svg>
+                </template>
+            </NButton>
         </div>
     </div>
 </template>
@@ -684,20 +693,10 @@ defineExpose({ scrollToBottom })
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  flex-wrap: wrap;
+  justify-content: flex-start;
   gap: 8px;
   padding: 8px 20px;
   margin-bottom: 4px;
-}
-
-.message-selection-count {
-  margin-inline-end: auto;
-}
-
-.message-selection-hint {
-  flex-basis: 100%;
-  color: $text-secondary;
-  font-size: 12px;
 }
 
 .message-selection-row {
