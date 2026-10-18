@@ -9,6 +9,9 @@ on:
       - "packages/desktop/scripts/python-build-env.mjs"
       - "packages/desktop/scripts/install-hermes.mjs"
       - "packages/desktop/scripts/setup-windows-arm64-openssl.ps1"
+concurrency:
+  group: windows-arm64-runtime-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
