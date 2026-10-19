@@ -76,3 +76,30 @@ test('rejects unsupported payloads without sending their contents to any endpoin
   await expect(page).not.toHaveURL(/importProvider/)
   expect(JSON.stringify(api.requests)).not.toContain('untrusted-command')
 })
+
+test('completes a minimal draft only after an explicit model fetch', async ({ page }) => {
+  await authenticate(page)
+  await mockHermesApi(page)
+  const probes: any[] = []
+  const saves: any[] = []
+  await page.route('**/api/hermes/provider-models', async route => {
+    probes.push(route.request().postDataJSON())
+    await route.fulfill({ json: { models: ['fixture-chat-model'] } })
+  })
+  await page.route('**/api/hermes/config/providers', async route => {
+    saves.push(route.request().postDataJSON())
+    await route.fulfill({ json: { success: true } })
+  })
+  await page.goto(importPath({ version: 1, baseUrl: draft.baseUrl, apiKey: draft.apiKey }))
+  const modal = page.getByRole('dialog')
+  await expect(modal.locator('input[name="import-provider-name"]')).toHaveValue('Relay.example')
+  expect(probes).toHaveLength(0)
+  await modal.getByRole('button', { name: 'Confirm import' }).click()
+  expect(saves).toHaveLength(0)
+  await modal.getByRole('button', { name: 'Fetch', exact: true }).click()
+  await expect(modal).toContainText('fixture-chat-model')
+  expect(probes).toEqual([{ base_url: draft.baseUrl, api_key: draft.apiKey, update_cache: false }])
+  await modal.getByRole('button', { name: 'Confirm import' }).click()
+  await expect(modal).toHaveCount(0)
+  expect(saves[0]).toMatchObject({ name: 'Relay.example', model: 'fixture-chat-model', create_only: true })
+})
