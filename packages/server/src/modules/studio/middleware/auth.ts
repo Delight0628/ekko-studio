@@ -320,7 +320,10 @@ export async function isAuthEnabled(): Promise<boolean> {
 }
 
 function isAccountModelApiPath(path: string | undefined): boolean {
-  return path === '/api/studio/models/api-keys' || !!path?.startsWith('/api/studio/models/api-keys/')
+  // Router paths are case-insensitive and allow a trailing slash.
+  path = path?.toLowerCase()
+  return path === '/api/studio/models/cloud-link' || !!path?.startsWith('/api/studio/models/cloud-link/')
+    || path === '/api/studio/models/api-keys' || !!path?.startsWith('/api/studio/models/api-keys/')
     || path === '/api/ekko-studio/models/v1/models' || path === '/api/ekko-studio/models/v1/responses'
 }
 

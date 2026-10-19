@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
-const mocks = vi.hoisted(() => ({ grants: [] as any[], key: null as any }))
+const mocks = vi.hoisted(() => ({ grants: [] as any[], key: null as any, user: { status: 'active' } as any }))
+vi.mock('../../packages/server/src/modules/studio/repositories/users-store', () => ({ findUserById: () => mocks.user }))
 vi.mock('../../packages/server/src/modules/studio/repositories/app-connections-store', () => ({ listAppConnections: () => mocks.grants }))
 vi.mock('../../packages/server/src/modules/studio/services/model-api/keys', () => ({ findModelApiKey: () => mocks.key }))
 import { CloudModelApiSessions } from '../../packages/server/src/modules/studio/services/app-relay/model-api'
@@ -10,6 +11,7 @@ const key = `sk-ekko-${'a'.repeat(43)}`
 const input = () => ({ id: randomUUID(), endpoint: 'responses', apiKey: key, studioUserId: 7, cloudUserId: 9, body: Buffer.from('{"input":"hi"}'), maxDownloadBytes: 100000 })
 beforeEach(() => {
   mocks.key = { userId: 7 }
+  mocks.user = { status: 'active' }
   mocks.grants = [{ connection_type: 'cloud', user_id: 7, cloud_user_id: 9, token_expires_at: Date.now() / 1000 + 600, revoked_at: null }]
 })
 afterEach(() => bridge?.cancelAll())
@@ -75,4 +77,21 @@ it('caps cumulative downloads and rejects arbitrary endpoints and redirects', as
   const request = { ...input(), maxDownloadBytes: 5 }
   await bridge.open(request)
   expect(await bridge.read(request.id)).toMatchObject({ error: 'download_too_large' })
+})
+
+it('authorizes without fetching or allocating streams, and rechecks revocation when opening', async () => {
+  const fetcher = vi.fn()
+  bridge = new CloudModelApiSessions('http://localhost', fetcher)
+  const request = input()
+  for (let i = 0; i < 40; i++) expect(bridge.authorize(request)).toEqual({ ok: true, version: 2 })
+  expect(fetcher).not.toHaveBeenCalled()
+  mocks.key = null
+  expect(await bridge.open(request)).toMatchObject({ ok: false, status: 403 })
+  expect(fetcher).not.toHaveBeenCalled()
+  mocks.key = { userId: 7 }
+  mocks.user = { status: 'disabled' }
+  expect(bridge.authorize(request)).toMatchObject({ ok: false, status: 403 })
+  mocks.user = { status: 'active' }
+  mocks.grants[0].cloud_revocation_pending = true
+  expect(bridge.authorize(request)).toMatchObject({ ok: false, status: 403 })
 })

@@ -1,3 +1,4 @@
+import { findUserById } from '../../repositories/users-store'
 import { listAppConnections } from '../../repositories/app-connections-store'
 import { findModelApiKey } from '../model-api/keys'
 
@@ -21,10 +22,19 @@ export class CloudModelApiSessions {
   constructor(private baseUrl: string, private fetchImpl: typeof fetch = fetch) {}
 
   private authorized(userId: number, cloudUserId: number, apiKey: string): boolean {
-    return findModelApiKey(apiKey)?.userId === userId && listAppConnections().some(connection =>
+    return findModelApiKey(apiKey)?.userId === userId && findUserById(userId)?.status === 'active' && listAppConnections().some(connection =>
       connection.connection_type === 'cloud' && connection.user_id === userId
       && connection.cloud_user_id === cloudUserId && connection.revoked_at == null
       && !connection.cloud_revocation_pending && connection.token_expires_at > Math.floor(Date.now() / 1000))
+  }
+  authorize(input: Record<string, unknown>): Record<string, unknown> {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return { ok: false, status: 400, error: 'invalid_request' }
+    const userId = Number(input.studioUserId), cloudUserId = Number(input.cloudUserId)
+    if (!Number.isSafeInteger(userId) || userId <= 0 || !Number.isSafeInteger(cloudUserId) || cloudUserId <= 0
+      || typeof input.apiKey !== 'string' || !/^sk-ekko-[A-Za-z0-9_-]{43}$/.test(input.apiKey)) return { ok: false, status: 400, error: 'invalid_request' }
+    // Read-only preflight: never fetch, allocate a stream or change usage/budget.
+    return this.authorized(userId, cloudUserId, input.apiKey)
+      ? { ok: true, version: 2 } : { ok: false, status: 403, error: 'cloud_model_access_denied' }
   }
   async open(input: Record<string, any>): Promise<Record<string, unknown>> {
     const { id, endpoint, apiKey } = input
@@ -32,7 +42,8 @@ export class CloudModelApiSessions {
     if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/.test(id) || !['models', 'responses'].includes(endpoint)
       || typeof apiKey !== 'string' || !Number.isSafeInteger(userId) || userId <= 0
       || !Number.isSafeInteger(cloudUserId) || cloudUserId <= 0) return { ok: false, status: 400, error: 'invalid_request' }
-    if (!this.authorized(userId, cloudUserId, apiKey)) return { ok: false, status: 403, error: 'cloud_model_access_denied' }
+    const authorization = this.authorize(input)
+    if (authorization.ok !== true) return authorization
     if (this.sessions.has(id) || this.sessions.size >= 32) return { ok: false, status: 429, error: 'too_many_requests' }
     const body = Buffer.from(input.body || [])
     const max = Number(input.maxDownloadBytes)

@@ -343,6 +343,10 @@ export class AppRelayClient {
       this.pendingPreconnections.clear()
       this.preconnectionExpired = true
     })
+    this.socket.on('model-api.authorize', (request: Record<string, unknown>, ack?: (response: unknown) => void) => {
+      try { ack?.(this.modelApiSessions.authorize(request)) }
+      catch { ack?.({ ok: false, status: 403, error: 'cloud_model_access_denied' }) }
+    })
     this.socket.on('model-api.open', (request: Record<string, unknown>, ack?: (response: unknown) => void) => {
       void this.modelApiSessions.open(request).then(response => ack?.(response)).catch(() => ack?.({ ok: false, error: 'model_api_unavailable' }))
     })
@@ -776,7 +780,7 @@ export class AppRelayClient {
   private applyRelayCapabilities(payload: Record<string, unknown>): void {
     const capabilities = Array.isArray(payload.capabilities) ? payload.capabilities : []
     this.cloudSupportsChunkedDownloads = capabilities.includes('http.download.chunked')
-    this.cloudSupportsModelApi = capabilities.includes('model-api.cloud.v1')
+    this.cloudSupportsModelApi = capabilities.includes('model-api.cloud.v2')
   }
 
   private async readHttpDownloadChunk(
