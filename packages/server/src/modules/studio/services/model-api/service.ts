@@ -6,7 +6,7 @@ import {
   resolveChatEkkoModelProviderConfigs, resolveChatEkkoProviderRuntimeConfig,
 } from '../../public/chat-agent-runtime'
 import { logger } from '../../public/logging'
-import { recordSessionUsage } from '../usage/usage-recorder'
+import { recordSessionUsage, type RecordedUsage } from '../usage/usage-recorder'
 import { ModelApiError, modelApiErrorBody } from './errors'
 import { responsesModelRequest, validateResponsesBody } from './input'
 import { ResponsesOutput, type ResponsesEvent } from './output'
@@ -85,6 +85,7 @@ export async function listApiModels(profiles: string[], allowedModels?: readonly
 
 export async function prepareModelResponse(input: {
   profiles: string[]
+  onUsage?: (usage: RecordedUsage) => void
   accountId?: string
   apiKeyId?: string
   allowedModels?: readonly string[]
@@ -120,6 +121,7 @@ export async function prepareModelResponse(input: {
     if (recorded) return
     recorded = true
     recordSessionUsage({
+      onRecorded: input.onUsage,
       sessionId: '', runId: output.id, origin: 'external', accountId: input.accountId, modelApiKeyId: input.apiKeyId,
       source: 'model_api', agent: 'model_api', usageScope: 'model_call', apiCalls: 1,
       profile, provider: group.provider, model, baseUrl: runtime.baseUrl,

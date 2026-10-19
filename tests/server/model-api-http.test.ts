@@ -20,6 +20,7 @@ vi.mock('../../packages/server/src/modules/studio/services/auth/run-mcp-credenti
 vi.mock('../../packages/server/src/modules/studio/services/model-api/cloud-link', () => ({ manageModelApiCloudLink: mocks.cloud }))
 import { modelApiRoutes } from '../../packages/server/src/modules/studio/routes/model-api'
 import { issueUserJwt, issueAppJwt, signUserJwt, userAuthMiddleware } from '../../packages/server/src/modules/studio/middleware/auth'
+import { issueCloudUsageReceipt } from '../../packages/server/src/modules/studio/services/model-api/cloud-usage'
 
 let server: Server
 let url: string
@@ -61,6 +62,28 @@ it('returns JSON with server-owned account attribution and a request ID', async 
   expect(response.headers.get('x-request-id')).toBe('resp_1')
   expect(await response.json()).toMatchObject({ object: 'response' })
   expect(mocks.prepare).toHaveBeenCalledWith(expect.objectContaining({ accountId: '7', profiles: ['work'] }))
+})
+
+it('binds cloud settlement to a one-use receipt and the actual API key owner, not caller headers/body', async () => {
+  const keys = await import('../../packages/server/src/modules/studio/services/model-api/keys')
+  const find = vi.spyOn(keys, 'findModelApiKey').mockReturnValue({ id: 'key-1', userId: 7, models: ['p/m'] })
+  const touch = vi.spyOn(keys, 'touchModelApiKey').mockImplementation(() => {})
+  const report = vi.fn()
+  const receipt = issueCloudUsageReceipt(7, 'key-1', report)
+  try {
+    mocks.prepare.mockImplementation(async input => ({ id: 'resp_1', stream: false, create: async () => {
+      input.onUsage?.({ inputTokens: 3, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, isEstimated: false, costUsd: 0.001, costSource: 'estimated' })
+      return { object: 'response' }
+    } }))
+    const body = JSON.stringify({ model: 'p/m', input: 'private prompt', accountId: '999', cloudUserId: 999 })
+    await (await fetch(`${url}/responses`, { method: 'POST', headers: { ...headers(), 'x-studio-cloud-usage': receipt.token }, body })).text()
+    expect(report).not.toHaveBeenCalled()
+    const apiHeaders = { ...headers(), Authorization: `Bearer sk-ekko-${'a'.repeat(43)}`, 'x-studio-cloud-usage': receipt.token }
+    await (await fetch(`${url}/responses`, { method: 'POST', headers: apiHeaders, body })).text()
+    expect(report).toHaveBeenCalledExactlyOnceWith({ inputTokens: 3, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, costUsd: 0.001, costSource: 'estimated' })
+    await (await fetch(`${url}/responses`, { method: 'POST', headers: apiHeaders, body })).text()
+    expect(report).toHaveBeenCalledTimes(1)
+  } finally { receipt.dispose(); find.mockRestore(); touch.mockRestore() }
 })
 
 it('streams named SSE events and aborts upstream work when the HTTP client disconnects', async () => {

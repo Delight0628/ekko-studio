@@ -1,3 +1,4 @@
+import { CloudModelUsageOutbox } from './model-api-usage'
 import { CloudModelApiSessions } from './model-api'
 import { randomUUID } from 'crypto'
 import { io, type Socket } from 'socket.io-client'
@@ -247,6 +248,7 @@ export class AppRelayClient {
   private preconnectionExpired = false
   private cloudMediaMaxBytes = DEFAULT_CLOUD_MEDIA_MAX_BYTES
   private cloudSupportsModelApi = false
+  private readonly modelApiUsage: CloudModelUsageOutbox
   private readonly modelApiSessions: CloudModelApiSessions
   private cloudSupportsChunkedDownloads = false
 
@@ -257,7 +259,12 @@ export class AppRelayClient {
     this.localBaseUrl = options.localBaseUrl.replace(/\/$/, '')
     this.p2p = new P2PRelaySessions(this.localBaseUrl)
     this.fetchImpl = options.fetchImpl
-    this.modelApiSessions = new CloudModelApiSessions(this.localBaseUrl, this.fetchImpl)
+    this.modelApiUsage = new CloudModelUsageOutbox((value, done) => {
+      if (!this.socket?.connected || !this.cloudSupportsModelApi) return false
+      this.socket.timeout(4000).emit('model-api.usage', value, (error: Error | null, response: { ok?: boolean } = {}) => done(!error && response.ok === true))
+      return true
+    })
+    this.modelApiSessions = new CloudModelApiSessions(this.localBaseUrl, this.fetchImpl, value => this.modelApiUsage.report(value))
   }
 
   start(): void {
@@ -308,6 +315,7 @@ export class AppRelayClient {
       this.rememberPairing(payload)
       this.applyRelayLimits(payload)
       this.applyRelayCapabilities(payload)
+      this.modelApiUsage.flush()
     })
     this.socket.on('relay.limits.updated', (payload: Record<string, unknown> = {}) => {
       this.applyRelayLimits(payload)
@@ -394,6 +402,7 @@ export class AppRelayClient {
   }
 
   stop(): void {
+    this.modelApiUsage.stop()
     this.closeLocalBridges()
     this.clearRelaySessionState()
     this.socket?.disconnect()
@@ -780,7 +789,7 @@ export class AppRelayClient {
   private applyRelayCapabilities(payload: Record<string, unknown>): void {
     const capabilities = Array.isArray(payload.capabilities) ? payload.capabilities : []
     this.cloudSupportsChunkedDownloads = capabilities.includes('http.download.chunked')
-    this.cloudSupportsModelApi = capabilities.includes('model-api.cloud.v2')
+    this.cloudSupportsModelApi = capabilities.includes('model-api.cloud.v3')
   }
 
   private async readHttpDownloadChunk(

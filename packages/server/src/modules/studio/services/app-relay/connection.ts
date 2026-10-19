@@ -43,7 +43,7 @@ export async function ensureAppRelayHostClient(requestedRoute?: AppRelayRoute): 
     replaceExistingHost: shouldReplaceExistingAppRelayHost(),
     machineInfo: {
       model_api_cloud: true,
-      model_api_cloud_version: 2,
+      model_api_cloud_version: 3,
       ...info,
       device_id: identity.device_id,
       http_port: config.port,

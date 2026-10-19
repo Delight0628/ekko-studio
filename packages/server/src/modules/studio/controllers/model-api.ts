@@ -1,3 +1,4 @@
+import { claimCloudUsageReceipt } from '../services/model-api/cloud-usage'
 import { manageModelApiCloudLink } from '../services/model-api/cloud-link'
 import { Readable } from 'node:stream'
 import type { Context } from 'koa'
@@ -57,6 +58,7 @@ export async function modelApiResponses(ctx: Context) {
   let streaming = false
   try {
     const request = await prepareModelResponse({
+      onUsage: claimCloudUsageReceipt(ctx.get('x-studio-cloud-usage'), ctx.state.user?.id, ctx.state.modelApiKey?.id),
       profiles: profilesForRequest(ctx), accountId: ctx.state.user ? String(ctx.state.user.id) : undefined,
       allowedModels: ctx.state.modelApiKey?.models,
       apiKeyId: ctx.state.modelApiKey?.id,

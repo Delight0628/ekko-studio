@@ -1,3 +1,4 @@
+import { issueCloudUsageReceipt, type CloudModelUsage } from '../model-api/cloud-usage'
 import { findUserById } from '../../repositories/users-store'
 import { listAppConnections } from '../../repositories/app-connections-store'
 import { findModelApiKey } from '../model-api/keys'
@@ -13,13 +14,14 @@ interface Session {
   userId: number
   cloudUserId: number
   apiKey: string
+  releaseReceipt?: () => void
 }
 
 // Pull one bounded chunk immediately, including text/SSE. Generic App HTTP
 // download sessions buffer textual responses and cannot carry model streams.
 export class CloudModelApiSessions {
   private sessions = new Map<string, Session>()
-  constructor(private baseUrl: string, private fetchImpl: typeof fetch = fetch) {}
+  constructor(private baseUrl: string, private fetchImpl: typeof fetch = fetch, private reportUsage: (value: CloudModelUsage & { id: string }) => void = () => {}) {}
 
   private authorized(userId: number, cloudUserId: number, apiKey: string): boolean {
     return findModelApiKey(apiKey)?.userId === userId && findUserById(userId)?.status === 'active' && listAppConnections().some(connection =>
@@ -34,7 +36,7 @@ export class CloudModelApiSessions {
       || typeof input.apiKey !== 'string' || !/^sk-ekko-[A-Za-z0-9_-]{43}$/.test(input.apiKey)) return { ok: false, status: 400, error: 'invalid_request' }
     // Read-only preflight: never fetch, allocate a stream or change usage/budget.
     return this.authorized(userId, cloudUserId, input.apiKey)
-      ? { ok: true, version: 2 } : { ok: false, status: 403, error: 'cloud_model_access_denied' }
+      ? { ok: true, version: 3 } : { ok: false, status: 403, error: 'cloud_model_access_denied' }
   }
   async open(input: Record<string, any>): Promise<Record<string, unknown>> {
     const { id, endpoint, apiKey } = input
@@ -55,9 +57,11 @@ export class CloudModelApiSessions {
     session.timer.unref()
     this.sessions.set(id, session)
     try {
+      const receipt = endpoint === 'responses' ? issueCloudUsageReceipt(userId, findModelApiKey(apiKey)!.id, usage => this.reportUsage({ id, ...usage })) : undefined
+      session.releaseReceipt = receipt?.dispose
       const response = await this.fetchImpl(`${this.baseUrl}/api/ekko-studio/models/v1/${endpoint}`, {
         method: endpoint === 'models' ? 'GET' : 'POST',
-        headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+        headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json', ...(receipt ? { 'x-studio-cloud-usage': receipt.token } : {}) },
         body: endpoint === 'responses' ? body : undefined,
         signal: abort.signal, redirect: 'error',
       })
@@ -99,6 +103,7 @@ export class CloudModelApiSessions {
     const session = this.sessions.get(id)
     if (!session) return
     this.sessions.delete(id)
+    session.releaseReceipt?.()
     clearTimeout(session.timer)
     session.abort.abort()
     void session.reader?.cancel().catch(() => {})
