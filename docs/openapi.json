@@ -19559,6 +19559,262 @@
         ]
       }
     },
+    "/api/studio/models/cloud-link": {
+      "get": {
+        "tags": [
+          "Model API"
+        ],
+        "summary": "Get my dual-route cloud Model API link",
+        "description": "Requires Studio user authentication and a valid formal cloud connection for this machine/account. Independent of Profile. Returns available:false when cloud access or relay support is unavailable. Addresses are routing IDs; model API keys are still required. Reset/revoke invalidates both routes.",
+        "operationId": "modelApiCloudLinkGet",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cloud link status and independent limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "available": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "urls": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "official": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "cloudflare": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      }
+                    },
+                    "limits": {
+                      "type": "object",
+                      "properties": {
+                        "uploadMaxMegabytes": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "downloadMaxMegabytes": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "uploadMegabytesPerSecond": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "downloadMegabytesPerSecond": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "requestsPerMinute": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Studio login required"
+          },
+          "503": {
+            "description": "Cloud relay unavailable"
+          }
+        },
+        "parameters": []
+      },
+      "post": {
+        "tags": [
+          "Model API"
+        ],
+        "summary": "Create my dual-route cloud Model API link",
+        "description": "Requires Studio user authentication and a valid formal cloud connection for this machine/account. Independent of Profile. Returns available:false when cloud access or relay support is unavailable. Addresses are routing IDs; model API keys are still required. Reset/revoke invalidates both routes.",
+        "operationId": "modelApiCloudLinkCreate",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cloud link status and independent limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "available": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "urls": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "official": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "cloudflare": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      }
+                    },
+                    "limits": {
+                      "type": "object",
+                      "properties": {
+                        "uploadMaxMegabytes": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "downloadMaxMegabytes": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "uploadMegabytesPerSecond": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "downloadMegabytesPerSecond": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "requestsPerMinute": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Studio login required"
+          },
+          "503": {
+            "description": "Cloud relay unavailable"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "rotate": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "True replaces both URLs; otherwise creates a link if absent."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": []
+      },
+      "delete": {
+        "tags": [
+          "Model API"
+        ],
+        "summary": "Revoke my dual-route cloud Model API link",
+        "description": "Requires Studio user authentication and a valid formal cloud connection for this machine/account. Independent of Profile. Returns available:false when cloud access or relay support is unavailable. Addresses are routing IDs; model API keys are still required. Reset/revoke invalidates both routes.",
+        "operationId": "modelApiCloudLinkRevoke",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cloud link status and independent limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "available": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "urls": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "official": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "cloudflare": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      }
+                    },
+                    "limits": {
+                      "type": "object",
+                      "properties": {
+                        "uploadMaxMegabytes": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "downloadMaxMegabytes": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "uploadMegabytesPerSecond": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "downloadMegabytesPerSecond": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "requestsPerMinute": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Studio login required"
+          },
+          "503": {
+            "description": "Cloud relay unavailable"
+          }
+        },
+        "parameters": []
+      }
+    },
     "/api/studio/performance/runtime": {
       "get": {
         "tags": [

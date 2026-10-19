@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { NAlert, NButton, NEmpty, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSpin, useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { createModelApiKey, editModelApiKey, getApiModels, getModelApiKeys, modelApiBaseUrl, revokeModelApiKey, type ApiModel, type ModelApiKey } from '@/api/studio/model-api'
+import { changeModelApiCloudLink, getModelApiCloudLink, type ModelApiCloudLink, createModelApiKey, editModelApiKey, getApiModels, getModelApiKeys, modelApiBaseUrl, revokeModelApiKey, type ApiModel, type ModelApiKey } from '@/api/studio/model-api'
 import { copyToClipboard } from '@/utils/clipboard'
 import ModelApiModelsModal from './ModelApiModelsModal.vue'
 
@@ -11,7 +11,36 @@ const { t, locale } = useI18n()
 const date = (value: number) => new Intl.DateTimeFormat(locale.value, { dateStyle: 'short', timeStyle: 'short' }).format(value)
 const router = useRouter()
 const message = useMessage()
-const baseUrl = modelApiBaseUrl()
+const localBaseUrl = modelApiBaseUrl()
+const cloudLink = ref<ModelApiCloudLink>({ available: false, urls: null })
+const cloudBusy = ref(false)
+const addressRoute = ref('local')
+const addressOptions = computed(() => [
+  { label: t('modelApi.localRoute'), value: 'local' },
+  ...(cloudLink.value.urls ? [{ label: t('modelApi.officialRoute'), value: 'official' }, { label: 'Cloudflare', value: 'cloudflare' }] : []),
+])
+const baseUrl = computed(() => addressRoute.value === 'local' ? localBaseUrl : cloudLink.value.urls?.[addressRoute.value as 'official' | 'cloudflare'] || localBaseUrl)
+let cloudSequence = 0
+async function loadCloudLink() {
+  if (cloudBusy.value) return
+  const sequence = ++cloudSequence
+  try { const result = await getModelApiCloudLink(abort.signal); if (!disposed && sequence === cloudSequence) cloudLink.value = result }
+  catch { if (!disposed && sequence === cloudSequence) cloudLink.value = { available: false, urls: null } }
+  if (!cloudLink.value.urls) addressRoute.value = 'local'
+}
+async function changeCloudLink(action: 'create' | 'rotate' | 'revoke') {
+  if (cloudBusy.value) return
+  cloudBusy.value = true
+  ++cloudSequence
+  try {
+    const result = await changeModelApiCloudLink(action)
+    if (disposed) return
+    cloudLink.value = result
+    if (!result.available) message.error(t('modelApi.cloudUnavailable'))
+    addressRoute.value = result.urls ? 'official' : 'local'
+  } catch { if (!disposed) message.error(t('modelApi.failed')) }
+  finally { if (!disposed) cloudBusy.value = false }
+}
 const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
@@ -37,7 +66,7 @@ const availableCount = computed(() => models.value.filter(model => model.respons
 const example = computed(() => `from openai import OpenAI
 
 client = OpenAI(
-    base_url=${JSON.stringify(baseUrl)},
+    base_url=${JSON.stringify(baseUrl.value)},
     api_key="YOUR_MODEL_API_KEY",
 )
 response = client.responses.create(
@@ -72,7 +101,7 @@ async function load() {
   } catch (err) { if (!disposed) error.value = err instanceof Error ? err.message : t('modelApi.failed') }
   finally { if (!disposed) loading.value = false }
 }
-onMounted(load)
+onMounted(() => { void load(); void loadCloudLink() })
 
 async function create() {
   if (!canSaveKey.value) return
@@ -140,19 +169,29 @@ async function copy(value: string) {
   <section class="model-api-panel" data-testid="model-api-panel" :aria-busy="loading">
     <div class="panel-heading">
       <div><h3>{{ t('modelApi.title') }}</h3><p class="hint">{{ t('modelApi.description') }}</p></div>
-      <NButton :loading="loading" :disabled="busy" @click="load">{{ t('modelApi.refresh') }}</NButton>
+      <NButton :loading="loading" :disabled="busy" @click="load(); loadCloudLink()">{{ t('modelApi.refresh') }}</NButton>
     </div>
     <NAlert v-if="error" type="error" role="alert">{{ error }}</NAlert>
     <NSpin :show="loading">
       <div v-if="!error" class="panel-sections">
         <section class="api-card" data-theme-surface="card">
           <h4>{{ t('modelApi.connection') }}</h4>
+          <NSelect v-model:value="addressRoute" :options="addressOptions" :aria-label="t('modelApi.connectionRoute')" />
           <label class="field-label" for="model-api-base-url">{{ t('modelApi.baseUrl') }}</label>
           <div class="copy-row">
             <NInput :value="baseUrl" readonly :input-props="{ id: 'model-api-base-url' }" />
             <NButton @click="copy(baseUrl)">{{ t('common.copy') }}</NButton>
           </div>
           <p class="hint">{{ t('modelApi.addressHint') }}</p>
+          <p class="hint">{{ t('modelApi.cloudHint') }}</p>
+          <p v-if="!cloudLink.available" class="hint">{{ t('modelApi.cloudUnavailable') }}</p>
+          <div v-if="cloudLink.available" class="form-actions">
+            <NButton v-if="!cloudLink.urls" :loading="cloudBusy" @click="changeCloudLink('create')">{{ t('modelApi.createCloudLink') }}</NButton>
+            <template v-else>
+              <NPopconfirm @positive-click="changeCloudLink('rotate')"><template #trigger><NButton :disabled="cloudBusy">{{ t('modelApi.rotateCloudLink') }}</NButton></template>{{ t('modelApi.cloudRevokeHint') }}</NPopconfirm>
+              <NPopconfirm @positive-click="changeCloudLink('revoke')"><template #trigger><NButton :disabled="cloudBusy">{{ t('modelApi.revokeCloudLink') }}</NButton></template>{{ t('modelApi.cloudRevokeHint') }}</NPopconfirm>
+            </template>
+          </div>
           <dl class="endpoints"><dt>GET</dt><dd>/models</dd><dt>POST</dt><dd>/responses</dd></dl>
         </section>
 

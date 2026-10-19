@@ -4,6 +4,16 @@ import { socialMessagesKo } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "localRoute": "로컬 주소",
+    "officialRoute": "공식 경로",
+    "createCloudLink": "클라우드 링크 생성",
+    "rotateCloudLink": "클라우드 링크 재설정",
+    "revokeCloudLink": "클라우드 링크 비활성화",
+    "cloudHint": "공식 및 Cloudflare 경로를 제공합니다. 모델 API 키가 필요합니다.",
+    "cloudUnavailable": "유효한 클라우드 연결과 접근 권한이 필요합니다. 연결 후 새로 고치세요.",
+    "cloudRevokeHint": "기존 두 경로 주소가 즉시 무효화됩니다. 클라이언트 설정을 변경하세요.",
+    "connectionRoute": "연결 경로",
+
     "budgetLabel": "누적 한도 (USD)",
     "unlimited": "무제한",
     "budgetHint": "비우면 무제한, 0은 호출 중지입니다. 비용은 요청별로 정산되며 진행 중인 요청으로 한도를 넘을 수 있습니다. 한도를 변경해도 사용액은 유지됩니다.",

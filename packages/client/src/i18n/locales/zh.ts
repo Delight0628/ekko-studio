@@ -4,6 +4,16 @@ import { socialMessagesZh } from '../social-messages'
 
 export default {
   modelApi: {
+    "localRoute": "本地地址",
+    "officialRoute": "官方线路",
+    "createCloudLink": "生成云链接",
+    "rotateCloudLink": "重置云链接",
+    "revokeCloudLink": "停用云链接",
+    "cloudHint": "云链接提供官方和 Cloudflare 两条线路，调用仍需模型 API 密钥。",
+    "cloudUnavailable": "需要有效云连接和云访问权限，请连接云端并刷新。",
+    "cloudRevokeHint": "原有两条线路地址将立即失效，需更新调用端配置。",
+    "connectionRoute": "接入线路",
+
     "budgetLabel": "累计额度（USD）",
     "unlimited": "不限额",
     "budgetHint": "留空不限额，0 暂停调用。费用按请求结算累计；进行中的请求可能超额。编辑额度不会清零已用金额。",

@@ -4,6 +4,16 @@ import { socialMessagesAr } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "localRoute": "عنوان محلي",
+    "officialRoute": "المسار الرسمي",
+    "createCloudLink": "إنشاء رابط سحابي",
+    "rotateCloudLink": "إعادة تعيين الرابط السحابي",
+    "revokeCloudLink": "تعطيل الرابط السحابي",
+    "cloudHint": "توفر الروابط مسارين: الرسمي وCloudflare. يلزم مفتاح API للنموذج.",
+    "cloudUnavailable": "يلزم اتصال سحابي نشط وصلاحية وصول. اتصل بالسحابة ثم حدّث.",
+    "cloudRevokeHint": "سيتوقف العنوانان السابقان فورًا. حدّث إعدادات العميل.",
+    "connectionRoute": "مسار الاتصال",
+
     "budgetLabel": "الحد التراكمي (USD)",
     "unlimited": "غير محدود",
     "budgetHint": "اتركه فارغًا لعدم التقييد؛ 0 يوقف الطلبات. تُحتسب التكلفة بعد كل طلب وقد تتجاوز الطلبات الجارية الحد. تعديل الحد لا يصفر الإنفاق السابق.",

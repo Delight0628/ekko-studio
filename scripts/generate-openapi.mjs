@@ -1688,6 +1688,22 @@ const keyMetadata = { type: 'object', properties: {
   models: { type: 'array', items: { type: 'string' }, description: 'Explicit provider-qualified model IDs allowed by this key' },
   createdAt: { type: 'integer', description: 'Unix milliseconds' }, lastUsedAt: { type: 'integer', nullable: true, description: 'Unix milliseconds' },
 } }
+const cloudLinkPath = openapi.paths['/api/studio/models/cloud-link']
+const cloudLinkSchema = { type: 'object', properties: {
+  available: { type: 'boolean' }, reason: { type: 'string' },
+  urls: { type: 'object', nullable: true, properties: { official: { type: 'string', format: 'uri' }, cloudflare: { type: 'string', format: 'uri' } } },
+  limits: { type: 'object', properties: Object.fromEntries(['uploadMaxMegabytes', 'downloadMaxMegabytes', 'uploadMegabytesPerSecond', 'downloadMegabytesPerSecond', 'requestsPerMinute'].map(key => [key, { type: 'integer', minimum: 1 }])) },
+} }
+for (const [method, suffix] of [['get', 'Get'], ['post', 'Create'], ['delete', 'Revoke']]) {
+  const operation = cloudLinkPath[method]
+  operation.operationId = `modelApiCloudLink${suffix}`
+  operation.summary = `${suffix} my dual-route cloud Model API link`
+  operation.parameters = modelApiParameters
+  operation.description = 'Requires Studio user authentication and a valid formal cloud connection for this machine/account. Independent of Profile. Returns available:false when cloud access or relay support is unavailable. Addresses are routing IDs; model API keys are still required. Reset/revoke invalidates both routes.'
+  operation.responses = { '200': { description: 'Cloud link status and independent limits', content: { 'application/json': { schema: cloudLinkSchema } } }, '401': { description: 'Studio login required' }, '503': { description: 'Cloud relay unavailable' } }
+}
+cloudLinkPath.post.requestBody = { required: false, content: { 'application/json': { schema: { type: 'object', properties: { rotate: { type: 'boolean', default: false, description: 'True replaces both URLs; otherwise creates a link if absent.' } } } } } }
+
 const keyManagementPath = openapi.paths['/api/studio/models/api-keys']
 keyManagementPath.get.summary = 'List my account-wide Model API keys'
 keyManagementPath.get.parameters = modelApiParameters

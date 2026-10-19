@@ -4,6 +4,16 @@ import { socialMessagesZhTw } from '../social-messages'
 
 export default {
   modelApi: {
+    "localRoute": "本機位址",
+    "officialRoute": "官方線路",
+    "createCloudLink": "產生雲端連結",
+    "rotateCloudLink": "重設雲端連結",
+    "revokeCloudLink": "停用雲端連結",
+    "cloudHint": "雲端連結提供官方和 Cloudflare 兩條線路，呼叫仍需模型 API 金鑰。",
+    "cloudUnavailable": "需要有效雲端連線和雲端存取權限，請連線雲端並重新整理。",
+    "cloudRevokeHint": "原有兩條線路位址將立即失效，需更新呼叫端設定。",
+    "connectionRoute": "連線線路",
+
     "budgetLabel": "累計額度（USD）",
     "unlimited": "不限額",
     "budgetHint": "留空不限額，0 暫停呼叫。費用按請求結算累計；進行中的請求可能超額。編輯額度不會清零已用金額。",

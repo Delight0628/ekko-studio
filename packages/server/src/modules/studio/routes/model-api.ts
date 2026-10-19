@@ -2,6 +2,9 @@ import Router from '@koa/router'
 import * as ctrl from '../controllers/model-api'
 
 export const modelApiRoutes = new Router()
+modelApiRoutes.get('/api/studio/models/cloud-link', ctrl.modelApiCloudLink)
+modelApiRoutes.post('/api/studio/models/cloud-link', ctrl.modelApiCloudLink)
+modelApiRoutes.delete('/api/studio/models/cloud-link', ctrl.modelApiCloudLink)
 modelApiRoutes.get('/api/studio/models/api-keys', ctrl.modelApiKeys)
 modelApiRoutes.post('/api/studio/models/api-keys', ctrl.modelApiCreateKey)
 modelApiRoutes.patch('/api/studio/models/api-keys/:id', ctrl.modelApiEditKey)

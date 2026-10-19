@@ -37,3 +37,9 @@ export function revokeModelApiKey(id: string) {
 export function getApiModels(signal?: AbortSignal) {
   return request<{ data: ApiModel[] }>('/api/ekko-studio/models/v1/models', { headers, signal })
 }
+
+export interface ModelApiCloudLink { available: boolean; urls: { official: string; cloudflare: string } | null; reason?: string }
+export function getModelApiCloudLink(signal?: AbortSignal) { return request<ModelApiCloudLink>('/api/studio/models/cloud-link', { headers, signal }) }
+export function changeModelApiCloudLink(action: 'create' | 'rotate' | 'revoke') {
+  return request<ModelApiCloudLink>('/api/studio/models/cloud-link', { headers, method: action === 'revoke' ? 'DELETE' : 'POST', body: action === 'revoke' ? undefined : JSON.stringify({ rotate: action === 'rotate' }) })
+}

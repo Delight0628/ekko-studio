@@ -4,6 +4,16 @@ import { socialMessagesJa } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "localRoute": "ローカルアドレス",
+    "officialRoute": "公式ルート",
+    "createCloudLink": "クラウドリンクを作成",
+    "rotateCloudLink": "クラウドリンクをリセット",
+    "revokeCloudLink": "クラウドリンクを無効化",
+    "cloudHint": "クラウドリンクは公式と Cloudflare の2経路を提供します。モデル API キーが必要です。",
+    "cloudUnavailable": "有効なクラウド接続とアクセス権が必要です。接続して更新してください。",
+    "cloudRevokeHint": "既存の両経路のアドレスは直ちに無効になります。クライアント設定を更新してください。",
+    "connectionRoute": "接続経路",
+
     "budgetLabel": "累計上限（USD）",
     "unlimited": "上限なし",
     "budgetHint": "空欄は無制限、0 は呼び出し停止です。費用はリクエストごとに確定し、処理中の呼び出しで上限を超える場合があります。上限の変更で使用額はリセットされません。",

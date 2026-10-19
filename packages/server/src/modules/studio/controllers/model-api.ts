@@ -1,3 +1,4 @@
+import { manageModelApiCloudLink } from '../services/model-api/cloud-link'
 import { Readable } from 'node:stream'
 import type { Context } from 'koa'
 import { listProfileNamesFromDisk } from '../public/profile-config'
@@ -81,4 +82,9 @@ export async function modelApiResponses(ctx: Context) {
   } finally {
     if (!streaming) ctx.res.off('close', onClose)
   }
+}
+
+export async function modelApiCloudLink(ctx: Context) {
+  await manageKeys(ctx, userId => manageModelApiCloudLink(userId,
+    ctx.method === 'DELETE' ? 'revoke' : ctx.method === 'POST' ? ctx.request.body?.rotate === true ? 'rotate' : 'create' : 'get'))
 }

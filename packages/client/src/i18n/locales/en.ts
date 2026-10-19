@@ -4,6 +4,16 @@ import { socialMessagesEn } from '../social-messages'
 
 export default {
   modelApi: {
+    "localRoute": "Local address",
+    "officialRoute": "Official route",
+    "createCloudLink": "Create cloud link",
+    "rotateCloudLink": "Reset cloud link",
+    "revokeCloudLink": "Disable cloud link",
+    "cloudHint": "Cloud links offer official and Cloudflare routes. A Model API key is still required.",
+    "cloudUnavailable": "An active cloud connection and cloud access are required. Connect to the cloud and refresh.",
+    "cloudRevokeHint": "Both previous route addresses will stop working immediately. Update your client configuration.",
+    "connectionRoute": "Connection route",
+
     "budgetLabel": "Lifetime budget (USD)",
     "unlimited": "Unlimited",
     "budgetHint": "Leave blank for unlimited; 0 pauses calls. Costs settle per request; in-flight calls may exceed the budget. Editing preserves prior spending.",

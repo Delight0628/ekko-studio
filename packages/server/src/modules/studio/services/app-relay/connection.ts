@@ -42,6 +42,7 @@ export async function ensureAppRelayHostClient(requestedRoute?: AppRelayRoute): 
     signChallenge: createAppRelayDeviceSignature,
     replaceExistingHost: shouldReplaceExistingAppRelayHost(),
     machineInfo: {
+      model_api_cloud: true,
       ...info,
       device_id: identity.device_id,
       http_port: config.port,

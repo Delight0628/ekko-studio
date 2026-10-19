@@ -1,0 +1,96 @@
+import { listAppConnections } from '../../repositories/app-connections-store'
+import { findModelApiKey } from '../model-api/keys'
+
+interface Session {
+  abort: AbortController
+  timer: ReturnType<typeof setTimeout>
+  reader?: ReadableStreamDefaultReader<Uint8Array>
+  pending: Uint8Array
+  reading: boolean
+  bytes: number
+  max: number
+  userId: number
+  cloudUserId: number
+  apiKey: string
+}
+
+// Pull one bounded chunk immediately, including text/SSE. Generic App HTTP
+// download sessions buffer textual responses and cannot carry model streams.
+export class CloudModelApiSessions {
+  private sessions = new Map<string, Session>()
+  constructor(private baseUrl: string, private fetchImpl: typeof fetch = fetch) {}
+
+  private authorized(userId: number, cloudUserId: number, apiKey: string): boolean {
+    return findModelApiKey(apiKey)?.userId === userId && listAppConnections().some(connection =>
+      connection.connection_type === 'cloud' && connection.user_id === userId
+      && connection.cloud_user_id === cloudUserId && connection.revoked_at == null
+      && !connection.cloud_revocation_pending && connection.token_expires_at > Math.floor(Date.now() / 1000))
+  }
+  async open(input: Record<string, any>): Promise<Record<string, unknown>> {
+    const { id, endpoint, apiKey } = input
+    const userId = Number(input.studioUserId), cloudUserId = Number(input.cloudUserId)
+    if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/.test(id) || !['models', 'responses'].includes(endpoint)
+      || typeof apiKey !== 'string' || !Number.isSafeInteger(userId) || userId <= 0
+      || !Number.isSafeInteger(cloudUserId) || cloudUserId <= 0) return { ok: false, status: 400, error: 'invalid_request' }
+    if (!this.authorized(userId, cloudUserId, apiKey)) return { ok: false, status: 403, error: 'cloud_model_access_denied' }
+    if (this.sessions.has(id) || this.sessions.size >= 32) return { ok: false, status: 429, error: 'too_many_requests' }
+    const body = Buffer.from(input.body || [])
+    const max = Number(input.maxDownloadBytes)
+    if (body.length > 20 * 1024 * 1024 || !Number.isSafeInteger(max) || max < 1 || max > 1024 * 1024 * 1024) {
+      return { ok: false, status: 413, error: 'invalid_transfer_limits' }
+    }
+    const abort = new AbortController()
+    const session: Session = { abort, timer: setTimeout(() => this.cancel(id), 10 * 60 * 1000), pending: new Uint8Array(), reading: false, bytes: 0, max, userId, cloudUserId, apiKey }
+    session.timer.unref()
+    this.sessions.set(id, session)
+    try {
+      const response = await this.fetchImpl(`${this.baseUrl}/api/ekko-studio/models/v1/${endpoint}`, {
+        method: endpoint === 'models' ? 'GET' : 'POST',
+        headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+        body: endpoint === 'responses' ? body : undefined,
+        signal: abort.signal, redirect: 'error',
+      })
+      if (abort.signal.aborted || !this.authorized(userId, cloudUserId, apiKey)) throw new Error('cloud_model_access_denied')
+      if (Number(response.headers.get('content-length')) > max) throw new Error('download_too_large')
+      session.reader = response.body?.getReader()
+      return { ok: true, status: response.status, contentType: response.headers.get('content-type') || 'application/json', requestId: response.headers.get('x-request-id') }
+    } catch (error) {
+      this.cancel(id)
+      return { ok: false, status: error instanceof Error && error.message === 'download_too_large' ? 413 : 502, error: error instanceof Error && ['cloud_model_access_denied', 'download_too_large'].includes(error.message) ? error.message : 'model_api_upstream_failed' }
+    }
+  }
+  async read(id: string): Promise<Record<string, unknown>> {
+    const session = this.sessions.get(id)
+    if (!session || session.reading) return { ok: false, error: 'stream_not_found' }
+    session.reading = true
+    try {
+      if (!this.authorized(session.userId, session.cloudUserId, session.apiKey)) throw new Error('cloud_model_access_denied')
+      let data = session.pending
+      let done = false
+      if (!data.length) {
+        const result = session.reader ? await session.reader.read() : { done: true, value: undefined }
+        data = result.value || new Uint8Array()
+        done = !!result.done
+      }
+      if (session.abort.signal.aborted || !this.authorized(session.userId, session.cloudUserId, session.apiKey)) throw new Error('cloud_model_access_denied')
+      const chunk = data.subarray(0, 32 * 1024)
+      session.pending = data.subarray(chunk.length)
+      session.bytes += chunk.length
+      if (session.bytes > session.max) throw new Error('download_too_large')
+      if (done) this.cancel(id)
+      return { ok: true, data: Buffer.from(chunk), done }
+    } catch (error) {
+      this.cancel(id)
+      return { ok: false, error: error instanceof Error && ['cloud_model_access_denied', 'download_too_large'].includes(error.message) ? error.message : 'upstream_read_failed' }
+    } finally { session.reading = false }
+  }
+  cancel(id: string): void {
+    const session = this.sessions.get(id)
+    if (!session) return
+    this.sessions.delete(id)
+    clearTimeout(session.timer)
+    session.abort.abort()
+    void session.reader?.cancel().catch(() => {})
+  }
+  cancelAll(): void { for (const id of this.sessions.keys()) this.cancel(id) }
+}

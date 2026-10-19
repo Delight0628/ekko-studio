@@ -30,6 +30,16 @@ const writeApprovalMessages = {
 
 export default {
   modelApi: {
+    "localRoute": "Yerel adres",
+    "officialRoute": "Resmî rota",
+    "createCloudLink": "Bulut bağlantısı oluştur",
+    "rotateCloudLink": "Bulut bağlantısını sıfırla",
+    "revokeCloudLink": "Bulut bağlantısını devre dışı bırak",
+    "cloudHint": "Bağlantılar resmî ve Cloudflare rotalarını sunar. Model API anahtarı gereklidir.",
+    "cloudUnavailable": "Etkin bulut bağlantısı ve bulut erişimi gereklidir. Bağlanıp yenileyin.",
+    "cloudRevokeHint": "Önceki iki adres hemen geçersiz olur. İstemci yapılandırmasını güncelleyin.",
+    "connectionRoute": "Bağlantı rotası",
+
     "budgetLabel": "Toplam bütçe (USD)",
     "unlimited": "Sınırsız",
     "budgetHint": "Boş bırakmak sınırsızdır; 0 çağrıları duraklatır. Maliyetler istek başına hesaplanır; devam eden çağrılar bütçeyi aşabilir. Düzenleme önceki harcamaları sıfırlamaz.",
