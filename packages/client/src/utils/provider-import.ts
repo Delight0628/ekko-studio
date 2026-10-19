@@ -27,15 +27,15 @@ export function parseProviderImport(encoded: unknown): ProviderImport {
   const data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
   if (!data || typeof data !== 'object' || Array.isArray(data) || data.version !== 1
     || Object.keys(data).some(key => !fields.has(key))) throw new Error('Invalid provider import')
-  const name = text(data.name, 80)
-  if (!/^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u.test(name)) throw new Error('Invalid provider import')
+  const name = text(data.name, 80, data.name === undefined)
+  if (name && !/^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u.test(name)) throw new Error('Invalid provider import')
   const baseUrl = text(data.baseUrl, 2048)
   const url = new URL(baseUrl)
   if (!['https:', 'http:'].includes(url.protocol) || !url.hostname || url.username || url.password
     || url.search || url.hash) throw new Error('Invalid provider import')
   const apiMode = data.apiMode ?? 'chat_completions'
   if (!modes.has(apiMode)) throw new Error('Invalid provider import')
-  return { version: 1, name, baseUrl, model: text(data.model, 256), apiKey: text(data.apiKey, 8192, true), apiMode }
+  return { version: 1, name, baseUrl, model: text(data.model, 256, data.model === undefined), apiKey: text(data.apiKey, 8192, true), apiMode }
 }
 
 // Memory only: never persist API keys to browser storage or login redirect URLs.

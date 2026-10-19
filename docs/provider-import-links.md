@@ -72,3 +72,12 @@ Packaged desktop builds register the `ekko-studio` scheme through Electron Build
 and handle initial arguments, second-instance arguments, and macOS `open-url`
 events. Development checkouts do not automatically change OS protocol ownership.
 The Web import URL works independently of native protocol registration.
+
+## Incomplete drafts
+
+`name` and `model` may be omitted. The confirmation form derives a name from the
+endpoint hostname and lets the user fetch/select models and adjust the API mode.
+Fetching models requires an explicit button click; opening a link never contacts
+the provider. Fetching does not update the persistent catalog. Saving still
+requires a model, key, name and explicit target Profile; duplicate protection
+remains enabled. Existing complete version-1 links remain supported.

@@ -17,6 +17,11 @@ describe('provider import payload', () => {
     expect(parseProviderImport(encode({ ...draft, name: '示例模型', apiKey: undefined })))
       .toEqual({ ...draft, name: '示例模型', apiKey: '', apiMode: 'chat_completions' })
   })
+  it('accepts a minimal draft for user-driven completion without inventing a model', () => {
+    const result = parseProviderImport(encode({ version: 1, baseUrl: draft.baseUrl, apiKey: draft.apiKey }))
+    expect(result.name).toBe('')
+    expect(result.model).toBe('')
+  })
   it.each(['chat_completions', 'codex_responses', 'anthropic_messages'])('preserves explicit %s protocol', apiMode => {
     expect(parseProviderImport(encode({ ...draft, apiMode })).apiMode).toBe(apiMode)
   })
