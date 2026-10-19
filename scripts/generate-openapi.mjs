@@ -1479,6 +1479,13 @@ for (const [path, methods] of Object.entries(openapi.paths)) {
 
 // JEV accepts named heterogeneous questions and never returns its stored API key.
 const jevSettingsProperties = {
+  ekkoComputerUseMatchEnabled: { type: 'boolean', default: false },
+  ekkoComputerUseMatchCandidateLimit: { type: 'integer', default: 20, minimum: 1, maximum: 50 },
+  ekkoComputerUseMatchMinConfidence: { type: 'number', default: 0.8, minimum: 0.5, maximum: 1 },
+  ekkoComputerUseMatchTimeoutMs: { type: 'integer', default: 3000, minimum: 100, maximum: 30000 },
+  ekkoComputerUseVerifyEnabled: { type: 'boolean', default: false },
+  ekkoComputerUseVerifyMinConfidence: { type: 'number', default: 0.8, minimum: 0.5, maximum: 1 },
+  ekkoComputerUseVerifyTimeoutMs: { type: 'integer', default: 3000, minimum: 100, maximum: 30000 },
   browserMatchEnabled: { type: 'boolean', default: false },
   browserVerifyEnabled: { type: 'boolean', default: false },
   browserMatchCandidateLimit: { type: 'integer', default: 20, minimum: 1, maximum: 50 },
