@@ -40,6 +40,7 @@ async function installDesktopBridge(page: Page, platform: DesktopPlatform, withB
     }
     const browserHarness = {
       viewportCalls: [] as Array<{ bounds: unknown; visible: boolean }>,
+      createdProfiles: [] as Array<{ name: string; proxyMode?: string }>,
       annotationCount: 0,
       clearAnnotationCalls: 0,
       captureAnnotationCalls: 0,
@@ -73,7 +74,10 @@ async function installDesktopBridge(page: Page, platform: DesktopPlatform, withB
       activateTab: async () => browserState,
       navigate: async () => browserState.tabs[0],
       navigationAction: async () => browserState.tabs[0],
-      createProfile: async () => browserState.profiles[0],
+      createProfile: async (input: { name: string; proxyMode?: string }) => {
+        browserHarness.createdProfiles.push(input)
+        return browserState.profiles[0]
+      },
       chooseProfileRootDirectory: async () => '/tmp/hermes-browser-new',
       renameProfile: async () => browserState.profiles[0],
       profileSwitchImpact: async () => ({ activeAgentRuns: 0, activeDownloads: 0, pendingAnnotations: 0, openTabs: 1, requiresConfirmation: false }),
@@ -854,10 +858,19 @@ test('manages desktop browser profiles with switchable cards and editor modals',
   await profileCard.first().getByRole('button', { name: 'Edit' }).click()
   await expect(page.getByRole('dialog')).toContainText('Edit profile')
   await expect(page.getByRole('dialog').locator('input').first()).toHaveValue('Default')
+  await expect(page.getByRole('dialog').locator('.n-select').first()).toContainText('Direct connection')
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
 
   await page.getByRole('button', { name: 'Add profile' }).click()
   await expect(page.getByRole('dialog')).toContainText('Add profile')
+  const proxySelect = page.getByRole('dialog').locator('.n-select').first()
+  await expect(proxySelect).toContainText('System proxy')
+  await proxySelect.click()
+  await page.locator('.n-base-select-option:visible').filter({ hasText: /^Direct connection$/ }).click()
+  await expect(proxySelect).toContainText('Direct connection')
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
+  await page.getByRole('button', { name: 'Add profile' }).click()
+  await expect(proxySelect).toContainText('System proxy')
   await page.getByRole('dialog').getByPlaceholder('Profile name').fill('Work')
   const createButton = page.getByRole('dialog').getByRole('button', { name: 'Create' })
   await expect(createButton).toBeDisabled()
@@ -865,4 +878,11 @@ test('manages desktop browser profiles with switchable cards and editor modals',
   await expect(page.getByRole('dialog')).toContainText('/tmp/hermes-browser-new/data')
   await expect(page.getByRole('dialog')).toContainText('/tmp/hermes-browser-new/download')
   await expect(createButton).toBeEnabled()
+  await createButton.click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(await page.evaluate(() => (window as typeof window & {
+    __PW_DESKTOP_BROWSER__?: { createdProfiles: Array<{ name: string; proxyMode?: string }> }
+  }).__PW_DESKTOP_BROWSER__?.createdProfiles)).toEqual([
+    expect.objectContaining({ name: 'Work', proxyMode: 'system' }),
+  ])
 })
