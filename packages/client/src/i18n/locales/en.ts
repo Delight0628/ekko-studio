@@ -10,7 +10,7 @@ export default {
     "rotateCloudLink": "Reset cloud link",
     "revokeCloudLink": "Disable cloud link",
     "cloudHint": "Cloud links offer official and Cloudflare routes. A Model API key is still required.",
-    "cloudUnavailable": "An active cloud connection and cloud access are required. Connect to the cloud and refresh.",
+    "cloudUnavailable": "Manage cloud links in the App through an official cloud connection. LAN and self-hosted connections are not supported.",
     "cloudRevokeHint": "Both previous route addresses will stop working immediately. Update your client configuration.",
     "connectionRoute": "Connection route",
 

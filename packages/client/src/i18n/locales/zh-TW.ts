@@ -10,7 +10,7 @@ export default {
     "rotateCloudLink": "重設雲端連結",
     "revokeCloudLink": "停用雲端連結",
     "cloudHint": "雲端連結提供官方和 Cloudflare 兩條線路，呼叫仍需模型 API 金鑰。",
-    "cloudUnavailable": "需要有效雲端連線和雲端存取權限，請連線雲端並重新整理。",
+    "cloudUnavailable": "請在 App 中透過官方雲端連線管理雲端連結，不支援區域網路及自架伺服器。",
     "cloudRevokeHint": "原有兩條線路位址將立即失效，需更新呼叫端設定。",
     "connectionRoute": "連線線路",
 

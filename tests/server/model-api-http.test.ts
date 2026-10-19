@@ -17,7 +17,6 @@ vi.mock('../../packages/server/src/modules/studio/services/auth/run-mcp-credenti
   recognizes: (value: string) => value.startsWith('studio_run_'),
   authenticate: () => mocks.run ? { contextId: 'test-context', profile: 'work', userId: 7 } : undefined,
 } }))
-vi.mock('../../packages/server/src/modules/studio/services/model-api/cloud-link', () => ({ manageModelApiCloudLink: mocks.cloud }))
 import { modelApiRoutes } from '../../packages/server/src/modules/studio/routes/model-api'
 import { issueUserJwt, issueAppJwt, signUserJwt, userAuthMiddleware } from '../../packages/server/src/modules/studio/middleware/auth'
 import { issueCloudUsageReceipt } from '../../packages/server/src/modules/studio/services/model-api/cloud-usage'
@@ -121,7 +120,7 @@ it('rejects run-scoped credentials on every cloud link action, including trailin
   }
 })
 
-it('requires a Studio/App login for cloud link management and ignores Profile/account overrides', async () => {
+it('does not expose cloud links or accept mutations over Studio/LAN HTTP, including caller overrides', async () => {
   const root = url.replace('/api/ekko-studio/models/v1', '')
   expect((await fetch(`${root}/api/studio/models/cloud-link`)).status).toBe(401)
   const modelKey = `sk-ekko-${'a'.repeat(43)}`
@@ -130,22 +129,36 @@ it('requires a Studio/App login for cloud link management and ignores Profile/ac
   }
   for (const [method, body, action] of [['GET', undefined, 'get'], ['POST', '{}', 'create'], ['POST', '{"rotate":true,"userId":99,"profile":"other"}', 'rotate'], ['DELETE', undefined, 'revoke']] as const) {
     const response = await fetch(`${root}/api/studio/models/cloud-link?profile=other`, { method, headers: { ...headers(), 'x-hermes-profile': 'other' }, ...(body ? { body } : {}) })
-    expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ userId: 7, action })
+    expect(response.status).toBe(method === 'GET' ? 200 : 403)
+    expect(await response.json()).toMatchObject(method === 'GET' ? { available: false, urls: null, reason: 'official_cloud_connection_required' } : { error: { code: 'official_cloud_connection_required' } })
   }
-  expect(mocks.cloud).toHaveBeenCalledTimes(4)
+  expect(mocks.cloud).not.toHaveBeenCalled()
 })
 
-it('allows a valid App connection owner and denies expired or revoked login credentials', async () => {
+it('does not let cloud App JWTs bypass the official cloud socket, and still denies expired credentials', async () => {
   const endpoint = url.replace('/api/ekko-studio/models/v1', '/api/studio/models/cloud-link')
   const appToken = await issueAppJwt(mocks.user as any, 'device-1', 'cloud')
   mocks.appValid = true
   expect((await fetch(endpoint, { headers: { Authorization: `Bearer ${appToken}` } })).status).toBe(200)
-  expect(mocks.cloud).toHaveBeenCalledWith(7, 'get')
+  expect(await (await fetch(endpoint, { headers: { Authorization: `Bearer ${appToken}` } })).json()).toMatchObject({ available: false, urls: null, reason: 'official_cloud_connection_required' })
+  expect((await fetch(endpoint, { method: 'POST',headers:{Authorization:`Bearer ${appToken}`,'Content-Type':'application/json'},body:'{}' })).status).toBe(403)
+  expect(mocks.cloud).not.toHaveBeenCalled()
   mocks.cloud.mockClear()
   mocks.appValid = false
   expect((await fetch(endpoint, { method: 'DELETE', headers: { Authorization: `Bearer ${appToken}` } })).status).toBe(401)
   const expired = signUserJwt(mocks.user as any, 'test-only-secret', Date.now() - 10000, 1)
   expect((await fetch(endpoint, { method: 'DELETE', headers: { Authorization: `Bearer ${expired}` } })).status).toBe(401)
   expect(mocks.cloud).not.toHaveBeenCalled()
+})
+
+
+it('denies LAN App cloud-link mutations even when Studio has another active cloud account', async () => {
+  mocks.appValid=true
+  const token=await issueAppJwt(mocks.user as any,'lan-device','lan')
+  const root=url.replace('/api/ekko-studio/models/v1','')
+  for(const path of ['/api/studio/models/cloud-link','/API/STUDIO/MODELS/CLOUD-LINK/'])for(const method of ['POST','DELETE']){
+    const r=await fetch(root+path,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','x-cloud-user-id':'5'},...(method==='POST'?{body:'{"cloudUserId":5,"connectionId":"fake"}'}:{})})
+    expect(r.status).toBe(403)
+    expect(await r.json()).toMatchObject({error:{code:'official_cloud_connection_required'}})
+  }
 })

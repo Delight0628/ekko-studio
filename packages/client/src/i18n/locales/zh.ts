@@ -10,7 +10,7 @@ export default {
     "rotateCloudLink": "重置云链接",
     "revokeCloudLink": "停用云链接",
     "cloudHint": "云链接提供官方和 Cloudflare 两条线路，调用仍需模型 API 密钥。",
-    "cloudUnavailable": "需要有效云连接和云访问权限，请连接云端并刷新。",
+    "cloudUnavailable": "请在 App 中通过官方云连接管理云链接，局域网和自建服务器不支持。",
     "cloudRevokeHint": "原有两条线路地址将立即失效，需更新调用端配置。",
     "connectionRoute": "接入线路",
 

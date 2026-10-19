@@ -36,7 +36,7 @@ export default {
     "rotateCloudLink": "Bulut bağlantısını sıfırla",
     "revokeCloudLink": "Bulut bağlantısını devre dışı bırak",
     "cloudHint": "Bağlantılar resmî ve Cloudflare rotalarını sunar. Model API anahtarı gereklidir.",
-    "cloudUnavailable": "Etkin bulut bağlantısı ve bulut erişimi gereklidir. Bağlanıp yenileyin.",
+    "cloudUnavailable": "Bulut bağlantılarını App üzerinden resmi bulut bağlantısıyla yönetin. LAN ve kendi sunucunuz üzerinden bağlantılar desteklenmez.",
     "cloudRevokeHint": "Önceki iki adres hemen geçersiz olur. İstemci yapılandırmasını güncelleyin.",
     "connectionRoute": "Bağlantı rotası",
 
