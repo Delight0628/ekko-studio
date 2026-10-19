@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ekko Studio Cookie 导入助手</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <header>
+        <h1>Ekko Studio Cookie 导入助手</h1>
+        <p>扫描当前浏览器中已有 Cookie 的网站，选择后导入到Ekko Studio 浏览器配置。</p>
+      </header>
+
+      <label class="field">
+        <span>Manager 地址</span>
+        <input id="managerUrl" type="url" placeholder="http://127.0.0.1:端口" autocomplete="off" />
+      </label>
+
+      <label class="field">
+        <span>一次性导入码</span>
+        <input id="token" type="text" placeholder="在 Studio 浏览器设置的 Cookie 导入页生成" autocomplete="off" />
+      </label>
+
+      <div class="actions">
+        <button id="scan" type="button">扫描网站 Cookie</button>
+        <button id="import" type="button" disabled>导入所选</button>
+      </div>
+
+      <section id="toolbar" class="toolbar" hidden>
+        <label class="field toolbar-field">
+          <span class="toolbar-label">筛选域名</span>
+          <input id="filterInput" type="text" placeholder="输入关键词过滤域名" autocomplete="off" />
+        </label>
+        <div class="batch-actions">
+          <button id="selectAll" type="button" title="全选当前可见域名">全选</button>
+          <button id="selectNone" type="button" title="取消全选">取消全选</button>
+          <button id="selectMore" type="button" title="按数量范围批量选择">批量选择</button>
+        </div>
+      </section>
+
+      <p id="status" class="status" role="status"></p>
+
+      <section id="domains" class="domains" aria-label="可导入的网站列表"></section>
+
+      <footer>
+        <p>扫描会读取 Cookie 以统计域名，仅发送所选域名的 Cookie。不会读取密码、Passkey 或系统钥匙串。仅支持本机 Studio；分区 Cookie 将跳过。导入码 5 分钟有效，发送后需回到 Studio 确认。</p>
+      </footer>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

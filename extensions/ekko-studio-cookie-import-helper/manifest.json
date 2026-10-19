@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Ekko Studio Cookie Import Helper",
+  "description": "将本机 Chrome 中选定网站的 Cookie 安全导入 Ekko Studio 浏览器配置。",
+  "version": "1.1.0",
+  "permissions": [
+    "cookies",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Ekko Studio Cookie 导入助手"
+  }
+}
