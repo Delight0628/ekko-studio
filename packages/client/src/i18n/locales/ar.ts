@@ -4,6 +4,7 @@ import { socialMessagesAr } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "noMatchingModels": "لا توجد نماذج مطابقة",
     "allowedModels": "النماذج المسموح بها",
     "selectModels": "اختر النماذج المسموح بها",
     "selectionHint": "تُحدد جميع النماذج المتاحة حاليًا افتراضيًا. عدّل المفتاح للسماح بالنماذج المضافة لاحقًا.",

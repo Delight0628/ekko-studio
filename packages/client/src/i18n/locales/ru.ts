@@ -4,6 +4,7 @@ import { socialMessagesRu } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "noMatchingModels": "Подходящие модели не найдены",
     "allowedModels": "Разрешённые модели",
     "selectModels": "Выберите разрешённые модели",
     "selectionHint": "По умолчанию выбраны все доступные модели. Для доступа к новым моделям отредактируйте ключ.",

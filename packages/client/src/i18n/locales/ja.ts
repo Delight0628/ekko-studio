@@ -4,6 +4,7 @@ import { socialMessagesJa } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "noMatchingModels": "一致するモデルがありません",
     "allowedModels": "利用を許可するモデル",
     "selectModels": "利用を許可するモデルを選択",
     "selectionHint": "現在利用可能なモデルが既定ですべて選択されます。追加されたモデルはキーを編集して許可してください。",

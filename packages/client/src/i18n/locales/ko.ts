@@ -4,6 +4,7 @@ import { socialMessagesKo } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "noMatchingModels": "일치하는 모델이 없습니다",
     "allowedModels": "허용된 모델",
     "selectModels": "허용할 모델 선택",
     "selectionHint": "현재 호출 가능한 모든 모델이 기본 선택됩니다. 새로 추가된 모델은 키를 편집하여 허용하세요.",

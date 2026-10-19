@@ -4,6 +4,7 @@ import { socialMessagesEn } from '../social-messages'
 
 export default {
   modelApi: {
+    "noMatchingModels": "No matching models",
     "allowedModels": "Allowed models",
     "selectModels": "Select allowed models",
     "selectionHint": "All currently callable models are selected by default. Edit the key to grant access to newly added models.",

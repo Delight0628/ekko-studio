@@ -4,6 +4,7 @@ import { socialMessagesDe } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "noMatchingModels": "Keine passenden Modelle",
     "allowedModels": "Erlaubte Modelle",
     "selectModels": "Erlaubte Modelle auswählen",
     "selectionHint": "Alle derzeit aufrufbaren Modelle sind standardmäßig ausgewählt. Bearbeite den Schlüssel, um neu hinzugefügte Modelle freizugeben.",

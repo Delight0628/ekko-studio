@@ -4,6 +4,7 @@ import { socialMessagesZh } from '../social-messages'
 
 export default {
   modelApi: {
+    "noMatchingModels": "没有匹配的模型",
     "allowedModels": "允许调用的模型",
     "selectModels": "选择允许调用的模型",
     "selectionHint": "默认全选当前可调用模型；新增模型需编辑密钥后授权。",

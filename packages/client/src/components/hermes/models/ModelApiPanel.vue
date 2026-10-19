@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { createModelApiKey, editModelApiKey, getApiModels, getModelApiKeys, modelApiBaseUrl, revokeModelApiKey, type ApiModel, type ModelApiKey } from '@/api/studio/model-api'
 import { copyToClipboard } from '@/utils/clipboard'
+import ModelApiModelsModal from './ModelApiModelsModal.vue'
 
 const { t, locale } = useI18n()
 const date = (value: number) => new Intl.DateTimeFormat(locale.value, { dateStyle: 'short', timeStyle: 'short' }).format(value)
@@ -20,10 +21,10 @@ const models = ref<ApiModel[]>([])
 const name = ref('')
 const editingKeyId = ref('')
 const selectedKeyModels = ref<string[]>([])
+const modelPickerVisible = ref(false)
 const keyForm = ref<HTMLFormElement | null>(null)
 let keySelectionInitialized = false
 const callableModels = computed(() => models.value.filter(model => model.responses_supported))
-const keyModelOptions = computed(() => callableModels.value.map(model => ({ label: model.id, value: model.id })))
 const canSaveKey = computed(() => !loading.value && !busy.value && !catalogError.value && !!name.value.trim() && selectedKeyModels.value.length > 0)
 const newKey = ref('')
 const selectedModel = ref<string | null>(null)
@@ -92,6 +93,7 @@ async function create() {
   finally { if (!disposed) busy.value = false }
 }
 function resetKeyForm() {
+  modelPickerVisible.value = false
   editingKeyId.value = ''
   name.value = ''
   selectedKeyModels.value = callableModels.value.map(model => model.id)
@@ -103,6 +105,11 @@ function edit(key: ModelApiKey) {
   const available = new Set(callableModels.value.map(model => model.id))
   selectedKeyModels.value = key.models.filter(id => available.has(id))
   void nextTick(() => keyForm.value?.scrollIntoView({ block: 'center', behavior: 'smooth' }))
+}
+function applyKeyModels(models: string[]) {
+  const selected = new Set(models)
+  selectedKeyModels.value = callableModels.value.filter(model => selected.has(model.id)).map(model => model.id)
+  modelPickerVisible.value = false
 }
 async function revoke(id: string) {
   if (busy.value) return
@@ -149,9 +156,9 @@ async function copy(value: string) {
             <h4 v-if="editingKeyId">{{ t('modelApi.editKey') }}</h4>
             <NInput v-model:value="name" :maxlength="80" :placeholder="t('modelApi.namePlaceholder')" :disabled="busy || loading" :input-props="{ 'aria-label': t('modelApi.keyName') }" />
             <label class="field-label">{{ t('modelApi.allowedModels') }}</label>
-            <NSelect v-model:value="selectedKeyModels" :options="keyModelOptions" multiple filterable :max-tag-count="3" :disabled="busy || loading || !!catalogError" :placeholder="t('modelApi.selectModels')" :aria-label="t('modelApi.allowedModels')" />
+            <NButton class="key-model-trigger" :disabled="busy || loading || !!catalogError" :aria-label="t('modelApi.selectModels')" @click="modelPickerVisible = true">{{ t('modelApi.selectModels') }} · {{ t('modelApi.selectedModels', { count: selectedKeyModels.length }) }}</NButton>
             <p class="hint">{{ t('modelApi.selectionHint') }}</p>
-            <div class="form-actions"><NButton :disabled="busy || loading || !!catalogError" @click="selectedKeyModels = callableModels.map(model => model.id)">{{ t('modelApi.selectAll') }}</NButton><NButton :disabled="busy || loading" @click="selectedKeyModels = []">{{ t('modelApi.clearSelection') }}</NButton><NButton v-if="editingKeyId" :disabled="busy" @click="resetKeyForm">{{ t('common.cancel') }}</NButton><NButton type="primary" attr-type="submit" :loading="busy" :disabled="!canSaveKey">{{ t(editingKeyId ? 'modelApi.saveKey' : 'modelApi.createKey') }}</NButton></div>
+            <div class="form-actions"><NButton v-if="editingKeyId" :disabled="busy" @click="resetKeyForm">{{ t('common.cancel') }}</NButton><NButton type="primary" attr-type="submit" :loading="busy" :disabled="!canSaveKey">{{ t(editingKeyId ? 'modelApi.saveKey' : 'modelApi.createKey') }}</NButton></div>
           </form>
           <NEmpty v-if="!loading && !keys.length" :description="t('modelApi.noKeys')" size="small" />
           <ul v-else class="key-list">
@@ -190,7 +197,8 @@ async function copy(value: string) {
         </section>
       </div>
     </NSpin>
-    <NModal :show="!!newKey" preset="card" :title="t('modelApi.created')" class="model-api-key-modal" :mask-closable="false" :close-on-esc="false" :closable="false">
+    <ModelApiModelsModal :visible="modelPickerVisible" :models="models" :selected="selectedKeyModels" @confirm="applyKeyModels" @cancel="modelPickerVisible = false" />
+    <NModal :show="!!newKey" preset="card" :title="t('modelApi.created')" class="model-api-key-modal" :style="{ width: 'min(540px, calc(100vw - 32px))' }" :mask-closable="false" :close-on-esc="false" :closable="false">
       <p>{{ t('modelApi.oneTimeHint') }}</p>
       <NInput :value="newKey" type="password" show-password-on="click" readonly :input-props="{ 'aria-label': t('modelApi.created') }" />
       <template #footer><div class="modal-actions"><NButton type="primary" @click="copy(newKey)">{{ t('common.copy') }}</NButton><NButton @click="newKey = ''">{{ t('modelApi.savedKey') }}</NButton></div></template>
@@ -228,7 +236,6 @@ h4 { font-size: var(--font-size-base, 14px); }
 .example-heading { margin-top: 24px; }
 .request-example { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; color: $text-primary; font-size: calc(var(--font-size-base, 14px) * 12 / 14); }
 .modal-actions { justify-content: flex-end; flex-wrap: wrap; }
-.model-api-key-modal { width: min(540px, calc(100vw - 32px)); }
 @media (max-width: 640px) {
   .api-card { padding: 16px; }
   .create-key { flex-direction: column; }

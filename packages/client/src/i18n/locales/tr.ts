@@ -30,6 +30,7 @@ const writeApprovalMessages = {
 
 export default {
   modelApi: {
+    "noMatchingModels": "Eşleşen model yok",
     "allowedModels": "İzin verilen modeller",
     "selectModels": "İzin verilen modelleri seçin",
     "selectionHint": "Mevcut tüm kullanılabilir modeller varsayılan olarak seçilir. Yeni eklenen modellere izin vermek için anahtarı düzenleyin.",

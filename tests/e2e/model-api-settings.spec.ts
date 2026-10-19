@@ -32,6 +32,7 @@ async function mockModelApi(page: Page) {
     ? route.fulfill({ status: 502, json: { error: { message: 'Catalog unavailable' } } })
     : route.fulfill({ json: { object: 'list', data: state === 'empty' ? [] : [
       { id: 'glm/glm-5.3', owned_by: 'glm', api_mode: 'chat_completions', responses_supported: true },
+      { id: 'glm/glm-alt', owned_by: 'glm', api_mode: 'chat_completions', responses_supported: true },
       { id: 'deepseek/deepseek-reasoner', owned_by: 'deepseek', api_mode: 'chat_completions', responses_supported: true },
       { id: 'bedrock/claude', owned_by: 'bedrock', api_mode: 'bedrock_converse', responses_supported: false },
     ] } }))
@@ -63,7 +64,7 @@ for (const width of [390, 1280]) {
     expect(await page.evaluate(() => (window as any).copiedText)).toBe(secret)
     await modal.getByRole('button', { name: 'I saved the key', exact: true }).click()
     await expect(modal).toHaveCount(0)
-    expect(api.writes[0]).toEqual({ method: 'POST', profile: '', body: { name: 'My coding client', models: ['glm/glm-5.3', 'deepseek/deepseek-reasoner'] } })
+    expect(api.writes[0]).toEqual({ method: 'POST', profile: '', body: { name: 'My coding client', models: ['glm/glm-5.3', 'glm/glm-alt', 'deepseek/deepseek-reasoner'] } })
     expect(await page.evaluate(value => JSON.stringify(localStorage).includes(value), secret)).toBe(false)
     await expect(page.locator('.key-list')).toContainText('My coding client')
     await page.screenshot({ path: info.outputPath(`model-api-${width}.png`), fullPage: true, animations: 'disabled' })
@@ -81,9 +82,32 @@ for (const width of [390, 1280]) {
     await expect(page.locator('.key-list')).toContainText('My coding client')
     await page.getByRole('button', { name: 'Edit key', exact: true }).click()
     await page.getByRole('textbox', { name: 'Key name', exact: true }).fill('Scoped client')
-    await page.getByLabel('Allowed models', { exact: true }).click()
-    await page.locator('.n-base-select-option:visible').filter({ hasText: /^deepseek\/deepseek-reasoner$/ }).click()
-    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Select allowed models', exact: true }).click()
+    const picker = page.getByRole('dialog', { name: 'Select allowed models', exact: true })
+    const provider = (id: string) => picker.locator(`[data-api-provider="${id}"]`)
+    const model = (id: string) => picker.locator(`[data-api-model="${id}"]`)
+    await expect(picker).toHaveCSS('width', `${Math.min(620, width - 32)}px`)
+    await expect(provider('glm').getByRole('checkbox')).toHaveAttribute('aria-checked', 'true')
+    await expect(provider('deepseek').getByRole('checkbox')).toHaveAttribute('aria-checked', 'true')
+    await expect(provider('bedrock')).toHaveCount(0)
+    await picker.getByRole('button', { name: 'Clear selection', exact: true }).click()
+    await picker.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(page.locator('.key-model-trigger')).toContainText('3 models selected')
+    await page.getByRole('button', { name: 'Select allowed models', exact: true }).click()
+    await expect(provider('glm').getByRole('checkbox')).toHaveAttribute('aria-checked', 'true')
+    await provider('deepseek').getByRole('checkbox').click()
+    await provider('glm').click()
+    await model('glm/glm-alt').click()
+    await expect(provider('glm').getByRole('checkbox')).toHaveAttribute('aria-checked', 'mixed')
+    await picker.getByRole('textbox', { name: 'Search models', exact: true }).fill('glm-5.3')
+    await expect(model('glm/glm-alt')).toHaveCount(0)
+    await expect(model('glm/glm-5.3').getByRole('checkbox')).toHaveAttribute('aria-checked', 'true')
+    await picker.getByRole('textbox', { name: 'Search models', exact: true }).fill('does-not-exist')
+    await expect(picker.getByText('No matching models', { exact: true })).toBeVisible()
+    await picker.getByRole('textbox', { name: 'Search models', exact: true }).fill('')
+    await expect(picker.locator('.n-tree-motion-wrapper')).toHaveCount(0)
+    await page.screenshot({ path: info.outputPath(`model-api-tree-${width}.png`), fullPage: true, animations: 'disabled' })
+    await picker.getByRole('button', { name: 'Confirm', exact: true }).click()
     await page.getByRole('button', { name: 'Save key', exact: true }).click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(page.locator('.key-list')).toContainText('Scoped client')
@@ -138,7 +162,7 @@ for (const brightness of ['light', 'dark']) {
     await mockHermesApi(page, { theme: {
       brightness,
       background: { name: 'wall.png', mime: 'image/png', updatedAt: 1 },
-      appearance: { global: { opacity: 0.4 }, regions: { card: { backgroundColor: '#6286a8', opacity: 0, blur: 12, radius: 18, borderColor: '#abcdea' } } },
+      appearance: { global: { opacity: 0.4 }, regions: { card: { backgroundColor: '#6286a8', opacity: 0, blur: 12, radius: 18, borderColor: '#abcdea' }, overlay: { backgroundColor: '#336699', opacity: 0.3, blur: 12, radius: 16 } } },
     } })
     await mockModelApi(page)
     await page.goto('/#/hermes/models?tab=api')
@@ -149,6 +173,17 @@ for (const brightness of ['light', 'dark']) {
     await expect(card).toHaveCSS('opacity', '1')
     await expect(page.getByLabel('Base URL', { exact: true })).toBeVisible()
     await page.screenshot({ path: info.outputPath(`model-api-${brightness}-wallpaper.png`), fullPage: true, animations: 'disabled' })
+    await page.getByRole('button', { name: 'Select allowed models', exact: true }).click()
+    const picker = page.getByRole('dialog', { name: 'Select allowed models', exact: true })
+    await expect(picker).toHaveCSS('background-color', 'rgba(51, 102, 153, 0.3)')
+    await expect(picker).toHaveCSS('backdrop-filter', 'blur(12px) saturate(1.1)')
+    await expect(picker).toHaveCSS('border-radius', '16px')
+    await expect(picker).toHaveCSS('opacity', '1')
+    await picker.locator('[data-api-provider="glm"]').click()
+    await expect(picker.locator('[data-api-model="glm/glm-5.3"]')).toBeVisible()
+    await expect(picker.locator('.n-tree-motion-wrapper')).toHaveCount(0)
+    await page.screenshot({ path: info.outputPath(`model-api-tree-${brightness}-wallpaper.png`), fullPage: true, animations: 'disabled' })
+    await picker.getByRole('button', { name: 'Cancel', exact: true }).click()
     // Reload with preset inheritance restored and wallpaper removed.
     await page.route('**/api/theme', route => route.fulfill({ json: { fontSize: 14, brightness, background: null, appearance: { global: {}, regions: {} } } }))
     await page.reload()
@@ -157,5 +192,11 @@ for (const brightness of ['light', 'dark']) {
     await expect(page.getByTestId('model-api-panel')).toHaveAttribute('aria-busy', 'false')
     await expect(card).toBeVisible()
     await page.screenshot({ path: info.outputPath(`model-api-${brightness}-preset.png`), fullPage: true, animations: 'disabled' })
+    await page.getByRole('button', { name: 'Select allowed models', exact: true }).click()
+    await expect(picker).not.toHaveCSS('background-color', 'rgba(51, 102, 153, 0.3)')
+    await expect(picker).toHaveCSS('backdrop-filter', 'none')
+    await picker.locator('[data-api-provider="glm"]').click()
+    await expect(picker.locator('.n-tree-motion-wrapper')).toHaveCount(0)
+    await page.screenshot({ path: info.outputPath(`model-api-tree-${brightness}-preset.png`), fullPage: true, animations: 'disabled' })
   })
 }
