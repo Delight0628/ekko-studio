@@ -65,6 +65,18 @@ export default {
     "openFailed": "Impossible d’ouvrir les autorisations. Ouvrez Réglages Système → Confidentialité et sécurité manuellement."
   },
   jev: {
+    computerUseAutomation: "Contrôle du bureau Ekko",
+    computerUseAutomationHint: "Utilise la connexion JEV de ce profil à la prochaine exécution Ekko. Seuls les libellés d’accessibilité et les états des contrôles sont envoyés, sans valeurs ni captures. En cas d’échec, le résultat natif est conservé.",
+    computerUseMatchEnabled: "Repérer les éléments du bureau",
+    computerUseMatchHint: "Propose un jeton existant pour une cible explicite dans une nouvelle observation de fenêtre, sans cliquer.",
+    computerUseMatchCandidateLimit: "Nombre maximal de candidats du bureau",
+    computerUseMatchMinConfidence: "Confiance minimale du repérage",
+    computerUseMatchTimeoutMs: "Délai du repérage (ms)",
+    computerUseVerifyEnabled: "Vérifier les résultats du bureau",
+    computerUseVerifyHint: "Évalue une attente explicite à partir de nouvelles observations. Avis indicatif ; les preuves manquantes restent incertaines et les actions ne sont jamais répétées.",
+    computerUseVerifyMinConfidence: "Confiance minimale de vérification du bureau",
+    computerUseVerifyTimeoutMs: "Délai de vérification du bureau (ms)",
+
     browserAutomation: "Automatisation du navigateur intégré",
     browserAutomationHint: "Les évaluations facultatives utilisent la connexion JEV enregistrée pour ce profil dès la prochaine évaluation. Les libellés visibles sont envoyés à JEV, sans les valeurs saisies. Le fonctionnement habituel est conservé si le service est désactivé, indisponible ou incertain.",
     browserMatchEnabled: "Correspondance des éléments avec JEV",

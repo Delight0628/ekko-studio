@@ -65,6 +65,18 @@ export default {
     "openFailed": "تعذر فتح إعدادات الأذونات. افتح إعدادات النظام ← الخصوصية والأمان يدويًا."
   },
   jev: {
+    computerUseAutomation: "التحكم بالكمبيوتر عبر Ekko",
+    computerUseAutomationHint: "يستخدم اتصال JEV لهذا الملف بدءًا من تشغيل Ekko التالي. يرسل تسميات إمكانية الوصول وحالات العناصر فقط، دون قيم الحقول أو الصور. يحتفظ بالنتيجة الأصلية عند الفشل.",
+    computerUseMatchEnabled: "مطابقة عناصر سطح المكتب",
+    computerUseMatchHint: "يقترح رمز عنصر موجودًا لهدف صريح من ملاحظة نافذة جديدة، دون النقر.",
+    computerUseMatchCandidateLimit: "حد مرشحي سطح المكتب",
+    computerUseMatchMinConfidence: "الحد الأدنى لثقة مطابقة سطح المكتب",
+    computerUseMatchTimeoutMs: "مهلة مطابقة سطح المكتب (مللي ثانية)",
+    computerUseVerifyEnabled: "التحقق من نتائج سطح المكتب",
+    computerUseVerifyHint: "يقيّم توقعًا صريحًا بأدلة نافذة جديدة. النتيجة استشارية؛ نقص الأدلة يبقي عدم اليقين ولا تُكرر الإجراءات.",
+    computerUseVerifyMinConfidence: "الحد الأدنى لثقة تحقق سطح المكتب",
+    computerUseVerifyTimeoutMs: "مهلة تحقق سطح المكتب (مللي ثانية)",
+
     browserAutomation: "أتمتة المتصفح المدمج",
     browserAutomationHint: "تستخدم التقييمات الاختيارية اتصال JEV المحفوظ لهذا الملف الشخصي بدءًا من التقييم التالي. تُرسل التسميات المرئية دون قيم الإدخال. يستمر المسار المعتاد عند التعطيل أو عدم التوفر أو عدم اليقين.",
     browserMatchEnabled: "مطابقة العناصر عبر JEV",

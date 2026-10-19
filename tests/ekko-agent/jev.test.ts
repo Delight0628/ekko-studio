@@ -47,6 +47,21 @@ function requestKey(index = 0): string | null {
 }
 
 describe('Ekko JEV configuration', () => {
+  it('defaults Computer Use JEV off and preserves local config under runtime overrides', () => {
+    expect(normalizeEkkoConfig({ jev: { enabled: true, apiKey: 'legacy' } }).jev).toMatchObject({ computerUseMatchEnabled: false, computerUseVerifyEnabled: false })
+    const agent = create({ config: { jev: { enabled: true, apiKey: 'local', computerUseMatchEnabled: true } }, jev: { computerUseMatchEnabled: false, computerUseVerifyEnabled: true } })
+    expect(agent.default.runtime.create().jev.settings).toMatchObject({ computerUseMatchEnabled: false, computerUseVerifyEnabled: true })
+    expect(agent.readConfig().jev).toMatchObject({ computerUseMatchEnabled: true, computerUseVerifyEnabled: false })
+  })
+
+  it.each([{ computerUseMatchEnabled: 'true' }, { computerUseVerifyEnabled: null },
+    { computerUseMatchCandidateLimit: 0 }, { computerUseMatchCandidateLimit: 51 },
+    { computerUseMatchMinConfidence: NaN }, { computerUseVerifyMinConfidence: 1.1 },
+    { computerUseMatchTimeoutMs: 99 }, { computerUseVerifyTimeoutMs: 30001 },
+  ])('rejects invalid Computer Use JEV config %j', input => {
+    expect(() => normalizeEkkoConfig({ jev: input } as any)).toThrow(EkkoConfigError)
+  })
+
   it('defaults legacy skill enhancement off and preserves explicit host overrides without write-back', () => {
     const legacy = normalizeEkkoConfig({ schemaVersion: 13, jev: { enabled: true, apiKey: 'local-key', memoryEnabled: true } })
     expect(legacy.jev).toMatchObject({ skillsEnabled: false, skillsCandidateLimit: 20, skillsMinConfidence: 0.8, skillsTimeoutMs: 3000, memoryEnabled: true })

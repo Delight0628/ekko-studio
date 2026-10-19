@@ -65,6 +65,18 @@ export default {
     "openFailed": "Autorisierung konnte nicht geöffnet werden. Öffne Systemeinstellungen → Datenschutz & Sicherheit manuell."
   },
   jev: {
+    computerUseAutomation: "Ekko-Computersteuerung",
+    computerUseAutomationHint: "Verwendet die JEV-Verbindung dieses Profils ab dem nächsten Ekko-Lauf. Nur zugängliche Beschriftungen und Zustände werden gesendet, keine Feldwerte oder Bilder. Bei Fehlern bleibt das native Ergebnis erhalten.",
+    computerUseMatchEnabled: "Desktopelemente zuordnen",
+    computerUseMatchHint: "Schlägt ein vorhandenes Element-Token für ein ausdrückliches Ziel in einer neuen Fensterbeobachtung vor. Führt keinen Klick aus.",
+    computerUseMatchCandidateLimit: "Maximale Desktopkandidaten",
+    computerUseMatchMinConfidence: "Mindestkonfidenz der Desktopzuordnung",
+    computerUseMatchTimeoutMs: "Zeitlimit der Desktopzuordnung (ms)",
+    computerUseVerifyEnabled: "Desktopergebnisse prüfen",
+    computerUseVerifyHint: "Bewertet eine ausdrückliche Erwartung anhand neuer Fensterdaten. Nur ein Hinweis; fehlende Belege bleiben ungewiss und Aktionen werden nie wiederholt.",
+    computerUseVerifyMinConfidence: "Mindestkonfidenz der Desktopprüfung",
+    computerUseVerifyTimeoutMs: "Zeitlimit der Desktopprüfung (ms)",
+
     browserAutomation: "Automatisierung des integrierten Browsers",
     browserAutomationHint: "Optionale Bewertungen verwenden die gespeicherte JEV-Verbindung dieses Profils ab der nächsten Bewertung. Sichtbare Beschriftungen werden an JEV gesendet, Eingabewerte nicht. Bei deaktivierter, nicht verfügbarer oder unsicherer Bewertung bleibt der bisherige Ablauf erhalten.",
     browserMatchEnabled: "Elementabgleich mit JEV",

@@ -65,6 +65,18 @@ export default {
     "openFailed": "権限設定を開けませんでした。「システム設定 → プライバシーとセキュリティ」を手動で開いてください。"
   },
   jev: {
+    computerUseAutomation: "Ekko コンピューター操作",
+    computerUseAutomationHint: "このプロファイルの JEV 接続を次の Ekko 実行から使用します。送信するのはアクセシビリティのラベルと操作部品の状態のみで、入力値や画像は含みません。失敗時は元の結果を保持します。",
+    computerUseMatchEnabled: "デスクトップ要素の照合",
+    computerUseMatchHint: "最新のウィンドウ観察から、指定した対象に合う既存の要素トークンを提案します。クリックは実行しません。",
+    computerUseMatchCandidateLimit: "照合候補数の上限",
+    computerUseMatchMinConfidence: "照合の最低信頼度",
+    computerUseMatchTimeoutMs: "照合のタイムアウト（ミリ秒）",
+    computerUseVerifyEnabled: "デスクトップ結果の検証",
+    computerUseVerifyHint: "最新のウィンドウ情報から指定した期待結果を評価します。参考情報として扱い、証拠不足なら不明とし、操作は再試行しません。",
+    computerUseVerifyMinConfidence: "検証の最低信頼度",
+    computerUseVerifyTimeoutMs: "検証のタイムアウト（ミリ秒）",
+
     browserAutomation: "内蔵ブラウザーの自動化",
     browserAutomationHint: "このプロファイルに保存した JEV 接続を使用し、次の判定から適用します。画面上のラベルを JEV に送信しますが、入力値は含みません。無効時、利用不可時、判定が不確かな場合は従来の処理を維持します。",
     browserMatchEnabled: "JEV による要素の照合",

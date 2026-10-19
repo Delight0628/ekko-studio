@@ -65,6 +65,18 @@ export default {
     "openFailed": "无法打开授权设置，请手动前往「系统设置 → 隐私与安全性」。"
   },
   jev: {
+    computerUseAutomation: "Ekko 电脑操作",
+    computerUseAutomationHint: "复用当前 Profile 的 JEV 连接，下次 Ekko 运行生效。仅发送辅助功能标签和控件状态，不包含字段值与截图。可选判断失败时保留原生结果。",
+    computerUseMatchEnabled: "桌面元素语义匹配",
+    computerUseMatchHint: "根据明确目标，从新鲜窗口观察中推荐已有元素 token，不会执行点击。",
+    computerUseMatchCandidateLimit: "桌面匹配候选上限",
+    computerUseMatchMinConfidence: "桌面匹配最低置信度",
+    computerUseMatchTimeoutMs: "桌面匹配超时（毫秒）",
+    computerUseVerifyEnabled: "桌面结果语义验证",
+    computerUseVerifyHint: "根据新鲜窗口证据评估明确预期，仅提供参考；证据不足时保留不确定性，不会重试操作。",
+    computerUseVerifyMinConfidence: "桌面验证最低置信度",
+    computerUseVerifyTimeoutMs: "桌面验证超时（毫秒）",
+
     browserAutomation: "内置浏览器自动化",
     browserAutomationHint: "可选判断复用当前 Profile 保存的 JEV 连接，下次判断生效。页面可见标签会发送给 JEV，不包含输入框的值。关闭、服务不可用或判断不确定时保留原有流程。",
     browserMatchEnabled: "JEV 元素匹配",

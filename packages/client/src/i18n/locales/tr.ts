@@ -140,6 +140,18 @@ export default {
   },
 
   jev: {
+    computerUseAutomation: "Ekko bilgisayar kontrolü",
+    computerUseAutomationHint: "Bu profilin JEV bağlantısını sonraki Ekko çalışmasından itibaren kullanır. Yalnızca erişilebilirlik etiketleri ve kontrol durumları gönderilir; alan değerleri ve görüntüler hariçtir. Hatalar yerel sonucu korur.",
+    computerUseMatchEnabled: "Masaüstü öğelerini eşleştir",
+    computerUseMatchHint: "Yeni pencere gözleminde açık bir hedef için mevcut öğe belirtecini önerir. Tıklamaz.",
+    computerUseMatchCandidateLimit: "Masaüstü eşleştirme aday sınırı",
+    computerUseMatchMinConfidence: "Masaüstü eşleştirme asgari güveni",
+    computerUseMatchTimeoutMs: "Masaüstü eşleştirme zaman aşımı (ms)",
+    computerUseVerifyEnabled: "Masaüstü sonuçlarını doğrula",
+    computerUseVerifyHint: "Açık bir beklentiyi yeni pencere kanıtlarıyla değerlendirir. Yalnızca öneridir; eksik kanıt belirsiz kalır ve işlemler tekrarlanmaz.",
+    computerUseVerifyMinConfidence: "Masaüstü doğrulama asgari güveni",
+    computerUseVerifyTimeoutMs: "Masaüstü doğrulama zaman aşımı (ms)",
+
     browserAutomation: 'Yerleşik tarayıcı otomasyonu',
     browserAutomationHint: 'İsteğe bağlı değerlendirmeler, sonraki değerlendirmede bu Profile kaydedilen JEV bağlantısını kullanır. Görüntülenen sayfa etiketleri JEV\'e gönderilir; giriş değerleri gönderilmez. Devre dışı, kullanılamaz veya belirsiz değerlendirmelerde özgün akış korunur.',
     browserMatchEnabled: 'JEV öğe eşleştirme',

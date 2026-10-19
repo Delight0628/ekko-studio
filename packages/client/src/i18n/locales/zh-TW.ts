@@ -65,6 +65,18 @@ export default {
     "openFailed": "無法開啟授權設定，請手動前往「系統設定 → 隱私權與安全性」。"
   },
   jev: {
+    computerUseAutomation: "Ekko 電腦操作",
+    computerUseAutomationHint: "沿用目前 Profile 的 JEV 連線，下次 Ekko 執行生效。僅傳送輔助使用標籤和控制項狀態，不包含欄位值與截圖。選用判斷失敗時保留原生結果。",
+    computerUseMatchEnabled: "桌面元素語意比對",
+    computerUseMatchHint: "依明確目標，從最新視窗觀察中推薦既有元素 token，不會執行點擊。",
+    computerUseMatchCandidateLimit: "桌面比對候選上限",
+    computerUseMatchMinConfidence: "桌面比對最低信心值",
+    computerUseMatchTimeoutMs: "桌面比對逾時（毫秒）",
+    computerUseVerifyEnabled: "桌面結果語意驗證",
+    computerUseVerifyHint: "依最新視窗證據評估明確預期，僅供參考；證據不足時保留不確定性，不會重試操作。",
+    computerUseVerifyMinConfidence: "桌面驗證最低信心值",
+    computerUseVerifyTimeoutMs: "桌面驗證逾時（毫秒）",
+
     browserAutomation: "內建瀏覽器自動化",
     browserAutomationHint: "選用判斷沿用目前 Profile 儲存的 JEV 連線，下次判斷生效。頁面可見標籤會傳送給 JEV，不包含輸入欄位的值。關閉、服務無法使用或判斷不確定時保留原有流程。",
     browserMatchEnabled: "JEV 元素比對",

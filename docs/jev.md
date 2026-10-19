@@ -256,3 +256,15 @@ Feature timeouts bound the provider assessment, independently of the browser's
 execution budget; the shared provider timeout also applies. The MCP settings
 lookup has a five-second transport deadline and assessment transport allows one
 extra second for the server response. Optional evaluations do not automatically retry.
+
+## Ekko Computer Use
+
+Models → JEV → Ekko Computer Use has independent default-off controls for
+desktop element matching and outcome verification. The selected Profile is read
+before each Ekko run; settings stay fixed during that run. A fresh
+`get_window_state` with top-level `target` and/or `expectation` supplies bounded
+native accessibility evidence. Assessments return advisory results alongside the
+native observation and images. They never click, retry or alter native success.
+Field values and images are excluded from JEV. Disabled/unconfigured features
+make zero provider requests; optional failures retain the native result.
+See [configuration and examples](../packages/ekko-agent/docs/computer-use.md#optional-jev-assessments).

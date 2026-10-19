@@ -65,6 +65,18 @@ export default {
     "openFailed": "권한 설정을 열 수 없습니다. 시스템 설정 → 개인정보 보호 및 보안을 직접 여세요."
   },
   jev: {
+    computerUseAutomation: "Ekko 컴퓨터 제어",
+    computerUseAutomationHint: "다음 Ekko 실행부터 이 프로필의 JEV 연결을 사용합니다. 접근성 레이블과 컨트롤 상태만 보내며 입력값과 이미지는 제외합니다. 실패하면 원래 결과를 유지합니다.",
+    computerUseMatchEnabled: "데스크톱 요소 매칭",
+    computerUseMatchHint: "새 창 관찰에서 지정한 대상에 맞는 기존 요소 토큰을 제안합니다. 클릭하지 않습니다.",
+    computerUseMatchCandidateLimit: "데스크톱 매칭 후보 수",
+    computerUseMatchMinConfidence: "데스크톱 매칭 최소 신뢰도",
+    computerUseMatchTimeoutMs: "데스크톱 매칭 제한 시간(ms)",
+    computerUseVerifyEnabled: "데스크톱 결과 검증",
+    computerUseVerifyHint: "새 창 증거로 지정한 기대 결과를 평가합니다. 참고용이며 증거가 부족하면 불확실성을 유지하고 작업을 재시도하지 않습니다.",
+    computerUseVerifyMinConfidence: "데스크톱 검증 최소 신뢰도",
+    computerUseVerifyTimeoutMs: "데스크톱 검증 제한 시간(ms)",
+
     browserAutomation: "내장 브라우저 자동화",
     browserAutomationHint: "이 프로필에 저장된 JEV 연결을 사용하며 다음 판단부터 적용됩니다. 화면의 레이블을 JEV에 보내지만 입력값은 제외합니다. 비활성화, 서비스 오류 또는 불확실한 판단 시 기존 흐름을 유지합니다.",
     browserMatchEnabled: "JEV 요소 매칭",

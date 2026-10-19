@@ -324,6 +324,8 @@ API mode 固定映射：`chat_completions` → `openai-chat`，`codex_responses`
 
 记忆增强的具体行为、开关及降级规则见 [memory-jev.md](memory-jev.md)。每次 `runtime.run` 固定 JEV 配置快照；本轮工具和召回沿用此快照，下一轮才使用更新后的值。
 
+Computer Use 的独立可选评估使用 `jev.computerUseMatchEnabled` / `jev.computerUseVerifyEnabled`（默认关闭）。在 `computer_use` 的 `get_window_state` 调用中传顶层 `target` / `expectation`，可从新鲜窗口证据获得已有元素 token 推荐或结果判断；不会自动点击、重试或改变原生结果。候选上限、最低置信度、超时与 Studio 映射见 [computer-use.md](computer-use.md#optional-jev-assessments)。
+
 JEV 实现由 Ekko 自己提供，可以脱离 Studio 独立使用。配置按字段合并，优先级从低到高为：
 
 1. `DEFAULT_EKKO_JEV_CONFIG`：默认关闭，空密钥、`https://api.typesafe.ai`、`jev-latest`、10 秒超时。
@@ -1551,6 +1553,13 @@ export interface EkkoJevConfig {
   memoryMinConfidence: number
   memoryFilterMinConfidence: number
   memoryTimeoutMs: number
+  computerUseMatchEnabled: boolean
+  computerUseMatchCandidateLimit: number
+  computerUseMatchMinConfidence: number
+  computerUseMatchTimeoutMs: number
+  computerUseVerifyEnabled: boolean
+  computerUseVerifyMinConfidence: number
+  computerUseVerifyTimeoutMs: number
   skillsEnabled: boolean
   skillsCandidateLimit: number
   skillsMinConfidence: number
@@ -1563,7 +1572,7 @@ export interface EkkoJevConfig {
 
 export type EkkoJevOverrides = Partial<EkkoJevConfig> | false
 
-export const DEFAULT_EKKO_JEV_CONFIG: Readonly<EkkoJevConfig> = Object.freeze({ enabled: false, memoryEnabled: false, memoryKindRoutingEnabled: false, memoryRelevanceFilterEnabled: false, memoryRerankEnabled: false, memoryWriteReviewEnabled: false, memoryCandidateLimit: 20, memoryRecallMinConfidence: 0.5, memoryMinConfidence: 0.8, memoryFilterMinConfidence: 0.8, memoryTimeoutMs: 3000, skillsEnabled: false, skillsCandidateLimit: 20, skillsMinConfidence: 0.8, skillsTimeoutMs: 3000, apiKey: '', baseUrl: 'https://api.typesafe.ai', model: 'jev-latest', timeoutMs: 10_000, })
+export const DEFAULT_EKKO_JEV_CONFIG: Readonly<EkkoJevConfig> = Object.freeze({ enabled: false, memoryEnabled: false, memoryKindRoutingEnabled: false, memoryRelevanceFilterEnabled: false, memoryRerankEnabled: false, memoryWriteReviewEnabled: false, memoryCandidateLimit: 20, memoryRecallMinConfidence: 0.5, memoryMinConfidence: 0.8, memoryFilterMinConfidence: 0.8, memoryTimeoutMs: 3000, computerUseMatchEnabled: false, computerUseMatchCandidateLimit: 20, computerUseMatchMinConfidence: 0.8, computerUseMatchTimeoutMs: 3000, computerUseVerifyEnabled: false, computerUseVerifyMinConfidence: 0.8, computerUseVerifyTimeoutMs: 3000, skillsEnabled: false, skillsCandidateLimit: 20, skillsMinConfidence: 0.8, skillsTimeoutMs: 3000, apiKey: '', baseUrl: 'https://api.typesafe.ai', model: 'jev-latest', timeoutMs: 10_000, })
 
 export function resolveEkkoJevConfig( ...layers: Array<EkkoJevOverrides | undefined> ): EkkoJevConfig
 ```
@@ -3326,6 +3335,15 @@ export class ComputerUseTool implements AgentTool {
   constructor(private readonly options: ComputerUseToolOptions = {})
   async execute(input: Record<string, unknown>, context: AgentToolContext = {}): Promise<AgentToolResult>
 }
+```
+### `src/tools/computer-use/jev.ts`
+
+```ts
+export type ComputerUseJevAssessment = Record<string, unknown>
+
+export function computerUseJevEnabled(feature: Feature): boolean
+
+export async function assessComputerUse( feature: Feature, intent: string, input: unknown, args: Record<string, unknown>, signal?: AbortSignal, ): Promise<ComputerUseJevAssessment>
 ```
 ### `src/tools/computer-use/policy.ts`
 

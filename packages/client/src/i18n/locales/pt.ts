@@ -65,6 +65,18 @@ export default {
     "openFailed": "Não foi possível abrir a autorização. Abra Ajustes do Sistema → Privacidade e Segurança manualmente."
   },
   jev: {
+    computerUseAutomation: "Controle do computador Ekko",
+    computerUseAutomationHint: "Usa a conexão JEV deste perfil a partir da próxima execução do Ekko. Envia apenas rótulos de acessibilidade e estados, sem valores nem capturas. Falhas preservam o resultado nativo.",
+    computerUseMatchEnabled: "Localizar elementos da área de trabalho",
+    computerUseMatchHint: "Sugere um token existente para um alvo explícito em uma nova observação da janela. Não clica.",
+    computerUseMatchCandidateLimit: "Limite de candidatos da área de trabalho",
+    computerUseMatchMinConfidence: "Confiança mínima da busca na área de trabalho",
+    computerUseMatchTimeoutMs: "Tempo limite da busca na área de trabalho (ms)",
+    computerUseVerifyEnabled: "Verificar resultados da área de trabalho",
+    computerUseVerifyHint: "Avalia uma expectativa explícita com evidências novas. Apenas consultivo; evidências ausentes mantêm a incerteza e ações nunca são repetidas.",
+    computerUseVerifyMinConfidence: "Confiança mínima da verificação da área de trabalho",
+    computerUseVerifyTimeoutMs: "Tempo limite da verificação da área de trabalho (ms)",
+
     browserAutomation: "Automação do navegador integrado",
     browserAutomationHint: "As avaliações opcionais usam a conexão JEV salva neste perfil a partir da próxima avaliação. Os rótulos visíveis são enviados ao JEV, sem os valores digitados. Quando desativado, indisponível ou incerto, o fluxo original é mantido.",
     browserMatchEnabled: "Correspondência de elementos com JEV",

@@ -65,6 +65,18 @@ export default {
     "openFailed": "Could not open authorization. Open System Settings → Privacy & Security manually."
   },
   jev: {
+    computerUseAutomation: "Ekko Computer Use",
+    computerUseAutomationHint: "Uses this Profile’s JEV connection from the next Ekko run. Only accessibility labels and control states are sent; field values and screenshots are excluded. Optional failures preserve the native result.",
+    computerUseMatchEnabled: "Match desktop elements",
+    computerUseMatchHint: "Suggest an existing element token for an explicit target in a fresh window observation. Does not click.",
+    computerUseMatchCandidateLimit: "Desktop match candidate limit",
+    computerUseMatchMinConfidence: "Desktop match minimum confidence",
+    computerUseMatchTimeoutMs: "Desktop match timeout (ms)",
+    computerUseVerifyEnabled: "Verify desktop outcomes",
+    computerUseVerifyHint: "Assess an explicit expectation against fresh window evidence. Advisory only; missing evidence stays uncertain and actions are never retried.",
+    computerUseVerifyMinConfidence: "Desktop verification minimum confidence",
+    computerUseVerifyTimeoutMs: "Desktop verification timeout (ms)",
+
     browserAutomation: "Built-in browser automation",
     browserAutomationHint: "Optional assessments use this Profile’s saved JEV connection and take effect on the next assessment. Rendered page labels are sent to JEV; input values are excluded. Disabled, unavailable or uncertain assessments preserve the original flow.",
     browserMatchEnabled: "JEV element matching",
