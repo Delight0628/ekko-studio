@@ -10,9 +10,16 @@ async function mockModelApi(page: Page) {
     const request = route.request()
     if (request.method() === 'POST') {
       writes.push({ method: 'POST', profile: request.headers()['x-hermes-profile'], body: request.postDataJSON() })
-      const key = { id: `key-${keys.length}`, name: request.postDataJSON().name, preview: 'sk-ekko-…AAAA', createdAt: Date.now(), lastUsedAt: null }
+      const key = { id: `key-${keys.length}`, name: request.postDataJSON().name, models: request.postDataJSON().models, preview: 'sk-ekko-…AAAA', createdAt: Date.now(), lastUsedAt: null }
       keys.unshift(key)
       return route.fulfill({ status: 201, json: { key, apiKey: secret } })
+    }
+    if (request.method() === 'PATCH') {
+      const body = request.postDataJSON()
+      writes.push({ method: 'PATCH', profile: request.headers()['x-hermes-profile'], body })
+      const key = keys.find(key => request.url().endsWith(`/${key.id}`))
+      Object.assign(key, body)
+      return route.fulfill({ json: { key } })
     }
     if (request.method() === 'DELETE') {
       writes.push({ method: 'DELETE', profile: request.headers()['x-hermes-profile'], body: null })
@@ -56,7 +63,7 @@ for (const width of [390, 1280]) {
     expect(await page.evaluate(() => (window as any).copiedText)).toBe(secret)
     await modal.getByRole('button', { name: 'I saved the key', exact: true }).click()
     await expect(modal).toHaveCount(0)
-    expect(api.writes[0]).toEqual({ method: 'POST', profile: '', body: { name: 'My coding client' } })
+    expect(api.writes[0]).toEqual({ method: 'POST', profile: '', body: { name: 'My coding client', models: ['glm/glm-5.3', 'deepseek/deepseek-reasoner'] } })
     expect(await page.evaluate(value => JSON.stringify(localStorage).includes(value), secret)).toBe(false)
     await expect(page.locator('.key-list')).toContainText('My coding client')
     await page.screenshot({ path: info.outputPath(`model-api-${width}.png`), fullPage: true, animations: 'disabled' })
@@ -67,11 +74,26 @@ for (const width of [390, 1280]) {
     await expect(page.locator('.key-list')).toContainText('sk-ekko-…AAAA')
     await page.locator('.n-tabs-tab').filter({ hasText: /^General Models$/ }).click()
     await page.getByTestId('models-profile-select').click()
-    await page.locator('.n-base-select-option').filter({ hasText: /^default$/ }).click()
+    await page.locator('.n-base-select-option:visible').filter({ hasText: /^default$/ }).click()
     await expect(page).toHaveURL(/modelProfile=default/)
     await page.locator('.n-tabs-tab').filter({ hasText: /^Model API$/ }).click()
     await expect(page.getByTestId('models-profile-select')).toHaveCount(0)
     await expect(page.locator('.key-list')).toContainText('My coding client')
+    await page.getByRole('button', { name: 'Edit key', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Key name', exact: true }).fill('Scoped client')
+    await page.getByLabel('Allowed models', { exact: true }).click()
+    await page.locator('.n-base-select-option:visible').filter({ hasText: /^deepseek\/deepseek-reasoner$/ }).click()
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Save key', exact: true }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.locator('.key-list')).toContainText('Scoped client')
+    await expect(page.locator('.key-list')).toContainText('Allows 1 models')
+    expect(api.writes[1]).toEqual({ method: 'PATCH', profile: '', body: { name: 'Scoped client', models: ['glm/glm-5.3'] } })
+    await page.getByRole('button', { name: 'Edit key', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Key name', exact: true }).fill('Discarded')
+    await page.locator('.create-key').getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(page.locator('.key-list')).toContainText('Scoped client')
+    expect(api.writes).toHaveLength(2)
     await page.getByRole('button', { name: 'Revoke', exact: true }).click()
     await page.locator('.n-popconfirm__action').getByRole('button', { name: 'Revoke', exact: true }).click()
     await expect(page.getByText('No API keys yet', { exact: true })).toBeVisible()
@@ -80,7 +102,7 @@ for (const width of [390, 1280]) {
 
     await page.getByLabel('Select a model', { exact: true }).click()
     await expect(page.locator('.n-base-select-option--disabled')).toContainText('bedrock/claude')
-    await page.locator('.n-base-select-option').filter({ hasText: /^deepseek\/deepseek-reasoner$/ }).click()
+    await page.locator('.n-base-select-option:visible').filter({ hasText: /^deepseek\/deepseek-reasoner$/ }).click()
     await expect(page.locator('.request-example')).toContainText('model="deepseek/deepseek-reasoner"')
     await expect(page.locator('.request-example')).not.toContainText(secret)
     await page.locator('.request-example').scrollIntoViewIfNeeded()
@@ -102,12 +124,12 @@ test('recovers from a failed catalog load and renders the empty model state', as
   await page.goto('/#/hermes/models?tab=api')
   await expect(page.getByRole('alert').filter({ hasText: 'Catalog unavailable' })).toBeVisible()
   await page.getByRole('textbox', { name: 'Key name', exact: true }).fill('Still manageable')
-  await expect(page.getByRole('button', { name: 'Create key', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Create key', exact: true })).toBeDisabled()
   api.setState('empty')
   await page.getByTestId('model-api-panel').getByRole('button', { name: 'Refresh', exact: true }).click()
   await expect(page.getByText('Configure a provider and models in the General tab first.', { exact: true })).toBeVisible()
   await expect(page.locator('.request-example')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Create key', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Create key', exact: true })).toBeDisabled()
 })
 
 for (const brightness of ['light', 'dark']) {

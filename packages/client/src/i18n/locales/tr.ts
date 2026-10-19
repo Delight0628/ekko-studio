@@ -30,6 +30,18 @@ const writeApprovalMessages = {
 
 export default {
   modelApi: {
+    "allowedModels": "İzin verilen modeller",
+    "selectModels": "İzin verilen modelleri seçin",
+    "selectionHint": "Mevcut tüm kullanılabilir modeller varsayılan olarak seçilir. Yeni eklenen modellere izin vermek için anahtarı düzenleyin.",
+    "selectAll": "Tümünü seç",
+    "clearSelection": "Seçimi temizle",
+    "editKey": "Anahtarı düzenle",
+    "saveKey": "Anahtarı kaydet",
+    "saved": "API anahtarı güncellendi",
+    "keyModels": "{count} modele izin veriyor",
+    "selectedModels": "{count} model seçildi",
+    "requireModel": "En az bir model seçin",
+    "searchModels": "Model ara",
     "refresh": "Yenile",
     "title": "Model API",
     "description": "Kullanılabilir modellerinizi OpenAI Responses API destekleyen istemcilerden çağırın.",

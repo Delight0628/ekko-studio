@@ -40,10 +40,10 @@ it('requires authentication and Profile membership before resolving models or up
   expect(mocks.models).not.toHaveBeenCalled()
   expect(mocks.prepare).not.toHaveBeenCalled()
   expect(await (await fetch(`${url}/models`, { headers: headers() })).json()).toMatchObject({ object: 'list' })
-  expect(mocks.models).toHaveBeenCalledWith(['work'])
+  expect(mocks.models).toHaveBeenCalledWith(['work'], undefined)
   mocks.profiles = ['work', 'default']
   expect((await fetch(`${url}/models`, { headers: { ...headers(), 'x-hermes-profile': 'other' } })).status).toBe(200)
-  expect(mocks.models).toHaveBeenLastCalledWith(['default', 'work'])
+  expect(mocks.models).toHaveBeenLastCalledWith(['default', 'work'], undefined)
 })
 
 it('returns JSON with server-owned account attribution and a request ID', async () => {

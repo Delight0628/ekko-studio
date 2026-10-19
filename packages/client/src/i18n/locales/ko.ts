@@ -4,6 +4,18 @@ import { socialMessagesKo } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "allowedModels": "허용된 모델",
+    "selectModels": "허용할 모델 선택",
+    "selectionHint": "현재 호출 가능한 모든 모델이 기본 선택됩니다. 새로 추가된 모델은 키를 편집하여 허용하세요.",
+    "selectAll": "모두 선택",
+    "clearSelection": "선택 해제",
+    "editKey": "키 편집",
+    "saveKey": "키 저장",
+    "saved": "API 키가 업데이트되었습니다",
+    "keyModels": "모델 {count}개 허용",
+    "selectedModels": "모델 {count}개 선택됨",
+    "requireModel": "모델을 하나 이상 선택하세요",
+    "searchModels": "모델 검색",
     "refresh": "새로 고침",
     "title": "모델 API",
     "description": "OpenAI Responses API를 지원하는 클라이언트에서 사용 가능한 모델을 호출합니다.",

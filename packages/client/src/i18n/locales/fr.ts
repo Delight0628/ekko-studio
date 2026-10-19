@@ -4,6 +4,18 @@ import { socialMessagesFr } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "allowedModels": "Modèles autorisés",
+    "selectModels": "Sélectionner les modèles autorisés",
+    "selectionHint": "Tous les modèles actuellement disponibles sont sélectionnés par défaut. Modifiez la clé pour autoriser les nouveaux modèles.",
+    "selectAll": "Tout sélectionner",
+    "clearSelection": "Effacer la sélection",
+    "editKey": "Modifier la clé",
+    "saveKey": "Enregistrer la clé",
+    "saved": "Clé API mise à jour",
+    "keyModels": "{count} modèles autorisés",
+    "selectedModels": "{count} modèles sélectionnés",
+    "requireModel": "Sélectionnez au moins un modèle",
+    "searchModels": "Rechercher des modèles",
     "refresh": "Actualiser",
     "title": "API de modèles",
     "description": "Appelez vos modèles disponibles depuis des clients compatibles avec l’API OpenAI Responses.",

@@ -56,6 +56,7 @@ declare module 'koa' {
     user?: AuthenticatedUser
     profile?: RequestProfile
     serverTokenAuth?: boolean
+    modelApiKey?: { id: string; models: string[] }
   }
 }
 
@@ -346,6 +347,7 @@ export async function requireUserJwt(ctx: Context, next: Next): Promise<void> {
       const user = findUserById(key.userId)
       if (!user || user.status !== 'active') throw new ModelApiError('The key owner is disabled or no longer exists.', 403)
       ctx.state.user = toAuthenticatedUser(user)
+      ctx.state.modelApiKey = { id: key.id, models: key.models }
       touchModelApiKey(key.id)
     } catch (error) {
       const result = modelApiErrorBody(error)

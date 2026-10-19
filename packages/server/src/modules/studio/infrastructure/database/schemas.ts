@@ -16,6 +16,7 @@ export const MODEL_API_KEYS_SCHEMA: Record<string, string> = {
   name: 'TEXT NOT NULL',
   preview: 'TEXT NOT NULL',
   token_hash: 'TEXT NOT NULL UNIQUE',
+  models_json: "TEXT NOT NULL DEFAULT '[]'",
   created_at: 'INTEGER NOT NULL',
   last_used_at: 'INTEGER',
 }

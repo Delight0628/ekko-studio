@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { NAlert, NButton, NEmpty, NInput, NModal, NPopconfirm, NSelect, NSpin, useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { createModelApiKey, getApiModels, getModelApiKeys, modelApiBaseUrl, revokeModelApiKey, type ApiModel, type ModelApiKey } from '@/api/studio/model-api'
+import { createModelApiKey, editModelApiKey, getApiModels, getModelApiKeys, modelApiBaseUrl, revokeModelApiKey, type ApiModel, type ModelApiKey } from '@/api/studio/model-api'
 import { copyToClipboard } from '@/utils/clipboard'
 
 const { t, locale } = useI18n()
@@ -18,6 +18,13 @@ const catalogError = ref('')
 const keys = ref<ModelApiKey[]>([])
 const models = ref<ApiModel[]>([])
 const name = ref('')
+const editingKeyId = ref('')
+const selectedKeyModels = ref<string[]>([])
+const keyForm = ref<HTMLFormElement | null>(null)
+let keySelectionInitialized = false
+const callableModels = computed(() => models.value.filter(model => model.responses_supported))
+const keyModelOptions = computed(() => callableModels.value.map(model => ({ label: model.id, value: model.id })))
+const canSaveKey = computed(() => !loading.value && !busy.value && !catalogError.value && !!name.value.trim() && selectedKeyModels.value.length > 0)
 const newKey = ref('')
 const selectedModel = ref<string | null>(null)
 const modelOptions = computed(() => models.value.map(model => ({
@@ -52,6 +59,11 @@ async function load() {
     catalogError.value = catalog.status === 'rejected'
       ? catalog.reason instanceof Error ? catalog.reason.message : t('modelApi.failed') : ''
     models.value = catalog.status === 'fulfilled' ? catalog.value.data : []
+    if (catalog.status === 'fulfilled') {
+      const available = new Set(callableModels.value.map(model => model.id))
+      selectedKeyModels.value = keySelectionInitialized ? selectedKeyModels.value.filter(id => available.has(id)) : [...available]
+      keySelectionInitialized = true
+    }
     if (!models.value.some(model => model.id === selectedModel.value && model.responses_supported)) {
       selectedModel.value = models.value.find(model => model.responses_supported)?.id || null
     }
@@ -61,16 +73,36 @@ async function load() {
 onMounted(load)
 
 async function create() {
-  if (busy.value || !name.value.trim()) return
+  if (!canSaveKey.value) return
   busy.value = true
   try {
-    const result = await createModelApiKey(name.value.trim())
-    if (disposed) return
-    keys.value.unshift(result.key)
-    newKey.value = result.apiKey
-    name.value = ''
+    if (editingKeyId.value) {
+      const result = await editModelApiKey(editingKeyId.value, name.value.trim(), [...selectedKeyModels.value])
+      if (disposed) return
+      keys.value = keys.value.map(key => key.id === result.key.id ? result.key : key)
+      message.success(t('modelApi.saved'))
+    } else {
+      const result = await createModelApiKey(name.value.trim(), [...selectedKeyModels.value])
+      if (disposed) return
+      keys.value.unshift(result.key)
+      newKey.value = result.apiKey
+    }
+    resetKeyForm()
   } catch (err) { if (!disposed) message.error(err instanceof Error ? err.message : t('modelApi.failed')) }
   finally { if (!disposed) busy.value = false }
+}
+function resetKeyForm() {
+  editingKeyId.value = ''
+  name.value = ''
+  selectedKeyModels.value = callableModels.value.map(model => model.id)
+}
+function edit(key: ModelApiKey) {
+  if (busy.value || loading.value || catalogError.value) return
+  editingKeyId.value = key.id
+  name.value = key.name
+  const available = new Set(callableModels.value.map(model => model.id))
+  selectedKeyModels.value = key.models.filter(id => available.has(id))
+  void nextTick(() => keyForm.value?.scrollIntoView({ block: 'center', behavior: 'smooth' }))
 }
 async function revoke(id: string) {
   if (busy.value) return
@@ -79,6 +111,7 @@ async function revoke(id: string) {
     await revokeModelApiKey(id)
     if (disposed) return
     keys.value = keys.value.filter(key => key.id !== id)
+    if (editingKeyId.value === id) resetKeyForm()
     message.success(t('modelApi.revoked'))
   } catch (err) { if (!disposed) message.error(err instanceof Error ? err.message : t('modelApi.failed')) }
   finally { if (!disposed) busy.value = false }
@@ -112,21 +145,26 @@ async function copy(value: string) {
         <section class="api-card" data-theme-surface="card">
           <h4>{{ t('modelApi.keys') }}</h4>
           <p class="hint">{{ t('modelApi.keysHint') }}</p>
-          <form class="create-key" @submit.prevent="create">
+          <form ref="keyForm" class="create-key" @submit.prevent="create">
+            <h4 v-if="editingKeyId">{{ t('modelApi.editKey') }}</h4>
             <NInput v-model:value="name" :maxlength="80" :placeholder="t('modelApi.namePlaceholder')" :disabled="busy || loading" :input-props="{ 'aria-label': t('modelApi.keyName') }" />
-            <NButton type="primary" attr-type="submit" :loading="busy" :disabled="loading || busy || !name.trim()">{{ t('modelApi.createKey') }}</NButton>
+            <label class="field-label">{{ t('modelApi.allowedModels') }}</label>
+            <NSelect v-model:value="selectedKeyModels" :options="keyModelOptions" multiple filterable :max-tag-count="3" :disabled="busy || loading || !!catalogError" :placeholder="t('modelApi.selectModels')" :aria-label="t('modelApi.allowedModels')" />
+            <p class="hint">{{ t('modelApi.selectionHint') }}</p>
+            <div class="form-actions"><NButton :disabled="busy || loading || !!catalogError" @click="selectedKeyModels = callableModels.map(model => model.id)">{{ t('modelApi.selectAll') }}</NButton><NButton :disabled="busy || loading" @click="selectedKeyModels = []">{{ t('modelApi.clearSelection') }}</NButton><NButton v-if="editingKeyId" :disabled="busy" @click="resetKeyForm">{{ t('common.cancel') }}</NButton><NButton type="primary" attr-type="submit" :loading="busy" :disabled="!canSaveKey">{{ t(editingKeyId ? 'modelApi.saveKey' : 'modelApi.createKey') }}</NButton></div>
           </form>
           <NEmpty v-if="!loading && !keys.length" :description="t('modelApi.noKeys')" size="small" />
           <ul v-else class="key-list">
             <li v-for="key in keys" :key="key.id" class="key-row">
               <div class="key-info">
                 <strong>{{ key.name }}</strong> <code>{{ key.preview }}</code>
+                <p class="hint key-models" :title="key.models.join(', ')">{{ t('modelApi.keyModels', { count: key.models.length }) }} · {{ key.models.slice(0, 3).join(', ') }}{{ key.models.length > 3 ? ' …' : '' }}</p>
                 <p class="hint">{{ t('modelApi.createdAt', { date: date(key.createdAt) }) }} · {{ key.lastUsedAt ? t('modelApi.lastUsed', { date: date(key.lastUsedAt) }) : t('modelApi.neverUsed') }}</p>
               </div>
-              <NPopconfirm :positive-text="t('modelApi.revoke')" :negative-text="t('common.cancel')" @positive-click="revoke(key.id)">
+              <div class="key-actions"><NButton size="small" :disabled="busy || loading || !!catalogError" @click="edit(key)">{{ t('modelApi.editKey') }}</NButton><NPopconfirm :positive-text="t('modelApi.revoke')" :negative-text="t('common.cancel')" @positive-click="revoke(key.id)">
                 <template #trigger><NButton type="error" secondary size="small" :disabled="busy || loading">{{ t('modelApi.revoke') }}</NButton></template>
                 {{ t('modelApi.revokeConfirm', { name: key.name }) }}
-              </NPopconfirm>
+              </NPopconfirm></div>
             </li>
           </ul>
         </section>
@@ -174,7 +212,10 @@ h4 { font-size: var(--font-size-base, 14px); }
 .field-label { display: block; margin: 16px 0 8px; color: $text-primary; }
 .copy-row, .create-key, .modal-actions { display: flex; gap: calc(8px * var(--spacing-scale, 1)); }
 .copy-row :deep(.n-input), .create-key :deep(.n-input) { min-width: 0; flex: 1; }
-.create-key { margin: 16px 0; }
+.create-key { margin: 16px 0; flex-direction: column; }
+.create-key .field-label, .create-key .hint { margin: 0; }
+.form-actions, .key-actions { display: flex; gap: calc(8px * var(--spacing-scale, 1)); flex-wrap: wrap; }
+.key-actions { flex-shrink: 0; justify-content: flex-end; }
 .endpoints { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin-bottom: 0; }
 .endpoints dd { margin: 0; font-family: monospace; }
 .key-list { list-style: none; padding: 0; margin: 0; }
@@ -192,5 +233,6 @@ h4 { font-size: var(--font-size-base, 14px); }
   .api-card { padding: 16px; }
   .create-key { flex-direction: column; }
   .key-row { align-items: flex-start; }
+  .key-actions { flex-direction: column; }
 }
 </style>

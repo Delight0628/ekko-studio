@@ -10,7 +10,10 @@ Use `http://localhost:8648/api/ekko-studio/models/v1` as the OpenAI SDK `base_ur
 **Model API key** or a Studio **user JWT** as `Authorization: Bearer …`. Provider
 API keys stay on the server.
 
-In **Models → Model API**, create a named API key. Keys belong to the current
+In **Models → Model API**, create a named API key and select the models it may call.
+All currently callable models are selected by default. The key stores explicit
+model IDs: models added later require editing the key to grant access. At least
+one accessible, supported model must be selected. Keys belong to the current
 Studio account and are **not bound to a Profile**. Copy the key when created:
 plaintext is shown once, and only a SHA-256 hash is persisted in Studio storage.
 Use it as the SDK `api_key` or `Authorization: Bearer …`. No Profile header is
@@ -26,20 +29,29 @@ Keys remain valid until revoked. Account deletion or disabling also blocks them.
 The settings tab lists the account's keys with creation and last-use times. It
 provides the base URL, combined model IDs, a Python example and external usage.
 Switching the Models page's Profile does not create a separate key configuration.
+Edit a key to change its name or allowed models without rotating its secret.
+The next request uses the updated scope; requests already running continue.
 Existing Studio user JWTs remain supported with their configured expiry; clients
 must log in again when they expire. Dedicated keys are preferable for clients.
 
 Key management requires Studio user authentication:
 
 - `GET /api/studio/models/api-keys` — list the account's key metadata.
-- `POST /api/studio/models/api-keys` with `{"name":"My client"}` — returns
+- `POST /api/studio/models/api-keys` with `{"name":"My client","models":["glm/glm-5.3"]}` — returns
   `{key, apiKey}`; `apiKey` is the one-time plaintext secret.
+- `PATCH /api/studio/models/api-keys/:id` with the same required `name` and `models`
+  fields — update an owned key, returning `{key}` without the secret.
 - `DELETE /api/studio/models/api-keys/:id` — revoke a key owned by the caller.
 
 Responses use `Cache-Control: no-store`. A key name is required (1–80 characters);
 up to 50 keys may be active per account. Settings do not modify Hermes config.
 
 ## Models and routing
+
+With a Model API key, `GET /models` lists only its allowed models, and
+`POST /responses` rejects other model IDs before contacting a provider. Both
+checks also enforce the owner’s current Profile permissions. Studio user JWTs
+retain the complete account catalog used by the management UI.
 
 The list combines configured models from every accessible Profile (all Profiles
 for a super admin), deduplicated by provider/model, with IDs

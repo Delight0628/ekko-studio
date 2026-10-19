@@ -4,6 +4,18 @@ import { socialMessagesZh } from '../social-messages'
 
 export default {
   modelApi: {
+    "allowedModels": "允许调用的模型",
+    "selectModels": "选择允许调用的模型",
+    "selectionHint": "默认全选当前可调用模型；新增模型需编辑密钥后授权。",
+    "selectAll": "全选",
+    "clearSelection": "清空选择",
+    "editKey": "编辑密钥",
+    "saveKey": "保存密钥",
+    "saved": "API 密钥已更新",
+    "keyModels": "允许调用 {count} 个模型",
+    "selectedModels": "已选择 {count} 个模型",
+    "requireModel": "请至少选择一个模型",
+    "searchModels": "搜索模型",
     "refresh": "刷新",
     "title": "模型 API",
     "description": "让支持 OpenAI Responses API 的客户端调用可用模型。",

@@ -1681,6 +1681,7 @@ const modelApiErrors = Object.fromEntries([
 ].map(([status, description]) => [status, { description }]))
 const keyMetadata = { type: 'object', properties: {
   id: { type: 'string' }, name: { type: 'string' }, preview: { type: 'string' },
+  models: { type: 'array', items: { type: 'string' }, description: 'Explicit provider-qualified model IDs allowed by this key' },
   createdAt: { type: 'integer', description: 'Unix milliseconds' }, lastUsedAt: { type: 'integer', nullable: true, description: 'Unix milliseconds' },
 } }
 const keyManagementPath = openapi.paths['/api/studio/models/api-keys']
@@ -1690,18 +1691,27 @@ keyManagementPath.get.description = 'Requires Studio user authentication. Lists 
 keyManagementPath.get.responses = { '200': { description: 'Key metadata', content: { 'application/json': { schema: { type: 'object', properties: { keys: { type: 'array', items: keyMetadata } } } } } }, '401': { description: 'Studio login required' }, '403': { description: 'Profile access denied' } }
 keyManagementPath.post.summary = 'Create an account-wide Model API key'
 keyManagementPath.post.parameters = modelApiParameters
-keyManagementPath.post.description = 'Requires Studio user authentication. Key allows only model listing and Responses inference; valid until revoked. Only the hash is persisted. Limit: 50 keys per account. Cache-Control: no-store.'
-keyManagementPath.post.requestBody = { required: true, content: { 'application/json': { schema: { type: 'object', required: ['name'], additionalProperties: false, properties: { name: { type: 'string', minLength: 1, maxLength: 80 } } } } } }
+keyManagementPath.post.description = 'Requires Studio user authentication. Key allows model listing and Responses inference only for the explicitly selected models; valid until revoked. Only the hash is persisted. Limit: 50 keys per account. Cache-Control: no-store.'
+const modelApiKeySettings = { type: 'object', required: ['name', 'models'], additionalProperties: false, properties: {
+  name: { type: 'string', minLength: 1, maxLength: 80 }, models: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string' }, description: 'Currently accessible, callable provider-qualified model IDs. New models are not granted automatically.' },
+} }
+keyManagementPath.post.requestBody = { required: true, content: { 'application/json': { schema: modelApiKeySettings } } }
 keyManagementPath.post.responses = { '201': { description: 'Save the plaintext API key now; it is returned only once', content: { 'application/json': { schema: { type: 'object', properties: { key: keyMetadata, apiKey: { type: 'string' } } } } } }, '400': { description: 'Invalid key name or key limit reached' }, '401': { description: 'Studio login required' }, '403': { description: 'Profile access denied' } }
 const revokeKeyOperation = openapi.paths['/api/studio/models/api-keys/{id}'].delete
 revokeKeyOperation.summary = 'Revoke my Model API key'
 revokeKeyOperation.description = 'Requires Studio user authentication. Revokes only the caller’s key. Profile selection does not affect key ownership. New requests are rejected; already-running requests are not cancelled.'
 revokeKeyOperation.parameters = [...modelApiParameters, { name: 'id', in: 'path', required: true, schema: { type: 'string' } }]
 revokeKeyOperation.responses = { '200': { description: 'Key revoked' }, '401': { description: 'Studio login required' }, '403': { description: 'Profile access denied' }, '404': { description: 'No matching key owned by caller' } }
+const editKeyOperation = openapi.paths['/api/studio/models/api-keys/{id}'].patch
+editKeyOperation.summary = 'Edit my Model API key name and allowed models'
+editKeyOperation.description = 'Requires Studio user authentication. Updates only the caller’s key. The secret and token hash remain unchanged. Subsequent model listing and inference requests immediately use the saved model scope. Already-running requests are not cancelled.'
+editKeyOperation.parameters = revokeKeyOperation.parameters
+editKeyOperation.requestBody = { required: true, content: { 'application/json': { schema: modelApiKeySettings } } }
+editKeyOperation.responses = { '200': { description: 'Updated key metadata without plaintext or hash', content: { 'application/json': { schema: { type: 'object', properties: { key: keyMetadata } } } } }, '400': { description: 'Invalid name or model selection' }, '401': { description: 'Studio login required' }, '404': { description: 'No matching key owned by caller' } }
 const modelListOperation = openapi.paths['/api/ekko-studio/models/v1/models'].get
 modelListOperation.summary = 'List configured models with provider-qualified IDs'
 modelListOperation.parameters = modelApiParameters
-modelListOperation.description = 'Aggregates all accessible Profiles as provider/model and deduplicates IDs, preserving slashes inside native model IDs. Callable configurations win over disabled/unsupported duplicates, then default Profile, then Profile names in lexical order. Caller Profile selectors are ignored. Never returns credentials. MoA presets and self-referencing Model API providers using a locally issued Model API key are excluded from this catalog. responses_supported=false marks disabled models and providers requiring Bedrock or Codex app-server runtimes.'
+modelListOperation.description = 'Model API keys see only their explicitly allowed model IDs; Studio user JWTs see the full account catalog. Aggregates all accessible Profiles as provider/model and deduplicates IDs, preserving slashes inside native model IDs. Callable configurations win over disabled/unsupported duplicates, then default Profile, then Profile names in lexical order. Caller Profile selectors are ignored. Never returns credentials. MoA presets and self-referencing Model API providers using a locally issued Model API key are excluded from this catalog. responses_supported=false marks disabled models and providers requiring Bedrock or Codex app-server runtimes.'
 modelListOperation.responses = { ...modelApiErrors, '200': { description: 'OpenAI-compatible model list', content: { 'application/json': { schema: { type: 'object', properties: {
   object: { type: 'string', enum: ['list'] }, data: { type: 'array', items: { type: 'object', properties: {
     id: { type: 'string', example: 'glm/glm-5.3' }, object: { type: 'string', enum: ['model'] }, created: { type: 'integer' },
@@ -1711,7 +1721,7 @@ modelListOperation.responses = { ...modelApiErrors, '200': { description: 'OpenA
 const modelResponseOperation = openapi.paths['/api/ekko-studio/models/v1/responses'].post
 modelResponseOperation.summary = 'Request a configured model using OpenAI Responses format'
 modelResponseOperation.parameters = modelApiParameters
-modelResponseOperation.description = 'Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side from the same unified catalog as GET /models. No Profile selector is required. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.'
+modelResponseOperation.description = 'Model API key requests must name an allowed model; ungranted IDs return 404 before any provider request. Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side from the same unified catalog as GET /models. No Profile selector is required. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.'
 modelResponseOperation.requestBody = { required: true, content: { 'application/json': { schema: {
   type: 'object', required: ['model', 'input'], properties: {
     model: { type: 'string', example: 'glm/glm-5.3' },

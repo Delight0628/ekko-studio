@@ -4,6 +4,18 @@ import { socialMessagesAr } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "allowedModels": "النماذج المسموح بها",
+    "selectModels": "اختر النماذج المسموح بها",
+    "selectionHint": "تُحدد جميع النماذج المتاحة حاليًا افتراضيًا. عدّل المفتاح للسماح بالنماذج المضافة لاحقًا.",
+    "selectAll": "تحديد الكل",
+    "clearSelection": "مسح التحديد",
+    "editKey": "تعديل المفتاح",
+    "saveKey": "حفظ المفتاح",
+    "saved": "تم تحديث مفتاح API",
+    "keyModels": "يسمح بـ {count} من النماذج",
+    "selectedModels": "تم تحديد {count} من النماذج",
+    "requireModel": "اختر نموذجًا واحدًا على الأقل",
+    "searchModels": "البحث عن النماذج",
     "refresh": "تحديث",
     "title": "واجهة API للنماذج",
     "description": "استدعِ النماذج المتاحة من عملاء يدعمون واجهة OpenAI Responses API.",

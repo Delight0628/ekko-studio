@@ -4,6 +4,18 @@ import { socialMessagesJa } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "allowedModels": "利用を許可するモデル",
+    "selectModels": "利用を許可するモデルを選択",
+    "selectionHint": "現在利用可能なモデルが既定ですべて選択されます。追加されたモデルはキーを編集して許可してください。",
+    "selectAll": "すべて選択",
+    "clearSelection": "選択を解除",
+    "editKey": "キーを編集",
+    "saveKey": "キーを保存",
+    "saved": "API キーを更新しました",
+    "keyModels": "{count} 個のモデルを許可",
+    "selectedModels": "{count} 個のモデルを選択中",
+    "requireModel": "モデルを1つ以上選択してください",
+    "searchModels": "モデルを検索",
     "refresh": "更新",
     "title": "モデル API",
     "description": "OpenAI Responses API 対応クライアントから、利用可能なモデルを呼び出せます。",

@@ -72,9 +72,10 @@ async function unifiedCatalog(profiles: string[]): Promise<Map<string, CatalogEn
   return catalog
 }
 
-export async function listApiModels(profiles: string[]) {
+export async function listApiModels(profiles: string[], allowedModels?: readonly string[]) {
   const catalog = await unifiedCatalog(profiles)
-  return { object: 'list', data: [...catalog].map(([id, entry]) => ({
+  const allowed = allowedModels === undefined ? undefined : new Set(allowedModels)
+  return { object: 'list', data: [...catalog].filter(([id]) => !allowed || allowed.has(id)).map(([id, entry]) => ({
     id, object: 'model', created: 0, owned_by: entry.group.provider,
     api_mode: apiMode(entry.group, entry.model) || null,
     responses_supported: callable(entry),
@@ -84,11 +85,13 @@ export async function listApiModels(profiles: string[]) {
 export async function prepareModelResponse(input: {
   profiles: string[]
   accountId?: string
+  allowedModels?: readonly string[]
   body: unknown
   signal: AbortSignal
 }) {
   validateResponsesBody(input.body)
   const body = input.body
+  if (input.allowedModels && !input.allowedModels.includes(body.model)) throw new ModelApiError('Model is not available.', 404, 'model')
   const catalog = await unifiedCatalog(input.profiles)
   const selected = catalog.get(body.model)
   if (!selected || selected.group.model_meta?.[selected.model]?.disabled) throw new ModelApiError('Model is not available.', 404, 'model')

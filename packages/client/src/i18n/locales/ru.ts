@@ -4,6 +4,18 @@ import { socialMessagesRu } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "allowedModels": "Разрешённые модели",
+    "selectModels": "Выберите разрешённые модели",
+    "selectionHint": "По умолчанию выбраны все доступные модели. Для доступа к новым моделям отредактируйте ключ.",
+    "selectAll": "Выбрать все",
+    "clearSelection": "Снять выбор",
+    "editKey": "Изменить ключ",
+    "saveKey": "Сохранить ключ",
+    "saved": "Ключ API обновлён",
+    "keyModels": "Разрешено моделей: {count}",
+    "selectedModels": "Выбрано моделей: {count}",
+    "requireModel": "Выберите хотя бы одну модель",
+    "searchModels": "Поиск моделей",
     "refresh": "Обновить",
     "title": "API моделей",
     "description": "Вызывайте доступные модели из клиентов, поддерживающих OpenAI Responses API.",

@@ -4,6 +4,18 @@ import { socialMessagesEn } from '../social-messages'
 
 export default {
   modelApi: {
+    "allowedModels": "Allowed models",
+    "selectModels": "Select allowed models",
+    "selectionHint": "All currently callable models are selected by default. Edit the key to grant access to newly added models.",
+    "selectAll": "Select all",
+    "clearSelection": "Clear selection",
+    "editKey": "Edit key",
+    "saveKey": "Save key",
+    "saved": "API key updated",
+    "keyModels": "Allows {count} models",
+    "selectedModels": "{count} models selected",
+    "requireModel": "Select at least one model",
+    "searchModels": "Search models",
     "refresh": "Refresh",
     "title": "Model API",
     "description": "Call your available models from clients that support the OpenAI Responses API.",
