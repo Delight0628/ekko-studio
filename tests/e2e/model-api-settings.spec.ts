@@ -10,7 +10,7 @@ async function mockModelApi(page: Page) {
     const request = route.request()
     if (request.method() === 'POST') {
       writes.push({ method: 'POST', profile: request.headers()['x-hermes-profile'], body: request.postDataJSON() })
-      const key = { id: `key-${keys.length}`, name: request.postDataJSON().name, models: request.postDataJSON().models, preview: 'sk-ekko-…AAAA', createdAt: Date.now(), lastUsedAt: null }
+      const key = { id: `key-${keys.length}`, name: request.postDataJSON().name, models: request.postDataJSON().models, budgetUsd: request.postDataJSON().budgetUsd, spentUsd: 0, unpricedRequests: 0, preview: 'sk-ekko-…AAAA', createdAt: Date.now(), lastUsedAt: null }
       keys.unshift(key)
       return route.fulfill({ status: 201, json: { key, apiKey: secret } })
     }
@@ -36,7 +36,7 @@ async function mockModelApi(page: Page) {
       { id: 'deepseek/deepseek-reasoner', owned_by: 'deepseek', api_mode: 'chat_completions', responses_supported: true },
       { id: 'bedrock/claude', owned_by: 'bedrock', api_mode: 'bedrock_converse', responses_supported: false },
     ] } }))
-  return { writes, setState: (next: typeof state) => { state = next } }
+  return { writes, spend: (amount: number) => { keys[0].spentUsd = amount }, setState: (next: typeof state) => { state = next } }
 }
 
 for (const width of [390, 1280]) {
@@ -55,6 +55,8 @@ for (const width of [390, 1280]) {
     await expect(page.getByLabel('Base URL', { exact: true })).toHaveValue(/\/api\/ekko-studio\/models\/v1$/)
     await expect(page.getByText('No API keys yet', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Create key', exact: true })).toBeDisabled()
+    await expect(page.getByRole('textbox', { name: 'Lifetime budget (USD)', exact: true })).toHaveValue('')
+    await page.getByRole('textbox', { name: 'Lifetime budget (USD)', exact: true }).fill('12.5')
     await page.getByRole('textbox', { name: 'Key name', exact: true }).fill('My coding client')
     await page.getByRole('button', { name: 'Create key', exact: true }).click()
     const modal = page.getByRole('dialog')
@@ -64,11 +66,12 @@ for (const width of [390, 1280]) {
     expect(await page.evaluate(() => (window as any).copiedText)).toBe(secret)
     await modal.getByRole('button', { name: 'I saved the key', exact: true }).click()
     await expect(modal).toHaveCount(0)
-    expect(api.writes[0]).toEqual({ method: 'POST', profile: '', body: { name: 'My coding client', models: ['glm/glm-5.3', 'glm/glm-alt', 'deepseek/deepseek-reasoner'] } })
+    expect(api.writes[0]).toEqual({ method: 'POST', profile: '', body: { name: 'My coding client', models: ['glm/glm-5.3', 'glm/glm-alt', 'deepseek/deepseek-reasoner'], budgetUsd: 12.5 } })
     expect(await page.evaluate(value => JSON.stringify(localStorage).includes(value), secret)).toBe(false)
     await expect(page.locator('.key-list')).toContainText('My coding client')
     await page.screenshot({ path: info.outputPath(`model-api-${width}.png`), fullPage: true, animations: 'disabled' })
 
+    api.spend(0.75)
     await page.reload()
     await expect(panel).toHaveAttribute('aria-busy', 'false')
     await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -81,6 +84,9 @@ for (const width of [390, 1280]) {
     await expect(page.getByTestId('models-profile-select')).toHaveCount(0)
     await expect(page.locator('.key-list')).toContainText('My coding client')
     await page.getByRole('button', { name: 'Edit key', exact: true }).click()
+    await expect(page.locator('.key-budget')).toContainText('Used 0.75 USD')
+    await expect(page.getByRole('textbox', { name: 'Lifetime budget (USD)', exact: true })).toHaveValue('12.5')
+    await page.getByRole('textbox', { name: 'Lifetime budget (USD)', exact: true }).fill('0.5')
     await page.getByRole('textbox', { name: 'Key name', exact: true }).fill('Scoped client')
     await page.getByRole('button', { name: 'Select allowed models', exact: true }).click()
     const picker = page.getByRole('dialog', { name: 'Select allowed models', exact: true })
@@ -112,12 +118,20 @@ for (const width of [390, 1280]) {
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(page.locator('.key-list')).toContainText('Scoped client')
     await expect(page.locator('.key-list')).toContainText('Allows 1 models')
-    expect(api.writes[1]).toEqual({ method: 'PATCH', profile: '', body: { name: 'Scoped client', models: ['glm/glm-5.3'] } })
+    expect(api.writes[1]).toEqual({ method: 'PATCH', profile: '', body: { name: 'Scoped client', models: ['glm/glm-5.3'], budgetUsd: 0.5 } })
+    await expect(page.locator('.key-budget')).toContainText('Budget exhausted')
     await page.getByRole('button', { name: 'Edit key', exact: true }).click()
     await page.getByRole('textbox', { name: 'Key name', exact: true }).fill('Discarded')
+    await page.getByRole('textbox', { name: 'Lifetime budget (USD)', exact: true }).fill('99')
     await page.locator('.create-key').getByRole('button', { name: 'Cancel', exact: true }).click()
     await expect(page.locator('.key-list')).toContainText('Scoped client')
     expect(api.writes).toHaveLength(2)
+    await page.getByRole('button', { name: 'Edit key', exact: true }).click()
+    await expect(page.getByRole('textbox', { name: 'Lifetime budget (USD)', exact: true })).toHaveValue('0.5')
+    await page.getByRole('textbox', { name: 'Lifetime budget (USD)', exact: true }).fill('')
+    await page.getByRole('button', { name: 'Save key', exact: true }).click()
+    await expect(page.locator('.key-budget')).toContainText('Used 0.75 USD · Budget Unlimited')
+    expect(api.writes[2].body.budgetUsd).toBeNull()
     await page.getByRole('button', { name: 'Revoke', exact: true }).click()
     await page.locator('.n-popconfirm__action').getByRole('button', { name: 'Revoke', exact: true }).click()
     await expect(page.getByText('No API keys yet', { exact: true })).toBeVisible()

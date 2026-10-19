@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { NAlert, NButton, NEmpty, NInput, NModal, NPopconfirm, NSelect, NSpin, useMessage } from 'naive-ui'
+import { NAlert, NButton, NEmpty, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSpin, useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { createModelApiKey, editModelApiKey, getApiModels, getModelApiKeys, modelApiBaseUrl, revokeModelApiKey, type ApiModel, type ModelApiKey } from '@/api/studio/model-api'
@@ -19,13 +19,14 @@ const catalogError = ref('')
 const keys = ref<ModelApiKey[]>([])
 const models = ref<ApiModel[]>([])
 const name = ref('')
+const budgetUsd = ref<number | null>(null)
 const editingKeyId = ref('')
 const selectedKeyModels = ref<string[]>([])
 const modelPickerVisible = ref(false)
 const keyForm = ref<HTMLFormElement | null>(null)
 let keySelectionInitialized = false
 const callableModels = computed(() => models.value.filter(model => model.responses_supported))
-const canSaveKey = computed(() => !loading.value && !busy.value && !catalogError.value && !!name.value.trim() && selectedKeyModels.value.length > 0)
+const canSaveKey = computed(() => !loading.value && !busy.value && !catalogError.value && !!name.value.trim() && selectedKeyModels.value.length > 0 && (budgetUsd.value === null || (Number.isFinite(budgetUsd.value) && budgetUsd.value >= 0 && budgetUsd.value <= 1_000_000)))
 const newKey = ref('')
 const selectedModel = ref<string | null>(null)
 const modelOptions = computed(() => models.value.map(model => ({
@@ -78,12 +79,12 @@ async function create() {
   busy.value = true
   try {
     if (editingKeyId.value) {
-      const result = await editModelApiKey(editingKeyId.value, name.value.trim(), [...selectedKeyModels.value])
+      const result = await editModelApiKey(editingKeyId.value, name.value.trim(), [...selectedKeyModels.value], budgetUsd.value)
       if (disposed) return
       keys.value = keys.value.map(key => key.id === result.key.id ? result.key : key)
       message.success(t('modelApi.saved'))
     } else {
-      const result = await createModelApiKey(name.value.trim(), [...selectedKeyModels.value])
+      const result = await createModelApiKey(name.value.trim(), [...selectedKeyModels.value], budgetUsd.value)
       if (disposed) return
       keys.value.unshift(result.key)
       newKey.value = result.apiKey
@@ -96,15 +97,21 @@ function resetKeyForm() {
   modelPickerVisible.value = false
   editingKeyId.value = ''
   name.value = ''
+  budgetUsd.value = null
   selectedKeyModels.value = callableModels.value.map(model => model.id)
 }
 function edit(key: ModelApiKey) {
   if (busy.value || loading.value || catalogError.value) return
   editingKeyId.value = key.id
   name.value = key.name
+  budgetUsd.value = key.budgetUsd
   const available = new Set(callableModels.value.map(model => model.id))
   selectedKeyModels.value = key.models.filter(id => available.has(id))
   void nextTick(() => keyForm.value?.scrollIntoView({ block: 'center', behavior: 'smooth' }))
+}
+function dollars(value: number) { return new Intl.NumberFormat(locale.value, { minimumFractionDigits: 2, maximumFractionDigits: 6 }).format(value) }
+function keyBudget(key: ModelApiKey) {
+  return t('modelApi.budgetUsage', { used: dollars(key.spentUsd), limit: key.budgetUsd === null ? t('modelApi.unlimited') : `${dollars(key.budgetUsd)} USD` })
 }
 function applyKeyModels(models: string[]) {
   const selected = new Set(models)
@@ -158,6 +165,9 @@ async function copy(value: string) {
             <label class="field-label">{{ t('modelApi.allowedModels') }}</label>
             <NButton class="key-model-trigger" :disabled="busy || loading || !!catalogError" :aria-label="t('modelApi.selectModels')" @click="modelPickerVisible = true">{{ t('modelApi.selectModels') }} · {{ t('modelApi.selectedModels', { count: selectedKeyModels.length }) }}</NButton>
             <p class="hint">{{ t('modelApi.selectionHint') }}</p>
+            <label class="field-label">{{ t('modelApi.budgetLabel') }}</label>
+            <NInputNumber v-model:value="budgetUsd" :min="0" :max="1000000" :show-button="false" clearable :disabled="busy || loading" :placeholder="t('modelApi.unlimited')" :input-props="{ 'aria-label': t('modelApi.budgetLabel') }" />
+            <p class="hint">{{ t('modelApi.budgetHint') }}</p>
             <div class="form-actions"><NButton v-if="editingKeyId" :disabled="busy" @click="resetKeyForm">{{ t('common.cancel') }}</NButton><NButton type="primary" attr-type="submit" :loading="busy" :disabled="!canSaveKey">{{ t(editingKeyId ? 'modelApi.saveKey' : 'modelApi.createKey') }}</NButton></div>
           </form>
           <NEmpty v-if="!loading && !keys.length" :description="t('modelApi.noKeys')" size="small" />
@@ -166,6 +176,8 @@ async function copy(value: string) {
               <div class="key-info">
                 <strong>{{ key.name }}</strong> <code>{{ key.preview }}</code>
                 <p class="hint key-models" :title="key.models.join(', ')">{{ t('modelApi.keyModels', { count: key.models.length }) }} · {{ key.models.slice(0, 3).join(', ') }}{{ key.models.length > 3 ? ' …' : '' }}</p>
+                <p class="hint key-budget">{{ keyBudget(key) }}<template v-if="key.budgetUsd !== null && key.spentUsd >= key.budgetUsd"> · {{ t('modelApi.budgetExhausted') }}</template></p>
+                <p v-if="key.unpricedRequests" class="hint">{{ t('modelApi.budgetUnknown') }}</p>
                 <p class="hint">{{ t('modelApi.createdAt', { date: date(key.createdAt) }) }} · {{ key.lastUsedAt ? t('modelApi.lastUsed', { date: date(key.lastUsedAt) }) : t('modelApi.neverUsed') }}</p>
               </div>
               <div class="key-actions"><NButton size="small" :disabled="busy || loading || !!catalogError" @click="edit(key)">{{ t('modelApi.editKey') }}</NButton><NPopconfirm :positive-text="t('modelApi.revoke')" :negative-text="t('common.cancel')" @positive-click="revoke(key.id)">

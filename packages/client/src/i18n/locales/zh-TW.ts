@@ -4,6 +4,12 @@ import { socialMessagesZhTw } from '../social-messages'
 
 export default {
   modelApi: {
+    "budgetLabel": "累計額度（USD）",
+    "unlimited": "不限額",
+    "budgetHint": "留空不限額，0 暫停呼叫。費用按請求結算累計；進行中的請求可能超額。編輯額度不會清零已用金額。",
+    "budgetUsage": "已用 {used} USD · 總額度 {limit}",
+    "budgetUnknown": "部分請求費用尚未結算；無法確定費用時，有限額金鑰會暫停呼叫。",
+    "budgetExhausted": "額度已用盡",
     "noMatchingModels": "沒有符合的模型",
     "allowedModels": "允許呼叫的模型",
     "selectModels": "選擇允許呼叫的模型",

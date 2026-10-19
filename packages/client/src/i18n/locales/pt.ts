@@ -4,6 +4,12 @@ import { socialMessagesPt } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "budgetLabel": "Orçamento acumulado (USD)",
+    "unlimited": "Sem limite",
+    "budgetHint": "Em branco: sem limite; 0: chamadas suspensas. Os custos são apurados por pedido; chamadas em curso podem exceder o orçamento. A edição mantém os gastos anteriores.",
+    "budgetUsage": "Utilizado: {used} USD · Orçamento: {limit}",
+    "budgetUnknown": "Alguns custos ainda não foram apurados. Custos por resolver suspendem as chaves com orçamento limitado.",
+    "budgetExhausted": "Orçamento esgotado",
     "noMatchingModels": "Nenhum modelo correspondente",
     "allowedModels": "Modelos permitidos",
     "selectModels": "Selecionar modelos permitidos",

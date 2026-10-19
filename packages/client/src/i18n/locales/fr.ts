@@ -4,6 +4,12 @@ import { socialMessagesFr } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "budgetLabel": "Budget cumulé (USD)",
+    "unlimited": "Illimité",
+    "budgetHint": "Vide : illimité ; 0 : appels suspendus. Les coûts sont comptabilisés par requête ; les appels en cours peuvent dépasser le budget. Modifier le budget conserve les dépenses.",
+    "budgetUsage": "Utilisé : {used} USD · Budget : {limit}",
+    "budgetUnknown": "Certains coûts ne sont pas encore comptabilisés. Les coûts non résolus suspendent les clés à budget limité.",
+    "budgetExhausted": "Budget épuisé",
     "noMatchingModels": "Aucun modèle correspondant",
     "allowedModels": "Modèles autorisés",
     "selectModels": "Sélectionner les modèles autorisés",

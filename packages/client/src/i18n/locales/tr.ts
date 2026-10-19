@@ -30,6 +30,12 @@ const writeApprovalMessages = {
 
 export default {
   modelApi: {
+    "budgetLabel": "Toplam bütçe (USD)",
+    "unlimited": "Sınırsız",
+    "budgetHint": "Boş bırakmak sınırsızdır; 0 çağrıları duraklatır. Maliyetler istek başına hesaplanır; devam eden çağrılar bütçeyi aşabilir. Düzenleme önceki harcamaları sıfırlamaz.",
+    "budgetUsage": "Kullanılan {used} USD · Bütçe {limit}",
+    "budgetUnknown": "Bazı maliyetler henüz hesaplanmadı. Belirsiz maliyetler bütçe sınırlı anahtarları duraklatır.",
+    "budgetExhausted": "Bütçe tükendi",
     "noMatchingModels": "Eşleşen model yok",
     "allowedModels": "İzin verilen modeller",
     "selectModels": "İzin verilen modelleri seçin",

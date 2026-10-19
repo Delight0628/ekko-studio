@@ -4,6 +4,12 @@ import { socialMessagesAr } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "budgetLabel": "الحد التراكمي (USD)",
+    "unlimited": "غير محدود",
+    "budgetHint": "اتركه فارغًا لعدم التقييد؛ 0 يوقف الطلبات. تُحتسب التكلفة بعد كل طلب وقد تتجاوز الطلبات الجارية الحد. تعديل الحد لا يصفر الإنفاق السابق.",
+    "budgetUsage": "المستخدم {used} USD · الحد {limit}",
+    "budgetUnknown": "لم تتم تسوية بعض التكاليف بعد. التكاليف غير المحسومة توقف المفاتيح ذات الحد المالي.",
+    "budgetExhausted": "تم استنفاد الحد",
     "noMatchingModels": "لا توجد نماذج مطابقة",
     "allowedModels": "النماذج المسموح بها",
     "selectModels": "اختر النماذج المسموح بها",

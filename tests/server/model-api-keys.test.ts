@@ -196,3 +196,39 @@ it('rejects another owner, model-key authentication and invalid edits without ch
     expect(db.prepare('SELECT * FROM model_api_keys').get()).toEqual(original)
   }
 })
+
+it('creates, lists and edits USD budgets without resetting settled spend or returning a new secret', async () => {
+  const response = await call('/api/studio/models/api-keys', {
+    method: 'POST', headers: headers(), body: JSON.stringify({ name: 'Budget client', models: ['glm/glm-5.3'], budgetUsd: 12.5 }),
+  })
+  expect(response.status).toBe(201)
+  const { key } = await response.json() as any
+  expect(key).toMatchObject({ budgetUsd: 12.5, spentUsd: 0, unpricedRequests: 0 })
+  db.prepare("INSERT INTO session_usage (session_id, account_id, model_api_key_id, origin, run_id, cost_usd) VALUES ('', '7', ?, 'external', 'paid', 1.25)").run(key.id)
+  for (const budgetUsd of [0.5, 20, 0, null]) {
+    const updated = await call(`/api/studio/models/api-keys/${key.id}`, { method: 'PATCH', headers: headers(), body: JSON.stringify({ name: 'Edited', models: key.models, budgetUsd }) })
+    expect(updated.status).toBe(200)
+    const value = await updated.json() as any
+    expect(value.key).toMatchObject({ budgetUsd, spentUsd: 1.25 })
+    expect(value.apiKey).toBeUndefined()
+  }
+  const listed = await (await call('/api/studio/models/api-keys', { headers: headers() })).json() as any
+  expect(listed.keys[0]).toMatchObject({ budgetUsd: null, spentUsd: 1.25 })
+})
+
+it('rejects invalid or client-supplied spend values and preserves the original settings', async () => {
+  const { key } = await (await create()).json() as any
+  expect(key.budgetUsd).toBeNull()
+  const original = db.prepare('SELECT * FROM model_api_keys').get()
+  for (const budgetUsd of [-1, 1000000.01, '5', false, {}, []]) {
+    const result = await call(`/api/studio/models/api-keys/${key.id}`, {
+      method: 'PATCH', headers: headers(), body: JSON.stringify({ name: key.name, models: key.models, budgetUsd }),
+    })
+    expect(result.status).toBe(400)
+    expect((await result.json() as any).error.param).toBe('budgetUsd')
+    expect(db.prepare('SELECT * FROM model_api_keys').get()).toEqual(original)
+  }
+  expect((await call(`/api/studio/models/api-keys/${key.id}`, {
+    method: 'PATCH', headers: headers(), body: JSON.stringify({ name: key.name, models: key.models, spentUsd: 0 }),
+  })).status).toBe(400)
+})

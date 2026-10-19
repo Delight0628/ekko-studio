@@ -4,6 +4,12 @@ import { socialMessagesEn } from '../social-messages'
 
 export default {
   modelApi: {
+    "budgetLabel": "Lifetime budget (USD)",
+    "unlimited": "Unlimited",
+    "budgetHint": "Leave blank for unlimited; 0 pauses calls. Costs settle per request; in-flight calls may exceed the budget. Editing preserves prior spending.",
+    "budgetUsage": "Used {used} USD · Budget {limit}",
+    "budgetUnknown": "Some request costs are unsettled. Unresolved costs pause budget-limited keys.",
+    "budgetExhausted": "Budget exhausted",
     "noMatchingModels": "No matching models",
     "allowedModels": "Allowed models",
     "selectModels": "Select allowed models",

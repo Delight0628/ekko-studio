@@ -4,6 +4,12 @@ import { socialMessagesZh } from '../social-messages'
 
 export default {
   modelApi: {
+    "budgetLabel": "累计额度（USD）",
+    "unlimited": "不限额",
+    "budgetHint": "留空不限额，0 暂停调用。费用按请求结算累计；进行中的请求可能超额。编辑额度不会清零已用金额。",
+    "budgetUsage": "已用 {used} USD · 总额度 {limit}",
+    "budgetUnknown": "部分请求费用尚未结算；无法确定费用时，有限额密钥会暂停调用。",
+    "budgetExhausted": "额度已用尽",
     "noMatchingModels": "没有匹配的模型",
     "allowedModels": "允许调用的模型",
     "selectModels": "选择允许调用的模型",

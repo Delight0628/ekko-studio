@@ -4,6 +4,12 @@ import { socialMessagesKo } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "budgetLabel": "누적 한도 (USD)",
+    "unlimited": "무제한",
+    "budgetHint": "비우면 무제한, 0은 호출 중지입니다. 비용은 요청별로 정산되며 진행 중인 요청으로 한도를 넘을 수 있습니다. 한도를 변경해도 사용액은 유지됩니다.",
+    "budgetUsage": "사용 {used} USD · 한도 {limit}",
+    "budgetUnknown": "일부 요청 비용이 미정산 상태입니다. 비용을 확인할 수 없으면 한도가 설정된 키의 호출이 중지됩니다.",
+    "budgetExhausted": "한도 소진",
     "noMatchingModels": "일치하는 모델이 없습니다",
     "allowedModels": "허용된 모델",
     "selectModels": "허용할 모델 선택",

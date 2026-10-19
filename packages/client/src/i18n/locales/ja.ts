@@ -4,6 +4,12 @@ import { socialMessagesJa } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "budgetLabel": "累計上限（USD）",
+    "unlimited": "上限なし",
+    "budgetHint": "空欄は無制限、0 は呼び出し停止です。費用はリクエストごとに確定し、処理中の呼び出しで上限を超える場合があります。上限の変更で使用額はリセットされません。",
+    "budgetUsage": "使用済み {used} USD · 上限 {limit}",
+    "budgetUnknown": "一部の費用が未確定です。費用を確定できない場合、上限付きキーの呼び出しは停止されます。",
+    "budgetExhausted": "上限に達しました",
     "noMatchingModels": "一致するモデルがありません",
     "allowedModels": "利用を許可するモデル",
     "selectModels": "利用を許可するモデルを選択",

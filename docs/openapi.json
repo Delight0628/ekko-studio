@@ -5172,6 +5172,9 @@
           "404": {
             "description": "Profile or configured model not found"
           },
+          "429": {
+            "description": "Model API key budget exhausted (insufficient_quota), or request costs are unknown (quota_cost_unknown)"
+          },
           "501": {
             "description": "Provider requires an unsupported direct-request runtime"
           },
@@ -5188,7 +5191,7 @@
           "Model API"
         ],
         "summary": "Request a configured model using OpenAI Responses format",
-        "description": "Model API key requests must name an allowed model; ungranted IDs return 404 before any provider request. Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side from the same unified catalog as GET /models. No Profile selector is required. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.",
+        "description": "Model API keys enforce their saved lifetime USD budget against settled request costs. Exhausted keys and limited keys with unpriced requests return 429 before inference; already-running calls can exceed the cap. Costs follow the usage ledger pricing rules. Studio user JWTs are outside key budgets. Model API key requests must name an allowed model; ungranted IDs return 404 before any provider request. Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side from the same unified catalog as GET /models. No Profile selector is required. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.",
         "operationId": "modelApiResponses",
         "security": [
           {
@@ -5265,6 +5268,9 @@
           },
           "404": {
             "description": "Profile or configured model not found"
+          },
+          "429": {
+            "description": "Model API key budget exhausted (insufficient_quota), or request costs are unknown (quota_cost_unknown)"
           },
           "501": {
             "description": "Provider requires an unsupported direct-request runtime"
@@ -19198,6 +19204,23 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "budgetUsd": {
+                            "type": "number",
+                            "nullable": true,
+                            "minimum": 0,
+                            "maximum": 1000000,
+                            "description": "Lifetime USD budget. Null or omitted means unlimited; 0 blocks inference. Editing never resets spending."
+                          },
+                          "spentUsd": {
+                            "type": "number",
+                            "minimum": 0,
+                            "description": "Settled lifetime USD costs for this key"
+                          },
+                          "unpricedRequests": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Unpriced or pending requests. Limited keys pause when costs remain unresolved after completion or interruption; known in-flight calls can continue."
+                          },
                           "id": {
                             "type": "string"
                           },
@@ -19263,6 +19286,23 @@
                     "key": {
                       "type": "object",
                       "properties": {
+                        "budgetUsd": {
+                          "type": "number",
+                          "nullable": true,
+                          "minimum": 0,
+                          "maximum": 1000000,
+                          "description": "Lifetime USD budget. Null or omitted means unlimited; 0 blocks inference. Editing never resets spending."
+                        },
+                        "spentUsd": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Settled lifetime USD costs for this key"
+                        },
+                        "unpricedRequests": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "Unpriced or pending requests. Limited keys pause when costs remain unresolved after completion or interruption; known in-flight calls can continue."
+                        },
                         "id": {
                           "type": "string"
                         },
@@ -19320,6 +19360,13 @@
                 ],
                 "additionalProperties": false,
                 "properties": {
+                  "budgetUsd": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 1000000,
+                    "description": "Lifetime USD budget. Null or omitted means unlimited; 0 blocks inference. Editing never resets spending."
+                  },
                   "name": {
                     "type": "string",
                     "minLength": 1,
@@ -19347,8 +19394,8 @@
         "tags": [
           "Model API"
         ],
-        "summary": "Edit my Model API key name and allowed models",
-        "description": "Requires Studio user authentication. Updates only the caller’s key. The secret and token hash remain unchanged. Subsequent model listing and inference requests immediately use the saved model scope. Already-running requests are not cancelled.",
+        "summary": "Edit my Model API key name, allowed models and USD budget",
+        "description": "Requires Studio user authentication. Updates only the caller’s key. The secret, token hash and lifetime spending remain unchanged. budgetUsd sets a cumulative USD cap, null removes it and 0 pauses inference. Subsequent model listing and inference requests immediately use the saved model scope. Already-running requests are not cancelled.",
         "operationId": "modelApiEditKey",
         "security": [
           {
@@ -19366,6 +19413,23 @@
                     "key": {
                       "type": "object",
                       "properties": {
+                        "budgetUsd": {
+                          "type": "number",
+                          "nullable": true,
+                          "minimum": 0,
+                          "maximum": 1000000,
+                          "description": "Lifetime USD budget. Null or omitted means unlimited; 0 blocks inference. Editing never resets spending."
+                        },
+                        "spentUsd": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Settled lifetime USD costs for this key"
+                        },
+                        "unpricedRequests": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "Unpriced or pending requests. Limited keys pause when costs remain unresolved after completion or interruption; known in-flight calls can continue."
+                        },
                         "id": {
                           "type": "string"
                         },
@@ -19430,6 +19494,13 @@
                 ],
                 "additionalProperties": false,
                 "properties": {
+                  "budgetUsd": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 1000000,
+                    "description": "Lifetime USD budget. Null or omitted means unlimited; 0 blocks inference. Editing never resets spending."
+                  },
                   "name": {
                     "type": "string",
                     "minLength": 1,

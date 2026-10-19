@@ -58,6 +58,7 @@ export async function modelApiResponses(ctx: Context) {
     const request = await prepareModelResponse({
       profiles: profilesForRequest(ctx), accountId: ctx.state.user ? String(ctx.state.user.id) : undefined,
       allowedModels: ctx.state.modelApiKey?.models,
+      apiKeyId: ctx.state.modelApiKey?.id,
       body: ctx.request.body, signal: abort.signal,
     })
     ctx.set('x-request-id', request.id)

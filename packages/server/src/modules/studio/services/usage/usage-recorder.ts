@@ -18,6 +18,7 @@ export interface RecordSessionUsageInput {
   sessionId: string
   origin?: 'internal' | 'external'
   accountId?: string
+  modelApiKeyId?: string
   runId?: string | null
   /** The foreground run, separate from the deduplication key for each API call. */
   parentRunId?: string
@@ -150,6 +151,7 @@ export function recordSessionUsage(input: RecordSessionUsageInput): NormalizedTo
     const row = updateUsage(input.sessionId, {
       ...(input.origin ? { origin: input.origin } : {}),
       ...(input.accountId ? { accountId: input.accountId } : {}),
+      ...(input.modelApiKeyId ? { modelApiKeyId: input.modelApiKeyId } : {}),
       runId: input.runId || '',
       ...(input.createdAt != null ? { createdAt: input.createdAt } : {}),
       ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}),
@@ -187,6 +189,7 @@ export function recordSessionUsage(input: RecordSessionUsageInput): NormalizedTo
       runId: input.runId,
       source: input.source,
     }, '[usage-recorder] failed to persist session usage')
+    if (input.modelApiKeyId) throw err
   }
   return usage
 }

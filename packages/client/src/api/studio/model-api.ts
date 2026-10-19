@@ -4,6 +4,9 @@ export interface ModelApiKey {
   id: string
   name: string
   models: string[]
+  budgetUsd: number | null
+  spentUsd: number
+  unpricedRequests: number
   preview: string
   createdAt: number
   lastUsedAt: number | null
@@ -22,11 +25,11 @@ export function modelApiBaseUrl(): string {
 export function getModelApiKeys(signal?: AbortSignal) {
   return request<{ keys: ModelApiKey[] }>('/api/studio/models/api-keys', { headers, signal })
 }
-export function createModelApiKey(name: string, models: string[]) {
-  return request<{ key: ModelApiKey; apiKey: string }>('/api/studio/models/api-keys', { method: 'POST', headers, body: JSON.stringify({ name, models }) })
+export function createModelApiKey(name: string, models: string[], budgetUsd: number | null = null) {
+  return request<{ key: ModelApiKey; apiKey: string }>('/api/studio/models/api-keys', { method: 'POST', headers, body: JSON.stringify({ name, models, budgetUsd }) })
 }
-export function editModelApiKey(id: string, name: string, models: string[]) {
-  return request<{ key: ModelApiKey }>(`/api/studio/models/api-keys/${encodeURIComponent(id)}`, { method: 'PATCH', headers, body: JSON.stringify({ name, models }) })
+export function editModelApiKey(id: string, name: string, models: string[], budgetUsd: number | null = null) {
+  return request<{ key: ModelApiKey }>(`/api/studio/models/api-keys/${encodeURIComponent(id)}`, { method: 'PATCH', headers, body: JSON.stringify({ name, models, budgetUsd }) })
 }
 export function revokeModelApiKey(id: string) {
   return request<{ success: boolean }>(`/api/studio/models/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE', headers })

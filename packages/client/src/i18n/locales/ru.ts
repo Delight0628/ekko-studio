@@ -4,6 +4,12 @@ import { socialMessagesRu } from '../social-messages-locales'
 
 export default {
   modelApi: {
+    "budgetLabel": "Общий лимит (USD)",
+    "unlimited": "Без ограничений",
+    "budgetHint": "Пусто — без ограничений; 0 — вызовы приостановлены. Расходы учитываются после каждого запроса; текущие вызовы могут превысить лимит. Изменение лимита не сбрасывает расходы.",
+    "budgetUsage": "Потрачено: {used} USD · Лимит: {limit}",
+    "budgetUnknown": "Некоторые расходы ещё не учтены. Неопределённые расходы приостанавливают ключи с лимитом.",
+    "budgetExhausted": "Лимит исчерпан",
     "noMatchingModels": "Подходящие модели не найдены",
     "allowedModels": "Разрешённые модели",
     "selectModels": "Выберите разрешённые модели",

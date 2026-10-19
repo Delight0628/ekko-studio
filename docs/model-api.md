@@ -46,6 +46,34 @@ Key management requires Studio user authentication:
 Responses use `Cache-Control: no-store`. A key name is required (1–80 characters);
 up to 50 keys may be active per account. Settings do not modify Hermes config.
 
+## Per-key USD budgets
+
+Creation and editing accept `budgetUsd`: a number from 0 to 1,000,000 USD, or
+`null` (also the default when omitted) for unlimited use. Zero pauses new model
+requests. The UI defaults to unlimited. Each key exposes `budgetUsd`, `spentUsd`
+and `unpricedRequests` in management responses. Editing its name, model scope or
+budget preserves all recorded spending and its secret. Raising the cap or removing
+it restores access when the recorded balance permits it; there is no periodic reset.
+
+Budget checks apply to Model API key inference, independently for each key and
+account, across all accessible Profiles. Model listing remains available. A Studio
+user JWT is not a Model API key and has no per-key budget. Authentication, model
+scope and current account permissions still apply.
+
+The counter uses the same request cost records as external usage: manual model
+pricing takes priority, then provider-reported USD cost, then the model catalog.
+Each key request is registered before contacting the provider and settled once. A crash or failed settlement leaves an unknown-cost entry. Missing cost is unknown, never free. A limited key with an unpriced request returns
+`429` with `quota_cost_unknown`; delayed catalog pricing can resolve that state.
+If usage or pricing cannot be recovered, the owner can revoke the key or explicitly
+remove its limit. Unlimited keys show the unknown-cost state but can continue.
+
+An exhausted key returns `429` with `insufficient_quota` before a new provider
+request. This is a limit on settled cumulative spending: the last request and
+other requests already in flight can take spending above the configured cap.
+It is not a prepaid balance or an upper-bound reservation. JSON and SSE calls
+are attributed once by request ID, including usage reported before failure or
+cancellation. Costs are not reset by editing, refreshing or restarting Studio.
+
 ## Models and routing
 
 With a Model API key, `GET /models` lists only its allowed models, and
