@@ -162,7 +162,7 @@ async function copy(value: string) {
 
 <style scoped lang="scss">
 @use '@/styles/variables' as *;
-.model-api-panel { min-width: 0; max-width: 1000px; }
+.model-api-panel { min-width: 0; width: 100%; }
 .panel-heading, .example-heading, .model-id, .key-row { display: flex; align-items: center; justify-content: space-between; gap: calc(12px * var(--spacing-scale, 1)); }
 .panel-heading { align-items: flex-start; margin-bottom: 20px; }
 h3, h4 { margin: 0; color: $text-primary; }
