@@ -168,7 +168,10 @@ JEV. Values, value descriptions, screenshots, raw trees, window titles and nativ
 tokens are excluded. Expectations requiring field values, image interpretation,
 external effects or absent evidence should remain `unknown`. This is advisory;
 it never dispatches input, retries an action or changes native success status.
-Use native `verify_state` for precise value predicates.
+Use native `verify_state` for precise value predicates. JEV reads the structured
+`elements` projection: static text shown only in `tree_markdown` is not assessment
+evidence. An expectation about that text can remain uncertain even when the
+agent can read it in the native tool result.
 
 Disabled/unconfigured assessments make zero provider requests. Provider errors,
 malformed responses, low confidence, oversized or invalid snapshots, and timeouts
