@@ -10,7 +10,7 @@ export default {
     "rotateCloudLink": "클라우드 링크 재설정",
     "revokeCloudLink": "클라우드 링크 비활성화",
     "cloudHint": "공식 및 Cloudflare 경로를 제공합니다. 모델 API 키가 필요합니다.",
-    "cloudUnavailable": "유효한 클라우드 연결과 접근 권한이 필요합니다. 연결 후 새로 고치세요.",
+    "cloudUnavailable": "공식 클라우드 연결을 사용하는 App에서 클라우드 링크를 관리하세요. LAN 및 자체 호스팅 연결은 지원하지 않습니다.",
     "cloudRevokeHint": "기존 두 경로 주소가 즉시 무효화됩니다. 클라이언트 설정을 변경하세요.",
     "connectionRoute": "연결 경로",
 

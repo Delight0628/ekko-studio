@@ -10,7 +10,7 @@ export default {
     "rotateCloudLink": "クラウドリンクをリセット",
     "revokeCloudLink": "クラウドリンクを無効化",
     "cloudHint": "クラウドリンクは公式と Cloudflare の2経路を提供します。モデル API キーが必要です。",
-    "cloudUnavailable": "有効なクラウド接続とアクセス権が必要です。接続して更新してください。",
+    "cloudUnavailable": "クラウドリンクは公式クラウド接続の App で管理してください。LAN とセルフホスト接続には対応していません。",
     "cloudRevokeHint": "既存の両経路のアドレスは直ちに無効になります。クライアント設定を更新してください。",
     "connectionRoute": "接続経路",
 

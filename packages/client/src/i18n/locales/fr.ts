@@ -10,7 +10,7 @@ export default {
     "rotateCloudLink": "Réinitialiser le lien cloud",
     "revokeCloudLink": "Désactiver le lien cloud",
     "cloudHint": "Les liens cloud proposent une route officielle et une route Cloudflare. Une clé API de modèle reste nécessaire.",
-    "cloudUnavailable": "Une connexion cloud active et un accès cloud sont requis. Connectez-vous puis actualisez.",
+    "cloudUnavailable": "Gérez les liens cloud dans l’App via une connexion cloud officielle. Les connexions LAN et auto-hébergées ne sont pas prises en charge.",
     "cloudRevokeHint": "Les deux anciennes adresses seront immédiatement invalidées. Mettez à jour votre client.",
     "connectionRoute": "Route de connexion",
 

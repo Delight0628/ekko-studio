@@ -6,17 +6,7 @@ async function mockModelApi(page: Page) {
   let keys: any[] = []
   let state: 'ready' | 'empty' | 'error' = 'ready'
   const writes: { method: string; profile: string | undefined; body: any }[] = []
-  let cloudId = 0
-  let urls: { official: string; cloudflare: string } | null = null
-  await page.route('**/api/studio/models/cloud-link', route => {
-    const request = route.request()
-    if (request.method() === 'POST') {
-      if (!urls || request.postDataJSON().rotate) cloudId++
-      urls = { official: `https://api.ekkostudio.xyz/api/model-api/link-${cloudId}/v1`, cloudflare: `https://cn.ekkostudio.xyz/api/model-api/link-${cloudId}/v1` }
-    }
-    if (request.method() === 'DELETE') urls = null
-    return route.fulfill({ json: { available: true, urls } })
-  })
+  await page.route('**/api/studio/models/cloud-link', route => route.fulfill({ json: { available: false, urls: null, reason: 'official_cloud_connection_required' } }))
   await page.route('**/api/studio/models/api-keys**', async route => {
     const request = route.request()
     if (request.method() === 'POST') {
@@ -226,27 +216,14 @@ for (const brightness of ['light', 'dark']) {
   })
 }
 
-test('generates, switches, resets and disables both cloud routes', async ({ page }) => {
+test('local Studio HTTP offers local access and directs cloud-link management to the official App connection', async ({ page }) => {
   await authenticate(page, TEST_ACCESS_KEY)
   await mockHermesApi(page)
   await mockModelApi(page)
   await page.goto('/#/hermes/models?tab=api')
-  await page.getByRole('button', { name: 'Create cloud link', exact: true }).click()
-  const address = page.getByLabel('Base URL', { exact: true })
-  await expect(address).toHaveValue('https://api.ekkostudio.xyz/api/model-api/link-1/v1')
-  await expect(page.locator('.request-example')).toContainText('https://api.ekkostudio.xyz/api/model-api/link-1/v1')
-  await page.getByLabel('Connection route', { exact: true }).click()
-  await page.locator('.n-base-select-option:visible').filter({ hasText: /^Cloudflare$/ }).click()
-  await expect(address).toHaveValue('https://cn.ekkostudio.xyz/api/model-api/link-1/v1')
-  await page.getByRole('button', { name: 'Reset cloud link', exact: true }).click()
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(address).toHaveValue(/link-1/)
-  await page.getByRole('button', { name: 'Reset cloud link', exact: true }).click()
-  await page.getByRole('button', { name: 'Confirm', exact: true }).click()
-  await expect(address).toHaveValue(/link-2/)
-  await expect(page.getByRole('button', { name: 'Confirm', exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Disable cloud link', exact: true }).click()
-  await page.getByRole('button', { name: 'Confirm', exact: true }).click()
-  await expect(address).toHaveValue(/api\/ekko-studio\/models\/v1$/)
-  await expect(page.getByRole('button', { name: 'Create cloud link', exact: true })).toBeVisible()
+  await expect(page.getByTestId('model-api-panel')).toHaveAttribute('aria-busy','false')
+  await expect(page.getByRole('button',{name:'Create cloud link',exact:true})).toHaveCount(0)
+  await expect(page.getByRole('button',{name:'Reset cloud link',exact:true})).toHaveCount(0)
+  await expect(page.getByLabel('Base URL',{exact:true})).toHaveValue(/api\/ekko-studio\/models\/v1$/)
+  await expect(page.getByText('Manage cloud links in the App through an official cloud connection. LAN and self-hosted connections are not supported.',{exact:true})).toBeVisible()
 })
