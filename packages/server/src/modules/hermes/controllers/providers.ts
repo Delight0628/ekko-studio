@@ -18,6 +18,7 @@ import {
 import { refreshProviderModels, restoreProviderModels } from '../services/providers/provider-model-refresh'
 import { appendProviderAuditEvent } from '../../studio/public/provider-audit'
 import { invalidateProviderRuntime } from '../../studio/public/provider-runtime'
+import { clearClaudeOAuthCredentials } from '../services/providers/clear-claude-oauth'
 
 const OPTIONAL_API_KEY_PROVIDERS = new Set(['cliproxyapi', 'xai-oauth', 'openai-codex', 'claude-oauth', 'minimax-oauth'])
 const DIRECT_CONFIG_PROVIDERS = new Set(['xai-oauth', 'openai-codex', 'claude-oauth', 'minimax-oauth'])
@@ -490,7 +491,8 @@ export async function remove(ctx: any) {
         ctx.status = 404; ctx.body = { error: `Provider "${poolKey}" not found` }; return
       }
     }
-    await clearStoredAuthProvider(profile, poolKey)
+    if (poolKey === 'claude-oauth') await clearClaudeOAuthCredentials(profile)
+    else await clearStoredAuthProvider(profile, poolKey)
     invalidateProviderRuntime(profile, poolKey)
     // TODO: Test if provider works without gateway restart
     // try { await hermesCli.restartGateway() } catch (e: any) { logger.error(e, 'Gateway restart failed') }
