@@ -2970,6 +2970,7 @@ export default {
       writeApprovalRemoveFile: '这次审批会从技能 {skill} 中移除文件 {file}。',
     },
     privacy: {
+      policy: '隐私政策',
       redactPii: '脱敏 PII',
       redactPiiHint: '自动检测并隐藏敏感信息（密码、密钥等）',
     },

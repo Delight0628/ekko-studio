@@ -852,6 +852,9 @@ export default {
     },
   },
   settings: {
+    privacy: {
+      policy: 'Gizlilik bildirimi',
+    },
     session: {
       ...writeApprovalMessages,
       requireAuth: 'Oturum yetkilendirmesi',

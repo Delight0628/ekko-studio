@@ -2423,6 +2423,7 @@ export default {
       writeApprovalRemoveFile: '이 승인은 스킬 {skill}에서 {file}을 제거합니다.',
     },
     privacy: {
+      policy: '개인정보 처리 안내',
       redactPii: '개인정보 마스킹',
       redactPiiHint: '민감 정보 자동 감지 및 숨김 (비밀번호, 키 등)',
     },

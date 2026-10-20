@@ -2876,6 +2876,7 @@ export default {
       writeApprovalRemoveFile: '這次審核會從技能 {skill} 中移除檔案 {file}。',
     },
     privacy: {
+      policy: '隱私政策',
       redactPii: '遮蔽 PII',
       redactPiiHint: '自動偵測並隱藏敏感資訊（密碼、金鑰等）',
     },

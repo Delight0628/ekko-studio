@@ -2423,6 +2423,7 @@ jobTriggered: 'Job ausgelost',
       writeApprovalRemoveFile: 'Diese Freigabe entfernt {file} aus dem Skill {skill}.',
     },
     privacy: {
+      policy: 'Datenschutzhinweis',
       redactPii: 'Personliche Daten maskieren',
       redactPiiHint: 'Sensible Informationen automatisch erkennen und ausblenden (Passworter, Schlussel usw.)',
     },

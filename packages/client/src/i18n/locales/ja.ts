@@ -2423,6 +2423,7 @@ export default {
       writeApprovalRemoveFile: 'この承認によりスキル {skill} から {file} が削除されます。',
     },
     privacy: {
+      policy: 'プライバシー通知',
       redactPii: '個人情報のマスキング',
       redactPiiHint: '機密情報を自動検出して隠す（パスワード、キーなど）',
     },

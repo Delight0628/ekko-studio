@@ -2423,6 +2423,7 @@ jobTriggered: 'Job declenche',
       writeApprovalRemoveFile: 'Cette validation supprime {file} du skill {skill}.',
     },
     privacy: {
+      policy: 'Politique de confidentialité',
       redactPii: 'Masquer les DPI',
       redactPiiHint: 'Detecter et masquer automatiquement les informations sensibles (mots de passe, cles, etc.)',
     },

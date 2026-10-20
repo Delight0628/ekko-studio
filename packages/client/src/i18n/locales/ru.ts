@@ -2698,6 +2698,7 @@ export default {
       writeApprovalRemoveFile: 'Это подтверждение удалит {file} из skill {skill}.',
     },
     privacy: {
+      policy: 'Уведомление о конфиденциальности',
       redactPii: 'Скрывать PII',
       redactPiiHint: 'Автоматически обнаруживать и скрывать чувствительную информацию (пароли, ключи и т.д.)',
     },
