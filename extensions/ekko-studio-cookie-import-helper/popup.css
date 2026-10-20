@@ -1,8 +1,8 @@
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  background: #111827;
-  color: #f3f4f6;
+  background: #ffffff;
+  color: #172033;
 }
 
 * {
@@ -13,7 +13,7 @@ body {
   margin: 0;
   min-width: 420px;
   max-width: 460px;
-  background: #111827;
+  background: #ffffff;
 }
 
 .panel {
@@ -28,7 +28,7 @@ h1 {
 
 p {
   margin: 0;
-  color: #9ca3af;
+  color: #64748b;
   font-size: 12px;
   line-height: 1.5;
 }
@@ -45,7 +45,7 @@ header {
 .field span {
   display: block;
   margin-bottom: 5px;
-  color: #d1d5db;
+  color: #475569;
   font-size: 12px;
   font-weight: 600;
 }
@@ -53,10 +53,10 @@ header {
 input {
   width: 100%;
   height: 34px;
-  border: 1px solid #374151;
+  border: 1px solid #e2e8f0;
   border-radius: 6px;
-  background: #1f2937;
-  color: #f9fafb;
+  background: #f1f5f9;
+  color: #172033;
   font-size: 13px;
   padding: 7px 9px;
   outline: none;
@@ -97,15 +97,15 @@ button:disabled {
 .status {
   min-height: 18px;
   margin-bottom: 8px;
-  color: #d1d5db;
+  color: #475569;
 }
 
 .status.error {
-  color: #fca5a5;
+  color: #b91c1c;
 }
 
 .status.success {
-  color: #86efac;
+  color: #15803d;
 }
 
 /* ===== 工具栏 ===== */
@@ -115,10 +115,9 @@ button:disabled {
   align-items: flex-start;
   gap: 8px;
   margin: 12px 0;
-  padding: 10px;
-  border: 1px solid #374151;
-  border-radius: 6px;
-  background: #0f172a;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .toolbar-field {
@@ -128,7 +127,7 @@ button:disabled {
 
 .toolbar-label {
   font-size: 11px;
-  color: #9ca3af;
+  color: #64748b;
   margin-bottom: 3px;
 }
 
@@ -150,20 +149,22 @@ button:disabled {
   font-size: 12px;
   padding: 6px 10px;
   white-space: nowrap;
-  background: #374151;
+  background: #e2e8f0;
+  color: #334155;
 }
 
 .batch-actions button:hover:not(:disabled) {
-  background: #4b5563;
+  background: #cbd5e1;
 }
 
 /* ===== 域名列表 ===== */
+.domains:empty { display: none; }
+
 .domains {
   max-height: 260px;
   overflow: auto;
-  border: 1px solid #374151;
-  border-radius: 6px;
-  background: #0f172a;
+  border: 0;
+  background: transparent;
 }
 
 .domain {
@@ -172,7 +173,7 @@ button:disabled {
   gap: 8px;
   min-height: 36px;
   padding: 8px 10px;
-  border-bottom: 1px solid #1f2937;
+  border-bottom: 1px solid #f1f5f9;
   font-size: 13px;
 }
 
@@ -197,7 +198,7 @@ button:disabled {
 }
 
 .domain-count {
-  color: #9ca3af;
+  color: #64748b;
   font-size: 12px;
 }
 
@@ -226,13 +227,13 @@ button:disabled {
 }
 
 .modal {
-  background: #1f2937;
-  border: 1px solid #374151;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 20px;
   min-width: 320px;
   max-width: 400px;
-  color: #f3f4f6;
+  color: #172033;
 }
 
 .modal h2 {
@@ -250,7 +251,7 @@ button:disabled {
 
 .modal .range-row label {
   font-size: 12px;
-  color: #d1d5db;
+  color: #475569;
   flex: 0 0 auto;
 }
 
@@ -263,7 +264,7 @@ button:disabled {
 
 .modal .range-row span {
   font-size: 12px;
-  color: #9ca3af;
+  color: #64748b;
 }
 
 .modal .modal-actions {
@@ -283,7 +284,8 @@ button:disabled {
 }
 
 .modal .modal-actions .btn-secondary {
-  background: #374151;
+  background: #e2e8f0;
+  color: #334155;
 }
 
 footer {
