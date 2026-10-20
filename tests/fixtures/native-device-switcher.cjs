@@ -113,8 +113,13 @@ let controller, server
   await until(() => switching.webContents.executeJavaScript("getComputedStyle(document.getElementById('action-shell')).backgroundColor === 'rgba(90, 110, 130, 0)' && getComputedStyle(document.querySelector('.target-device')).borderRadius === '15px'"));
   await main.webContents.executeJavaScript("document.documentElement.className='';document.documentElement.style.cssText=''");
   await until(() => switching.webContents.executeJavaScript("getComputedStyle(document.getElementById('action-shell')).backgroundColor === 'rgb(255, 255, 255)'"));
+  if (process.env.STUDIO_TEST_REDUCED_MOTION === '1') {
+    switching.webContents.debugger.attach('1.3');
+    await switching.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name:'prefers-reduced-motion', value:'reduce' }] });
+  }
   await clickWindow(switching, '#action-confirm');
-  await until(() => switching.webContents.executeJavaScript("window.studioDevices.state().then(data => data.busy && data.operation.stage === 'checking' && !document.getElementById('progress').hidden && getComputedStyle(document.querySelector('#progress .spinner')).animationName === 'device-spin')"));
+  await until(() => switching.webContents.executeJavaScript("window.studioDevices.state().then(data => data.busy && data.operation.stage === 'checking' && !document.getElementById('progress').hidden && getComputedStyle(document.querySelector('#progress .spinner')).animationName === (matchMedia('(prefers-reduced-motion: reduce)').matches ? 'none' : 'device-spin'))"));
+  const reducedMotion = await switching.webContents.executeJavaScript("matchMedia('(prefers-reduced-motion: reduce)').matches");
   assert.ok(pendingCheck);
   assert.equal(await switching.webContents.executeJavaScript("getComputedStyle(document.getElementById('action-confirm')).display === 'none' && getComputedStyle(document.getElementById('action-cancel')).display === 'none' && document.documentElement.scrollHeight <= innerHeight"), true);
   assert.equal(await native.executeJavaScript("document.getElementById('device-button').disabled && !!document.querySelector('#toolbar-icon .spinner')"), true);
@@ -192,6 +197,15 @@ let controller, server
   assert.equal(controller.view.getBounds().x, main.getContentSize()[0] - 128)
   await sleep(100)
   fs.writeFileSync(join(require('node:os').tmpdir(), 'studio-native-device-button-macos.png'), (await controller.view.webContents.capturePage()).toPNG())
-  fs.writeFileSync(join(root, 'result.json'), JSON.stringify({ ok: true, oldPage: true, csp: true, offline: true, crash: true, localManager: true, deniedForeignIpc: true, layoutGap: 8, returnedLocal: true, clickedToolbar: true, liveTheme: true, hiddenSplash: true, compactMenu: true, themedConfirmation: true, progressFeedback: true, retryAndCancel: true, osMouse: process.env.STUDIO_TEST_NATIVE_MOUSE === '1' }))
+  fs.writeFileSync(join(root, 'result.json'), JSON.stringify({ ok: true, oldPage: true, csp: true, offline: true, crash: true, localManager: true, deniedForeignIpc: true, layoutGap: 8, returnedLocal: true, clickedToolbar: true, liveTheme: true, hiddenSplash: true, compactMenu: true, themedConfirmation: true, progressFeedback: true, retryAndCancel: true, reducedMotion, osMouse: process.env.STUDIO_TEST_NATIVE_MOUSE === '1' }))
   controller.dispose();main.destroy();await new Promise(resolve => server.close(resolve));app.exit(0)
-})().catch(error => { fs.writeFileSync(join(root, 'result.json'), JSON.stringify({ error: error.stack }));try { controller?.dispose() } catch {} app.exit(1) })
+})().catch(async error => {
+  const diagnostics = [];
+  for (const window of BrowserWindow.getAllWindows()) {
+    try {
+      diagnostics.push({ bounds: window.getBounds(), focused: window.isFocused(), modal: window.isModal(), renderer: await window.webContents.executeJavaScript("(async () => ({kind:document.body.className,reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches,progressHidden:document.getElementById('progress')?.hidden,animation:document.querySelector('#progress .spinner') && getComputedStyle(document.querySelector('#progress .spinner')).animationName,button:document.getElementById('action-confirm')?.getBoundingClientRect().toJSON(),state:window.studioDevices ? await window.studioDevices.state().then(data => ({busy:data.busy,operation:data.operation}), error => String(error)) : null}))()") });
+    } catch (inspectionError) { diagnostics.push({ error:String(inspectionError) }) }
+  }
+  fs.writeFileSync(join(root, 'result.json'), JSON.stringify({ error: error.stack, diagnostics }));
+  try { controller?.dispose() } catch {} app.exit(1)
+})
