@@ -8,6 +8,7 @@ vi.mock('electron', () => ({
   app: { getLocale: () => 'en' }, BrowserWindow: class {}, WebContentsView: class {},
   dialog: { showMessageBox: vi.fn() }, Menu: {}, session: {}, shell: {},
 }))
+import { COOKIE_EXTENSION_ORIGIN } from '../../packages/desktop/src/main/browser/browser-cookie-discovery'
 import { BrowserManager } from '../../packages/desktop/src/main/browser/browser-manager'
 
 const roots: string[] = []
@@ -43,7 +44,7 @@ it('writes only the approved profile, configures before writing, persists and sa
 })
 
 
-it('auto-connect binds the profile shown in the native prompt and requires domain approval', async () => {
+it('auto-connect imports into the bound active profile without any native prompt', async () => {
   const { dialog } = await import('electron')
   const root = await mkdtemp(join(tmpdir(), 'ekko-auto-cookie-'))
   roots.push(root)
@@ -51,17 +52,18 @@ it('auto-connect binds the profile shown in the native prompt and requires domai
   const internal = manager as any
   await internal.profileStore.initialize()
   internal.activeProfileId = internal.profileStore.active().id
-  vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({ response: 1, checkboxChecked: false })
+  const set = vi.fn(async () => undefined)
+  internal.profileSession = vi.fn(() => ({ cookies: { set } }))
+  internal.configureSession = vi.fn(async () => undefined)
+  internal.flushProfileSession = vi.fn(async () => undefined)
   const target = await internal.connectCookieExtension()
-  expect(target.profileId).toBe(internal.activeProfileId)
-  expect(manager.cookieImportStatus()?.phase).toBe('waiting')
-  const confirm = vi.spyOn(manager, 'confirmCookieImport').mockResolvedValue({ imported: 1, failed: 0 })
-  vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({ response: 0, checkboxChecked: false })
-  await fetch(target.managerUrl + '/api/cookie-import-helper/submit', {
-    method: 'POST', headers: { Origin: `chrome-extension://${'a'.repeat(32)}`, 'Content-Type': 'application/json' },
+  const response = await fetch(target.managerUrl + '/api/cookie-import-helper/submit', {
+    method: 'POST', headers: { Origin: COOKIE_EXTENSION_ORIGIN, 'Content-Type': 'application/json' },
     body: JSON.stringify({ token: target.token, cookies: [{ name: 'one', value: 'synthetic', domain: 'example.com' }] }),
   })
-  await vi.waitFor(() => expect(manager.cookieImportStatus()).toBeNull())
-  expect(confirm).not.toHaveBeenCalled()
-  expect(dialog.showMessageBox).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ detail: expect.stringContaining('example.com') }))
+  expect(await response.json()).toMatchObject({ status: 'imported', cookie_count: 1, failed: 0 })
+  expect(set).toHaveBeenCalledTimes(1)
+  expect(dialog.showMessageBox).not.toHaveBeenCalled()
+  expect(internal.profileSession).toHaveBeenCalledWith(expect.objectContaining({ id: target.profileId }))
+  await manager.cancelCookieImport()
 })

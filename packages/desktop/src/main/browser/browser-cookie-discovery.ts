@@ -1,8 +1,10 @@
 import { createServer, type Server } from 'node:http'
 
+export const COOKIE_EXTENSION_ORIGIN = 'chrome-extension://mfkhigkkkiodagdmjklacpboihnmegpk'
+
 export const COOKIE_DISCOVERY_PORT = 19489
 
-/** Fixed loopback rendezvous; only extension POSTs may request a user-approved session. */
+/** Fixed loopback rendezvous; only extension POSTs may request a session from the bundled extension. */
 export class BrowserCookieDiscovery {
   private server?: Server
   private connecting = false
@@ -16,7 +18,7 @@ export class BrowserCookieDiscovery {
       const address = server.address()
       const origin = req.headers.origin || ''
       if (!address || typeof address === 'string' || req.headers.host !== `127.0.0.1:${address.port}`
-        || !/^chrome-extension:\/\/[a-p]{32}$/.test(origin)) {
+        || origin !== COOKIE_EXTENSION_ORIGIN) {
         reply(403, { detail: 'Extension origin required' }); return
       }
       res.setHeader('Access-Control-Allow-Origin', origin)
@@ -32,7 +34,7 @@ export class BrowserCookieDiscovery {
       if (this.connecting) { reply(409, { detail: 'An import request is already open in Studio' }); return }
       this.connecting = true
       try { reply(200, await connect() as object) }
-      catch { reply(409, { detail: 'Open Studio and approve the import request, or close the existing import session' }) }
+      catch { reply(409, { detail: 'Open Studio or close the existing import session' }) }
       finally { this.connecting = false }
     })
     server.maxConnections = 8

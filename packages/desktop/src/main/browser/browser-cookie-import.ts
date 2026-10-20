@@ -66,9 +66,9 @@ export class BrowserCookieImport {
   private timer?: NodeJS.Timeout
   private generation = 0
 
-  constructor(private readonly onPending?: () => void) {}
+  constructor(private readonly onPending?: () => Promise<{ imported: number; failed: number } | undefined>) {}
 
-  async start(profileId: string): Promise<CookieImportStatus> {
+  async start(profileId: string, allowedOrigin?: string): Promise<CookieImportStatus> {
     await this.cancel()
     const generation = ++this.generation
     const token = randomBytes(32).toString('hex')
@@ -80,7 +80,7 @@ export class BrowserCookieImport {
       const origin = req.headers.origin || ''
       const address = server.address()
       const expectedHost = address && typeof address !== 'string' ? `127.0.0.1:${address.port}` : ''
-      if (req.headers.host !== expectedHost || !/^chrome-extension:\/\/[a-p]{32}$/.test(origin)) {
+      if (req.headers.host !== expectedHost || (!/^chrome-extension:\/\/[a-p]{32}$/.test(origin) || (allowedOrigin !== undefined && origin !== allowedOrigin))) {
         reply(403, { detail: 'Only a Chrome extension on this computer may submit' }); return
       }
       res.setHeader('Access-Control-Allow-Origin', origin)
@@ -104,7 +104,7 @@ export class BrowserCookieImport {
         } else if (!res.writableEnded) chunks.push(chunk)
       })
       req.on('error', () => { chunks.length = 0 })
-      req.on('end', () => {
+      req.on('end', async () => {
         if (res.writableEnded) return
         try {
           const input = JSON.parse(Buffer.concat(chunks).toString('utf8'))
@@ -121,10 +121,14 @@ export class BrowserCookieImport {
           current.domains = [...new Set(cookies.map(cookie => new URL(cookie.url).hostname))].sort()
           current.cookieCount = cookies.length
           this.status = current
-          reply(202, { cookie_count: cookies.length, status: 'pending_confirmation' })
-          this.onPending?.()
+          const result = await this.onPending?.()
+          if (result) {
+            reply(200, { cookie_count: result.imported, failed: result.failed, status: 'imported' })
+            setImmediate(() => { void this.cancel() })
+          } else reply(202, { cookie_count: cookies.length, status: 'pending_confirmation' })
         } catch {
-          reply(400, { detail: 'Invalid cookie payload (maximum 1000 cookies; partitioned cookies are unsupported)' })
+          reply(400, { detail: 'Cookie import failed or payload invalid (maximum 1000 cookies; partitioned cookies unsupported)' })
+          if (this.status?.phase !== 'waiting') setImmediate(() => { void this.cancel() })
         } finally { chunks.length = 0 }
       })
     })
@@ -156,11 +160,12 @@ export class BrowserCookieImport {
     return { ...this.status, domains: [...this.status.domains] }
   }
 
-  async take(): Promise<{ profileId: string; cookies: CookiesSetDetails[] }> {
+  async take(keepReceiver = false): Promise<{ profileId: string; cookies: CookiesSetDetails[] }> {
     const status = this.getStatus()
     if (!status || status.phase !== 'review' || !this.pending) throw new Error('No pending cookie import')
     const result = { profileId: status.profileId, cookies: this.pending }
-    await this.cancel()
+    if (keepReceiver) { this.status = undefined; this.pending = undefined }
+    else await this.cancel()
     return result
   }
 

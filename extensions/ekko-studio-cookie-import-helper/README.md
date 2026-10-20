@@ -13,10 +13,9 @@ rights before publishing the extension outside this review.
 3. Start Studio Desktop. The extension automatically connects to the local Studio
    instance and targets the browser profile active when the connection prompt opens.
 4. Click **扫描**, select domains (search / select all / clear / batch select), then **导入**.
-5. Approve the native Studio connection prompt. No Manager address or import code
-   needs to be copied. Studio exchanges the short-lived capability automatically.
-6. Review the native Studio prompt with the exact profile, domains and cookie count,
-   then confirm. Submission alone never writes cookies. Refresh the website afterward.
+5. Import runs directly into the profile active when the connection is established.
+   There are no connection, review or completion dialogs in Studio. Results appear
+   in the extension. Matching cookies are overwritten. Refresh the website afterward.
 
 Chrome Web Store installation is not provided. The receiving Desktop feature must
 be present in your Studio build; older versions and ordinary Web UI do not support it.
@@ -28,8 +27,7 @@ be present in your Studio build; older versions and ordinary Web UI do not suppo
   selected domains are transmitted. No passwords, passkeys or OS keychains are read.
 - The extension sends only to `http://127.0.0.1:<port>`. The discovery listener uses loopback port 19489 while Studio is running. A temporary
   staging listener is loopback-only, validates extension origins/Host/JSON/size, uses a
-  random 256-bit one-time code, and only stages cookies in memory. Trusted main-window
-  IPC confirmation is required before writing. Do not share codes or cookie values.
+  random 256-bit one-time code, and only stages cookies in memory. Automatic requests from the bundled extension are applied directly after its Import click. Do not share codes or cookie values.
 - Codes are not saved in extension storage. A successful submission consumes the
   code. Cancelling, expiry or app shutdown drops pending data. The first local Studio
   instance that binds port 19489 receives automatic requests; close other instances
@@ -49,3 +47,15 @@ Compact popup with scan/import, domain search and selection controls only. Exten
 icons are resized from Studio's existing `packages/client/public/logo.png`. The
 manifest no longer requests storage permission. Native Studio approval replaces
 manual copy/paste binding, without permitting silent cookie writes.
+
+## v1.3.0 — no native prompts
+
+The extension's Import click now performs the complete import without connection,
+domain-review or completion dialogs in Studio. Results appear only in the extension.
+The local discovery and automatic staging endpoints accept only the stable extension
+ID derived from the manifest's public key. This is browser-origin isolation, not
+protection against malicious local processes or an extension intentionally reusing
+the public manifest key. Protect the host account and install only trusted builds.
+The target is the active Studio browser profile at connection time; matching cookies
+are overwritten without a second confirmation. Earlier approval instructions above
+apply only to v1.1/v1.2, not v1.3.

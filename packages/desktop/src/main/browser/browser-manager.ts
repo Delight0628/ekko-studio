@@ -16,7 +16,7 @@ import {
 } from 'electron'
 import { BrowserAutomation } from './browser-automation'
 import { BrowserProfileStore } from './browser-profile-store'
-import { BrowserCookieDiscovery } from './browser-cookie-discovery'
+import { COOKIE_EXTENSION_ORIGIN, BrowserCookieDiscovery } from './browser-cookie-discovery'
 import { BrowserCookieImport } from './browser-cookie-import'
 import { BrowserSessionCookieStore } from './browser-session-cookie-store'
 import { MAX_BROWSER_TABS } from './browser-types'
@@ -54,11 +54,6 @@ interface TabRecord {
 }
 
 interface BrowserManagerOptions {
-  cookieConnectLabel?: string
-  cookieReviewLabel?: string
-  cookieAllowLabel?: string
-  cookieCancelLabel?: string
-  cookieResultLabel?: string
   selectElementLabel: string
   selectRegionLabel: string
   onAnnotationRequest: (tabId: string, mode: 'element' | 'region') => void
@@ -102,48 +97,16 @@ export class BrowserManager {
   private readonly cookieDiscovery = new BrowserCookieDiscovery()
   private automaticImport = false
   private cookieImportsDisposed = false
-  private readonly cookieImport = new BrowserCookieImport(() => {
-    if (this.automaticImport) void this.reviewAutomaticCookieImport()
+  private readonly cookieImport = new BrowserCookieImport(async () => {
+    if (!this.automaticImport) return undefined
+    return this.confirmCookieImport(true)
   })
 
   private async connectCookieExtension() {
     if (this.cookieImportsDisposed || this.cookieImport.getStatus()) throw new Error('Import unavailable')
     const profile = this.requireProfile(this.activeProfileId)
-    this.window.show()
-    const { response } = await dialog.showMessageBox(this.window, {
-      type: 'question', title: 'Ekko Studio',
-      message: this.options?.cookieConnectLabel || 'Allow the Chrome extension to send cookies?',
-      detail: profile.name, buttons: [this.options?.cookieCancelLabel || 'Cancel', this.options?.cookieAllowLabel || 'Allow'],
-      defaultId: 0, cancelId: 0,
-    })
-    if (response !== 1 || this.cookieImportsDisposed || this.cookieImport.getStatus()) throw new Error('Import not approved')
-    // Bind the exact profile shown in the prompt, even if the active profile changed meanwhile.
-    this.requireProfile(profile.id)
     this.automaticImport = true
-    return this.cookieImport.start(profile.id)
-  }
-
-  private async reviewAutomaticCookieImport(): Promise<void> {
-    const pending = this.cookieImport.getStatus()
-    if (!pending || pending.phase !== 'review') return
-    try {
-      const profile = this.requireProfile(pending.profileId)
-      this.window.show()
-      const { response } = await dialog.showMessageBox(this.window, {
-        type: 'warning', title: 'Ekko Studio',
-        message: this.options?.cookieReviewLabel || 'Import these cookies? Matching cookies will be overwritten.',
-        detail: `${profile.name} · ${pending.cookieCount} Cookie\n${pending.domains.join('\n')}`,
-        buttons: [this.options?.cookieCancelLabel || 'Cancel', this.options?.cookieAllowLabel || 'Allow'], defaultId: 0, cancelId: 0,
-      })
-      const current = this.cookieImport.getStatus()
-      if (!current || current.expiresAt !== pending.expiresAt || current.profileId !== pending.profileId) return
-      if (response !== 1) { await this.cancelCookieImport(); return }
-      const result = await this.confirmCookieImport()
-      await dialog.showMessageBox(this.window, { type: result.failed ? 'warning' : 'info', title: 'Ekko Studio',
-        message: (this.options?.cookieResultLabel || 'Imported: {imported}; failed: {failed}.').replace('{imported}', String(result.imported)).replace('{failed}', String(result.failed)) })
-    } catch {
-      await this.cancelCookieImport()
-    }
+    return this.cookieImport.start(profile.id, COOKIE_EXTENSION_ORIGIN)
   }
   private readonly profileStore: BrowserProfileStore
   private readonly records = new Map<string, TabRecord>()
@@ -182,8 +145,8 @@ export class BrowserManager {
 
   async cancelCookieImport(): Promise<void> { this.automaticImport = false; await this.cookieImport.cancel() }
 
-  async confirmCookieImport(): Promise<{ imported: number; failed: number }> {
-    const { profileId, cookies } = await this.cookieImport.take()
+  async confirmCookieImport(keepReceiver = false): Promise<{ imported: number; failed: number }> {
+    const { profileId, cookies } = await this.cookieImport.take(keepReceiver)
     const profile = this.requireProfile(profileId)
     const browserSession = this.profileSession(profile)
     await this.configureSession(profile, browserSession)

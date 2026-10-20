@@ -263,7 +263,7 @@ async function importSelected() {
       return;
     }
 
-    setStatus("正在连接本机 Ekko Studio，请在 Studio 确认连接…");
+    setStatus("正在连接本机 Ekko Studio…");
     const connection = await fetch("http://127.0.0.1:19489/api/cookie-import-helper/connect", {
       method: "POST", redirect: "error", signal: AbortSignal.timeout(120000),
     });
@@ -289,7 +289,7 @@ async function importSelected() {
       throw new Error(body.detail || ("导入失败 (" + response.status + ")"));
     }
 
-    setStatus("已发送 " + body.cookie_count + " 个 Cookie，请回到 Ekko Studio 确认后完成导入。" + (skipped ? " 已跳过 " + skipped + " 个分区 Cookie。" : ""), "success");
+    setStatus("已导入 " + body.cookie_count + " 个 Cookie。" + (body.failed ? " 失败：" + body.failed + "。" : "") + (skipped ? " 已跳过 " + skipped + " 个分区 Cookie。" : ""), "success");
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "导入失败", "error");
   } finally {

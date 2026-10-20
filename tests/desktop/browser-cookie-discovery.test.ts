@@ -1,6 +1,6 @@
 import { createServer, request } from 'node:http'
 import { afterEach, expect, it, vi } from 'vitest'
-import { BrowserCookieDiscovery } from '../../packages/desktop/src/main/browser/browser-cookie-discovery'
+import { COOKIE_EXTENSION_ORIGIN, BrowserCookieDiscovery } from '../../packages/desktop/src/main/browser/browser-cookie-discovery'
 
 const discovery = new BrowserCookieDiscovery()
 afterEach(async () => { await discovery.stop() })
@@ -17,7 +17,7 @@ it('only invokes connection approval for an empty extension POST with a valid Ho
   const connect = vi.fn(async () => ({ managerUrl: 'http://127.0.0.1:12345', token: 'test' }))
   await discovery.start(connect, selectedPort)
   const url = `http://127.0.0.1:${selectedPort}/api/cookie-import-helper/connect`
-  const extension = { Origin: `chrome-extension://${'a'.repeat(32)}` }
+  const extension = { Origin: COOKIE_EXTENSION_ORIGIN }
   expect((await fetch(url, { method: 'POST', headers: { Origin: 'https://evil.test' } })).status).toBe(403)
   expect((await fetch(url, { method: 'GET', headers: extension })).status).toBe(400)
   expect((await fetch(url, { method: 'POST', headers: extension, body: 'no' })).status).toBe(400)

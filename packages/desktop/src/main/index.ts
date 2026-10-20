@@ -722,11 +722,6 @@ async function initializeDesktopBrowser(): Promise<void> {
   if (!mainWindow || mainWindow.isDestroyed() || browserManager) return
   const root = join(webUiHome(), 'desktop-browser')
   const manager = new BrowserManager(mainWindow, root, {
-    cookieConnectLabel: t('browser.cookieConnectPrompt'),
-    cookieReviewLabel: t('browser.cookieImportWarning'),
-    cookieAllowLabel: t('common.confirm'),
-    cookieCancelLabel: t('common.cancel'),
-    cookieResultLabel: t('browser.cookieImportResult'),
     selectElementLabel: t('browser.selectElement'),
     selectRegionLabel: t('browser.selectRegion'),
     onAnnotationRequest: (tabId, mode) => {
