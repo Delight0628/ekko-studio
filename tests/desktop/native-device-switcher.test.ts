@@ -23,6 +23,7 @@ vi.mock('electron', async () => {
     isDestroyed = () => false
     isVisible = () => true
     setProgressBar = vi.fn()
+    setTitle = vi.fn()
     destroy = vi.fn(() => this.emit('closed'))
     close = vi.fn(() => {
       const event = { prevented: false, preventDefault() { this.prevented = true } }

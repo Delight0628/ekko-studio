@@ -11,7 +11,7 @@ const paths = {
   close: '<path d="m6 6 12 12M6 18 18 6"/>',
   shield: '<path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z"/><path d="m8 12 3 3 5-6"/>',
 }
-const icons = Object.fromEntries(Object.entries(paths).map(([name, path]) => [name, `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`]))
+const icons = Object.fromEntries(Object.entries(paths).map(([name, path]) => [name, `<svg class="icon-${name}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`]))
 
 // All three documents are shipped with Desktop. Remote HTML, fonts, wallpaper
 // resources and scripts never enter these isolated views.
@@ -25,11 +25,11 @@ export function nativeDeviceHtml(kind: 'button' | 'manager' | 'action'): string 
       <header class="manager-header"><span class="hero-icon">${icons.monitor}</span><div><p class="eyebrow">STUDIO</p><h1 id="title"></h1><p id="description" class="muted"></p></div></header>
       <div class="manager-content">
         <section class="list-heading"><h2 id="list-title"></h2><button id="toggle-add" class="primary">${icons.plus}<span id="toggle-add-label"></span></button></section>
-        <form id="add-form" class="surface-card" hidden>
+        <form id="add-form" class="surface-card" novalidate hidden>
           <div class="form-heading"><h2 id="add-title"></h2><button id="hide-add" type="button" class="icon-button">${icons.close}</button></div>
           <p id="add-hint" class="muted"></p>
-          <label><span id="name-label"></span><input id="name" autocomplete="off" maxlength="80" required></label>
-          <label><span id="address-label"></span><input id="address" type="url" autocomplete="off" placeholder="https://studio.example.com" maxlength="2048" required></label>
+          <label><span id="name-label"></span><input id="name" dir="auto" autocomplete="off" maxlength="80" required></label>
+          <label><span id="address-label"></span><input id="address" dir="ltr" type="url" autocomplete="off" placeholder="https://studio.example.com" maxlength="2048" required></label>
           <div class="form-footer"><button id="add" type="submit" class="primary"></button></div>
         </form>
         <div id="message" role="status" aria-live="polite" hidden></div>
@@ -134,7 +134,7 @@ input::placeholder { color:var(--device-secondary); }
 .action-footer { margin-top:auto; padding-top:20px; display:flex; justify-content:flex-end; gap:8px; }
 .action-footer button { min-width:80px; }
 .progress-status { display:flex; align-items:center; gap:8px; font-size:13px; }
-#elapsed { margin-left:auto; font-size:11px; font-variant-numeric:tabular-nums; }
+#elapsed { margin-inline-start:auto; font-size:11px; font-variant-numeric:tabular-nums; }
 .spinner { display:inline-block; width:16px; height:16px; flex-shrink:0; border:2px solid color-mix(in srgb,var(--device-accent) 20%,transparent); border-top-color:var(--device-accent); border-radius:50%; animation:device-spin .75s linear infinite; }
 .progress-steps { display:flex; padding:0; margin:18px 0 0; list-style:none; font-size:11px; color:var(--device-secondary); gap:16px; }
 .progress-steps li { display:flex; align-items:center; gap:6px; flex:1; }
@@ -143,15 +143,17 @@ input::placeholder { color:var(--device-secondary); }
 .progress-steps .active .step-mark,.progress-steps .done .step-mark { color:var(--device-accent); border-color:var(--device-accent); background:color-mix(in srgb,var(--device-accent) 10%,transparent); }
 .step-mark svg { width:12px; height:12px; }
 #action-error { margin:0; }
+:dir(rtl) .icon-arrow { transform:scaleX(-1); }
 @keyframes device-spin { to { transform:rotate(360deg); } }
 @media(prefers-reduced-motion:reduce) { .spinner { animation:none; } }
-@media(max-width:520px) { .manager-header { padding:22px 20px; }.manager-content { padding:0 20px 20px; }.manager-footer { padding:14px 20px; }.device { flex-wrap:wrap; }.actions { margin-left:auto; }.action-shell { padding:24px; } }
+@media(max-width:520px) { .manager-header { padding:22px 20px; }.manager-content { padding:0 20px 20px; }.manager-footer { padding:14px 20px; }.device { flex-wrap:wrap; }.actions { margin-inline-start:auto; }.action-shell { padding:24px; } }
 </style></head><body class="${kind}">${body}
 <script nonce="${nonce}">
 const api = window.studioDevices;
 const icons = ${JSON.stringify(icons)};
 const $ = id => document.getElementById(id);
-let labels, latest, working = false, listSignature = '';
+let labels, latest, working = false, listSignature = '', notice = null;
+const number = value => new Intl.NumberFormat(latest.locale).format(value);
 function icon(name) { const template = document.createElement('template');template.innerHTML = icons[name];return template.content.firstChild; }
 function text(id, value) { if ($(id)) $(id).textContent = value; }
 function errorText(error) {
@@ -163,9 +165,14 @@ function errorText(error) {
  if (value.includes('ACTIVE')) return labels.active;
  return labels.failed;
 }
+function paintStatus() {
+ const el = $('message') || $('action-error');if (!el || !notice) return;
+ el.hidden = false;el.textContent = notice.error ? errorText(notice.value) : labels[notice.value];el.className = 'notice' + (notice.error ? ' error' : '');
+}
 function status(value, error = false) {
+ notice = value ? {value,error} : null;
  const el = $('message') || $('action-error');if (!el) return;
- el.hidden = !value;el.textContent = value;el.className = 'notice' + (error ? ' error' : '');
+ if (!notice) { el.hidden = true;el.textContent = ''; } else paintStatus();
 }
 function makeButton(label, action, iconName) {
  const el = document.createElement('button');el.type = 'button';el.disabled = working || latest.busy;
@@ -186,7 +193,7 @@ function renderToolbar(data) {
  const current = data.state.devices.find(device => device.id === data.state.activeDeviceId);
  const name = data.failed ? labels.title : current ? current.name : data.state.activeServerUrl || labels.local;
  const phase = data.operation?.stage === 'restarting' ? labels.restarting : labels.busy;
- text('device-label', data.busy ? phase : name);
+ text('device-label', data.busy ? phase : name);$('device-label').dir = 'auto';
  $('toolbar-icon').replaceChildren(data.busy ? Object.assign(document.createElement('span'),{className:'spinner'}) : icon(data.state.activeServerUrl ? 'server' : 'monitor'));
  $('device-button').title = data.busy ? phase : name + (data.state.activeServerUrl ? '\\n' + data.state.activeServerUrl : '') + '\\n' + labels.manageTitle;
  $('device-button').setAttribute('aria-label', labels.title + ': ' + (data.busy ? phase : name));
@@ -198,7 +205,7 @@ function renderToolbar(data) {
   const item = makeButton('', () => active ? api.dismiss() : api.switchTo(device.id), device.id === null ? 'monitor' : 'server');
   item.className = 'menu-item';item.setAttribute('role','menuitemradio');item.setAttribute('aria-checked',String(active));item.dataset.deviceId = device.id || 'local';
   item.title = device.name + (device.serverUrl ? '\\n' + device.serverUrl : '');
-  const name = document.createElement('span');name.className = 'menu-name';name.textContent = device.name;
+  const name = document.createElement('span');name.className = 'menu-name';name.dir = 'auto';name.textContent = device.name;
   const check = document.createElement('span');check.className = 'menu-check';if (active) check.append(icon('check'));
   item.append(name,check);menu.append(item);
  }
@@ -206,7 +213,7 @@ function renderToolbar(data) {
  const manage = makeButton(labels.manageTitle, () => api.manage(), 'plus');manage.className = 'menu-item menu-manage';manage.setAttribute('role','menuitem');menu.append(manage);
 }
 function renderManager(data) {
- text('title', labels.manageTitle);text('description', labels.description);text('list-title',labels.savedDevices + ' · ' + (data.state.devices.length+1));
+ text('title', labels.manageTitle);text('description', labels.description);text('list-title',labels.savedDevices + ' · ' + number(data.state.devices.length+1));
  text('toggle-add-label',labels.add);text('add-title',labels.add);text('name-label',labels.name);text('address-label',labels.address);text('add',labels.add);text('add-hint',labels.addHint);text('storage-note',labels.storedLocally);
  $('hide-add').title = labels.close;$('hide-add').setAttribute('aria-label', labels.close);
  const signature = JSON.stringify([data.state,data.busy,working,data.failed,labels]);
@@ -217,8 +224,8 @@ function renderManager(data) {
    const card = document.createElement('article');card.className = 'device surface-card';card.dataset.deviceId = device.id || 'local';card.dataset.current = String(active);
    const badge = document.createElement('span');badge.className = 'device-icon';badge.append(icon(device.id ? 'server' : 'monitor'));
    const info = document.createElement('div');info.className = 'info';
-   const name = document.createElement('div');name.className = 'name';name.textContent = device.name;info.append(name);
-   const address = document.createElement('div');address.className = 'address';address.textContent = device.serverUrl || labels.localHint;info.append(address);
+   const name = document.createElement('div');name.className = 'name';name.dir = 'auto';name.textContent = device.name;info.append(name);
+   const address = document.createElement('div');address.className = 'address';address.dir = device.serverUrl ? 'ltr' : 'auto';address.textContent = device.serverUrl || labels.localHint;info.append(address);
    const actions = document.createElement('div');actions.className = 'actions';
    if (active) { const tag = document.createElement('span');tag.className = 'current';tag.append(icon('check'), document.createTextNode(labels.current));actions.append(tag); }
    else { const connect = makeButton(labels.switch, () => api.switchTo(device.id), 'arrow');connect.dataset.action = 'switch';actions.append(connect); }
@@ -228,7 +235,7 @@ function renderManager(data) {
  }
  for (const el of document.querySelectorAll('input,form button,#toggle-add')) el.disabled = working || data.busy || data.failed;
  $('toggle-add').setAttribute('aria-expanded',String(!$('add-form').hidden));
- if (data.failed) status(labels.failed,true);
+ if (data.failed) status('REMOTE_DEVICE_FAILED',true);
 }
 function renderAction(data) {
  const operation = data.operation;if (!operation) return;
@@ -236,8 +243,8 @@ function renderAction(data) {
  $('action-shell').setAttribute('aria-busy',String(data.busy));
  $('action-icon').replaceChildren(icon(switching ? 'arrow' : 'trash'));
  text('action-title',switching ? labels.switchTitle : labels.deleteTitle);
- text('target-caption',labels.target);text('target-name',operation.target.name);$('target-name').title = operation.target.name;
- text('target-address',operation.target.serverUrl || labels.localHint);$('target-address').title = operation.target.serverUrl || labels.localHint;
+ text('target-caption',labels.target);text('target-name',operation.target.name);$('target-name').title = operation.target.name;$('target-name').dir = 'auto';
+ text('target-address',operation.target.serverUrl || labels.localHint);$('target-address').title = operation.target.serverUrl || labels.localHint;$('target-address').dir = operation.target.serverUrl ? 'ltr' : 'auto';
  $('target-icon').replaceChildren(icon(operation.target.serverUrl ? 'server' : 'monitor'));
  text('action-hint',pending ? (switching ? labels.hint : labels.deleteConfirm) : failed ? '' : restarting ? labels.restartHint : labels.checkingHint);
  $('action-hint').hidden = failed;
@@ -245,7 +252,7 @@ function renderAction(data) {
  text('progress-title',restarting ? labels.restarting : operation.target.serverUrl ? labels.busy : labels.preparing);
  text('check-label',labels.checkConnection);text('restart-label',labels.restartStudio);
  $('step-check').className = restarting ? 'done' : 'active';$('step-restart').className = restarting ? 'active' : '';
- $('step-check').firstElementChild.replaceChildren(restarting ? icon('check') : document.createTextNode('1'));$('step-restart').firstElementChild.textContent = '2';
+ $('step-check').firstElementChild.replaceChildren(restarting ? icon('check') : document.createTextNode(number(1)));$('step-restart').firstElementChild.textContent = number(2);
  text('action-error',failed ? errorText(operation.error) : '');$('action-error').hidden = !failed;
  $('action-cancel').textContent = failed ? labels.close : labels.cancel;
  $('action-cancel').hidden = data.busy;$('action-confirm').hidden = data.busy;
@@ -257,17 +264,18 @@ function renderAction(data) {
 function updateElapsed() {
  const op = latest?.operation;if (!$('elapsed') || !op?.startedAt) return;
  const seconds = Math.max(0,Math.floor((Date.now()-op.startedAt)/1000));
- text('elapsed', labels.elapsed.replace('{seconds}',new Intl.NumberFormat().format(seconds)));
+ text('elapsed', labels.elapsed.replace('{seconds}',number(seconds)));
 }
 function render(data) {
- latest = data;labels = data.labels;applyAppearance(data.appearance);
+ latest = data;labels = data.labels;document.documentElement.lang = data.locale;document.documentElement.dir = data.locale === 'ar' ? 'rtl' : 'ltr';applyAppearance(data.appearance);
  if ($('device-button')) renderToolbar(data);else if ($('devices')) renderManager(data);else renderAction(data);
+ paintStatus();
 }
-async function refresh() { try { render(await api.state()); } catch { if (labels) status(labels.failed,true); } }
+async function refresh() { try { render(await api.state()); } catch { if (labels) status('REMOTE_DEVICE_FAILED',true); } }
 async function perform(action) {
  if (working || latest.busy) return;
  working = true;render(latest);status('');
- try { await action(); } catch (error) { status(errorText(error),true); }
+ try { await action(); } catch (error) { status(error,true); }
  finally { working = false;await refresh(); }
 }
 if ($('device-button')) {
@@ -285,7 +293,7 @@ if ($('device-button')) {
 if ($('add-form')) {
  const setAddOpen = open => { $('add-form').hidden = !open;$('toggle-add').setAttribute('aria-expanded',String(open));if (open) $('name').focus(); };
  $('toggle-add').addEventListener('click', () => setAddOpen($('add-form').hidden));$('hide-add').addEventListener('click', () => setAddOpen(false));
- $('add-form').addEventListener('submit', event => { event.preventDefault();void perform(async () => { await api.add({name:$('name').value,serverUrl:$('address').value});$('add-form').reset();setAddOpen(false);status(labels.saved); }); });
+ $('add-form').addEventListener('submit', event => { event.preventDefault();void perform(async () => { await api.add({name:$('name').value,serverUrl:$('address').value});$('add-form').reset();setAddOpen(false);status('saved'); }); });
 }
 if ($('action-confirm')) {
  $('action-confirm').addEventListener('click', () => perform(() => api.confirm(latest.operation.token)));

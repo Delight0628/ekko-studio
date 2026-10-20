@@ -8,6 +8,11 @@ const [root, bundle] = process.argv.slice(2)
 app.setPath('userData', join(root, 'electron'))
 app.commandLine.appendSwitch('disable-gpu')
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+async function capture(window, name) {
+  // DOM updates precede the compositor frame used by capturePage.
+  await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+  fs.writeFileSync(join(require('node:os').tmpdir(), name), (await window.webContents.capturePage()).toPNG())
+}
 async function until(predicate) {
   for (let i = 0; i < 100; i++) { try { if (await predicate()) return } catch {} await sleep(50) }
   throw new Error('Native device UI did not become ready')
@@ -19,7 +24,7 @@ let controller, server
   let restarts = 0, pendingCheck = null
   server = createServer((_req, response) => {
     response.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'")
-    response.end('<!doctype html><html><head><meta charset="utf-8"><style>:root{--bg-primary:#fafafa;--bg-card:#fff;--bg-input:#fff;--bg-main-surface-rgb:255,255,255;--bg-card-rgb:255,255,255;--text-primary:#1a1a1a;--text-secondary:#666;--accent-primary:#333;--text-on-accent:#fff;--error:#c62828;--border-color:#e0e0e0;--radius-component:6px}html.dark{--bg-primary:#1a1a1a;--bg-card:#2a2a2a;--bg-input:#2a2a2a;--text-primary:#e0e0e0;--text-secondary:#a0a0a0;--accent-primary:#e0e0e0;--text-on-accent:#1a1a1a;--border-color:#3a3a3a}header{padding:0 16px;-webkit-app-region:drag}.studio-page-header{-webkit-app-region:drag}</style></head><body style="margin:0;background:#f6f6f6"><div id="app"><div class="studio-page-header" style="display:flex;position:absolute;left:64px;right:0;top:0;height:40px;box-sizing:border-box"><header style="flex:1;min-width:0;display:flex;justify-content:space-between"><span>Old remote Studio</span><button id="business-action">Action</button></header><div style="width:138px;position:absolute;right:0;height:40px">—　□　×</div></div></div></body></html>')
+    response.end('<!doctype html><html lang="en"><head><meta charset="utf-8"><style>:root{--bg-primary:#fafafa;--bg-card:#fff;--bg-input:#fff;--bg-main-surface-rgb:255,255,255;--bg-card-rgb:255,255,255;--text-primary:#1a1a1a;--text-secondary:#666;--accent-primary:#333;--text-on-accent:#fff;--error:#c62828;--border-color:#e0e0e0;--radius-component:6px}html.dark{--bg-primary:#1a1a1a;--bg-card:#2a2a2a;--bg-input:#2a2a2a;--text-primary:#e0e0e0;--text-secondary:#a0a0a0;--accent-primary:#e0e0e0;--text-on-accent:#1a1a1a;--border-color:#3a3a3a}header{padding:0 16px;-webkit-app-region:drag}.studio-page-header{-webkit-app-region:drag}</style></head><body style="margin:0;background:#f6f6f6"><div id="app"><div class="studio-page-header" style="display:flex;position:absolute;left:64px;right:0;top:0;height:40px;box-sizing:border-box"><header style="flex:1;min-width:0;display:flex;justify-content:space-between"><span>Old remote Studio</span><button id="business-action">Action</button></header><div style="width:138px;position:absolute;right:0;height:40px">—　□　×</div></div></div></body></html>')
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const remote = `http://127.0.0.1:${server.address().port}`
@@ -34,7 +39,9 @@ let controller, server
   await until(() => controller.view.getVisible())
   const native = controller.view.webContents
   await until(() => native.executeJavaScript("Boolean(window.studioDevices && document.getElementById('device-label').textContent !== 'Ekko Studio')"))
+  await until(() => native.executeJavaScript("window.studioDevices.state().then(data => data.locale === 'en')"))
   const initial = await native.executeJavaScript('window.studioDevices.state()')
+  assert.equal(initial.labels.confirm, 'Switch and restart')
   assert.equal(initial.state.activeServerUrl, remote)
   await until(() => main.webContents.executeJavaScript("getComputedStyle(document.querySelector('.studio-page-header')).paddingRight === '266px'"))
   assert.equal(await main.webContents.executeJavaScript('typeof window.studioDevices'), 'undefined')
@@ -56,6 +63,25 @@ let controller, server
   await until(() => Promise.resolve(BrowserWindow.getAllWindows().some(window => window !== main)))
   const management = BrowserWindow.getAllWindows().find(window => window !== main)
   await until(() => management.webContents.executeJavaScript("Boolean(window.studioDevices && document.querySelector('#devices .device'))"))
+  await management.webContents.executeJavaScript("document.getElementById('add-form').requestSubmit()")
+  await until(() => management.webContents.executeJavaScript("window.studioDevices.state().then(data => !document.getElementById('message').hidden && document.getElementById('message').textContent === data.labels.invalid)"))
+  const languages = ['en','zh','zh-TW','ja','ko','fr','es','de','pt','ru','ar','tr'];
+  for (const locale of languages) {
+    await main.webContents.executeJavaScript(`document.documentElement.lang = ${JSON.stringify(locale)}`);
+    await until(() => management.webContents.executeJavaScript(`window.studioDevices.state().then(data => data.locale === ${JSON.stringify(locale)} && document.documentElement.lang === data.locale && document.documentElement.dir === (data.locale === 'ar' ? 'rtl' : 'ltr') && document.getElementById('title').textContent === data.labels.manageTitle)`));
+    const labels = (await native.executeJavaScript('window.studioDevices.state()')).labels;
+    assert.equal(management.getTitle(), labels.manageTitle);
+    assert.equal(await native.executeJavaScript("document.querySelector('.menu-manage').textContent"), labels.manageTitle);
+    assert.equal(await management.webContents.executeJavaScript("document.getElementById('message').textContent"), labels.invalid, 'existing errors follow language changes');
+    if (locale === 'ar') {
+      management.setSize(460,620);await sleep(100);
+      assert.equal(await management.webContents.executeJavaScript('document.documentElement.scrollWidth <= innerWidth'), true);
+      await capture(management, 'studio-native-device-manager-arabic.png');
+      management.setSize(680,620);
+    }
+  }
+  await main.webContents.executeJavaScript("document.documentElement.lang='en'");
+  await until(() => management.webContents.executeJavaScript("document.documentElement.lang === 'en'"));
   fs.writeFileSync(join(require('node:os').tmpdir(), 'studio-native-device-header-win32.png'), (await main.capturePage()).toPNG())
   fs.writeFileSync(join(require('node:os').tmpdir(), 'studio-native-device-manager.png'), (await management.capturePage()).toPNG())
   // The isolated views inherit Studio colors and regional overrides live.
@@ -99,12 +125,21 @@ let controller, server
     return actionWindow();
   }
   const clickWindow = (window, selector) => clickNative(window, { webContents: window.webContents, getBounds: () => ({ x:0, y:0 }) }, selector, root);
-  const capture = async (window, name) => fs.writeFileSync(join(require('node:os').tmpdir(), name), (await window.webContents.capturePage()).toPNG());
   // A pending connection check must visibly spin; elapsed time keeps moving.
   await management.webContents.executeJavaScript(`document.querySelector('[data-device-id="${office.id}"] [data-action="switch"]').click()`);
   const switching = await readyAction();
   assert.equal(restarts, 0);assert.equal(pendingCheck, null, 'confirmation precedes all network checks');
   assert.equal(await switching.webContents.executeJavaScript('document.getElementById("target-name").textContent'), dangerousName);
+  for (const locale of ['en','es','ar','zh-TW','ru','tr']) {
+    await main.webContents.executeJavaScript(`document.documentElement.lang = ${JSON.stringify(locale)}`);
+    await until(() => switching.webContents.executeJavaScript(`window.studioDevices.state().then(data => data.locale === ${JSON.stringify(locale)} && document.documentElement.lang === data.locale && document.documentElement.dir === (data.locale === 'ar' ? 'rtl' : 'ltr') && document.getElementById('action-title').textContent === data.labels.switchTitle && document.getElementById('action-confirm').textContent === data.labels.confirm)`));
+    const labels = (await switching.webContents.executeJavaScript('window.studioDevices.state()')).labels;
+    assert.equal(switching.getTitle(), labels.switchTitle);
+    assert.equal(await switching.webContents.executeJavaScript('document.documentElement.scrollWidth <= innerWidth'), true);
+    if (locale === 'ar') await capture(switching, 'studio-native-device-confirmation-arabic.png');
+  }
+  await main.webContents.executeJavaScript("document.documentElement.lang='en'");
+  await until(() => switching.webContents.executeJavaScript("document.documentElement.lang === 'en'"));
   await capture(switching, 'studio-native-device-confirmation.png');
   await main.webContents.executeJavaScript("document.documentElement.classList.add('dark')");
   await until(() => switching.webContents.executeJavaScript("getComputedStyle(document.getElementById('action-shell')).backgroundColor === 'rgb(42, 42, 42)'"));
@@ -125,6 +160,8 @@ let controller, server
   assert.equal(await native.executeJavaScript("document.getElementById('device-button').disabled && !!document.querySelector('#toolbar-icon .spinner')"), true);
   assert.equal(await switching.webContents.executeJavaScript("window.studioDevices.state().then(data => window.studioDevices.confirm(data.operation.token)).then(() => false, () => true)"), true);
   switching.close();assert.equal(switching.isDestroyed(), false, 'do not hide an active check');
+  await main.webContents.executeJavaScript("document.documentElement.lang='es'");
+  await until(() => switching.webContents.executeJavaScript("window.studioDevices.state().then(data => data.locale === 'es' && document.getElementById('progress-title').textContent === data.labels.busy && document.getElementById('restart-label').textContent === data.labels.restartStudio)"));
   await until(() => switching.webContents.executeJavaScript("/[1-9]/.test(document.getElementById('elapsed').textContent)"));
   await capture(switching, 'studio-native-device-checking.png');
   pendingCheck.reject(new Error('offline'));pendingCheck = null;
@@ -154,6 +191,7 @@ let controller, server
   await native.executeJavaScript('window.studioDevices.dismiss()')
   management.show()
   assert.equal(await native.executeJavaScript("document.getElementById('device-button').disabled"), false)
+  assert.equal((await native.executeJavaScript('window.studioDevices.state()')).locale, 'es', 'offline and renderer crash preserve the selected app language')
   // Forging the preload in a different local view still cannot access the native IPC.
   const impostor = new BrowserWindow({ show: false, webPreferences: { preload: join(root, 'preload', 'native-devices.js'), sandbox: true, contextIsolation: true } })
   await impostor.loadURL('data:text/html,<body>Untrusted local window</body>')
@@ -197,7 +235,7 @@ let controller, server
   assert.equal(controller.view.getBounds().x, main.getContentSize()[0] - 128)
   await sleep(100)
   fs.writeFileSync(join(require('node:os').tmpdir(), 'studio-native-device-button-macos.png'), (await controller.view.webContents.capturePage()).toPNG())
-  fs.writeFileSync(join(root, 'result.json'), JSON.stringify({ ok: true, oldPage: true, csp: true, offline: true, crash: true, localManager: true, deniedForeignIpc: true, layoutGap: 8, returnedLocal: true, clickedToolbar: true, liveTheme: true, hiddenSplash: true, compactMenu: true, themedConfirmation: true, progressFeedback: true, retryAndCancel: true, reducedMotion, osMouse: process.env.STUDIO_TEST_NATIVE_MOUSE === '1' }))
+  fs.writeFileSync(join(root, 'result.json'), JSON.stringify({ ok: true, oldPage: true, csp: true, offline: true, crash: true, localManager: true, deniedForeignIpc: true, layoutGap: 8, returnedLocal: true, clickedToolbar: true, liveTheme: true, hiddenSplash: true, compactMenu: true, themedConfirmation: true, progressFeedback: true, retryAndCancel: true, liveLocale: true, allTwelveLanguages: true, rtlLayout: true, offlineLocale: true, reducedMotion, osMouse: process.env.STUDIO_TEST_NATIVE_MOUSE === '1' }))
   controller.dispose();main.destroy();await new Promise(resolve => server.close(resolve));app.exit(0)
 })().catch(async error => {
   const diagnostics = [];

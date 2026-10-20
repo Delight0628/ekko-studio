@@ -1,7 +1,25 @@
-import { desktopLocale } from './desktop-i18n'
+import { app } from 'electron'
+
+export const nativeDeviceLocales = ['en', 'zh', 'zh-TW', 'ja', 'ko', 'fr', 'es', 'de', 'pt', 'ru', 'ar', 'tr'] as const
+export type NativeDeviceLocale = typeof nativeDeviceLocales[number]
+
+export function normalizeNativeDeviceLocale(value: unknown): NativeDeviceLocale | null {
+  if (typeof value !== 'string' || value.length > 64) return null
+  const tag = value.trim().replaceAll('_', '-').toLowerCase()
+  if (!tag) return null
+  if (tag === 'zh' || tag.startsWith('zh-')) {
+    return /(?:^|-)(hant|tw|hk|mo)(?:-|$)/.test(tag) ? 'zh-TW' : 'zh'
+  }
+  const primary = tag.split('-')[0]
+  return (nativeDeviceLocales as readonly string[]).includes(primary) ? primary as NativeDeviceLocale : null
+}
+
+export function defaultNativeDeviceLocale(): NativeDeviceLocale {
+  return normalizeNativeDeviceLocale(app.getLocale()) || 'en'
+}
 
 type Labels = { title: string; local: string; manage: string; name: string; address: string; add: string; remove: string; current: string; switch: string; confirm: string; hint: string; cancel: string; busy: string; failed: string; invalid: string; duplicate: string; unreachable: string; active: string; deleteConfirm: string; limit: string }
-const messages: Record<ReturnType<typeof desktopLocale>, Labels> = {
+const messages: Record<NativeDeviceLocale, Labels> = {
   en: { title: 'Devices', local: 'localhost', manage: 'Manage devices…', name: 'Device name', address: 'Studio server address', add: 'Add device', remove: 'Delete', current: 'Current device', switch: 'Switch', confirm: 'Switch and restart', hint: 'Save your work first. Studio will check the connection and restart all desktop windows on the selected device.', cancel: 'Cancel', busy: 'Checking connection…', failed: 'Could not complete the operation. Please try again.', invalid: 'Enter a name (1–80 characters) and an HTTP or HTTPS server root address without credentials.', duplicate: 'This server address is already saved.', unreachable: 'Could not reach this Studio server. Your current connection is unchanged.', limit: "You can save up to 50 remote devices.", active: 'Switch to another device before deleting this connection.', deleteConfirm: 'Delete this saved connection? The device’s services and data will be retained.' },
   zh: { title: '设备', local: 'localhost', manage: '管理设备…', name: '设备名称', address: 'Studio 服务地址', add: '添加设备', remove: '删除', current: '当前设备', switch: '切换', confirm: '切换并重启', hint: '请先保存当前工作。Studio 会检查连接并重启所有桌面窗口，切换到所选设备。', cancel: '取消', busy: '正在检查连接…', failed: '操作失败，请重试。', invalid: '请输入 1–80 字的名称，以及不含账号密码的 HTTP 或 HTTPS 服务根地址。', duplicate: '该服务地址已添加。', unreachable: '无法连接此 Studio 服务，当前连接保持不变。', limit: "最多可保存 50 台远程设备。", active: '请先切换到其他设备，再删除当前连接。', deleteConfirm: '删除这条连接配置？设备上的服务和数据会保留。' },
   'zh-TW': { title: '裝置', local: 'localhost', manage: '管理裝置…', name: '裝置名稱', address: 'Studio 服務位址', add: '新增裝置', remove: '刪除', current: '目前裝置', switch: '切換', confirm: '切換並重新啟動', hint: '請先儲存工作。Studio 會檢查連線並重新啟動所有桌面視窗，切換至所選裝置。', cancel: '取消', busy: '正在檢查連線…', failed: '操作失敗，請再試一次。', invalid: '請輸入 1–80 字的名稱，以及不含帳號密碼的 HTTP 或 HTTPS 服務根位址。', duplicate: '此服務位址已新增。', unreachable: '無法連線至此 Studio 服務，目前連線維持不變。', limit: "最多可儲存 50 台遠端裝置。", active: '請先切換至其他裝置，再刪除目前連線。', deleteConfirm: '刪除此連線設定？裝置上的服務與資料會保留。' },
@@ -11,6 +29,9 @@ const messages: Record<ReturnType<typeof desktopLocale>, Labels> = {
   es: { title: 'Dispositivos', local: 'localhost', manage: 'Gestionar dispositivos…', name: 'Nombre del dispositivo', address: 'Dirección del servidor Studio', add: 'Añadir', remove: 'Eliminar', current: 'Dispositivo actual', switch: 'Cambiar', confirm: 'Cambiar y reiniciar', hint: 'Guarda tu trabajo. Studio comprobará la conexión y reiniciará todas las ventanas.', cancel: 'Cancelar', busy: 'Comprobando conexión…', failed: 'No se pudo completar la operación. Inténtalo de nuevo.', invalid: 'Introduce un nombre de 1–80 caracteres y una dirección raíz HTTP/HTTPS sin credenciales.', duplicate: 'Esta dirección ya está guardada.', unreachable: 'Servidor inaccesible. Se mantiene la conexión actual.', limit: "Puedes guardar hasta 50 dispositivos remotos.", active: 'Cambia de dispositivo antes de eliminar esta conexión.', deleteConfirm: '¿Eliminar esta conexión? Se conservarán los servicios y datos del dispositivo.' },
   de: { title: 'Geräte', local: 'localhost', manage: 'Geräte verwalten…', name: 'Gerätename', address: 'Studio-Serveradresse', add: 'Hinzufügen', remove: 'Löschen', current: 'Aktuelles Gerät', switch: 'Wechseln', confirm: 'Wechseln und neu starten', hint: 'Speichern Sie Ihre Arbeit. Studio prüft die Verbindung und startet alle Fenster neu.', cancel: 'Abbrechen', busy: 'Verbindung wird geprüft…', failed: 'Vorgang fehlgeschlagen. Bitte erneut versuchen.', invalid: 'Geben Sie einen Namen mit 1–80 Zeichen und eine HTTP/HTTPS-Stammadresse ohne Zugangsdaten ein.', duplicate: 'Diese Adresse ist bereits gespeichert.', unreachable: 'Server nicht erreichbar. Die aktuelle Verbindung bleibt bestehen.', limit: "Es können bis zu 50 entfernte Geräte gespeichert werden.", active: 'Wechseln Sie vor dem Löschen zu einem anderen Gerät.', deleteConfirm: 'Diese Verbindung löschen? Dienste und Daten des Geräts bleiben erhalten.' },
   pt: { title: 'Dispositivos', local: 'localhost', manage: 'Gerir dispositivos…', name: 'Nome do dispositivo', address: 'Endereço do servidor Studio', add: 'Adicionar', remove: 'Eliminar', current: 'Dispositivo atual', switch: 'Mudar', confirm: 'Mudar e reiniciar', hint: 'Guarde o trabalho. O Studio verificará a ligação e reiniciará todas as janelas.', cancel: 'Cancelar', busy: 'A verificar a ligação…', failed: 'Não foi possível concluir a operação. Tente novamente.', invalid: 'Introduza um nome com 1–80 caracteres e um endereço raiz HTTP/HTTPS sem credenciais.', duplicate: 'Este endereço já está guardado.', unreachable: 'Servidor inacessível. A ligação atual é mantida.', limit: "Você pode salvar até 50 dispositivos remotos.", active: 'Mude de dispositivo antes de eliminar esta ligação.', deleteConfirm: 'Eliminar esta ligação? Os serviços e dados do dispositivo serão mantidos.' },
+  ru: { title: 'Устройства', local: 'localhost', manage: 'Управление устройствами…', name: 'Название устройства', address: 'Адрес сервера Studio', add: 'Добавить устройство', remove: 'Удалить', current: 'Текущее устройство', switch: 'Переключить', confirm: 'Переключить и перезапустить', hint: 'Сохраните работу. Studio проверит соединение и перезапустит все окна на выбранном устройстве.', cancel: 'Отмена', busy: 'Проверка соединения…', failed: 'Не удалось выполнить операцию. Повторите попытку.', invalid: 'Введите название длиной 1–80 символов и корневой HTTP- или HTTPS-адрес сервера без учётных данных.', duplicate: 'Этот адрес уже сохранён.', unreachable: 'Сервер Studio недоступен. Текущее подключение сохранено.', active: 'Перед удалением этого подключения переключитесь на другое устройство.', deleteConfirm: 'Удалить это подключение? Службы и данные устройства будут сохранены.', limit: 'Можно сохранить до 50 удалённых устройств.' },
+  ar: { title: 'الأجهزة', local: 'localhost', manage: 'إدارة الأجهزة…', name: 'اسم الجهاز', address: 'عنوان خادم Studio', add: 'إضافة جهاز', remove: 'حذف', current: 'الجهاز الحالي', switch: 'تبديل', confirm: 'التبديل وإعادة التشغيل', hint: 'احفظ عملك أولاً. سيتحقق Studio من الاتصال ويعيد تشغيل جميع النوافذ على الجهاز المحدد.', cancel: 'إلغاء', busy: 'جارٍ التحقق من الاتصال…', failed: 'تعذر إكمال العملية. حاول مرة أخرى.', invalid: 'أدخل اسماً من حرف إلى 80 حرفاً وعنوان HTTP أو HTTPS في جذر الخادم دون بيانات تسجيل الدخول.', duplicate: 'عنوان الخادم محفوظ بالفعل.', unreachable: 'تعذر الوصول إلى خادم Studio. سيبقى اتصالك الحالي.', active: 'بدّل إلى جهاز آخر قبل حذف هذا الاتصال.', deleteConfirm: 'هل تريد حذف هذا الاتصال؟ ستبقى خدمات الجهاز وبياناته.', limit: 'يمكنك حفظ ما يصل إلى 50 جهازاً بعيداً.' },
+  tr: { title: 'Cihazlar', local: 'localhost', manage: 'Cihazları yönet…', name: 'Cihaz adı', address: 'Studio sunucu adresi', add: 'Cihaz ekle', remove: 'Sil', current: 'Geçerli cihaz', switch: 'Geçiş yap', confirm: 'Geç ve yeniden başlat', hint: 'Önce çalışmanızı kaydedin. Studio bağlantıyı denetleyecek ve tüm pencereleri seçilen cihazda yeniden başlatacak.', cancel: 'İptal', busy: 'Bağlantı denetleniyor…', failed: 'İşlem tamamlanamadı. Tekrar deneyin.', invalid: '1–80 karakterlik bir ad ve kimlik bilgileri içermeyen bir HTTP veya HTTPS sunucu kök adresi girin.', duplicate: 'Bu sunucu adresi zaten kayıtlı.', unreachable: 'Studio sunucusuna ulaşılamadı. Geçerli bağlantınız korunur.', active: 'Bu bağlantıyı silmeden önce başka bir cihaza geçin.', deleteConfirm: 'Bu bağlantı silinsin mi? Cihazın hizmetleri ve verileri korunacaktır.', limit: 'En fazla 50 uzak cihaz kaydedebilirsiniz.' },
 }
 const extraEnglish = {
   manageTitle: 'Device management', description: 'Switch between this computer and your remote Studio servers.',
@@ -23,7 +44,7 @@ const extraEnglish = {
   preparing: 'Preparing to switch…', retry: 'Try again', close: 'Close',
   elapsed: 'Waiting {seconds}s', storedLocally: 'Connections are saved on this computer.',
 }
-const extraMessages: Record<ReturnType<typeof desktopLocale>, Record<keyof typeof extraEnglish, string>> = {
+const extraMessages: Record<NativeDeviceLocale, Record<keyof typeof extraEnglish, string>> = {
   en: extraEnglish,
   zh: {
     manageTitle: '设备管理', description: '在本机和远程 Studio 之间切换。', savedDevices: '已保存的设备', remote: '远程',
@@ -89,9 +110,32 @@ const extraMessages: Record<ReturnType<typeof desktopLocale>, Record<keyof typeo
     checkingHint: 'A verificar o serviço Studio deste dispositivo. Aguarde.', preparing: 'A preparar a mudança…', retry: 'Tentar novamente', close: 'Fechar',
     elapsed: 'A aguardar {seconds} s', storedLocally: 'As ligações são guardadas neste computador.',
   },
+  ru: {
+    manageTitle: 'Управление устройствами', description: 'Переключайтесь между этим компьютером и удалёнными серверами Studio.', savedDevices: 'Сохранённые устройства', remote: 'Удалённое',
+    localHint: 'Studio на этом компьютере', addHint: 'Введите адрес сервера Studio на удалённом устройстве.', saved: 'Устройство добавлено',
+    switchTitle: 'Переключить устройство', deleteTitle: 'Удалить подключение', target: 'Выбранное устройство', checkConnection: 'Проверить соединение', restartStudio: 'Перезапустить Studio',
+    restarting: 'Перезапуск Studio…', restartHint: 'Подключение сохранено. Studio откроется на выбранном устройстве.',
+    checkingHint: 'Проверяем службу Studio на этом устройстве. Подождите.', preparing: 'Подготовка к переключению…', retry: 'Повторить', close: 'Закрыть',
+    elapsed: 'Ожидание: {seconds} с', storedLocally: 'Подключения хранятся на этом компьютере.',
+  },
+  ar: {
+    manageTitle: 'إدارة الأجهزة', description: 'بدّل بين هذا الكمبيوتر وخوادم Studio البعيدة.', savedDevices: 'الأجهزة المحفوظة', remote: 'بعيد',
+    localHint: 'Studio يعمل على هذا الكمبيوتر', addHint: 'أدخل عنوان خادم Studio على جهازك البعيد.', saved: 'تمت إضافة الجهاز',
+    switchTitle: 'تبديل الجهاز', deleteTitle: 'حذف الاتصال', target: 'الجهاز المحدد', checkConnection: 'التحقق من الاتصال', restartStudio: 'إعادة تشغيل Studio',
+    restarting: 'جارٍ إعادة تشغيل Studio…', restartHint: 'تم حفظ الاتصال. سيفتح Studio على الجهاز المحدد.',
+    checkingHint: 'جارٍ التحقق من خدمة Studio على هذا الجهاز. يرجى الانتظار.', preparing: 'جارٍ التحضير للتبديل…', retry: 'إعادة المحاولة', close: 'إغلاق',
+    elapsed: 'انتظار {seconds} ث', storedLocally: 'تُحفظ الاتصالات على هذا الكمبيوتر.',
+  },
+  tr: {
+    manageTitle: 'Cihaz yönetimi', description: 'Bu bilgisayar ile uzak Studio sunucularınız arasında geçiş yapın.', savedDevices: 'Kayıtlı cihazlar', remote: 'Uzak',
+    localHint: 'Bu bilgisayarda çalışan Studio', addHint: 'Uzak cihazınızdaki Studio sunucusunun adresini girin.', saved: 'Cihaz eklendi',
+    switchTitle: 'Cihaz değiştir', deleteTitle: 'Bağlantıyı sil', target: 'Seçilen cihaz', checkConnection: 'Bağlantıyı denetle', restartStudio: 'Studio’yu yeniden başlat',
+    restarting: 'Studio yeniden başlatılıyor…', restartHint: 'Bağlantınız kaydedildi. Studio seçilen cihazda yeniden açılacak.',
+    checkingHint: 'Bu cihazdaki Studio hizmeti doğrulanıyor. Lütfen bekleyin.', preparing: 'Geçiş hazırlanıyor…', retry: 'Tekrar dene', close: 'Kapat',
+    elapsed: '{seconds} sn bekleniyor', storedLocally: 'Bağlantılar bu bilgisayarda saklanır.',
+  },
 }
 export type NativeDeviceLabels = Labels & typeof extraEnglish
-export function nativeDeviceLabels(): NativeDeviceLabels {
-  const locale = desktopLocale()
+export function nativeDeviceLabels(locale: NativeDeviceLocale = defaultNativeDeviceLocale()): NativeDeviceLabels {
   return { ...messages[locale], ...extraMessages[locale] }
 }

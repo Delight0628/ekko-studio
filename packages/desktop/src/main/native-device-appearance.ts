@@ -1,9 +1,11 @@
-// Read appearance only. The remote document never receives a privileged bridge
+// Read appearance and the selected app language only. The remote document never receives a privileged bridge
 // and cannot supply scripts, resource URLs or arbitrary CSS to the local views.
 export function readNativeDeviceAppearance() {
-  if (!document.querySelector('#app .studio-page-header')) return null
   const root = document.documentElement
-  if (!getComputedStyle(root).getPropertyValue('--text-primary').trim()) return { scheme: 'dark', values: {} }
+  const locale = root.lang.trim().slice(0, 64)
+  const ready = !!document.querySelector('#app .studio-page-header')
+  if (!ready) return { ready, locale, scheme: 'dark', values: {} }
+  if (!getComputedStyle(root).getPropertyValue('--text-primary').trim()) return { ready, locale, scheme: 'dark', values: {} }
   const wallpaper = root.classList.contains('theme-has-custom-background')
   const properties: Record<string, [string, string]> = {
     text: ['color', 'var(--text-primary)'], secondary: ['color', 'var(--text-secondary)'],
@@ -36,6 +38,6 @@ export function readNativeDeviceAppearance() {
       probe.style.setProperty(property, value)
       values[key] = getComputedStyle(probe).getPropertyValue(property).trim()
     }
-    return { scheme: root.classList.contains('dark') ? 'dark' : 'light', values }
+    return { ready, locale, scheme: root.classList.contains('dark') ? 'dark' : 'light', values }
   } finally { probe.remove() }
 }

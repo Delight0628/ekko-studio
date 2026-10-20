@@ -2,7 +2,7 @@ import { BrowserWindow, WebContentsView, ipcMain, type IpcMainInvokeEvent, type 
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { DesktopRemoteDevices, DesktopRemoteDevicesState } from './remote-devices'
-import { nativeDeviceLabels } from './native-device-messages'
+import { nativeDeviceLabels, defaultNativeDeviceLocale, normalizeNativeDeviceLocale } from './native-device-messages'
 import { nativeDeviceHtml } from './native-device-html'
 import { readNativeDeviceAppearance } from './native-device-appearance'
 
@@ -35,9 +35,10 @@ export class NativeDeviceSwitcher {
   private actionWindow: BrowserWindow | null = null
   private operation: DeviceOperation | null = null
   private readonly documents = new Map<WebContents, string>()
+  private locale = defaultNativeDeviceLocale()
   private visible = false
   private menuOpen = false
-  private appearance: ReturnType<typeof readNativeDeviceAppearance> = null
+  private appearance: ReturnType<typeof readNativeDeviceAppearance> | null = null
   private readingAppearance = false
   private navigationEpoch = 0
   private loading = false
@@ -87,7 +88,7 @@ export class NativeDeviceSwitcher {
       let state: DesktopRemoteDevicesState
       let failed = false
       try { state = this.devices().state() } catch { state = { devices: [], activeDeviceId: null, activeServerUrl: null };failed = true }
-      return { state, labels: nativeDeviceLabels(), busy: this.busy, failed, menuOpen: this.menuOpen, appearance: this.appearance, operation: this.operation }
+      return { state, labels: nativeDeviceLabels(this.locale), locale: this.locale, busy: this.busy, failed, menuOpen: this.menuOpen, appearance: this.appearance, operation: this.operation }
     })
     ipcMain.handle(channel('menu'), event => {
       this.authorize(event, true)
@@ -176,8 +177,14 @@ export class NativeDeviceSwitcher {
     try {
       const next = await this.mainContents.executeJavaScriptInIsolatedWorld(974, [{ code: `(${readNativeDeviceAppearance.toString()})()` }])
       if (!this.disposed && epoch === this.navigationEpoch && next) {
-        if (!this.visible) this.setVisible(true)
-        if (JSON.stringify(next) !== JSON.stringify(this.appearance)) { this.appearance = next;this.refresh() }
+        let changed = false
+        const locale = normalizeNativeDeviceLocale(next.locale)
+        if (locale && locale !== this.locale) { this.locale = locale;changed = true }
+        if (next.ready) {
+          if (!this.visible) this.setVisible(true)
+          if (JSON.stringify(next) !== JSON.stringify(this.appearance)) { this.appearance = next;changed = true }
+        }
+        if (changed) this.refresh()
       }
     } catch { /* Keep the last theme when the remote renderer is unavailable. */ }
     finally { this.readingAppearance = false }
@@ -189,6 +196,9 @@ export class NativeDeviceSwitcher {
 
   refresh() {
     if (this.disposed) return
+    const labels = nativeDeviceLabels(this.locale)
+    if (this.manager && !this.manager.isDestroyed()) this.manager.setTitle(labels.manageTitle)
+    if (this.actionWindow && !this.actionWindow.isDestroyed()) this.actionWindow.setTitle(this.operation?.kind === 'remove' ? labels.deleteTitle : labels.switchTitle)
     for (const contents of this.documents.keys()) if (!contents.isDestroyed()) contents.send('studio-native-devices:changed')
   }
 
@@ -202,7 +212,7 @@ export class NativeDeviceSwitcher {
   openManager() {
     this.closeMenu()
     if (this.manager && !this.manager.isDestroyed()) { this.manager.show();this.manager.focus();return }
-    this.manager = new BrowserWindow({ width: 680, height: 620, minWidth: 460, minHeight: 540, parent: this.window, title: nativeDeviceLabels().manageTitle, autoHideMenuBar: true, show: false, webPreferences: this.preferences() })
+    this.manager = new BrowserWindow({ width: 680, height: 620, minWidth: 460, minHeight: 540, parent: this.window, title: nativeDeviceLabels(this.locale).manageTitle, autoHideMenuBar: true, show: false, webPreferences: this.preferences() })
     const manager = this.manager
     this.prepareWindow(manager, 'manager')
     manager.once('closed', () => { if (this.manager === manager) this.manager = null })
@@ -227,14 +237,14 @@ export class NativeDeviceSwitcher {
     if (this.busy) throw new Error('REMOTE_DEVICE_BUSY')
     if (this.actionWindow && !this.actionWindow.isDestroyed()) { this.actionWindow.show();this.actionWindow.focus();return }
     const state = this.devices().state()
-    const target = id === null && kind === 'switch' ? { id: null, name: nativeDeviceLabels().local, serverUrl: null } : state.devices.find(device => device.id === id)
+    const target = id === null && kind === 'switch' ? { id: null, name: nativeDeviceLabels(this.locale).local, serverUrl: null } : state.devices.find(device => device.id === id)
     if (!target) throw new Error('REMOTE_DEVICE_NOT_FOUND')
     const active = target.id === null ? state.activeServerUrl === null : state.activeDeviceId === target.id
     if (active) { if (kind === 'remove') throw new Error('REMOTE_DEVICE_ACTIVE');return }
     this.closeMenu()
     this.operation = { token: randomUUID(), kind, target, stage: 'confirm', startedAt: null, error: null }
     const parent = this.manager && !this.manager.isDestroyed() && this.manager.isVisible() ? this.manager : this.window
-    const action = new BrowserWindow({ width: 480, height: 420, useContentSize: true, resizable: false, minimizable: false, maximizable: false, parent, modal: true, autoHideMenuBar: true, title: kind === 'switch' ? nativeDeviceLabels().switchTitle : nativeDeviceLabels().deleteTitle, show: false, webPreferences: this.preferences() })
+    const action = new BrowserWindow({ width: 480, height: 420, useContentSize: true, resizable: false, minimizable: false, maximizable: false, parent, modal: true, autoHideMenuBar: true, title: kind === 'switch' ? nativeDeviceLabels(this.locale).switchTitle : nativeDeviceLabels(this.locale).deleteTitle, show: false, webPreferences: this.preferences() })
     this.actionWindow = action
     this.prepareWindow(action, 'action')
     action.once('closed', () => {

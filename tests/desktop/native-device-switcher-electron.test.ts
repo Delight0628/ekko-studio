@@ -23,7 +23,7 @@ it.runIf(['darwin', 'win32'].includes(process.platform) && existsSync(executable
       const code = await new Promise<number | null>((resolveExit, reject) => { child.once('error', reject);child.once('close', resolveExit) })
       const result = join(root, 'result.json')
       expect(code, existsSync(result) ? readFileSync(result, 'utf8') : output).toBe(0)
-      expect(JSON.parse(readFileSync(result, 'utf8'))).toMatchObject({ ok: true, oldPage: true, offline: true, crash: true, localManager: true, deniedForeignIpc: true, layoutGap: 8, returnedLocal: true, clickedToolbar: true, liveTheme: true, hiddenSplash: true, compactMenu: true, themedConfirmation: true, progressFeedback: true, retryAndCancel: true })
+      expect(JSON.parse(readFileSync(result, 'utf8'))).toMatchObject({ ok: true, oldPage: true, offline: true, crash: true, localManager: true, deniedForeignIpc: true, layoutGap: 8, returnedLocal: true, clickedToolbar: true, liveTheme: true, hiddenSplash: true, compactMenu: true, themedConfirmation: true, progressFeedback: true, retryAndCancel: true, liveLocale: true, allTwelveLanguages: true, rtlLayout: true, offlineLocale: true })
     } finally { clearTimeout(timer);if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL') }
   } finally { rmSync(root, { recursive: true, force: true }) }
 }, 60000)
