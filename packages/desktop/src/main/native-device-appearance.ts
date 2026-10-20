@@ -7,7 +7,7 @@ export function readNativeDeviceAppearance() {
   const wallpaper = root.classList.contains('theme-has-custom-background')
   const properties: Record<string, [string, string]> = {
     text: ['color', 'var(--text-primary)'], secondary: ['color', 'var(--text-secondary)'],
-    accent: ['color', 'var(--accent-primary)'], error: ['color', 'var(--error)'],
+    accent: ['color', 'var(--accent-primary)'], onAccent: ['color', 'var(--text-on-accent)'], error: ['color', 'var(--error)'],
     background: ['background-color', 'var(--bg-primary)'],
     overlay: ['background-color', wallpaper ? 'var(--theme-overlay-bg,rgba(var(--bg-main-surface-rgb),.72))' : 'var(--theme-overlay-bg,var(--bg-card))'],
     card: ['background-color', 'var(--theme-card-bg,var(--bg-card))'],

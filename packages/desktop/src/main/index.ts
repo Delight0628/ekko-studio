@@ -609,7 +609,7 @@ async function createWindow(): Promise<void> {
     },
   })
 
-  nativeDeviceSwitcher = new NativeDeviceSwitcher(mainWindow, desktopRemoteDevices)
+  nativeDeviceSwitcher = new NativeDeviceSwitcher(mainWindow, desktopRemoteDevices, process.platform, () => appLifecycle.isQuitting)
 
   mainWindow.once('ready-to-show', () => {
     if (!START_HIDDEN) showWindowWithFade(true)

@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('studioDevices', {
   add: (input: unknown) => ipcRenderer.invoke('studio-native-devices:add', input),
   remove: (id: unknown) => ipcRenderer.invoke('studio-native-devices:remove', id),
   switchTo: (id: unknown) => ipcRenderer.invoke('studio-native-devices:switch', id),
+  confirm: (token: unknown) => ipcRenderer.invoke('studio-native-devices:confirm', token),
+  cancel: (token: unknown) => ipcRenderer.invoke('studio-native-devices:cancel', token),
   onChange: (callback: () => void) => {
     const listener = () => callback()
     ipcRenderer.on('studio-native-devices:changed', listener)

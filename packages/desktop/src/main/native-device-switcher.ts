@@ -1,4 +1,4 @@
-import { BrowserWindow, WebContentsView, dialog, ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { BrowserWindow, WebContentsView, ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { DesktopRemoteDevices, DesktopRemoteDevicesState } from './remote-devices'
@@ -6,10 +6,10 @@ import { nativeDeviceLabels } from './native-device-messages'
 import { nativeDeviceHtml } from './native-device-html'
 import { readNativeDeviceAppearance } from './native-device-appearance'
 
-const WIDTH = 160
+const WIDTH = 120
 const HEIGHT = 40
 const GAP = 8
-const CHANNELS = ['state', 'menu', 'dismiss', 'manage', 'add', 'remove', 'switch'] as const
+const CHANNELS = ['state', 'menu', 'dismiss', 'manage', 'add', 'remove', 'switch', 'confirm', 'cancel'] as const
 const channel = (name: typeof CHANNELS[number]) => `studio-native-devices:${name}`
 
 export function nativeDeviceSwitcherLayout(width: number, platform: NodeJS.Platform) {
@@ -20,9 +20,20 @@ export function nativeDeviceSwitcherLayout(width: number, platform: NodeJS.Platf
   }
 }
 
+interface DeviceOperation {
+  token: string
+  kind: 'switch' | 'remove'
+  target: { id: string | null; name: string; serverUrl: string | null }
+  stage: 'confirm' | 'checking' | 'restarting' | 'error'
+  startedAt: number | null
+  error: string | null
+}
+
 export class NativeDeviceSwitcher {
   readonly view: WebContentsView
   private manager: BrowserWindow | null = null
+  private actionWindow: BrowserWindow | null = null
+  private operation: DeviceOperation | null = null
   private readonly documents = new Map<WebContents, string>()
   private visible = false
   private menuOpen = false
@@ -52,7 +63,7 @@ export class NativeDeviceSwitcher {
     void this.window.webContents.insertCSS(`#app .studio-page-header { padding-right: ${inset}px; --studio-header-controls-gap: 8px; box-sizing: border-box; } #app .studio-page-header > header { padding-right: 8px; } #app .studio-page-header::after { content: ''; position: fixed; top: 0; right: ${this.platform === 'darwin' ? GAP : 138 + GAP}px; width: ${WIDTH}px; height: ${HEIGHT}px; -webkit-app-region: no-drag; }`).catch(() => undefined)
   }
 
-  constructor(private readonly window: BrowserWindow, private readonly devices: () => DesktopRemoteDevices, private readonly platform: NodeJS.Platform = process.platform) {
+  constructor(private readonly window: BrowserWindow, private readonly devices: () => DesktopRemoteDevices, private readonly platform: NodeJS.Platform = process.platform, private readonly quitting: () => boolean = () => false) {
     this.mainContents = window.webContents
     const preferences = this.preferences()
     this.view = new WebContentsView({ webPreferences: preferences })
@@ -76,7 +87,7 @@ export class NativeDeviceSwitcher {
       let state: DesktopRemoteDevicesState
       let failed = false
       try { state = this.devices().state() } catch { state = { devices: [], activeDeviceId: null, activeServerUrl: null };failed = true }
-      return { state, labels: nativeDeviceLabels(), busy: this.busy, failed, menuOpen: this.menuOpen, appearance: this.appearance }
+      return { state, labels: nativeDeviceLabels(), busy: this.busy, failed, menuOpen: this.menuOpen, appearance: this.appearance, operation: this.operation }
     })
     ipcMain.handle(channel('menu'), event => {
       this.authorize(event, true)
@@ -91,18 +102,22 @@ export class NativeDeviceSwitcher {
       this.refresh()
       return state
     })
-    ipcMain.handle(channel('remove'), async (event, id: unknown) => {
+    ipcMain.handle(channel('remove'), (event, id: unknown) => {
       this.authorizeManager(event)
-      if (this.busy) throw new Error('REMOTE_DEVICE_BUSY')
-      const labels = nativeDeviceLabels()
-      const { response } = await dialog.showMessageBox(this.manager!, { type: 'question', message: labels.deleteConfirm, buttons: [labels.cancel, labels.remove], defaultId: 0, cancelId: 0, noLink: true })
-      if (response === 1) { this.devices().remove(id);this.refresh() }
+      this.requestOperation('remove', id)
     })
-    ipcMain.handle(channel('switch'), async (event, id: unknown) => {
+    ipcMain.handle(channel('switch'), (event, id: unknown) => {
       this.authorize(event)
-      this.closeMenu()
-      try { return await this.switchTo(id) }
-      catch (error) { if (event.sender === this.view.webContents) this.showError(error);throw error }
+      this.requestOperation('switch', id)
+    })
+    ipcMain.handle(channel('confirm'), (event, token: unknown) => {
+      this.authorizeAction(event, token)
+      return this.confirmOperation()
+    })
+    ipcMain.handle(channel('cancel'), (event, token: unknown) => {
+      this.authorizeAction(event, token)
+      if (this.busy) throw new Error('REMOTE_DEVICE_BUSY')
+      this.actionWindow?.close()
     })
   }
 
@@ -110,7 +125,7 @@ export class NativeDeviceSwitcher {
     return { preload: join(__dirname, '..', 'preload', 'native-devices.js'), sandbox: true, contextIsolation: true, nodeIntegration: false, partition: `native-device-ui-${randomUUID()}` }
   }
 
-  private load(contents: WebContents, kind: 'button' | 'manager') {
+  private load(contents: WebContents, kind: 'button' | 'manager' | 'action') {
     const url = 'data:text/html;charset=utf-8,' + encodeURIComponent(nativeDeviceHtml(kind))
     this.documents.set(contents, url)
     contents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -138,10 +153,10 @@ export class NativeDeviceSwitcher {
     const [width, height] = this.window.getContentSize()
     const { bounds } = nativeDeviceSwitcherLayout(width, this.platform)
     if (this.menuOpen) {
-      const popupWidth = 280
+      const popupWidth = 224
       bounds.x = Math.max(0, bounds.x + WIDTH - popupWidth)
       bounds.width = popupWidth
-      bounds.height = Math.min(height, 380)
+      bounds.height = Math.min(height, 340)
     }
     this.view.setBounds(bounds)
   }
@@ -187,39 +202,78 @@ export class NativeDeviceSwitcher {
   openManager() {
     this.closeMenu()
     if (this.manager && !this.manager.isDestroyed()) { this.manager.show();this.manager.focus();return }
-    this.manager = new BrowserWindow({ width: 600, height: 640, minWidth: 420, minHeight: 480, parent: this.window, title: nativeDeviceLabels().manage, autoHideMenuBar: true, show: false, webPreferences: this.preferences() })
+    this.manager = new BrowserWindow({ width: 680, height: 620, minWidth: 460, minHeight: 540, parent: this.window, title: nativeDeviceLabels().manageTitle, autoHideMenuBar: true, show: false, webPreferences: this.preferences() })
     const manager = this.manager
-    const contents = manager.webContents
-    manager.once('ready-to-show', () => { if (!manager.isDestroyed()) manager.show() })
-    manager.once('closed', () => { this.documents.delete(contents);if (this.manager === manager) this.manager = null })
-    this.load(manager.webContents, 'manager')
+    this.prepareWindow(manager, 'manager')
+    manager.once('closed', () => { if (this.manager === manager) this.manager = null })
   }
 
-  private async switchTo(id: unknown) {
+  private prepareWindow(window: BrowserWindow, kind: 'manager' | 'action') {
+    const contents = window.webContents
+    window.once('ready-to-show', () => { if (!window.isDestroyed()) window.show() })
+    window.on('close', event => {
+      if (!this.disposed && this.operation?.stage === 'checking' && !this.quitting()) event.preventDefault()
+    })
+    window.once('closed', () => this.documents.delete(contents))
+    this.load(contents, kind)
+  }
+
+  private authorizeAction(event: IpcMainInvokeEvent, token: unknown) {
+    this.authorize(event)
+    if (event.sender !== this.actionWindow?.webContents || token !== this.operation?.token) throw new Error('Device confirmation requires the current local action window')
+  }
+
+  private requestOperation(kind: 'switch' | 'remove', id: unknown) {
     if (this.busy) throw new Error('REMOTE_DEVICE_BUSY')
-    const manager = this.devices()
-    const state = manager.state()
-    const device = id === null ? null : state.devices.find(device => device.id === id)
-    if (device === undefined) throw new Error('REMOTE_DEVICE_NOT_FOUND')
-    if ((id === null && state.activeServerUrl === null) || (id !== null && state.activeDeviceId === id)) return
-    const labels = nativeDeviceLabels()
-    this.busy = true;this.refresh()
-    let scheduled = false
-    try {
-      const { response } = await dialog.showMessageBox(this.manager || this.window, { type: 'question', message: device?.name || labels.local, detail: labels.hint, buttons: [labels.cancel, labels.confirm], defaultId: 0, cancelId: 0, noLink: true })
-      if (response !== 1) return
-      await manager.switchTo(id)
-      scheduled = true
-    } finally {
-      if (!scheduled) { this.busy = false;this.refresh() }
-    }
+    if (this.actionWindow && !this.actionWindow.isDestroyed()) { this.actionWindow.show();this.actionWindow.focus();return }
+    const state = this.devices().state()
+    const target = id === null && kind === 'switch' ? { id: null, name: nativeDeviceLabels().local, serverUrl: null } : state.devices.find(device => device.id === id)
+    if (!target) throw new Error('REMOTE_DEVICE_NOT_FOUND')
+    const active = target.id === null ? state.activeServerUrl === null : state.activeDeviceId === target.id
+    if (active) { if (kind === 'remove') throw new Error('REMOTE_DEVICE_ACTIVE');return }
+    this.closeMenu()
+    this.operation = { token: randomUUID(), kind, target, stage: 'confirm', startedAt: null, error: null }
+    const parent = this.manager && !this.manager.isDestroyed() && this.manager.isVisible() ? this.manager : this.window
+    const action = new BrowserWindow({ width: 480, height: 420, useContentSize: true, resizable: false, minimizable: false, maximizable: false, parent, modal: true, autoHideMenuBar: true, title: kind === 'switch' ? nativeDeviceLabels().switchTitle : nativeDeviceLabels().deleteTitle, show: false, webPreferences: this.preferences() })
+    this.actionWindow = action
+    this.prepareWindow(action, 'action')
+    action.once('closed', () => {
+      if (this.actionWindow !== action) return
+      this.actionWindow = null
+      if (!this.busy) this.operation = null
+      this.refresh()
+    })
+    this.refresh()
   }
 
-  private showError(error: unknown) {
-    const labels = nativeDeviceLabels()
-    const text = error instanceof Error ? error.message : ''
-    const message = text.includes('UNREACHABLE') ? labels.unreachable : labels.failed
-    void dialog.showMessageBox(this.manager || this.window, { type: 'error', message, buttons: ['OK'] })
+  private async confirmOperation() {
+    if (this.busy) throw new Error('REMOTE_DEVICE_BUSY')
+    const operation = this.operation!
+    if (!['confirm', 'error'].includes(operation.stage)) throw new Error('REMOTE_DEVICE_BUSY')
+    if (operation.kind === 'remove') {
+      try { this.devices().remove(operation.target.id);this.actionWindow?.close() }
+      catch (error) { operation.stage = 'error';operation.error = this.errorCode(error) }
+      this.refresh();return
+    }
+    this.busy = true
+    operation.stage = 'checking';operation.startedAt = Date.now();operation.error = null
+    this.window.setProgressBar(2)
+    this.refresh()
+    try {
+      await this.devices().switchTo(operation.target.id)
+      if (this.disposed) return
+      operation.stage = 'restarting'
+    } catch (error) {
+      if (this.disposed) return
+      operation.stage = 'error';operation.error = this.errorCode(error)
+      this.busy = false
+      this.window.setProgressBar(-1)
+    }
+    this.refresh()
+  }
+
+  private errorCode(error: unknown) {
+    return (error instanceof Error ? error.message : '').match(/REMOTE_DEVICE_[A-Z_]+/)?.[0] || 'REMOTE_DEVICE_FAILED'
   }
 
   dispose() {
@@ -233,6 +287,8 @@ export class NativeDeviceSwitcher {
     this.mainContents.off('before-mouse-event', this.outsideClick)
     this.window.off('blur', this.closeMenu)
     for (const name of CHANNELS) ipcMain.removeHandler(channel(name))
+    if (!this.window.isDestroyed()) this.window.setProgressBar(-1)
+    if (this.actionWindow && !this.actionWindow.isDestroyed()) this.actionWindow.destroy()
     if (this.manager && !this.manager.isDestroyed()) this.manager.destroy()
     if (!this.window.isDestroyed()) this.window.contentView.removeChildView(this.view)
     if (!this.view.webContents.isDestroyed()) this.view.webContents.close()

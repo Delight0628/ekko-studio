@@ -12,5 +12,86 @@ const messages: Record<ReturnType<typeof desktopLocale>, Labels> = {
   de: { title: 'Geräte', local: 'Dieser Computer', manage: 'Geräte verwalten…', name: 'Gerätename', address: 'Studio-Serveradresse', add: 'Hinzufügen', remove: 'Löschen', current: 'Aktuelles Gerät', switch: 'Wechseln', confirm: 'Wechseln und neu starten', hint: 'Speichern Sie Ihre Arbeit. Studio prüft die Verbindung und startet alle Fenster neu.', cancel: 'Abbrechen', busy: 'Verbindung wird geprüft…', failed: 'Vorgang fehlgeschlagen. Bitte erneut versuchen.', invalid: 'Geben Sie einen Namen mit 1–80 Zeichen und eine HTTP/HTTPS-Stammadresse ohne Zugangsdaten ein.', duplicate: 'Diese Adresse ist bereits gespeichert.', unreachable: 'Server nicht erreichbar. Die aktuelle Verbindung bleibt bestehen.', limit: "Es können bis zu 50 entfernte Geräte gespeichert werden.", active: 'Wechseln Sie vor dem Löschen zu einem anderen Gerät.', deleteConfirm: 'Diese Verbindung löschen? Dienste und Daten des Geräts bleiben erhalten.' },
   pt: { title: 'Dispositivos', local: 'Este computador', manage: 'Gerir dispositivos…', name: 'Nome do dispositivo', address: 'Endereço do servidor Studio', add: 'Adicionar', remove: 'Eliminar', current: 'Dispositivo atual', switch: 'Mudar', confirm: 'Mudar e reiniciar', hint: 'Guarde o trabalho. O Studio verificará a ligação e reiniciará todas as janelas.', cancel: 'Cancelar', busy: 'A verificar a ligação…', failed: 'Não foi possível concluir a operação. Tente novamente.', invalid: 'Introduza um nome com 1–80 caracteres e um endereço raiz HTTP/HTTPS sem credenciais.', duplicate: 'Este endereço já está guardado.', unreachable: 'Servidor inacessível. A ligação atual é mantida.', limit: "Você pode salvar até 50 dispositivos remotos.", active: 'Mude de dispositivo antes de eliminar esta ligação.', deleteConfirm: 'Eliminar esta ligação? Os serviços e dados do dispositivo serão mantidos.' },
 }
-export type NativeDeviceLabels = Labels
-export function nativeDeviceLabels(): Labels { return messages[desktopLocale()] }
+const extraEnglish = {
+  manageTitle: 'Device management', description: 'Switch between this computer and your remote Studio servers.',
+  savedDevices: 'Saved devices', remote: 'Remote', localHint: 'Studio running on this computer',
+  addHint: 'Enter the Studio server address on your remote device.', saved: 'Device added',
+  switchTitle: 'Switch device', deleteTitle: 'Delete connection', target: 'Selected device',
+  checkConnection: 'Check connection', restartStudio: 'Restart Studio', restarting: 'Restarting Studio…',
+  restartHint: 'Your connection is saved. Studio will reopen on the selected device.',
+  checkingHint: 'Verifying the Studio service on this device. Please wait.',
+  preparing: 'Preparing to switch…', retry: 'Try again', close: 'Close',
+  elapsed: 'Waiting {seconds}s', storedLocally: 'Connections are saved on this computer.',
+}
+const extraMessages: Record<ReturnType<typeof desktopLocale>, Record<keyof typeof extraEnglish, string>> = {
+  en: extraEnglish,
+  zh: {
+    manageTitle: '设备管理', description: '在本机和远程 Studio 之间切换。', savedDevices: '已保存的设备', remote: '远程',
+    localHint: '使用此电脑上的 Studio 服务', addHint: '填写远程设备上 Studio 的服务地址。', saved: '设备已添加',
+    switchTitle: '切换设备', deleteTitle: '删除连接', target: '目标设备', checkConnection: '检查连接', restartStudio: '重启 Studio',
+    restarting: '正在重启 Studio…', restartHint: '连接已保存，Studio 即将在所选设备上重新打开。',
+    checkingHint: '正在验证此设备上的 Studio 服务，请稍候。', preparing: '正在准备切换…', retry: '重试', close: '关闭',
+    elapsed: '已等待 {seconds} 秒', storedLocally: '连接配置仅保存在此电脑上。',
+  },
+  'zh-TW': {
+    manageTitle: '裝置管理', description: '在本機與遠端 Studio 之間切換。', savedDevices: '已儲存的裝置', remote: '遠端',
+    localHint: '使用此電腦上的 Studio 服務', addHint: '填寫遠端裝置上 Studio 的服務位址。', saved: '裝置已新增',
+    switchTitle: '切換裝置', deleteTitle: '刪除連線', target: '目標裝置', checkConnection: '檢查連線', restartStudio: '重新啟動 Studio',
+    restarting: '正在重新啟動 Studio…', restartHint: '連線已儲存，Studio 即將在所選裝置上重新開啟。',
+    checkingHint: '正在驗證此裝置上的 Studio 服務，請稍候。', preparing: '正在準備切換…', retry: '重試', close: '關閉',
+    elapsed: '已等待 {seconds} 秒', storedLocally: '連線設定僅儲存在此電腦上。',
+  },
+  ja: {
+    manageTitle: 'デバイス管理', description: 'このコンピューターとリモート Studio を切り替えます。', savedDevices: '保存済みデバイス', remote: 'リモート',
+    localHint: 'このコンピューターで実行中の Studio', addHint: 'リモートデバイスの Studio サーバーアドレスを入力してください。', saved: 'デバイスを追加しました',
+    switchTitle: 'デバイスを切り替え', deleteTitle: '接続を削除', target: '選択したデバイス', checkConnection: '接続を確認', restartStudio: 'Studio を再起動',
+    restarting: 'Studio を再起動中…', restartHint: '接続を保存しました。選択したデバイスで Studio が再び開きます。',
+    checkingHint: 'このデバイスの Studio サービスを確認しています。しばらくお待ちください。', preparing: '切り替えを準備中…', retry: '再試行', close: '閉じる',
+    elapsed: '{seconds} 秒経過', storedLocally: '接続設定はこのコンピューターに保存されます。',
+  },
+  ko: {
+    manageTitle: '기기 관리', description: '이 컴퓨터와 원격 Studio 사이를 전환하세요.', savedDevices: '저장된 기기', remote: '원격',
+    localHint: '이 컴퓨터에서 실행 중인 Studio', addHint: '원격 기기의 Studio 서버 주소를 입력하세요.', saved: '기기가 추가되었습니다',
+    switchTitle: '기기 전환', deleteTitle: '연결 삭제', target: '선택한 기기', checkConnection: '연결 확인', restartStudio: 'Studio 재시작',
+    restarting: 'Studio 재시작 중…', restartHint: '연결이 저장되었습니다. 선택한 기기에서 Studio가 다시 열립니다.',
+    checkingHint: '이 기기의 Studio 서비스를 확인하고 있습니다. 잠시 기다려 주세요.', preparing: '전환 준비 중…', retry: '다시 시도', close: '닫기',
+    elapsed: '{seconds}초 경과', storedLocally: '연결 설정은 이 컴퓨터에 저장됩니다.',
+  },
+  fr: {
+    manageTitle: 'Gestion des appareils', description: 'Basculez entre cet ordinateur et vos serveurs Studio distants.', savedDevices: 'Appareils enregistrés', remote: 'Distant',
+    localHint: 'Studio sur cet ordinateur', addHint: 'Saisissez l’adresse du serveur Studio de votre appareil distant.', saved: 'Appareil ajouté',
+    switchTitle: 'Changer d’appareil', deleteTitle: 'Supprimer la connexion', target: 'Appareil sélectionné', checkConnection: 'Vérifier la connexion', restartStudio: 'Redémarrer Studio',
+    restarting: 'Redémarrage de Studio…', restartHint: 'Connexion enregistrée. Studio va se rouvrir sur l’appareil sélectionné.',
+    checkingHint: 'Vérification du service Studio de cet appareil. Veuillez patienter.', preparing: 'Préparation du changement…', retry: 'Réessayer', close: 'Fermer',
+    elapsed: 'Attente : {seconds} s', storedLocally: 'Les connexions sont enregistrées sur cet ordinateur.',
+  },
+  es: {
+    manageTitle: 'Gestión de dispositivos', description: 'Cambia entre este ordenador y tus servidores Studio remotos.', savedDevices: 'Dispositivos guardados', remote: 'Remoto',
+    localHint: 'Studio en este ordenador', addHint: 'Introduce la dirección del servidor Studio de tu dispositivo remoto.', saved: 'Dispositivo añadido',
+    switchTitle: 'Cambiar de dispositivo', deleteTitle: 'Eliminar conexión', target: 'Dispositivo seleccionado', checkConnection: 'Comprobar conexión', restartStudio: 'Reiniciar Studio',
+    restarting: 'Reiniciando Studio…', restartHint: 'Conexión guardada. Studio se abrirá en el dispositivo seleccionado.',
+    checkingHint: 'Comprobando el servicio Studio de este dispositivo. Espera un momento.', preparing: 'Preparando el cambio…', retry: 'Reintentar', close: 'Cerrar',
+    elapsed: 'Esperando {seconds} s', storedLocally: 'Las conexiones se guardan en este ordenador.',
+  },
+  de: {
+    manageTitle: 'Geräteverwaltung', description: 'Zwischen diesem Computer und entfernten Studio-Servern wechseln.', savedDevices: 'Gespeicherte Geräte', remote: 'Remote',
+    localHint: 'Studio auf diesem Computer', addHint: 'Geben Sie die Studio-Serveradresse des entfernten Geräts ein.', saved: 'Gerät hinzugefügt',
+    switchTitle: 'Gerät wechseln', deleteTitle: 'Verbindung löschen', target: 'Ausgewähltes Gerät', checkConnection: 'Verbindung prüfen', restartStudio: 'Studio neu starten',
+    restarting: 'Studio wird neu gestartet…', restartHint: 'Verbindung gespeichert. Studio öffnet sich auf dem ausgewählten Gerät.',
+    checkingHint: 'Der Studio-Dienst wird geprüft. Bitte warten.', preparing: 'Wechsel wird vorbereitet…', retry: 'Erneut versuchen', close: 'Schließen',
+    elapsed: '{seconds} s vergangen', storedLocally: 'Verbindungen werden auf diesem Computer gespeichert.',
+  },
+  pt: {
+    manageTitle: 'Gestão de dispositivos', description: 'Alterne entre este computador e os seus servidores Studio remotos.', savedDevices: 'Dispositivos guardados', remote: 'Remoto',
+    localHint: 'Studio neste computador', addHint: 'Introduza o endereço do servidor Studio do dispositivo remoto.', saved: 'Dispositivo adicionado',
+    switchTitle: 'Mudar de dispositivo', deleteTitle: 'Eliminar ligação', target: 'Dispositivo selecionado', checkConnection: 'Verificar ligação', restartStudio: 'Reiniciar Studio',
+    restarting: 'A reiniciar o Studio…', restartHint: 'Ligação guardada. O Studio será reaberto no dispositivo selecionado.',
+    checkingHint: 'A verificar o serviço Studio deste dispositivo. Aguarde.', preparing: 'A preparar a mudança…', retry: 'Tentar novamente', close: 'Fechar',
+    elapsed: 'A aguardar {seconds} s', storedLocally: 'As ligações são guardadas neste computador.',
+  },
+}
+export type NativeDeviceLabels = Labels & typeof extraEnglish
+export function nativeDeviceLabels(): NativeDeviceLabels {
+  const locale = desktopLocale()
+  return { ...messages[locale], ...extraMessages[locale] }
+}

@@ -67,10 +67,10 @@ environment variable can still override the saved selection.
 A desktop-owned device button stays in the main window's upper-right corner on
 macOS, and immediately before the window controls on Windows/Linux, with 8px
 spacing. It opens a desktop-owned themed menu and a local management window for
-adding, deleting and switching servers. Both are shipped with Desktop and remain usable
+adding, deleting and switching servers. These views are shipped with Desktop and remain usable
 when an older remote UI lacks device management, the server is offline, or the
 remote renderer crashes. The desktop reserves header space in older pages too.
-The toolbar and manager use isolated local documents and a restricted preload;
+The toolbar, manager and confirmation windows use isolated local documents and a restricted preload;
 remote pages, unrelated windows and child frames cannot invoke their IPC.
 
 The button remains hidden during the normal startup splash
@@ -82,6 +82,15 @@ colors/alpha/radius/filter/border/shadow and global text/accent/font settings.
 They retain the last appearance if the remote page stops responding. Wallpaper
 resources and remote scripts are never loaded into the desktop-owned UI; a
 separate management window cannot sample the main window's wallpaper backdrop.
+
+The header button is 120px wide and its menu is 224px; long names truncate with
+full-name/address tooltips. The manager uses device cards and a collapsible add
+form. Switch and delete confirmation use a compact local themed window. Only
+that exact window and its current operation token can confirm or cancel the
+operation. Once confirmed, connection checking and restart have explicit spinner,
+stage and elapsed-time feedback; duplicate operations are blocked. A failed
+check keeps the old connection and offers retry in the same window. Checking
+cannot be dismissed by closing the child window; quitting the app is preserved.
 
 Each remote server has its own persistent Electron session and embedded-browser
 profile directory under `desktop-remote-devices/<address-hash>/` in the Web UI
