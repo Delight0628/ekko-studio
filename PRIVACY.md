@@ -75,9 +75,9 @@ previously transmitted data.
 
 The TOS service runs under a dedicated non-root account with restrictive data
 directory permissions and systemd hardening. These measures do not guarantee
-security or encryption at rest. The current TOS direct HTTP service is not TLS
-protected; keep it on a trusted network and restrict access with administrator
-network controls. Protect the host, backups, API keys and administrator accounts.
+security or encryption at rest. The TOS backend listens on loopback behind the portal proxy. Portal transport
+security depends on the NAS HTTPS configuration; enable HTTPS and restrict
+access with administrator network controls. Protect the host, backups, API keys and administrator accounts.
 
 You or your host administrator can inspect, export/copy, correct and delete local
 data and disable integrations. Availability of export/edit actions varies by
