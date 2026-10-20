@@ -98,9 +98,10 @@ state and does not require a running Gateway.
   CLI protocol fixtures on Windows, Linux and macOS, including long stdin prompts,
   non-ASCII installation paths and process cancellation. Vendor authentication
   and paid API calls are not required.
-- Playwright workflow: runs all browser tests across four independent shards,
+- Playwright workflow: runs all browser tests across six independent shards,
   then merges their blob reports into the `playwright-report` HTML artifact.
-  Each shard has a 25-minute test-step limit within a 30-minute job limit,
+  Each shard has a 23-minute Playwright global timeout before the 25-minute
+  test-step hard limit within a 30-minute job limit,
   leaving time for dependency setup and report upload. CI logs each test result
   so an interrupted shard still shows which cases completed.
   The final `e2e` check requires every shard to pass. Keep route/viewport sweeps
