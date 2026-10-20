@@ -172,7 +172,8 @@ let controller, server
   await clickWindow(switching, '#action-confirm');
   await until(() => Promise.resolve(Boolean(pendingCheck)));
   pendingCheck.reject(new Error('still offline'));pendingCheck = null;
-  await until(() => switching.webContents.executeJavaScript("window.studioDevices.state().then(data => data.operation.stage === 'error')"));
+  // The main-process error stage arrives before the renderer shows/enables Close.
+  await until(() => switching.webContents.executeJavaScript("window.studioDevices.state().then(data => data.operation.stage === 'error' && !document.getElementById('action-cancel').hidden && !document.getElementById('action-cancel').disabled)"));
   await clickWindow(switching, '#action-cancel');
   await until(() => Promise.resolve(switching.isDestroyed()));
   // Remote DOM reload/failure and renderer crash do not replace the desktop-owned view.
