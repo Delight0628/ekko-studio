@@ -1148,6 +1148,7 @@ async function loadServiceFailurePage(error: unknown, title = t('desktop.failedS
   await mainWindow.loadURL(serviceFailurePageUrl).catch(loadError => {
     console.error('[desktop] failed to display Web UI failure page:', loadError)
   })
+  nativeDeviceSwitcher?.setVisible(true)
 }
 
 async function recoverUnexpectedWebUiExit(details: { code: number | null; signal: NodeJS.Signals | null }): Promise<void> {

@@ -66,12 +66,22 @@ environment variable can still override the saved selection.
 
 A desktop-owned device button stays in the main window's upper-right corner on
 macOS, and immediately before the window controls on Windows/Linux, with 8px
-spacing. It opens a native device menu and a local management window for adding,
-deleting and switching servers. Both are shipped with Desktop and remain usable
+spacing. It opens a desktop-owned themed menu and a local management window for
+adding, deleting and switching servers. Both are shipped with Desktop and remain usable
 when an older remote UI lacks device management, the server is offline, or the
 remote renderer crashes. The desktop reserves header space in older pages too.
 The toolbar and manager use isolated local documents and a restricted preload;
 remote pages, unrelated windows and child frames cannot invoke their IPC.
+
+The button remains hidden during the normal startup splash
+and appears after the Studio header is ready; the local recovery page also keeps
+it available. Its hit region is explicitly excluded from window dragging in both
+the main page and the isolated view. The button, menu and manager read an allowlist
+of resolved Studio appearance tokens in an isolated world, including regional
+colors/alpha/radius/filter/border/shadow and global text/accent/font settings.
+They retain the last appearance if the remote page stops responding. Wallpaper
+resources and remote scripts are never loaded into the desktop-owned UI; a
+separate management window cannot sample the main window's wallpaper backdrop.
 
 Each remote server has its own persistent Electron session and embedded-browser
 profile directory under `desktop-remote-devices/<address-hash>/` in the Web UI
@@ -197,3 +207,11 @@ python-build-standalone release mirror:
 ```sh
 export PBS_BASE_URL=https://github.com/astral-sh/python-build-standalone/releases/download
 ```
+
+Native switcher verification: `npm --prefix packages/desktop run build:main`, then
+`node packages/desktop/scripts/verify-native-device-switcher.cjs`. This uses real
+OS pointer input and requires a graphical desktop (and existing event-posting
+permission on macOS). The manual Windows build runs it before packaging, checks
+that the control is not a draggable caption, and uploads its interaction report.
+The Vitest Electron fixture uses renderer pointer events by default; set
+`STUDIO_TEST_NATIVE_MOUSE=1` to exercise OS hit testing locally as well.

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mock = vi.hoisted(() => ({ handlers: new Map<string, (...args: any[]) => any>(), menu: vi.fn(), popup: vi.fn(), confirm: vi.fn(), windows: [] as any[] }))
+const mock = vi.hoisted(() => ({ handlers: new Map<string, (...args: any[]) => any>(), confirm: vi.fn(), windows: [] as any[] }))
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events')
   class Contents extends EventEmitter {
@@ -10,6 +10,9 @@ vi.mock('electron', async () => {
     close = vi.fn()
     insertCSS = vi.fn(async () => '')
     send = vi.fn()
+    focus = vi.fn()
+    getURL = vi.fn(() => 'data:text/html,splash')
+    executeJavaScriptInIsolatedWorld = vi.fn(async () => null)
     setWindowOpenHandler = vi.fn()
     loadURL = vi.fn(async (url: string) => { this.mainFrame.url = url })
   }
@@ -25,9 +28,8 @@ vi.mock('electron', async () => {
   }
   return {
     app: { getLocale: () => 'en' }, BrowserWindow: Window,
-    WebContentsView: class { webContents = new Contents();setBackgroundColor = vi.fn();setBounds = vi.fn() },
+    WebContentsView: class { webContents = new Contents();setBackgroundColor = vi.fn();setBounds = vi.fn();setVisible = vi.fn() },
     ipcMain: { handle: (name: string, handler: (...args: any[]) => any) => mock.handlers.set(name, handler), removeHandler: (name: string) => mock.handlers.delete(name) },
-    Menu: { buildFromTemplate: (entries: any[]) => { mock.menu(entries);return { popup: mock.popup } } },
     dialog: { showMessageBox: mock.confirm },
   }
 })
@@ -56,27 +58,32 @@ describe('desktop-owned native device switcher', () => {
   it('keeps the native control independent of the main page and reserves space in older pages', () => {
     const { control, window, call } = setup()
     expect(call('state').state.activeDeviceId).toBe('home')
+    window.webContents.emit('dom-ready')
     expect(window.webContents.insertCSS).toHaveBeenCalledWith(expect.stringContaining('padding-right: 306px'))
     expect(control.view.webContents.setWindowOpenHandler).toHaveBeenCalled()
+    control.setVisible(true)
     call('menu')
-    const entries = mock.menu.mock.calls[0][0]
-    expect(entries.map((entry: any) => entry.label).filter(Boolean)).toEqual(['This computer', 'Home', 'Manage devices…'])
-    expect(entries[1].checked).toBe(true)
-    expect(mock.popup).toHaveBeenCalledWith({ window, x: 694, y: 40 })
+    expect(call('state').menuOpen).toBe(true)
+    expect(control.view.setBounds).toHaveBeenLastCalledWith({ x: 574, y: 0, width: 280, height: 380 })
+    window.webContents.emit('before-mouse-event', {}, { type: 'mouseDown' })
+    expect(call('state').menuOpen).toBe(false)
+    expect(control.view.setBounds).toHaveBeenLastCalledWith({ x: 694, y: 0, width: 160, height: 40 })
+    control.dispose()
   })
 
   it.each(['remote page', 'foreign local view', 'subframe', 'navigated native view'])('denies native IPC from a %s', async kind => {
-    const { call, event, window, manager } = setup()
+    const { control, call, event, window, manager } = setup()
     const bad = { ...event }
     if (kind === 'remote page') bad.sender = window.webContents
     if (kind === 'foreign local view') bad.sender = { ...event.sender } as any
     if (kind === 'subframe') bad.senderFrame = { ...event.senderFrame } as any
     if (kind === 'navigated native view') (event.senderFrame as any).url = 'https://remote.example.com'
-    for (const method of ['state', 'menu', 'add', 'remove', 'switch']) await expect(Promise.resolve().then(() => call(method, bad))).rejects.toThrow('desktop-owned view')
+    for (const method of ['state', 'menu', 'dismiss', 'manage', 'add', 'remove', 'switch']) await expect(Promise.resolve().then(() => call(method, bad))).rejects.toThrow('desktop-owned view')
     expect(manager.state).not.toHaveBeenCalled()
+    control.dispose()
   })
 
-  it('allows mutations only from the local manager and honors native switch cancellation', async () => {
+  it('limits connection CRUD to the local manager and honors native switch cancellation', async () => {
     const { control, call, event, manager } = setup()
     expect(() => call('add', event, {})).toThrow('local manager')
     control.openManager()
@@ -91,6 +98,23 @@ describe('desktop-owned native device switcher', () => {
     await call('switch', from, null)
     expect(manager.switchTo).toHaveBeenCalledExactlyOnceWith(null)
     expect(call('state').busy).toBe(true)
+    control.dispose()
+  })
+
+  it('hides the splash while keeping remote reload and offline recovery controls available', async () => {
+    const { control, window, call } = setup()
+    expect(control.view.setVisible).toHaveBeenLastCalledWith(false)
+    call('menu');expect(call('state').menuOpen).toBe(false)
+    control.setVisible(true);call('menu');expect(call('state').menuOpen).toBe(true)
+    window.webContents.emit('did-start-navigation', {}, 'https://offline.example.com', false, true)
+    expect(control.view.setVisible).toHaveBeenLastCalledWith(true)
+    expect(call('state').menuOpen).toBe(false)
+    window.webContents.emit('did-start-navigation', {}, 'data:text/html,splash', false, true)
+    expect(control.view.setVisible).toHaveBeenLastCalledWith(false)
+    expect(call('state').menuOpen).toBe(false)
+    control.setVisible(true)
+    expect(control.view.setVisible).toHaveBeenLastCalledWith(true)
+    control.dispose()
   })
 
   it('recovers from connection failures and detaches handlers on disposal', async () => {

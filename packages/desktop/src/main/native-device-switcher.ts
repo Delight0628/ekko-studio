@@ -1,14 +1,15 @@
-import { BrowserWindow, WebContentsView, Menu, dialog, ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron'
+import { BrowserWindow, WebContentsView, dialog, ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { DesktopRemoteDevices, DesktopRemoteDevicesState } from './remote-devices'
 import { nativeDeviceLabels } from './native-device-messages'
 import { nativeDeviceHtml } from './native-device-html'
+import { readNativeDeviceAppearance } from './native-device-appearance'
 
 const WIDTH = 160
 const HEIGHT = 40
 const GAP = 8
-const CHANNELS = ['state', 'menu', 'add', 'remove', 'switch'] as const
+const CHANNELS = ['state', 'menu', 'dismiss', 'manage', 'add', 'remove', 'switch'] as const
 const channel = (name: typeof CHANNELS[number]) => `studio-native-devices:${name}`
 
 export function nativeDeviceSwitcherLayout(width: number, platform: NodeJS.Platform) {
@@ -23,15 +24,32 @@ export class NativeDeviceSwitcher {
   readonly view: WebContentsView
   private manager: BrowserWindow | null = null
   private readonly documents = new Map<WebContents, string>()
+  private visible = false
+  private menuOpen = false
+  private appearance: ReturnType<typeof readNativeDeviceAppearance> = null
+  private readingAppearance = false
+  private navigationEpoch = 0
+  private loading = false
+  private readonly appearanceTimer: ReturnType<typeof setInterval>
+  private readonly closeMenu = () => { if (this.menuOpen) { this.menuOpen = false;this.layout();this.refresh() } }
+  private readonly outsideClick = (_event: unknown, mouse: { type: string }) => { if (mouse.type === 'mouseDown') this.closeMenu() }
+  private readonly navigate = (_event: unknown, url: string, inPlace: boolean, mainFrame: boolean) => {
+    if (!mainFrame || inPlace) return
+    this.navigationEpoch++;this.loading = true;this.closeMenu()
+    // Keep recovery available during a stalled remote reload. Only desktop
+    // startup/shutdown documents hide an already visible control.
+    if (!/^https?:/.test(url)) this.setVisible(false)
+  }
+  private readonly ready = () => { this.loading = false;void this.syncAppearance() }
   private busy = false
   private disposed = false
   private readonly mainContents: WebContents
-  private readonly resize = () => this.layout()
+  private readonly resize = () => { this.closeMenu();this.layout() }
   private readonly style = () => {
     const { inset } = nativeDeviceSwitcherLayout(this.window.getContentSize()[0], this.platform)
     // Reserve the native view even in an older remote UI. The control itself is
     // a separate WebContentsView, so page reloads and crashes cannot remove it.
-    void this.window.webContents.insertCSS(`#app .studio-page-header { padding-right: ${inset}px; --studio-header-controls-gap: 8px; box-sizing: border-box; } #app .studio-page-header > header { padding-right: 8px; }`).catch(() => undefined)
+    void this.window.webContents.insertCSS(`#app .studio-page-header { padding-right: ${inset}px; --studio-header-controls-gap: 8px; box-sizing: border-box; } #app .studio-page-header > header { padding-right: 8px; } #app .studio-page-header::after { content: ''; position: fixed; top: 0; right: ${this.platform === 'darwin' ? GAP : 138 + GAP}px; width: ${WIDTH}px; height: ${HEIGHT}px; -webkit-app-region: no-drag; }`).catch(() => undefined)
   }
 
   constructor(private readonly window: BrowserWindow, private readonly devices: () => DesktopRemoteDevices, private readonly platform: NodeJS.Platform = process.platform) {
@@ -41,23 +59,31 @@ export class NativeDeviceSwitcher {
     this.view.setBackgroundColor('#00000000')
     this.window.contentView.addChildView(this.view)
     this.load(this.view.webContents, 'button')
+    this.view.setVisible(false)
     this.layout()
     this.window.on('resize', this.resize)
-    this.window.webContents.on('dom-ready', this.style)
+    this.mainContents.on('dom-ready', this.style)
+    this.mainContents.on('did-finish-load', this.ready)
+    this.mainContents.on('did-start-navigation', this.navigate)
+    this.mainContents.on('before-mouse-event', this.outsideClick)
+    this.window.on('blur', this.closeMenu)
+    this.appearanceTimer = setInterval(() => { void this.syncAppearance() }, 350)
+    this.appearanceTimer.unref?.()
     this.window.once('closed', () => this.dispose())
-    this.style()
 
     ipcMain.handle(channel('state'), event => {
       this.authorize(event)
       let state: DesktopRemoteDevicesState
       let failed = false
       try { state = this.devices().state() } catch { state = { devices: [], activeDeviceId: null, activeServerUrl: null };failed = true }
-      return { state, labels: nativeDeviceLabels(), busy: this.busy, failed }
+      return { state, labels: nativeDeviceLabels(), busy: this.busy, failed, menuOpen: this.menuOpen, appearance: this.appearance }
     })
     ipcMain.handle(channel('menu'), event => {
       this.authorize(event, true)
       this.openMenu()
     })
+    ipcMain.handle(channel('dismiss'), event => { this.authorize(event, true);this.closeMenu() })
+    ipcMain.handle(channel('manage'), event => { this.authorize(event, true);this.openManager() })
     ipcMain.handle(channel('add'), (event, input: unknown) => {
       this.authorizeManager(event)
       if (this.busy) throw new Error('REMOTE_DEVICE_BUSY')
@@ -72,9 +98,11 @@ export class NativeDeviceSwitcher {
       const { response } = await dialog.showMessageBox(this.manager!, { type: 'question', message: labels.deleteConfirm, buttons: [labels.cancel, labels.remove], defaultId: 0, cancelId: 0, noLink: true })
       if (response === 1) { this.devices().remove(id);this.refresh() }
     })
-    ipcMain.handle(channel('switch'), (event, id: unknown) => {
-      this.authorizeManager(event)
-      return this.switchTo(id)
+    ipcMain.handle(channel('switch'), async (event, id: unknown) => {
+      this.authorize(event)
+      this.closeMenu()
+      try { return await this.switchTo(id) }
+      catch (error) { if (event.sender === this.view.webContents) this.showError(error);throw error }
     })
   }
 
@@ -106,7 +134,38 @@ export class NativeDeviceSwitcher {
   }
 
   private layout() {
-    if (!this.disposed) this.view.setBounds(nativeDeviceSwitcherLayout(this.window.getContentSize()[0], this.platform).bounds)
+    if (this.disposed) return
+    const [width, height] = this.window.getContentSize()
+    const { bounds } = nativeDeviceSwitcherLayout(width, this.platform)
+    if (this.menuOpen) {
+      const popupWidth = 280
+      bounds.x = Math.max(0, bounds.x + WIDTH - popupWidth)
+      bounds.width = popupWidth
+      bounds.height = Math.min(height, 380)
+    }
+    this.view.setBounds(bounds)
+  }
+
+  setVisible(visible: boolean) {
+    if (this.disposed) return
+    this.visible = visible
+    if (!visible) this.closeMenu()
+    this.view.setVisible(visible)
+    if (visible) { this.style();this.raise() }
+  }
+
+  private async syncAppearance() {
+    if (this.disposed || this.loading || this.readingAppearance || this.mainContents.isDestroyed() || !/^https?:/.test(this.mainContents.getURL())) return
+    this.readingAppearance = true
+    const epoch = this.navigationEpoch
+    try {
+      const next = await this.mainContents.executeJavaScriptInIsolatedWorld(974, [{ code: `(${readNativeDeviceAppearance.toString()})()` }])
+      if (!this.disposed && epoch === this.navigationEpoch && next) {
+        if (!this.visible) this.setVisible(true)
+        if (JSON.stringify(next) !== JSON.stringify(this.appearance)) { this.appearance = next;this.refresh() }
+      }
+    } catch { /* Keep the last theme when the remote renderer is unavailable. */ }
+    finally { this.readingAppearance = false }
   }
 
   raise() {
@@ -119,25 +178,14 @@ export class NativeDeviceSwitcher {
   }
 
   openMenu() {
-    const labels = nativeDeviceLabels()
-    let state: DesktopRemoteDevicesState
-    try { state = this.devices().state() } catch { this.openManager();return }
-    const entries = [{ id: null, name: labels.local }, ...state.devices]
-    const menu = Menu.buildFromTemplate([
-      ...entries.map(device => ({
-        label: device.name, type: 'radio' as const,
-        checked: device.id === null ? state.activeServerUrl === null : state.activeDeviceId === device.id,
-        enabled: !this.busy,
-        click: () => { void this.switchTo(device.id).catch(error => this.showError(error)) },
-      })),
-      { type: 'separator' },
-      { label: labels.manage, enabled: !this.busy, click: () => this.openManager() },
-    ])
-    const { bounds } = nativeDeviceSwitcherLayout(this.window.getContentSize()[0], this.platform)
-    menu.popup({ window: this.window, x: bounds.x, y: HEIGHT })
+    if (!this.visible || this.busy) return
+    this.menuOpen = !this.menuOpen
+    this.layout();this.refresh()
+    this.view.webContents.focus()
   }
 
   openManager() {
+    this.closeMenu()
     if (this.manager && !this.manager.isDestroyed()) { this.manager.show();this.manager.focus();return }
     this.manager = new BrowserWindow({ width: 600, height: 640, minWidth: 420, minHeight: 480, parent: this.window, title: nativeDeviceLabels().manage, autoHideMenuBar: true, show: false, webPreferences: this.preferences() })
     const manager = this.manager
@@ -178,7 +226,12 @@ export class NativeDeviceSwitcher {
     if (this.disposed) return
     this.disposed = true
     this.window.off('resize', this.resize)
+    clearInterval(this.appearanceTimer)
     this.mainContents.off('dom-ready', this.style)
+    this.mainContents.off('did-finish-load', this.ready)
+    this.mainContents.off('did-start-navigation', this.navigate)
+    this.mainContents.off('before-mouse-event', this.outsideClick)
+    this.window.off('blur', this.closeMenu)
     for (const name of CHANNELS) ipcMain.removeHandler(channel(name))
     if (this.manager && !this.manager.isDestroyed()) this.manager.destroy()
     if (!this.window.isDestroyed()) this.window.contentView.removeChildView(this.view)

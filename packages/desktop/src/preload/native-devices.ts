@@ -4,6 +4,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 contextBridge.exposeInMainWorld('studioDevices', {
   state: () => ipcRenderer.invoke('studio-native-devices:state'),
   menu: () => ipcRenderer.invoke('studio-native-devices:menu'),
+  dismiss: () => ipcRenderer.invoke('studio-native-devices:dismiss'),
+  manage: () => ipcRenderer.invoke('studio-native-devices:manage'),
   add: (input: unknown) => ipcRenderer.invoke('studio-native-devices:add', input),
   remove: (id: unknown) => ipcRenderer.invoke('studio-native-devices:remove', id),
   switchTo: (id: unknown) => ipcRenderer.invoke('studio-native-devices:switch', id),

@@ -5,8 +5,8 @@ import { join, resolve } from 'node:path'
 import { buildSync } from 'esbuild'
 import { expect, it } from 'vitest'
 
-const executable = process.env.EKKO_TEST_ELECTRON_EXECUTABLE || resolve('packages/desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')
-it.runIf(process.platform === 'darwin' && existsSync(executable))('keeps real native device controls usable with an old, offline or crashed remote page', async () => {
+const executable = process.env.EKKO_TEST_ELECTRON_EXECUTABLE || resolve(process.platform === 'win32' ? 'packages/desktop/node_modules/electron/dist/electron.exe' : 'packages/desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')
+it.runIf(['darwin', 'win32'].includes(process.platform) && existsSync(executable))('keeps real native device controls usable with an old, offline or crashed remote page', async () => {
   const root = mkdtempSync(join(tmpdir(), 'studio-native-device-switcher-'))
   try {
     const entry = join(root, 'entry.ts')
@@ -18,12 +18,12 @@ it.runIf(process.platform === 'darwin' && existsSync(executable))('keeps real na
     const child = spawn(executable, [resolve('tests/fixtures/native-device-switcher.cjs'), root, bundle], { env, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
     child.stdout.on('data', data => { output += data });child.stderr.on('data', data => { output += data })
-    const timer = setTimeout(() => child.kill('SIGKILL'), 25000)
+    const timer = setTimeout(() => child.kill('SIGKILL'), 55000)
     try {
       const code = await new Promise<number | null>((resolveExit, reject) => { child.once('error', reject);child.once('close', resolveExit) })
       const result = join(root, 'result.json')
       expect(code, existsSync(result) ? readFileSync(result, 'utf8') : output).toBe(0)
-      expect(JSON.parse(readFileSync(result, 'utf8'))).toMatchObject({ ok: true, oldPage: true, offline: true, crash: true, localManager: true, deniedForeignIpc: true, layoutGap: 8, returnedLocal: true })
+      expect(JSON.parse(readFileSync(result, 'utf8'))).toMatchObject({ ok: true, oldPage: true, offline: true, crash: true, localManager: true, deniedForeignIpc: true, layoutGap: 8, returnedLocal: true, clickedToolbar: true, liveTheme: true, hiddenSplash: true })
     } finally { clearTimeout(timer);if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL') }
   } finally { rmSync(root, { recursive: true, force: true }) }
-}, 30000)
+}, 60000)
