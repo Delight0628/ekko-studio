@@ -56,6 +56,7 @@ declare module 'koa' {
     user?: AuthenticatedUser
     profile?: RequestProfile
     serverTokenAuth?: boolean
+    modelApiKey?: { id: string; models: string[] }
   }
 }
 
@@ -319,7 +320,10 @@ export async function isAuthEnabled(): Promise<boolean> {
 }
 
 function isAccountModelApiPath(path: string | undefined): boolean {
-  return path === '/api/studio/models/api-keys' || !!path?.startsWith('/api/studio/models/api-keys/')
+  // Router paths are case-insensitive and allow a trailing slash.
+  path = path?.toLowerCase()
+  return path === '/api/studio/models/cloud-link' || !!path?.startsWith('/api/studio/models/cloud-link/')
+    || path === '/api/studio/models/api-keys' || !!path?.startsWith('/api/studio/models/api-keys/')
     || path === '/api/ekko-studio/models/v1/models' || path === '/api/ekko-studio/models/v1/responses'
 }
 
@@ -346,6 +350,7 @@ export async function requireUserJwt(ctx: Context, next: Next): Promise<void> {
       const user = findUserById(key.userId)
       if (!user || user.status !== 'active') throw new ModelApiError('The key owner is disabled or no longer exists.', 403)
       ctx.state.user = toAuthenticatedUser(user)
+      ctx.state.modelApiKey = { id: key.id, models: key.models }
       touchModelApiKey(key.id)
     } catch (error) {
       const result = modelApiErrorBody(error)

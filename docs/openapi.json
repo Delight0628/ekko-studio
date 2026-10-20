@@ -205,10 +205,6 @@
       "description": "Mobile App cloud relay route and connection management"
     },
     {
-      "name": "Devices",
-      "description": "Device pairing and LAN peer operations"
-    },
-    {
       "name": "MCU Devices",
       "description": "Microcontroller device management"
     },
@@ -4095,40 +4091,14 @@
         ]
       }
     },
-    "/api/devices": {
-      "get": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Get devices",
-        "description": "GET /api/devices",
-        "operationId": "listDevices",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "description": "Not found"
-          }
-        }
-      }
-    },
     "/api/devices/link-info": {
       "get": {
         "tags": [
-          "Devices"
+          "MCU Devices"
         ],
         "summary": "Get link-info",
         "description": "GET /api/devices/link-info",
-        "operationId": "deviceLinkInfoController",
+        "operationId": "mcuBackendInfoController",
         "security": [
           {
             "BearerAuth": []
@@ -4145,956 +4115,6 @@
             "description": "Not found"
           }
         }
-      }
-    },
-    "/api/devices/link-request": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create link-request",
-        "description": "POST /api/devices/link-request",
-        "operationId": "requestDeviceLinkController",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "nonce": {
-                    "type": "string"
-                  },
-                  "signature": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/devices/link-status": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create link-status",
-        "description": "POST /api/devices/link-status",
-        "operationId": "requestDeviceLinkStatusController",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "device_id": {
-                    "type": "string"
-                  },
-                  "device_public_key": {
-                    "type": "string"
-                  },
-                  "nonce": {
-                    "type": "string"
-                  },
-                  "signature": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/devices/manual-request": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create manual-request",
-        "description": "POST /api/devices/manual-request",
-        "operationId": "requestManualDevicePairing",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "url": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/devices/pairing-link": {
-      "get": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Get pairing-link",
-        "description": "GET /api/devices/pairing-link",
-        "operationId": "getDevicePairingLink",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "description": "Not found"
-          }
-        }
-      }
-    },
-    "/api/devices/peer-connections": {
-      "get": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Get peer-connections",
-        "description": "GET /api/devices/peer-connections",
-        "operationId": "listPeerConnections",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "description": "Not found"
-          }
-        }
-      }
-    },
-    "/api/devices/peer-connections/{connectionId}/disconnect": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create disconnect",
-        "description": "POST /api/devices/peer-connections/:connectionId/disconnect",
-        "operationId": "disconnectPeerDevice",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "parameters": [
-          {
-            "name": "connectionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/devices/peer-connections/{connectionId}/download": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create download",
-        "description": "POST /api/devices/peer-connections/:connectionId/download",
-        "operationId": "downloadPeerFile",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "parameters": [
-          {
-            "name": "connectionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": true
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/devices/peer-connections/{connectionId}/exec": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create exec",
-        "description": "POST /api/devices/peer-connections/:connectionId/exec",
-        "operationId": "execPeerCommand",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "parameters": [
-          {
-            "name": "connectionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "args": {
-                    "type": "string"
-                  },
-                  "cwd": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/devices/peer-connections/{connectionId}/terminal": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create terminal",
-        "description": "POST /api/devices/peer-connections/:connectionId/terminal",
-        "operationId": "createPeerTerminal",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "parameters": [
-          {
-            "name": "connectionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "shell": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/devices/peer-connections/{connectionId}/terminal/{terminalId}/close": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create close",
-        "description": "POST /api/devices/peer-connections/:connectionId/terminal/:terminalId/close",
-        "operationId": "closePeerTerminal",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "parameters": [
-          {
-            "name": "connectionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "terminalId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/devices/peer-connections/{connectionId}/terminal/{terminalId}/input": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create input",
-        "description": "POST /api/devices/peer-connections/:connectionId/terminal/:terminalId/input",
-        "operationId": "writePeerTerminal",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "parameters": [
-          {
-            "name": "connectionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "terminalId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": true
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/devices/peer-connections/{connectionId}/terminal/{terminalId}/read": {
-      "get": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Get read",
-        "description": "GET /api/devices/peer-connections/:connectionId/terminal/:terminalId/read",
-        "operationId": "readPeerTerminal",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "description": "Not found"
-          }
-        },
-        "parameters": [
-          {
-            "name": "connectionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "terminalId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/devices/peer-connections/{connectionId}/terminal/{terminalId}/resize": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create resize",
-        "description": "POST /api/devices/peer-connections/:connectionId/terminal/:terminalId/resize",
-        "operationId": "resizePeerTerminal",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "parameters": [
-          {
-            "name": "connectionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "terminalId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": true
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/devices/peer-connections/{connectionId}/terminals": {
-      "get": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Get terminals",
-        "description": "GET /api/devices/peer-connections/:connectionId/terminals",
-        "operationId": "listPeerTerminals",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "description": "Not found"
-          }
-        },
-        "parameters": [
-          {
-            "name": "connectionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/devices/peer-connections/{connectionId}/upload": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create upload",
-        "description": "POST /api/devices/peer-connections/:connectionId/upload",
-        "operationId": "uploadPeerFile",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "parameters": [
-          {
-            "name": "connectionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": true
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/devices/scan": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create scan",
-        "description": "POST /api/devices/scan",
-        "operationId": "scanDevices",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        }
-      }
-    },
-    "/api/devices/{id}/approve": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create approve",
-        "description": "POST /api/devices/:id/approve",
-        "operationId": "approveDevice",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/devices/{id}/block": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create block",
-        "description": "POST /api/devices/:id/block",
-        "operationId": "blockDevice",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/devices/{id}/connect": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create connect",
-        "description": "POST /api/devices/:id/connect",
-        "operationId": "connectPeerDevice",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/devices/{id}/reject": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create reject",
-        "description": "POST /api/devices/:id/reject",
-        "operationId": "rejectDevice",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/devices/{id}/request": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create request",
-        "description": "POST /api/devices/:id/request",
-        "operationId": "requestDevicePairing",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "pairing_code": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/devices/{id}/request-history": {
-      "delete": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Delete request-history",
-        "description": "DELETE /api/devices/:id/request-history",
-        "operationId": "deleteDeviceRequestHistory",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      }
-    },
-    "/api/devices/{id}/unblock": {
-      "post": {
-        "tags": [
-          "Devices"
-        ],
-        "summary": "Create unblock",
-        "description": "POST /api/devices/:id/unblock",
-        "operationId": "unblockDevice",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
       }
     },
     "/api/ekko-studio/models/v1/models": {
@@ -5103,7 +4123,7 @@
           "Model API"
         ],
         "summary": "List configured models with provider-qualified IDs",
-        "description": "Aggregates all accessible Profiles as provider/model and deduplicates IDs, preserving slashes inside native model IDs. Callable configurations win over disabled/unsupported duplicates, then default Profile, then Profile names in lexical order. Caller Profile selectors are ignored. Never returns credentials. MoA presets and self-referencing Model API providers using a locally issued Model API key are excluded from this catalog. responses_supported=false marks disabled models and providers requiring Bedrock or Codex app-server runtimes.",
+        "description": "Model API keys see only their explicitly allowed model IDs; Studio user JWTs see the full account catalog. Aggregates all accessible Profiles as provider/model and deduplicates IDs, preserving slashes inside native model IDs. Callable configurations win over disabled/unsupported duplicates, then default Profile, then Profile names in lexical order. Caller Profile selectors are ignored. Never returns credentials. MoA presets and self-referencing Model API providers using a locally issued Model API key are excluded from this catalog. responses_supported=false marks disabled models and providers requiring Bedrock or Codex app-server runtimes.",
         "operationId": "modelApiModels",
         "security": [
           {
@@ -5172,6 +4192,9 @@
           "404": {
             "description": "Profile or configured model not found"
           },
+          "429": {
+            "description": "Model API key budget exhausted (insufficient_quota), or request costs are unknown (quota_cost_unknown)"
+          },
           "501": {
             "description": "Provider requires an unsupported direct-request runtime"
           },
@@ -5188,7 +4211,7 @@
           "Model API"
         ],
         "summary": "Request a configured model using OpenAI Responses format",
-        "description": "Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side from the same unified catalog as GET /models. No Profile selector is required. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.",
+        "description": "Model API keys enforce their saved lifetime USD budget against settled request costs. Exhausted keys and limited keys with unpriced requests return 429 before inference; already-running calls can exceed the cap. Costs follow the usage ledger pricing rules. Studio user JWTs are outside key budgets. Model API key requests must name an allowed model; ungranted IDs return 404 before any provider request. Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side from the same unified catalog as GET /models. No Profile selector is required. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.",
         "operationId": "modelApiResponses",
         "security": [
           {
@@ -5265,6 +4288,9 @@
           },
           "404": {
             "description": "Profile or configured model not found"
+          },
+          "429": {
+            "description": "Model API key budget exhausted (insufficient_quota), or request costs are unknown (quota_cost_unknown)"
           },
           "501": {
             "description": "Provider requires an unsupported direct-request runtime"
@@ -7498,7 +6524,17 @@
                     "type": "string"
                   },
                   "api_mode": {
-                    "type": "string"
+                    "nullable": true,
+                    "type": "string",
+                    "enum": [
+                      "chat_completions",
+                      "codex_responses",
+                      "anthropic_messages",
+                      "bedrock_converse",
+                      "codex_app_server",
+                      null
+                    ],
+                    "description": "Null clears the custom connection protocol override for automatic matching; no api_mode is written to configuration."
                   },
                   "base_url": {
                     "type": "string"
@@ -7577,7 +6613,17 @@
                     "type": "string"
                   },
                   "api_mode": {
-                    "type": "string"
+                    "nullable": true,
+                    "type": "string",
+                    "enum": [
+                      "chat_completions",
+                      "codex_responses",
+                      "anthropic_messages",
+                      "bedrock_converse",
+                      "codex_app_server",
+                      null
+                    ],
+                    "description": "Null clears the custom connection protocol override for automatic matching; no api_mode is written to configuration."
                   },
                   "base_url": {
                     "type": "string"
@@ -17768,6 +16814,44 @@
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "ekkoComputerUseMatchEnabled": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "ekkoComputerUseMatchCandidateLimit": {
+                      "type": "integer",
+                      "default": 20,
+                      "minimum": 1,
+                      "maximum": 50
+                    },
+                    "ekkoComputerUseMatchMinConfidence": {
+                      "type": "number",
+                      "default": 0.8,
+                      "minimum": 0.5,
+                      "maximum": 1
+                    },
+                    "ekkoComputerUseMatchTimeoutMs": {
+                      "type": "integer",
+                      "default": 3000,
+                      "minimum": 100,
+                      "maximum": 30000
+                    },
+                    "ekkoComputerUseVerifyEnabled": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "ekkoComputerUseVerifyMinConfidence": {
+                      "type": "number",
+                      "default": 0.8,
+                      "minimum": 0.5,
+                      "maximum": 1
+                    },
+                    "ekkoComputerUseVerifyTimeoutMs": {
+                      "type": "integer",
+                      "default": 3000,
+                      "minimum": 100,
+                      "maximum": 30000
+                    },
                     "browserMatchEnabled": {
                       "type": "boolean",
                       "default": false
@@ -17945,6 +17029,44 @@
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "ekkoComputerUseMatchEnabled": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "ekkoComputerUseMatchCandidateLimit": {
+                      "type": "integer",
+                      "default": 20,
+                      "minimum": 1,
+                      "maximum": 50
+                    },
+                    "ekkoComputerUseMatchMinConfidence": {
+                      "type": "number",
+                      "default": 0.8,
+                      "minimum": 0.5,
+                      "maximum": 1
+                    },
+                    "ekkoComputerUseMatchTimeoutMs": {
+                      "type": "integer",
+                      "default": 3000,
+                      "minimum": 100,
+                      "maximum": 30000
+                    },
+                    "ekkoComputerUseVerifyEnabled": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "ekkoComputerUseVerifyMinConfidence": {
+                      "type": "number",
+                      "default": 0.8,
+                      "minimum": 0.5,
+                      "maximum": 1
+                    },
+                    "ekkoComputerUseVerifyTimeoutMs": {
+                      "type": "integer",
+                      "default": 3000,
+                      "minimum": 100,
+                      "maximum": 30000
+                    },
                     "browserMatchEnabled": {
                       "type": "boolean",
                       "default": false
@@ -18095,6 +17217,44 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
+                  "ekkoComputerUseMatchEnabled": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "ekkoComputerUseMatchCandidateLimit": {
+                    "type": "integer",
+                    "default": 20,
+                    "minimum": 1,
+                    "maximum": 50
+                  },
+                  "ekkoComputerUseMatchMinConfidence": {
+                    "type": "number",
+                    "default": 0.8,
+                    "minimum": 0.5,
+                    "maximum": 1
+                  },
+                  "ekkoComputerUseMatchTimeoutMs": {
+                    "type": "integer",
+                    "default": 3000,
+                    "minimum": 100,
+                    "maximum": 30000
+                  },
+                  "ekkoComputerUseVerifyEnabled": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "ekkoComputerUseVerifyMinConfidence": {
+                    "type": "number",
+                    "default": 0.8,
+                    "minimum": 0.5,
+                    "maximum": 1
+                  },
+                  "ekkoComputerUseVerifyTimeoutMs": {
+                    "type": "integer",
+                    "default": 3000,
+                    "minimum": 100,
+                    "maximum": 30000
+                  },
                   "browserMatchEnabled": {
                     "type": "boolean",
                     "default": false
@@ -18191,6 +17351,44 @@
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "ekkoComputerUseMatchEnabled": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "ekkoComputerUseMatchCandidateLimit": {
+                      "type": "integer",
+                      "default": 20,
+                      "minimum": 1,
+                      "maximum": 50
+                    },
+                    "ekkoComputerUseMatchMinConfidence": {
+                      "type": "number",
+                      "default": 0.8,
+                      "minimum": 0.5,
+                      "maximum": 1
+                    },
+                    "ekkoComputerUseMatchTimeoutMs": {
+                      "type": "integer",
+                      "default": 3000,
+                      "minimum": 100,
+                      "maximum": 30000
+                    },
+                    "ekkoComputerUseVerifyEnabled": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "ekkoComputerUseVerifyMinConfidence": {
+                      "type": "number",
+                      "default": 0.8,
+                      "minimum": 0.5,
+                      "maximum": 1
+                    },
+                    "ekkoComputerUseVerifyTimeoutMs": {
+                      "type": "integer",
+                      "default": 3000,
+                      "minimum": 100,
+                      "maximum": 30000
+                    },
                     "browserMatchEnabled": {
                       "type": "boolean",
                       "default": false
@@ -19201,6 +18399,23 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "budgetUsd": {
+                            "type": "number",
+                            "nullable": true,
+                            "minimum": 0,
+                            "maximum": 1000000,
+                            "description": "Lifetime USD budget. Null or omitted means unlimited; 0 blocks inference. Editing never resets spending."
+                          },
+                          "spentUsd": {
+                            "type": "number",
+                            "minimum": 0,
+                            "description": "Settled lifetime USD costs for this key"
+                          },
+                          "unpricedRequests": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Unpriced or pending requests. Limited keys pause when costs remain unresolved after completion or interruption; known in-flight calls can continue."
+                          },
                           "id": {
                             "type": "string"
                           },
@@ -19209,6 +18424,13 @@
                           },
                           "preview": {
                             "type": "string"
+                          },
+                          "models": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "Explicit provider-qualified model IDs allowed by this key"
                           },
                           "createdAt": {
                             "type": "integer",
@@ -19241,7 +18463,7 @@
           "Model API"
         ],
         "summary": "Create an account-wide Model API key",
-        "description": "Requires Studio user authentication. Key allows only model listing and Responses inference; valid until revoked. Only the hash is persisted. Limit: 50 keys per account. Cache-Control: no-store.",
+        "description": "Requires Studio user authentication. Key allows model listing and Responses inference only for the explicitly selected models; valid until revoked. Only the hash is persisted. Limit: 50 keys per account. Cache-Control: no-store.",
         "operationId": "modelApiCreateKey",
         "security": [
           {
@@ -19259,6 +18481,23 @@
                     "key": {
                       "type": "object",
                       "properties": {
+                        "budgetUsd": {
+                          "type": "number",
+                          "nullable": true,
+                          "minimum": 0,
+                          "maximum": 1000000,
+                          "description": "Lifetime USD budget. Null or omitted means unlimited; 0 blocks inference. Editing never resets spending."
+                        },
+                        "spentUsd": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Settled lifetime USD costs for this key"
+                        },
+                        "unpricedRequests": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "Unpriced or pending requests. Limited keys pause when costs remain unresolved after completion or interruption; known in-flight calls can continue."
+                        },
                         "id": {
                           "type": "string"
                         },
@@ -19267,6 +18506,13 @@
                         },
                         "preview": {
                           "type": "string"
+                        },
+                        "models": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "Explicit provider-qualified model IDs allowed by this key"
                         },
                         "createdAt": {
                           "type": "integer",
@@ -19304,14 +18550,31 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "name"
+                  "name",
+                  "models"
                 ],
                 "additionalProperties": false,
                 "properties": {
+                  "budgetUsd": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 1000000,
+                    "description": "Lifetime USD budget. Null or omitted means unlimited; 0 blocks inference. Editing never resets spending."
+                  },
                   "name": {
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 80
+                  },
+                  "models": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Currently accessible, callable provider-qualified model IDs. New models are not granted automatically."
                   }
                 }
               }
@@ -19322,6 +18585,137 @@
       }
     },
     "/api/studio/models/api-keys/{id}": {
+      "patch": {
+        "tags": [
+          "Model API"
+        ],
+        "summary": "Edit my Model API key name, allowed models and USD budget",
+        "description": "Requires Studio user authentication. Updates only the caller’s key. The secret, token hash and lifetime spending remain unchanged. budgetUsd sets a cumulative USD cap, null removes it and 0 pauses inference. Subsequent model listing and inference requests immediately use the saved model scope. Already-running requests are not cancelled.",
+        "operationId": "modelApiEditKey",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated key metadata without plaintext or hash",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "object",
+                      "properties": {
+                        "budgetUsd": {
+                          "type": "number",
+                          "nullable": true,
+                          "minimum": 0,
+                          "maximum": 1000000,
+                          "description": "Lifetime USD budget. Null or omitted means unlimited; 0 blocks inference. Editing never resets spending."
+                        },
+                        "spentUsd": {
+                          "type": "number",
+                          "minimum": 0,
+                          "description": "Settled lifetime USD costs for this key"
+                        },
+                        "unpricedRequests": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "Unpriced or pending requests. Limited keys pause when costs remain unresolved after completion or interruption; known in-flight calls can continue."
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "preview": {
+                          "type": "string"
+                        },
+                        "models": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "Explicit provider-qualified model IDs allowed by this key"
+                        },
+                        "createdAt": {
+                          "type": "integer",
+                          "description": "Unix milliseconds"
+                        },
+                        "lastUsedAt": {
+                          "type": "integer",
+                          "nullable": true,
+                          "description": "Unix milliseconds"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid name or model selection"
+          },
+          "401": {
+            "description": "Studio login required"
+          },
+          "404": {
+            "description": "No matching key owned by caller"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "models"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "budgetUsd": {
+                    "type": "number",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 1000000,
+                    "description": "Lifetime USD budget. Null or omitted means unlimited; 0 blocks inference. Editing never resets spending."
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "models": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Currently accessible, callable provider-qualified model IDs. New models are not granted automatically."
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "tags": [
           "Model API"
@@ -19358,6 +18752,262 @@
             }
           }
         ]
+      }
+    },
+    "/api/studio/models/cloud-link": {
+      "get": {
+        "tags": [
+          "Model API"
+        ],
+        "summary": "Get my dual-route cloud Model API link",
+        "description": "Requires Studio user authentication and a valid formal cloud connection for this machine/account. Independent of Profile. Returns available:false when cloud access, enabled server feature or relay v3 support is unavailable. The optional cloud feature is disabled by default; Agent run credentials cannot manage links. Addresses are routing IDs; model API keys are still required. Authorized cloud response calls record account/machine/model/token/USD metadata without request or response content. Reset/revoke invalidates both routes.",
+        "operationId": "modelApiCloudLinkGet",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cloud link status and independent limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "available": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "urls": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "official": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "cloudflare": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      }
+                    },
+                    "limits": {
+                      "type": "object",
+                      "properties": {
+                        "uploadMaxMegabytes": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "downloadMaxMegabytes": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "uploadMegabytesPerSecond": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "downloadMegabytesPerSecond": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "requestsPerMinute": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Studio login required"
+          },
+          "503": {
+            "description": "Cloud relay unavailable"
+          }
+        },
+        "parameters": []
+      },
+      "post": {
+        "tags": [
+          "Model API"
+        ],
+        "summary": "Create my dual-route cloud Model API link",
+        "description": "Requires Studio user authentication and a valid formal cloud connection for this machine/account. Independent of Profile. Returns available:false when cloud access, enabled server feature or relay v3 support is unavailable. The optional cloud feature is disabled by default; Agent run credentials cannot manage links. Addresses are routing IDs; model API keys are still required. Authorized cloud response calls record account/machine/model/token/USD metadata without request or response content. Reset/revoke invalidates both routes.",
+        "operationId": "modelApiCloudLinkCreate",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cloud link status and independent limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "available": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "urls": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "official": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "cloudflare": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      }
+                    },
+                    "limits": {
+                      "type": "object",
+                      "properties": {
+                        "uploadMaxMegabytes": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "downloadMaxMegabytes": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "uploadMegabytesPerSecond": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "downloadMegabytesPerSecond": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "requestsPerMinute": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Studio login required"
+          },
+          "503": {
+            "description": "Cloud relay unavailable"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "rotate": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "True replaces both URLs; otherwise creates a link if absent."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": []
+      },
+      "delete": {
+        "tags": [
+          "Model API"
+        ],
+        "summary": "Revoke my dual-route cloud Model API link",
+        "description": "Requires Studio user authentication and a valid formal cloud connection for this machine/account. Independent of Profile. Returns available:false when cloud access, enabled server feature or relay v3 support is unavailable. The optional cloud feature is disabled by default; Agent run credentials cannot manage links. Addresses are routing IDs; model API keys are still required. Authorized cloud response calls record account/machine/model/token/USD metadata without request or response content. Reset/revoke invalidates both routes.",
+        "operationId": "modelApiCloudLinkRevoke",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cloud link status and independent limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "available": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "urls": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "official": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "cloudflare": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      }
+                    },
+                    "limits": {
+                      "type": "object",
+                      "properties": {
+                        "uploadMaxMegabytes": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "downloadMaxMegabytes": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "uploadMegabytesPerSecond": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "downloadMegabytesPerSecond": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "requestsPerMinute": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Studio login required"
+          },
+          "503": {
+            "description": "Cloud relay unavailable"
+          }
+        },
+        "parameters": []
       }
     },
     "/api/studio/performance/runtime": {

@@ -16,6 +16,8 @@ export const MODEL_API_KEYS_SCHEMA: Record<string, string> = {
   name: 'TEXT NOT NULL',
   preview: 'TEXT NOT NULL',
   token_hash: 'TEXT NOT NULL UNIQUE',
+  models_json: "TEXT NOT NULL DEFAULT '[]'",
+  budget_usd: 'REAL',
   created_at: 'INTEGER NOT NULL',
   last_used_at: 'INTEGER',
 }
@@ -24,6 +26,8 @@ export const USAGE_SCHEMA: Record<string, string> = {
   id: 'INTEGER PRIMARY KEY AUTOINCREMENT',
   session_id: 'TEXT NOT NULL',
   account_id: 'TEXT',
+  model_api_key_id: 'TEXT',
+  model_api_pending: 'INTEGER NOT NULL DEFAULT 0',
   origin: "TEXT NOT NULL DEFAULT 'internal'",
   run_id: "TEXT NOT NULL DEFAULT ''",
   parent_run_id: "TEXT NOT NULL DEFAULT ''",
@@ -657,41 +661,6 @@ export const SOCIAL_MESSAGE_RUNTIME_STATES_SCHEMA: Record<string, string> = {
 
 export const SOCIAL_MESSAGE_RUNTIME_STATES_INDEXES = {
   idx_social_message_runtime_states_user: 'CREATE INDEX IF NOT EXISTS idx_social_message_runtime_states_user ON social_message_runtime_states(user_id)',
-}
-
-// ============================================================================
-// LAN Devices
-// ============================================================================
-
-export const DEVICES_TABLE = 'devices'
-
-export const DEVICES_SCHEMA: Record<string, string> = {
-  id: 'TEXT PRIMARY KEY',
-  status: "TEXT NOT NULL DEFAULT 'none'",
-  inbound_status: "TEXT NOT NULL DEFAULT 'none'",
-  outbound_status: "TEXT NOT NULL DEFAULT 'none'",
-  device_public_key: "TEXT NOT NULL DEFAULT ''",
-  computer_name: "TEXT NOT NULL DEFAULT ''",
-  endpoint_kind: "TEXT NOT NULL DEFAULT 'custom'",
-  ip: "TEXT NOT NULL DEFAULT ''",
-  http_port: 'INTEGER NOT NULL DEFAULT 0',
-  url: "TEXT NOT NULL DEFAULT ''",
-  os_json: "TEXT NOT NULL DEFAULT '{}'",
-  hermes_agent_version: "TEXT NOT NULL DEFAULT ''",
-  hermes_web_ui_version: "TEXT NOT NULL DEFAULT ''",
-  response_ms: 'INTEGER NOT NULL DEFAULT 0',
-  requested_at: 'INTEGER NOT NULL DEFAULT 0',
-  decided_at: 'INTEGER',
-  outbound_requested_at: 'INTEGER NOT NULL DEFAULT 0',
-  outbound_decided_at: 'INTEGER',
-  inbound_history_deleted_at: 'INTEGER',
-  last_seen_at: 'INTEGER NOT NULL DEFAULT 0',
-  updated_at: 'INTEGER NOT NULL',
-}
-
-export const DEVICES_INDEXES = {
-  idx_devices_status: 'CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status)',
-  idx_devices_last_seen: 'CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen_at)',
 }
 
 // ============================================================================
@@ -1698,6 +1667,7 @@ export function initAllHermesTables(): void {
   try {
     // Usage store
     syncTable(USAGE_TABLE, USAGE_SCHEMA, { primaryKey: 'id' })
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_usage_model_api_key ON ${USAGE_TABLE}(model_api_key_id, account_id)`)
     syncTable(USAGE_PRICING_TABLE, USAGE_PRICING_SCHEMA, { primaryKey: 'profile' })
     db.exec(USAGE_RUN_INDEX)
     syncTable(RUN_USAGE_TABLE, RUN_USAGE_SCHEMA, { indexes: RUN_USAGE_INDEXES })
@@ -1804,11 +1774,6 @@ export function initAllHermesTables(): void {
     })
     createIndexes(db, SOCIAL_MESSAGE_ACCOUNTS_INDEXES)
     createIndexes(db, SOCIAL_MESSAGE_RUNTIME_STATES_INDEXES)
-
-    // LAN devices and link request status
-    syncTable(DEVICES_TABLE, DEVICES_SCHEMA, {
-      indexes: DEVICES_INDEXES,
-    })
 
     // MCU devices
     syncTable(MCU_DEVICES_TABLE, MCU_DEVICES_SCHEMA, {

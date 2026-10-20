@@ -1,3 +1,4 @@
+import { remoteDeviceMessages } from '../remote-device-messages'
 import { themePresetMessages } from '../theme-preset-locales'
 import { themeAppearanceMessages } from '../theme-appearance-locales'
 const writeApprovalMessages = {
@@ -29,7 +30,37 @@ const writeApprovalMessages = {
 }
 
 export default {
+  remoteDevices: remoteDeviceMessages["tr"],
   modelApi: {
+    "localRoute": "Yerel adres",
+    "officialRoute": "Resmî rota",
+    "createCloudLink": "Bulut bağlantısı oluştur",
+    "rotateCloudLink": "Bulut bağlantısını sıfırla",
+    "revokeCloudLink": "Bulut bağlantısını devre dışı bırak",
+    "cloudHint": "Bağlantılar resmî ve Cloudflare rotalarını sunar. Model API anahtarı gereklidir.",
+    "cloudUnavailable": "Bulut bağlantılarını App üzerinden resmi bulut bağlantısıyla yönetin. LAN ve kendi sunucunuz üzerinden bağlantılar desteklenmez.",
+    "cloudRevokeHint": "Önceki iki adres hemen geçersiz olur. İstemci yapılandırmasını güncelleyin.",
+    "connectionRoute": "Bağlantı rotası",
+
+    "budgetLabel": "Toplam bütçe (USD)",
+    "unlimited": "Sınırsız",
+    "budgetHint": "Boş bırakmak sınırsızdır; 0 çağrıları duraklatır. Maliyetler istek başına hesaplanır; devam eden çağrılar bütçeyi aşabilir. Düzenleme önceki harcamaları sıfırlamaz.",
+    "budgetUsage": "Kullanılan {used} USD · Bütçe {limit}",
+    "budgetUnknown": "Bazı maliyetler henüz hesaplanmadı. Belirsiz maliyetler bütçe sınırlı anahtarları duraklatır.",
+    "budgetExhausted": "Bütçe tükendi",
+    "noMatchingModels": "Eşleşen model yok",
+    "allowedModels": "İzin verilen modeller",
+    "selectModels": "İzin verilen modelleri seçin",
+    "selectionHint": "Mevcut tüm kullanılabilir modeller varsayılan olarak seçilir. Yeni eklenen modellere izin vermek için anahtarı düzenleyin.",
+    "selectAll": "Tümünü seç",
+    "clearSelection": "Seçimi temizle",
+    "editKey": "Anahtarı düzenle",
+    "saveKey": "Anahtarı kaydet",
+    "saved": "API anahtarı güncellendi",
+    "keyModels": "{count} modele izin veriyor",
+    "selectedModels": "{count} model seçildi",
+    "requireModel": "En az bir model seçin",
+    "searchModels": "Model ara",
     "refresh": "Yenile",
     "title": "Model API",
     "description": "Kullanılabilir modellerinizi OpenAI Responses API destekleyen istemcilerden çağırın.",
@@ -140,6 +171,18 @@ export default {
   },
 
   jev: {
+    computerUseAutomation: "Ekko bilgisayar kontrolü",
+    computerUseAutomationHint: "Bu profilin JEV bağlantısını sonraki Ekko çalışmasından itibaren kullanır. Yalnızca erişilebilirlik etiketleri ve kontrol durumları gönderilir; alan değerleri ve görüntüler hariçtir. Hatalar yerel sonucu korur.",
+    computerUseMatchEnabled: "Masaüstü öğelerini eşleştir",
+    computerUseMatchHint: "Yeni pencere gözleminde açık bir hedef için mevcut öğe belirtecini önerir. Tıklamaz.",
+    computerUseMatchCandidateLimit: "Masaüstü eşleştirme aday sınırı",
+    computerUseMatchMinConfidence: "Masaüstü eşleştirme asgari güveni",
+    computerUseMatchTimeoutMs: "Masaüstü eşleştirme zaman aşımı (ms)",
+    computerUseVerifyEnabled: "Masaüstü sonuçlarını doğrula",
+    computerUseVerifyHint: "Açık bir beklentiyi yeni pencere kanıtlarıyla değerlendirir. Yalnızca öneridir; eksik kanıt belirsiz kalır ve işlemler tekrarlanmaz.",
+    computerUseVerifyMinConfidence: "Masaüstü doğrulama asgari güveni",
+    computerUseVerifyTimeoutMs: "Masaüstü doğrulama zaman aşımı (ms)",
+
     browserAutomation: 'Yerleşik tarayıcı otomasyonu',
     browserAutomationHint: 'İsteğe bağlı değerlendirmeler, sonraki değerlendirmede bu Profile kaydedilen JEV bağlantısını kullanır. Görüntülenen sayfa etiketleri JEV\'e gönderilir; giriş değerleri gönderilmez. Devre dışı, kullanılamaz veya belirsiz değerlendirmelerde özgün akış korunur.',
     browserMatchEnabled: 'JEV öğe eşleştirme',
@@ -761,6 +804,7 @@ export default {
     writeApprovalUnsupported: 'Bu Hermes Aracısı sürümü yazma onaylarını desteklemiyor. Bu özelliği kullanmak için Hermes Aracısını yükseltin.',
   },
   models: {
+    apiModeAuto: 'Otomatik (modele göre)',
     importTitle: "Sağlayıcıyı içe aktar",
     importNotice: "Adresi, modeli ve hedef profili kontrol edin. Onaylandığında API anahtarı Studio’ya kaydedilir ve model profilin varsayılanı olur. Onaydan önce hiçbir şey içe aktarılmaz.",
     importConfirm: "İçe aktarmayı onayla",
@@ -852,6 +896,9 @@ export default {
     },
   },
   settings: {
+    privacy: {
+      policy: 'Gizlilik bildirimi',
+    },
     session: {
       ...writeApprovalMessages,
       requireAuth: 'Oturum yetkilendirmesi',

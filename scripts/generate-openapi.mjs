@@ -95,7 +95,6 @@ const tagMappings = {
   'modules/studio/routes/auth.ts': { name: 'Auth', description: 'Authentication management' },
   'modules/studio/routes/app-connections.ts': { name: 'App Connections', description: 'Mobile App authorization and connection management' },
   'modules/studio/routes/app-relay.ts': { name: 'App Relay', description: 'Mobile App cloud relay route and connection management' },
-  'modules/studio/routes/devices.ts': { name: 'Devices', description: 'Device pairing and LAN peer operations' },
   'modules/studio/routes/mcu-devices.ts': { name: 'MCU Devices', description: 'Microcontroller device management' },
   'modules/studio/routes/mcu-firmware.ts': { name: 'MCU Firmware', description: 'Microcontroller firmware distribution' },
   'modules/studio/routes/theme.ts': { name: 'Theme', description: 'Per-user appearance settings and background image' },
@@ -739,6 +738,13 @@ function schemaFromType(type) {
   if (/\bnull\b/.test(normalized)) schema.nullable = true
   if (/SessionProviderApiMode|CodingAgentApiMode/.test(normalized)) {
     return { ...schema, type: 'string', enum: ['chat_completions', 'codex_responses', 'anthropic_messages'] }
+  }
+  if (/\bProviderApiMode\b/.test(normalized)) {
+    return {
+      ...schema, type: 'string',
+      enum: ['chat_completions', 'codex_responses', 'anthropic_messages', 'bedrock_converse', 'codex_app_server', ...(schema.nullable ? [null] : [])],
+      ...(schema.nullable ? { description: 'Null clears the custom connection protocol override for automatic matching; no api_mode is written to configuration.' } : {}),
+    }
   }
   if (/string\[\]|Array<string>/.test(normalized)) {
     return { ...schema, type: 'array', items: { type: 'string' } }
@@ -1479,6 +1485,13 @@ for (const [path, methods] of Object.entries(openapi.paths)) {
 
 // JEV accepts named heterogeneous questions and never returns its stored API key.
 const jevSettingsProperties = {
+  ekkoComputerUseMatchEnabled: { type: 'boolean', default: false },
+  ekkoComputerUseMatchCandidateLimit: { type: 'integer', default: 20, minimum: 1, maximum: 50 },
+  ekkoComputerUseMatchMinConfidence: { type: 'number', default: 0.8, minimum: 0.5, maximum: 1 },
+  ekkoComputerUseMatchTimeoutMs: { type: 'integer', default: 3000, minimum: 100, maximum: 30000 },
+  ekkoComputerUseVerifyEnabled: { type: 'boolean', default: false },
+  ekkoComputerUseVerifyMinConfidence: { type: 'number', default: 0.8, minimum: 0.5, maximum: 1 },
+  ekkoComputerUseVerifyTimeoutMs: { type: 'integer', default: 3000, minimum: 100, maximum: 30000 },
   browserMatchEnabled: { type: 'boolean', default: false },
   browserVerifyEnabled: { type: 'boolean', default: false },
   browserMatchCandidateLimit: { type: 'integer', default: 20, minimum: 1, maximum: 50 },
@@ -1677,12 +1690,33 @@ const modelApiParameters = []
 const modelApiErrors = Object.fromEntries([
   ['400', 'Invalid input or unsupported Responses feature'], ['401', 'Missing, invalid or revoked Model API key, or expired Studio user JWT'],
   ['403', 'User or Profile access denied'], ['404', 'Profile or configured model not found'],
+  ['429', 'Model API key budget exhausted (insufficient_quota), or request costs are unknown (quota_cost_unknown)'],
   ['501', 'Provider requires an unsupported direct-request runtime'], ['502', 'Upstream model request failed'],
 ].map(([status, description]) => [status, { description }]))
+const keyBudgetSchema = { type: 'number', nullable: true, minimum: 0, maximum: 1000000, description: 'Lifetime USD budget. Null or omitted means unlimited; 0 blocks inference. Editing never resets spending.' }
 const keyMetadata = { type: 'object', properties: {
+  budgetUsd: keyBudgetSchema, spentUsd: { type: 'number', minimum: 0, description: 'Settled lifetime USD costs for this key' },
+  unpricedRequests: { type: 'integer', minimum: 0, description: 'Unpriced or pending requests. Limited keys pause when costs remain unresolved after completion or interruption; known in-flight calls can continue.' },
   id: { type: 'string' }, name: { type: 'string' }, preview: { type: 'string' },
+  models: { type: 'array', items: { type: 'string' }, description: 'Explicit provider-qualified model IDs allowed by this key' },
   createdAt: { type: 'integer', description: 'Unix milliseconds' }, lastUsedAt: { type: 'integer', nullable: true, description: 'Unix milliseconds' },
 } }
+const cloudLinkPath = openapi.paths['/api/studio/models/cloud-link']
+const cloudLinkSchema = { type: 'object', properties: {
+  available: { type: 'boolean' }, reason: { type: 'string' },
+  urls: { type: 'object', nullable: true, properties: { official: { type: 'string', format: 'uri' }, cloudflare: { type: 'string', format: 'uri' } } },
+  limits: { type: 'object', properties: Object.fromEntries(['uploadMaxMegabytes', 'downloadMaxMegabytes', 'uploadMegabytesPerSecond', 'downloadMegabytesPerSecond', 'requestsPerMinute'].map(key => [key, { type: 'integer', minimum: 1 }])) },
+} }
+for (const [method, suffix] of [['get', 'Get'], ['post', 'Create'], ['delete', 'Revoke']]) {
+  const operation = cloudLinkPath[method]
+  operation.operationId = `modelApiCloudLink${suffix}`
+  operation.summary = `${suffix} my dual-route cloud Model API link`
+  operation.parameters = modelApiParameters
+  operation.description = 'Requires Studio user authentication and a valid formal cloud connection for this machine/account. Independent of Profile. Returns available:false when cloud access, enabled server feature or relay v3 support is unavailable. The optional cloud feature is disabled by default; Agent run credentials cannot manage links. Addresses are routing IDs; model API keys are still required. Authorized cloud response calls record account/machine/model/token/USD metadata without request or response content. Reset/revoke invalidates both routes.'
+  operation.responses = { '200': { description: 'Cloud link status and independent limits', content: { 'application/json': { schema: cloudLinkSchema } } }, '401': { description: 'Studio login required' }, '503': { description: 'Cloud relay unavailable' } }
+}
+cloudLinkPath.post.requestBody = { required: false, content: { 'application/json': { schema: { type: 'object', properties: { rotate: { type: 'boolean', default: false, description: 'True replaces both URLs; otherwise creates a link if absent.' } } } } } }
+
 const keyManagementPath = openapi.paths['/api/studio/models/api-keys']
 keyManagementPath.get.summary = 'List my account-wide Model API keys'
 keyManagementPath.get.parameters = modelApiParameters
@@ -1690,18 +1724,28 @@ keyManagementPath.get.description = 'Requires Studio user authentication. Lists 
 keyManagementPath.get.responses = { '200': { description: 'Key metadata', content: { 'application/json': { schema: { type: 'object', properties: { keys: { type: 'array', items: keyMetadata } } } } } }, '401': { description: 'Studio login required' }, '403': { description: 'Profile access denied' } }
 keyManagementPath.post.summary = 'Create an account-wide Model API key'
 keyManagementPath.post.parameters = modelApiParameters
-keyManagementPath.post.description = 'Requires Studio user authentication. Key allows only model listing and Responses inference; valid until revoked. Only the hash is persisted. Limit: 50 keys per account. Cache-Control: no-store.'
-keyManagementPath.post.requestBody = { required: true, content: { 'application/json': { schema: { type: 'object', required: ['name'], additionalProperties: false, properties: { name: { type: 'string', minLength: 1, maxLength: 80 } } } } } }
+keyManagementPath.post.description = 'Requires Studio user authentication. Key allows model listing and Responses inference only for the explicitly selected models; valid until revoked. Only the hash is persisted. Limit: 50 keys per account. Cache-Control: no-store.'
+const modelApiKeySettings = { type: 'object', required: ['name', 'models'], additionalProperties: false, properties: {
+  budgetUsd: keyBudgetSchema,
+  name: { type: 'string', minLength: 1, maxLength: 80 }, models: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string' }, description: 'Currently accessible, callable provider-qualified model IDs. New models are not granted automatically.' },
+} }
+keyManagementPath.post.requestBody = { required: true, content: { 'application/json': { schema: modelApiKeySettings } } }
 keyManagementPath.post.responses = { '201': { description: 'Save the plaintext API key now; it is returned only once', content: { 'application/json': { schema: { type: 'object', properties: { key: keyMetadata, apiKey: { type: 'string' } } } } } }, '400': { description: 'Invalid key name or key limit reached' }, '401': { description: 'Studio login required' }, '403': { description: 'Profile access denied' } }
 const revokeKeyOperation = openapi.paths['/api/studio/models/api-keys/{id}'].delete
 revokeKeyOperation.summary = 'Revoke my Model API key'
 revokeKeyOperation.description = 'Requires Studio user authentication. Revokes only the caller’s key. Profile selection does not affect key ownership. New requests are rejected; already-running requests are not cancelled.'
 revokeKeyOperation.parameters = [...modelApiParameters, { name: 'id', in: 'path', required: true, schema: { type: 'string' } }]
 revokeKeyOperation.responses = { '200': { description: 'Key revoked' }, '401': { description: 'Studio login required' }, '403': { description: 'Profile access denied' }, '404': { description: 'No matching key owned by caller' } }
+const editKeyOperation = openapi.paths['/api/studio/models/api-keys/{id}'].patch
+editKeyOperation.summary = 'Edit my Model API key name, allowed models and USD budget'
+editKeyOperation.description = 'Requires Studio user authentication. Updates only the caller’s key. The secret, token hash and lifetime spending remain unchanged. budgetUsd sets a cumulative USD cap, null removes it and 0 pauses inference. Subsequent model listing and inference requests immediately use the saved model scope. Already-running requests are not cancelled.'
+editKeyOperation.parameters = revokeKeyOperation.parameters
+editKeyOperation.requestBody = { required: true, content: { 'application/json': { schema: modelApiKeySettings } } }
+editKeyOperation.responses = { '200': { description: 'Updated key metadata without plaintext or hash', content: { 'application/json': { schema: { type: 'object', properties: { key: keyMetadata } } } } }, '400': { description: 'Invalid name or model selection' }, '401': { description: 'Studio login required' }, '404': { description: 'No matching key owned by caller' } }
 const modelListOperation = openapi.paths['/api/ekko-studio/models/v1/models'].get
 modelListOperation.summary = 'List configured models with provider-qualified IDs'
 modelListOperation.parameters = modelApiParameters
-modelListOperation.description = 'Aggregates all accessible Profiles as provider/model and deduplicates IDs, preserving slashes inside native model IDs. Callable configurations win over disabled/unsupported duplicates, then default Profile, then Profile names in lexical order. Caller Profile selectors are ignored. Never returns credentials. MoA presets and self-referencing Model API providers using a locally issued Model API key are excluded from this catalog. responses_supported=false marks disabled models and providers requiring Bedrock or Codex app-server runtimes.'
+modelListOperation.description = 'Model API keys see only their explicitly allowed model IDs; Studio user JWTs see the full account catalog. Aggregates all accessible Profiles as provider/model and deduplicates IDs, preserving slashes inside native model IDs. Callable configurations win over disabled/unsupported duplicates, then default Profile, then Profile names in lexical order. Caller Profile selectors are ignored. Never returns credentials. MoA presets and self-referencing Model API providers using a locally issued Model API key are excluded from this catalog. responses_supported=false marks disabled models and providers requiring Bedrock or Codex app-server runtimes.'
 modelListOperation.responses = { ...modelApiErrors, '200': { description: 'OpenAI-compatible model list', content: { 'application/json': { schema: { type: 'object', properties: {
   object: { type: 'string', enum: ['list'] }, data: { type: 'array', items: { type: 'object', properties: {
     id: { type: 'string', example: 'glm/glm-5.3' }, object: { type: 'string', enum: ['model'] }, created: { type: 'integer' },
@@ -1711,7 +1755,7 @@ modelListOperation.responses = { ...modelApiErrors, '200': { description: 'OpenA
 const modelResponseOperation = openapi.paths['/api/ekko-studio/models/v1/responses'].post
 modelResponseOperation.summary = 'Request a configured model using OpenAI Responses format'
 modelResponseOperation.parameters = modelApiParameters
-modelResponseOperation.description = 'Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side from the same unified catalog as GET /models. No Profile selector is required. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.'
+modelResponseOperation.description = 'Model API keys enforce their saved lifetime USD budget against settled request costs. Exhausted keys and limited keys with unpriced requests return 429 before inference; already-running calls can exceed the cap. Costs follow the usage ledger pricing rules. Studio user JWTs are outside key budgets. Model API key requests must name an allowed model; ungranted IDs return 404 before any provider request. Stateless JSON or SSE inference through existing provider adapters. Supports text, base64 images on vision models, reasoning and function-tool continuations. Send full input history, including returned reasoning encrypted_content, unchanged. Protocol and credentials resolve server-side from the same unified catalog as GET /models. No Profile selector is required. Every attempted upstream request records external usage under the authenticated user. Does not execute tools or create chat sessions. See docs/model-api.md for supported features and limitations.'
 modelResponseOperation.requestBody = { required: true, content: { 'application/json': { schema: {
   type: 'object', required: ['model', 'input'], properties: {
     model: { type: 'string', example: 'glm/glm-5.3' },
