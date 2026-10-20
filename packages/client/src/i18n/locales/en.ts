@@ -3922,6 +3922,16 @@ export default {
 
   // Changelog
   changelog: {
+    new_0_7_38_1: "Added automatic API mode matching for known connections and models, including provider-prefixed model names; new connections still default to Chat Completions (#3469)",
+    new_0_7_38_2: "Added desktop switching between local and remote devices and device management, replacing the old LAN pairing entry (#3464)",
+    new_0_7_38_3: "Added cloud Model API access, per-key model restrictions and lifetime USD budgets; restored Agent usage breakdowns and fixed panel width (#3440, #3450)",
+    new_0_7_38_4: "Providers can now be imported through desktop and web links, with confirmation and completion of connection details before import (#3438)",
+    new_0_7_38_5: "Added optional JEV semantic element matching and result verification to Ekko Computer Use, with separate switches for each (#3463)",
+    new_0_7_38_6: "New built-in browser profiles now use the system proxy by default, reducing connection setup (#3455)",
+    new_0_7_38_7: "Fixed DSH ACP 0.2.1 turn persistence compatibility so sessions are saved correctly after replies finish (#3452)",
+    new_0_7_38_8: "Chat attachments now use the actual run Profile for authorization, fixing attachment permission errors after switching Profiles (#3439)",
+    new_0_7_38_9: "Improved TOS 7 installation, upgrades, removal and reverse-proxy access; added a privacy policy entry and updated vulnerable dependencies (#3466)",
+    new_0_7_38_10: "Added a M5Stack Cardputer-Adv LAN firmware development preview for text and short voice chats, available as a manual update for devices with a compatible partition layout (#3451)",
     new_0_7_37_1: "Added an account-wide Model API for calling available models through the OpenAI Responses API, managing dedicated keys and tracking external usage separately (#3433)",
     new_0_7_37_2: "Added native Computer Use to desktop Ekko for viewing and controlling local apps, with macOS permission guidance and reminders (#3411, #3427)",
     new_0_7_37_3: "Added message multi-selection for copying and deleting in chats and group chats, with protection for active tasks and group summaries and simpler action toolbars (#3422, #3423, #3425)",
@@ -3942,13 +3952,5 @@ export default {
     new_0_7_36_7: 'Fixed group-chat AI message theme synchronization and duplicate backgrounds and blur in message bubbles and tables (#3398)',
     new_0_7_36_8: 'Added release-triggered builds and validation for TOS 7 x86_64 test packages (#3397)',
     new_0_7_36_9: 'Improved GIF, animated WebP and APNG wallpapers up to 30 MB, preserving animation through saving, caching and theme import/export',
-    new_0_7_35_1: 'Added transitions from Agent cards to thinking avatars in chat, with improved visibility under reduced motion and matching theme backgrounds (#3378, #3386)',
-    new_0_7_35_2: 'Added Turkish interface support (#3338)',
-    new_0_7_35_3: 'Fixed chat usage cards remaining visible when Show Cost is disabled (#3381)',
-    new_0_7_35_4: 'Updated compatibility with the Edge TTS speech service endpoint (#3381)',
-    new_0_7_35_5: 'Improved cross-device synchronization of deleted and archived sessions and unread state (#3380)',
-    new_0_7_35_6: 'Fixed token usage reporting for Coding Agents using compatible model endpoints so automatic compaction can track context usage correctly (#3334)',
-    new_0_7_35_7: 'Anthropic-compatible requests now use model output limits to reduce premature truncation of long replies and tool calls (#3334)',
-    new_0_7_35_8: 'Fixed custom Anthropic URL handling in Ekko for root URLs, versioned paths, and complete message endpoints (#3384)',
   },
 }
