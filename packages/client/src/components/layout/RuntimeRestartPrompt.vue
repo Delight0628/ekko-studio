@@ -133,9 +133,9 @@ async function restartNow() {
   restarting.value = true
   try {
     const bridge = desktopBridge()
-    if (bridge?.isDesktop === true) {
+    if (bridge?.isDesktop === true && bridge.remoteMode !== true) {
       if (!bridge.restartApp) throw new Error('Desktop restart is unavailable')
-      await bridge.restartApp()
+      if (!await bridge.restartApp()) throw new Error('Desktop restart could not be scheduled')
     } else {
       await restartWebUiAfterRuntimeChange()
       restartStandaloneWebUi()

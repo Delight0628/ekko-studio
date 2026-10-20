@@ -1,3 +1,4 @@
+import { remoteDeviceMessages } from '../remote-device-messages'
 import { themePresetMessages } from '../theme-preset-locales'
 import { themeAppearanceMessages } from '../theme-appearance-locales'
 const writeApprovalMessages = {
@@ -29,6 +30,7 @@ const writeApprovalMessages = {
 }
 
 export default {
+  remoteDevices: remoteDeviceMessages["tr"],
   modelApi: {
     "refresh": "Yenile",
     "title": "Model API",

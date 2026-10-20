@@ -18,7 +18,23 @@ mode points every window at an already-running deployment instead — for
 example the [Docker Compose setup](../../docs/docker.md) — and skips all local
 server and runtime bootstrap work.
 
-Enable it through either source (the environment variable wins):
+In the desktop app, open **Device Connections → Remote devices**. Add a name
+and the HTTP or HTTPS address of another running Studio server. Saved devices
+are kept on this computer, including when connected to a remote server. Adding
+a device saves its connection without switching immediately.
+
+Use **Switch to device** to check its connection and restart all desktop windows
+on that server. Save your work before switching. If the connection check fails,
+the current device stays selected. Choose **This computer** to return to the
+local server. Switch away from a device before deleting its connection; deletion
+only removes the saved connection, preserving the server and its data.
+
+When a remote server is unavailable or its Web UI is too old to show this tab,
+use **Switch to this computer (restart)** in the system tray menu. The remote
+startup failure page also offers this action without requiring a login.
+
+The existing configuration sources remain supported (the environment variable
+wins on launch):
 
 1. `EKKO_STUDIO_DESKTOP_SERVER_URL` — one-off or automated launches:
 
@@ -33,11 +49,41 @@ Enable it through either source (the environment variable wins):
    { "serverUrl": "https://studio.example.com" }
    ```
 
-The URL must use `http://` or `https://`; query strings and hashes are
-dropped. On startup the app polls `<serverUrl>/health/ready` for up to 30
+The URL must use `http://` or `https://` at the root of a domain or port;
+query strings and hashes are dropped. Subpath deployments such as
+`https://example.com/studio` are rejected because API, Socket.IO and asset URLs
+currently target the origin root. Use a dedicated hostname or port for each
+Studio deployment. On startup the app polls `<serverUrl>/health/ready` for up to 30
 seconds (override with `EKKO_STUDIO_DESKTOP_REMOTE_READY_TIMEOUT_MS`) before
-loading the remote Web UI. Delete the settings file or clear `serverUrl` and
-relaunch to return to local mode; mode changes require an app restart.
+loading the remote Web UI. This route must return Studio's `{ "status": "ready" }`
+JSON without an authentication or canonical-URL redirect; configure the final
+server address directly. The device manager extends this same file with a
+`devices` list and keeps `serverUrl` as the selected server (or `null` for local
+mode). Existing single-URL settings and the active environment URL appear in
+the device list automatically. A switch from the UI clears the one-off
+environment override for its relaunch; a fresh launch with an explicit
+environment variable can still override the saved selection.
+
+Each remote server has its own persistent Electron session and embedded-browser
+profile directory under `desktop-remote-devices/<address-hash>/` in the Web UI
+home. The hash includes the normalized full server address, including scheme,
+port and base path. Cookies, login tokens, localStorage, IndexedDB, service
+workers, theme caches and embedded-browser tabs/site logins therefore stay with
+their device, including servers that share a hostname or origin. Main, chat and
+pet windows share only the current device's session. Switching back reuses that
+device's saved login and preferences.
+
+Existing local storage and local browser profiles keep their original locations.
+Remote logins from older versions that used the default session are not copied
+into the new device sessions: sign in once on each remote device after upgrading.
+Deleting a connection preserves its cached login and browser profile for reuse
+if the same address is added again. Desktop settings such as screenshot
+shortcuts and application updates remain shared on this computer.
+
+Storage regression checks: `npm run test -- tests/desktop/desktop-device-storage.test.ts tests/desktop/desktop-device-storage-electron.test.ts`. The second test runs real
+Chromium twice when the macOS Electron development binary is installed; it checks
+same-origin paths, same-host ports, HTTP cache, login storage, cookies, IndexedDB,
+CacheStorage, service workers and embedded-browser profile restoration.
 
 Log in with the deployment's own accounts. The desktop shared token is never
 injected into a remote page, and the tray's "Reset Login" action is disabled
@@ -47,11 +93,23 @@ Behavior differences in remote mode:
 
 - Chat, coding agents, files, and workflows execute on the server; local
   Runtime downloads and managed command shims are skipped.
+- Runtime restarts target the connected server. Local Runtime directory picking
+  and legacy Windows data migration prompts are unavailable in remote mode.
+  The native bridge also withholds local service restart and Runtime directory
+  APIs from older remote pages. Update the remote Web UI to use the corrected
+  server restart flow; desktop updates and explicit device switching still
+  restart this computer's desktop app through their own operations.
 - Server-side password policies apply unchanged; the desktop patch that hides
   the "change the default password" prompt is local-mode only.
 - Desktop integrations (embedded browser, screenshots, update controls) remain
   available to pages loaded from the remote origin. Only connect to servers
   you control.
+- The embedded browser and screenshot capture run on this computer. The browser
+  Agent broker is a local loopback service; a remote Agent cannot control the
+  client's embedded browser without an additional bridge. File uploads transfer
+  client files to the server before server-side tools use them.
+- Browser microphone capture needs a secure context. Use HTTPS for remote hosts
+  other than loopback addresses, including deployments on a local network.
 - The server has no built-in TLS, so put public deployments behind an HTTPS
   reverse proxy; login tokens are bearer credentials sent on every request.
 

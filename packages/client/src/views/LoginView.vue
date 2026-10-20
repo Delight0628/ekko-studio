@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { setApiKey, clearApiKey, hasApiKey } from "@/api/client";
 import { fetchAuthStatus, loginWithPassword } from "@/api/studio/auth";
-import { isDesktopShell } from "@/utils/desktop-bridge";
+import { desktopBridge, isDesktopShell } from "@/utils/desktop-bridge";
 import { resolveLoginRedirect } from "@/utils/login-redirect";
 import { useTheme } from "@/composables/useTheme";
 
@@ -18,7 +18,7 @@ const password = ref("");
 const loading = ref(false);
 const errorMsg = ref("");
 const showLockResetHint = ref(false);
-const desktopShell = isDesktopShell();
+const desktopShell = isDesktopShell() && desktopBridge()?.remoteMode !== true;
 
 if (desktopShell) {
   // Desktop login is a recovery path. Drop stale JWTs before any background

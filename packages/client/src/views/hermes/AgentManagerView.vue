@@ -383,7 +383,7 @@ async function submitLegacyDataMigrationDecision(action: 'migrate' | 'decline'):
 
 async function maybePromptLegacyWindowsDataMigration() {
   const bridge = desktopBridge()
-  if (legacyDataMigrationChecked.value || bridge?.isDesktop !== true || bridge.platform !== 'win32') return
+  if (legacyDataMigrationChecked.value || bridge?.isDesktop !== true || bridge.remoteMode === true || bridge.platform !== 'win32') return
   legacyDataMigrationChecked.value = true
 
   try {
