@@ -64,6 +64,15 @@ the device list automatically. A switch from the UI clears the one-off
 environment override for its relaunch; a fresh launch with an explicit
 environment variable can still override the saved selection.
 
+A desktop-owned device button stays in the main window's upper-right corner on
+macOS, and immediately before the window controls on Windows/Linux, with 8px
+spacing. It opens a native device menu and a local management window for adding,
+deleting and switching servers. Both are shipped with Desktop and remain usable
+when an older remote UI lacks device management, the server is offline, or the
+remote renderer crashes. The desktop reserves header space in older pages too.
+The toolbar and manager use isolated local documents and a restricted preload;
+remote pages, unrelated windows and child frames cannot invoke their IPC.
+
 Each remote server has its own persistent Electron session and embedded-browser
 profile directory under `desktop-remote-devices/<address-hash>/` in the Web UI
 home. The hash includes the normalized full server address, including scheme,

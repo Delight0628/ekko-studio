@@ -42,6 +42,7 @@ import { groupChatAgentLinkPopupResponse } from './group-chat-agent-popup'
 import { isTrustedDesktopAppUrl, normalizeExternalHttpUrl } from './window-open-policy'
 import { desktopPreloadArguments, remoteReadyTimeoutMs, resolveRemoteServerUrl, waitForRemoteServerReady } from './remote-server'
 import { DesktopRemoteDevices } from './remote-devices'
+import { NativeDeviceSwitcher } from './native-device-switcher'
 import { registerRemoteDevicesIpc } from './remote-devices-ipc'
 import { desktopDeviceStoragePaths, desktopWindowSession } from './desktop-device-storage'
 import {
@@ -92,6 +93,7 @@ let pendingProviderImport: string | null = null
 // window's preload; bootstrap() re-resolves it on every (re)start attempt.
 let activeRemoteServerUrl: string | null = resolveRemoteServerUrl()
 let remoteDevices: DesktopRemoteDevices | null = null
+let nativeDeviceSwitcher: NativeDeviceSwitcher | null = null
 let serviceFailurePageUrl: string | null = null
 let tray: Tray | null = null
 let appShutdownPromise: Promise<void> | null = null
@@ -607,6 +609,8 @@ async function createWindow(): Promise<void> {
     },
   })
 
+  nativeDeviceSwitcher = new NativeDeviceSwitcher(mainWindow, desktopRemoteDevices)
+
   mainWindow.once('ready-to-show', () => {
     if (!START_HIDDEN) showWindowWithFade(true)
   })
@@ -768,6 +772,7 @@ async function initializeDesktopBrowser(): Promise<void> {
   try {
     await manager.initialize()
     manager.onStateChange(state => {
+      nativeDeviceSwitcher?.raise()
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(BROWSER_STATE_CHANGE_CHANNEL, state)
     })
     await broker.start()
@@ -1185,6 +1190,7 @@ registerRemoteDevicesIpc(desktopRemoteDevices, () => ({
   mainContents: mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null,
   serverUrl,
   recoveryUrl: serviceFailurePageUrl,
+  onChanged: () => nativeDeviceSwitcher?.refresh(),
 }))
 ipcMain.handle('hermes-desktop:open-chat-window', (event, sessionId?: unknown, profile?: unknown) => {
   if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {

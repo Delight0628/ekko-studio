@@ -657,7 +657,7 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
   },
 }
 
-function resolveLocale(): DesktopLocale {
+export function desktopLocale(): DesktopLocale {
   const tag = app.getLocale()
   const lower = tag.toLowerCase()
   if (lower.startsWith('zh')) {
@@ -671,7 +671,7 @@ function resolveLocale(): DesktopLocale {
 }
 
 export function t(key: TranslationKey, params: Record<string, string> = {}): string {
-  const message = translations[resolveLocale()][key] || translations.en[key]
+  const message = translations[desktopLocale()][key] || translations.en[key]
   return Object.entries(params).reduce(
     (value, [name, replacement]) => value.replaceAll(`{${name}}`, replacement),
     message,

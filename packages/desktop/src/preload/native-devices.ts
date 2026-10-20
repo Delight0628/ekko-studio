@@ -1,0 +1,15 @@
+import { contextBridge, ipcRenderer } from 'electron'
+
+// Exposed only in the desktop-owned toolbar and management window.
+contextBridge.exposeInMainWorld('studioDevices', {
+  state: () => ipcRenderer.invoke('studio-native-devices:state'),
+  menu: () => ipcRenderer.invoke('studio-native-devices:menu'),
+  add: (input: unknown) => ipcRenderer.invoke('studio-native-devices:add', input),
+  remove: (id: unknown) => ipcRenderer.invoke('studio-native-devices:remove', id),
+  switchTo: (id: unknown) => ipcRenderer.invoke('studio-native-devices:switch', id),
+  onChange: (callback: () => void) => {
+    const listener = () => callback()
+    ipcRenderer.on('studio-native-devices:changed', listener)
+    return () => ipcRenderer.removeListener('studio-native-devices:changed', listener)
+  },
+})

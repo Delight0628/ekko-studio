@@ -6,6 +6,7 @@ interface RemoteDeviceContext {
   mainContents: WebContents | null
   serverUrl: string | null
   recoveryUrl: string | null
+  onChanged?: () => void
 }
 
 export function registerRemoteDevicesIpc(
@@ -27,11 +28,15 @@ export function registerRemoteDevicesIpc(
   })
   ipcMain.handle('hermes-desktop:remote-devices-add', (event, input: unknown) => {
     authorize(event)
-    return devices().add(input)
+    const state = devices().add(input)
+    context().onChanged?.()
+    return state
   })
   ipcMain.handle('hermes-desktop:remote-devices-remove', (event, id: unknown) => {
     authorize(event)
-    return devices().remove(id)
+    const state = devices().remove(id)
+    context().onChanged?.()
+    return state
   })
   ipcMain.handle('hermes-desktop:remote-devices-switch', (event, id: unknown) => {
     authorize(event)
