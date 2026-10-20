@@ -601,7 +601,7 @@ useKeyboard();
       min-height: 0;
       margin: 0;
       padding: 0 calc(16px * var(--spacing-scale, 1));
-      padding-right: var(--studio-header-controls-gap, calc(16px * var(--spacing-scale, 1)));
+      padding-right: var(--studio-header-controls-gap, calc(16px * var(--spacing-scale, 1))); // rtl-physical: the native device and window controls stay on the physical right in every locale.
       border: 0;
       background: transparent;
       overflow-x: auto;
