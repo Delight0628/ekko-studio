@@ -551,7 +551,6 @@ useKeyboard();
 }
 
 .app-shell--navigation-rail {
-  --studio-header-height: 40px;
   --studio-header-inset: #{$navigation-rail-width};
   --studio-content-gutter: 5px;
   --studio-content-radius: #{$radius-lg};
