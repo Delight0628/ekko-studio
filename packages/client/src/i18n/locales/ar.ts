@@ -2474,6 +2474,7 @@ export default {
     provider: 'المزوّد',
     contextLength: 'طول السياق',
     contextLengthPlaceholder: 'مثال: 256000 (اختياري)',
+    apiModeAuto: 'تلقائي (حسب النموذج)',
     apiMode: 'وضع API',
     local: 'محلي ({host})',
     selectProviderRequired: 'يُرجى اختيار مزوّد',

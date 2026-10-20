@@ -1934,6 +1934,7 @@ export default {
     provider: 'プロバイダー',
     contextLength: 'コンテキスト長',
     contextLengthPlaceholder: '例: 256000（任意）',
+    apiModeAuto: '自動（モデルに合わせる）',
     apiMode: 'API モード',
     local: 'ローカル ({host})',
     selectProviderRequired: 'プロバイダーを選択してください',

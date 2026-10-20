@@ -2256,6 +2256,7 @@ export default {
     provider: 'Провайдер',
     contextLength: 'Длина контекста',
     contextLengthPlaceholder: 'Например, 200000 (необязательно)',
+    apiModeAuto: 'Автоматически (по модели)',
     apiMode: 'Режим API',
     local: 'Локальный ({host})',
     selectProviderRequired: 'Выберите провайдера',

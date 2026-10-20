@@ -2435,6 +2435,7 @@ export default {
     provider: 'Provider',
     contextLength: 'Context Length',
     contextLengthPlaceholder: 'e.g. 256000 (optional)',
+    apiModeAuto: 'Auto (match model)',
     apiMode: 'API Mode',
     local: 'Local ({host})',
     selectProviderRequired: 'Please select a provider',

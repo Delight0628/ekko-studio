@@ -739,6 +739,13 @@ function schemaFromType(type) {
   if (/SessionProviderApiMode|CodingAgentApiMode/.test(normalized)) {
     return { ...schema, type: 'string', enum: ['chat_completions', 'codex_responses', 'anthropic_messages'] }
   }
+  if (/\bProviderApiMode\b/.test(normalized)) {
+    return {
+      ...schema, type: 'string',
+      enum: ['chat_completions', 'codex_responses', 'anthropic_messages', 'bedrock_converse', 'codex_app_server', ...(schema.nullable ? [null] : [])],
+      ...(schema.nullable ? { description: 'Null clears the custom connection protocol override for automatic matching; no api_mode is written to configuration.' } : {}),
+    }
+  }
   if (/string\[\]|Array<string>/.test(normalized)) {
     return { ...schema, type: 'array', items: { type: 'string' } }
   }

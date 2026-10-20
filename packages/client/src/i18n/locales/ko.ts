@@ -1934,6 +1934,7 @@ export default {
     provider: '공급자',
     contextLength: '컨텍스트 길이',
     contextLengthPlaceholder: '예: 256000 (선택사항)',
+    apiModeAuto: '자동 (모델에 맞춤)',
     apiMode: 'API 모드',
     local: '로컬 ({host})',
     selectProviderRequired: 'Provider를 선택해 주세요',
