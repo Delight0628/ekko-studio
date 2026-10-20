@@ -44,7 +44,7 @@ const formData = ref({
   api_key: '',
   model: '',
   context_length: null as number | null,
-  api_mode: 'auto' as ProviderApiMode | 'auto',
+  api_mode: 'chat_completions' as ProviderApiMode | 'auto',
 })
 
 const providerNameInputProps = {
@@ -77,12 +77,12 @@ const providerModelInputProps = {
 
 const modelOptions = ref<Array<{ label: string; value: string }>>([])
 const apiModeOptions = computed(() => [
-  { label: t('models.apiModeAuto'), value: 'auto' },
   { label: 'chat_completions (/chat/completions)', value: 'chat_completions' },
   { label: 'codex_responses (/responses)', value: 'codex_responses' },
   { label: 'anthropic_messages (/messages)', value: 'anthropic_messages' },
   { label: 'bedrock_converse (Converse API)', value: 'bedrock_converse' },
   { label: 'codex_app_server (App Server)', value: 'codex_app_server' },
+  { label: t('models.apiModeAuto'), value: 'auto' },
 ])
 
 const CODEX_KEY = 'openai-codex'
@@ -185,7 +185,7 @@ watch(selectedPreset, (val) => {
     if (group) {
       formData.value.name = group.label
       formData.value.base_url = group.base_url
-      formData.value.api_mode = group.api_mode || 'auto'
+      formData.value.api_mode = group.api_mode || 'chat_completions'
       modelOptions.value = group.models.map((m: string) => ({ label: m, value: m }))
       if (group.models.length > 0) {
         formData.value.model = group.models[0]
@@ -237,7 +237,7 @@ watch(() => formData.value.model, (model) => {
 
 watch(providerType, () => {
   modelOptions.value = []
-  formData.value = { name: '', base_url: '', api_key: '', model: '', context_length: null, api_mode: 'auto' }
+  formData.value = { name: '', base_url: '', api_key: '', model: '', context_length: null, api_mode: 'chat_completions' }
   selectedPreset.value = null
 })
 

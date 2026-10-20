@@ -75,12 +75,12 @@ const providerCredentialInputProps = {
 }
 
 const API_MODE_OPTIONS = computed(() => [
-  { label: t('models.apiModeAuto'), value: 'auto' },
   { label: 'Chat Completions', value: 'chat_completions' },
   { label: 'Codex Responses', value: 'codex_responses' },
   { label: 'Anthropic Messages', value: 'anthropic_messages' },
   { label: 'Bedrock Converse', value: 'bedrock_converse' },
   { label: 'Codex App Server', value: 'codex_app_server' },
+  { label: t('models.apiModeAuto'), value: 'auto' },
 ])
 
 const knownModelIds = computed(() => new Set(

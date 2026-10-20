@@ -24,8 +24,8 @@ const modelOptions = ref(props.draft.model ? [{ label: props.draft.model, value:
 const fetching = ref(false)
 let requestId = 0
 const modes = computed(() => [
-  { label: t('models.apiModeAuto'), value: 'auto' },
   ...['chat_completions', 'codex_responses', 'anthropic_messages'].map(value => ({ label: value, value })),
+  { label: t('models.apiModeAuto'), value: 'auto' },
 ])
 const apiKey = ref(props.draft.apiKey || '')
 const saving = ref(false)
