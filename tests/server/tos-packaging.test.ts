@@ -199,7 +199,7 @@ describe.runIf(process.platform === 'linux' && process.arch === 'x64')('TOS Debi
     put(source, 'package.json', JSON.stringify({ name: 'ekko-studio', version: '99.0.0' }))
     put(source, 'bin/hermes-web-ui.mjs', '/* CLI fixture */')
     put(source, 'bin/ekko-studio-mcp.mjs', '/* MCP entry fixture */')
-    put(source, 'dist/client/index.html', '<html>Ekko Studio fixture</html>')
+    put(source, 'dist/client/index.html', '<html><script src="/com.hermeswebui.studio/assets/fixture.js"></script>Ekko Studio fixture</html>')
     put(source, 'dist/server/index.js', `
       const server = require('node:http').createServer((_req, res) => res.end(JSON.stringify({
         ok: true, major: Number(process.versions.node.split('.')[0]), uid: process.getuid(),
@@ -248,8 +248,10 @@ describe.runIf(process.platform === 'linux' && process.arch === 'x64')('TOS Debi
     expect(service).toContain('Environment=HERMES_LAN_DISCOVERY_ENABLED=0')
     expect(service).not.toMatch(/^\s*Restart(?:Sec)?\s*=/m)
     const nginx = readFileSync(join(app, 'nginx/com.hermeswebui.studio.conf'), 'utf8')
-    expect(nginx).toContain(`location = ${config.path} {`)
-    expect(nginx).toContain(`return 302 http://$host:${config.port}/;`)
+    expect(nginx).toContain(`location ${config.path} {`)
+    expect(nginx).not.toContain('http://$host:')
+    expect(nginx).toContain(`proxy_pass http://127.0.0.1:${config.port}/;`)
+    expect(service).toContain('BIND_HOST=127.0.0.1')
     for (const key of ['HERMES_WEB_UI_MCP_BIN', 'HERMES_AGENT_NODE']) {
       const configured = service.split('\n').find(line => line.startsWith(`Environment=${key}=`))!.split('=').slice(2).join('=')
       const installed = join(unpacked, configured)

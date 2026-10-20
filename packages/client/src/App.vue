@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { deploymentUrl } from '@/utils/deployment-url'
 import {
   computed,
   defineAsyncComponent,
@@ -386,7 +387,7 @@ useKeyboard();
                   @click="handleMobileMenuClick"
                 >
                   <img
-                    src="/logo.png"
+                    :src="deploymentUrl('/logo.png')"
                     alt="Menu"
                     style="width: 24px; height: 24px"
                   />

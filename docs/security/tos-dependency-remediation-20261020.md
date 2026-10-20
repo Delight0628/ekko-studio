@@ -47,8 +47,8 @@ and map them to final versions. npm package metadata is not native provenance.
 
 ## Release gates still open
 
-- S4: the current direct HTTP portal remains; authenticated prefix proxy support
-  needs comprehensive API, uploads, assets and WebSocket validation.
+- S4: loopback-only HTTP and prefix proxy support are implemented. Actual TOS
+  platform access control, uploads and WebSocket acceptance remain required.
 - V6: binary source/build/license provenance and separate security review.
 - Verify the policy's public URL after merge and approve operator contact/regions.
 - Real TNAS install/upgrade/uninstall acceptance: no authorized test TNAS is

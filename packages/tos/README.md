@@ -93,6 +93,7 @@ Ubuntu 22.04 (TOS 7's glibc 2.35 baseline). Provide a production-only Web UI
 directory containing `package.json`, `bin/`, `dist/` and `node_modules/`:
 
 ```bash
+STUDIO_BASE_PATH=/com.hermeswebui.studio/ npm run build
 npm run pack:tos -- --webui-dir /absolute/path/to/staged/webui --output /absolute/path/to/output
 npm run verify:tos -- /absolute/path/to/output/com.hermeswebui.studio_0.7.35_x86_64.deb
 ```
@@ -151,14 +152,16 @@ before creating writable directories or starting the service. It reuses existing
 identities on reconfiguration/upgrades, preserving UID/GID and data ownership.
 New accounts have the application data home and a non-login shell. Account creation
 failures stop installation; UID/GID 0 is rejected. The unit
-is registered with systemd from the application directory. The Web UI listens
-on `0.0.0.0:8648` (remaining S4 remediation; restrict this port to trusted networks). `config.ini` declares the portal route
-`/com.hermeswebui.studio/` and the separate numeric `port: 8648`.
-The packaged nginx entry redirects that route (with or without its trailing
-slash) to `http://<NAS-host>:8648/` in the new browser tab. Studio's assets,
-API and Socket.IO use root-relative URLs and must remain on that dedicated
-origin rather than the shared TOS origin. Access to port 8648 is still required;
-this entry does not provide HTTPS or remote access through the TOS proxy alone.
+is registered with systemd from the application directory. The Web UI listens only on `127.0.0.1:8648`. `config.ini` declares the portal
+route `/com.hermeswebui.studio/` and separate numeric service port. The packaged
+nginx location proxies this namespace to the loopback service, including API and
+WebSocket upgrades; it never redirects users to a publicly reachable port.
+Build the frontend with `STUDIO_BASE_PATH=/com.hermeswebui.studio/` so assets,
+API requests, downloads, terminal WebSockets and Socket.IO transport paths stay
+inside the portal namespace. Root and Desktop builds keep their existing URLs.
+Platform session/access enforcement and actual TOS nginx integration still need
+TNAS acceptance; this change does not claim the platform identity replaces the
+application's own login.
 The service unit does not configure automatic restart; App Center controls
 start, stop and restart.
 It uses Studio's own login; configure your login and model provider before use.
@@ -214,8 +217,8 @@ Read [the privacy notice](../../PRIVACY.md) and
 [the review remediation checklist](REVIEW-REMEDIATION.md). Both are bundled in the
 package. `BINARY-INVENTORY.json` lists actual ELF paths and SHA-256 values with
 available package metadata; provenance still requires human/security review.
-LAN discovery is disabled for this TOS target. The direct HTTP service remains;
-S4 is not fully resolved until a compatible authenticated portal proxy is tested.
+LAN discovery is disabled for this TOS target. The service is loopback-only;
+S4 platform integration and access-control behavior require real TNAS acceptance.
 
 ## Required TNAS acceptance
 

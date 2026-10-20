@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { deploymentUrl } from '@/utils/deployment-url'
+
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NButton, NCard, NModal, useMessage } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
@@ -111,7 +113,7 @@ function restartStandaloneWebUi() {
   restartWaitTimer = setInterval(async () => {
     attempts += 1
     try {
-      const response = await fetch('/health', { cache: 'no-store' })
+      const response = await fetch(deploymentUrl('/health'), { cache: 'no-store' })
       if (response.ok && (sawUnavailable || attempts >= 15)) {
         if (restartWaitTimer) clearInterval(restartWaitTimer)
         restartWaitTimer = null

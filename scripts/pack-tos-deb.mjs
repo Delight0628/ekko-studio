@@ -209,7 +209,7 @@ export function verifyTosDeb(deb) {
       throw new Error('S05: TOS service restart must be controlled by App Center')
     }
     if (!service.includes(`User=${config.user}\n`) || !service.includes('NoNewPrivileges=true\n')
-      || !service.includes('ProtectSystem=strict\n') || !service.includes('BIND_HOST=0.0.0.0\n')) {
+      || !service.includes('ProtectSystem=strict\n') || !service.includes('BIND_HOST=127.0.0.1\n')) {
       throw new Error('Invalid TOS service configuration')
     }
     if (!service.includes(`HERMES_WEB_UI_MCP_BIN=/usr/local/${config.id}/depends/webui/bin/ekko-studio-mcp.mjs\n`)
@@ -284,6 +284,9 @@ export function packTosDeb({ webuiDir, nodeRoot = dirname(dirname(process.execPa
       application_type: 'deb', official: 'https://ekkostudio.xyz',
       help: 'https://github.com/EKKOLearnAI/ekko-studio/blob/main/PRIVACY.md', depend: [], relation: [],
       all_user_display: false, allow_open_in_mobile: true,
+    }
+    if (!readFileSync(join(webuiDir, 'dist/client/index.html'), 'utf8').includes(`/${settings.id}/assets/`)) {
+      throw new Error('TOS frontend must be built with STUDIO_BASE_PATH=/' + settings.id + '/')
     }
     put('config.ini', JSON.stringify(config, null, 2) + '\n')
     put(`${settings.id}.lang`, languageFile(settings.publisher))
