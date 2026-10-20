@@ -26,6 +26,15 @@ function submit(url: string, data: unknown, headers: Record<string, string> = {}
 }
 
 describe('cookie import normalization', () => {
+  it('preserves host-only and domain cookies with the same hostname, name and path', () => {
+    const domain = { ...sample, domain: '.example.com', hostOnly: false }
+    const host = { ...sample, domain: 'example.com', hostOnly: true }
+    const cookies = normalizeImportCookies([domain, host])
+    expect(cookies).toHaveLength(2)
+    expect(cookies[0].domain).toBe('.example.com')
+    expect(cookies[1].domain).toBeUndefined()
+    expect(() => normalizeImportCookies([domain, domain])).toThrow('Duplicate cookie')
+  })
   it('maps expiration, host-only and SameSite without leaking transport fields', () => {
     const expires = Math.floor(Date.now() / 1000) + 1000
     expect(normalizeImportCookies([{ ...sample, expires }])).toEqual([{
@@ -50,6 +59,35 @@ describe('cookie import normalization', () => {
 })
 
 describe('loopback cookie import receiver', () => {
+  it('releases a rejected automatic import session so the extension can reconnect', async () => {
+    const receiver = new BrowserCookieImport()
+    receivers.push(receiver)
+    const status = await receiver.start('profile-a', origin)
+    const response = await submit(status.managerUrl, { token: status.token, cookies: [sample, sample] })
+    expect(response.code).toBe(400)
+    await vi.waitFor(() => expect(receiver.getStatus()).toBeNull(), { timeout: 500 })
+    const next = await receiver.start('profile-a', origin)
+    expect(next.token).not.toBe(status.token)
+  })
+  it('reports the validation category without returning cookie values', async () => {
+    const { receiver, status } = await setup()
+    const response = await submit(status.managerUrl, {
+      token: status.token, cookies: [sample, sample],
+    })
+    expect(response).toEqual({ code: 400, body: { detail: 'Duplicate cookie' } })
+    expect(JSON.stringify(response)).not.toContain(sample.value)
+    expect(receiver.getStatus()?.phase).toBe('waiting')
+  })
+
+  it('separates apply failures and never returns raw callback errors', async () => {
+    const receiver = new BrowserCookieImport(async () => { throw new Error('private-cookie-value') })
+    receivers.push(receiver)
+    const status = await receiver.start('profile-a')
+    const response = await submit(status.managerUrl, { token: status.token, cookies: [sample] })
+    expect(response).toEqual({ code: 500, body: { detail: 'Cookie import failed while applying or saving cookies' } })
+    expect(JSON.stringify(response)).not.toContain('private-cookie-value')
+  })
+
   it('stages once, exposes only metadata and requires a separate take to write', async () => {
     const { receiver, status } = await setup()
     expect(new URL(status.managerUrl).hostname).toBe('127.0.0.1')

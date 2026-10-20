@@ -5,6 +5,12 @@ import type { CookiesSetDetails } from 'electron'
 const TTL_MS = 5 * 60_000
 const MAX_BYTES = 1024 * 1024
 const MAX_COOKIES = 1000
+const VALIDATION_ERRORS = new Set([
+  'Invalid cookie count', 'Invalid cookie', 'Invalid cookie domain',
+  'Partitioned cookies are not supported', 'Invalid cookie path',
+  'Invalid SameSite', 'SameSite=None requires Secure', 'Invalid or expired cookie',
+  'Invalid secure cookie prefix', 'Invalid host cookie prefix', 'Duplicate cookie',
+])
 
 export interface CookieImportStatus {
   profileId: string
@@ -46,7 +52,7 @@ export function normalizeImportCookies(input: unknown): CookiesSetDetails[] {
     if (cookie.name.startsWith('__Host-') && (!secure || !hostOnly || path !== '/')) throw new Error('Invalid host cookie prefix')
     const url = new URL(`${secure ? 'https' : 'http'}://${hostname}`)
     url.pathname = path
-    const key = JSON.stringify([hostname, path, cookie.name])
+    const key = JSON.stringify([hostname, hostOnly, path, cookie.name])
     if (keys.has(key)) throw new Error('Duplicate cookie')
     keys.add(key)
     return {
@@ -106,6 +112,7 @@ export class BrowserCookieImport {
       req.on('error', () => { chunks.length = 0 })
       req.on('end', async () => {
         if (res.writableEnded) return
+        let applying = false
         try {
           const input = JSON.parse(Buffer.concat(chunks).toString('utf8'))
           const current = this.getStatus()
@@ -121,14 +128,24 @@ export class BrowserCookieImport {
           current.domains = [...new Set(cookies.map(cookie => new URL(cookie.url).hostname))].sort()
           current.cookieCount = cookies.length
           this.status = current
+          applying = true
           const result = await this.onPending?.()
           if (result) {
             reply(200, { cookie_count: result.imported, failed: result.failed, status: 'imported' })
             setImmediate(() => { void this.cancel() })
           } else reply(202, { cookie_count: cookies.length, status: 'pending_confirmation' })
-        } catch {
-          reply(400, { detail: 'Cookie import failed or payload invalid (maximum 1000 cookies; partitioned cookies unsupported)' })
-          if (this.status?.phase !== 'waiting') setImmediate(() => { void this.cancel() })
+        } catch (error) {
+          // Only expose fixed messages from our own validator, never raw Electron
+          // or filesystem errors, which may contain cookie values.
+          const message = error instanceof Error ? error.message : ''
+          const reason = applying ? 'Cookie import failed while applying or saving cookies'
+            : error instanceof SyntaxError ? 'Invalid JSON payload'
+              : VALIDATION_ERRORS.has(message) ? message : 'Invalid cookie payload'
+          console.warn(`[desktop-browser] Cookie import ${applying ? 'apply' : 'validation'} failed: ${reason}`)
+          reply(applying ? 500 : 400, { detail: reason })
+          // Automatic imports reconnect with a fresh capability on each click.
+          // Keep manual codes reusable, but release rejected automatic sessions.
+          if (allowedOrigin !== undefined || this.status?.phase !== 'waiting') setImmediate(() => { void this.cancel() })
         } finally { chunks.length = 0 }
       })
     })
