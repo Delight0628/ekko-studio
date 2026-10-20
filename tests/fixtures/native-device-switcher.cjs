@@ -72,6 +72,14 @@ let controller, server
   assert.equal(restarts, 0)
   assert.equal(devices.state().activeServerUrl, remote)
   confirm = false
+  await management.webContents.executeJavaScript(`document.querySelector('[data-device-id="${office.id}"]').querySelectorAll('button')[1].click()`)
+  await until(() => management.webContents.executeJavaScript("!document.getElementById('name').disabled"))
+  assert.equal(devices.state().devices.length, 2)
+  confirm = true
+  await management.webContents.executeJavaScript(`document.querySelector('[data-device-id="${office.id}"]').querySelectorAll('button')[1].click()`)
+  await until(() => Promise.resolve(devices.state().devices.length === 1))
+  await until(() => management.webContents.executeJavaScript("document.querySelectorAll('#devices .device').length === 2"))
+  confirm = false
   await management.webContents.executeJavaScript('window.studioDevices.switchTo(null)')
   assert.equal(restarts, 0)
   management.destroy()
