@@ -17,6 +17,8 @@ on:
     paths:
       - ".github/workflows/tos-package-test.yml"
       - "packages/tos/**"
+      - "PRIVACY.md"
+      - "tests/server/tos-lifecycle.test.ts"
       - "scripts/pack-tos-deb.mjs"
       - "scripts/test-tos-platform.mjs"
       - "scripts/test-tos-install.sh"

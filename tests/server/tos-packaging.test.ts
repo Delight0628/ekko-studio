@@ -58,6 +58,7 @@ describe('standalone TOS test workflow', () => {
     }
     expect(workflow.on.pull_request.paths).toEqual([
       '.github/workflows/tos-package-test.yml', 'packages/tos/**',
+      'PRIVACY.md', 'tests/server/tos-lifecycle.test.ts',
       'scripts/pack-tos-deb.mjs', 'scripts/test-tos-platform.mjs',
       'scripts/test-tos-install.sh',
       'tests/server/tos-packaging.test.ts', 'tests/server/tos-platform.test.ts',
@@ -215,7 +216,7 @@ describe.runIf(process.platform === 'linux' && process.arch === 'x64')('TOS Debi
     const output = join(root, 'output')
     const result = packTosDeb({ webuiDir: source, outputDir: output })
     const deb = join(output, result.filename)
-    expect(result).toMatchObject({ id: 'com.hermeswebui.studio', version: '99.0.0', beta: true, tosDeviceTested: false })
+    expect(result).toMatchObject({ id: 'com.hermeswebui.studio', version: '99.0.0', beta: false, tosDeviceTested: false })
     expect(result.filename).toBe('com.hermeswebui.studio_99.0.0_x86_64.deb')
     expect(result.elfFilesChecked).toBeGreaterThan(0)
     expect(result.md5FilesChecked).toBeGreaterThan(0)
@@ -235,7 +236,16 @@ describe.runIf(process.platform === 'linux' && process.arch === 'x64')('TOS Debi
     expect(config).toMatchObject({ open_path: true, path: '/com.hermeswebui.studio/', port: 8648, application_type: 'deb', platform: 'x86_64' })
     expect(config.type).toBeUndefined()
     expect(config.user).not.toBe('root')
+    expect(config.beta).toBe(false)
+    expect(config.help).toContain('/blob/main/PRIVACY.md')
+    expect(readFileSync(join(app, 'PRIVACY.md'), 'utf8')).toContain('Retention and deletion')
+    const inventory = JSON.parse(readFileSync(join(app, 'BINARY-INVENTORY.json'), 'utf8'))
+    expect(inventory).toEqual(expect.arrayContaining([expect.objectContaining({
+      path: 'depends/bin/node', package: 'node', provenanceVerified: false,
+      sha256: createHash('sha256').update(readFileSync(join(app, 'depends/bin/node'))).digest('hex'),
+    })]))
     const service = readFileSync(join(app, 'init.d/ekko-studio-tos.service'), 'utf8')
+    expect(service).toContain('Environment=HERMES_LAN_DISCOVERY_ENABLED=0')
     expect(service).not.toMatch(/^\s*Restart(?:Sec)?\s*=/m)
     const nginx = readFileSync(join(app, 'nginx/com.hermeswebui.studio.conf'), 'utf8')
     expect(nginx).toContain(`location = ${config.path} {`)

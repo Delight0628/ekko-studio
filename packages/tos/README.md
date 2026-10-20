@@ -2,7 +2,7 @@
 
 This is a separate, headless **Deb / external Web UI** target. It does not use
 Electron or the Linux desktop Deb. The first target is **x86_64 / amd64**.
-Packages are marked `beta: true` until their lifecycle and data retention are verified on a TNAS.
+Packages use `beta: false` and numeric stable versions. This metadata is not evidence of TNAS acceptance.
 Generating or uploading a package is not App Center approval.
 
 ## Independent packaging workflow
@@ -23,8 +23,7 @@ source on Ubuntu 22.04, prunes development dependencies, verifies Sharp and
 packages the staged production Web UI.
 Before uploading artifacts, it installs the actual Deb in a disposable Ubuntu
 22.04 container without a pre-existing application account or working host venv.
-The check covers non-root HTTP startup, reconfiguration, reinstall and data
-retention. Service-manager calls are recorded because the container has no
+The check covers non-root HTTP startup, reconfiguration, upgrade retention and uninstall cleanup. Service-manager calls are recorded because the container has no
 systemd PID 1; TNAS App Center/systemd behavior still needs device acceptance.
 
 Download **tos7-x86_64-test** from the run's **Artifacts** section; artifacts
@@ -52,7 +51,7 @@ upload/validation and use `github.event.release.tag_name`. For manual runs, use
 (for example `v0.7.35`). Uploads require that tag; the same `0.7.35` / `v0.7.35`
 convention used by normal npm releases is accepted. A separate job:
 
-1. Verifies the package SHA-256 and beta/ID/architecture metadata.
+1. Verifies the package SHA-256 and stable/ID/architecture metadata.
 2. Checks the token's developer identity and registers the TOS application if
    absent. An existing registration must match the repository and architecture;
    it is never silently modified.
@@ -153,7 +152,7 @@ identities on reconfiguration/upgrades, preserving UID/GID and data ownership.
 New accounts have the application data home and a non-login shell. Account creation
 failures stop installation; UID/GID 0 is rejected. The unit
 is registered with systemd from the application directory. The Web UI listens
-on `0.0.0.0:8648`. `config.ini` declares the portal route
+on `0.0.0.0:8648` (remaining S4 remediation; restrict this port to trusted networks). `config.ini` declares the portal route
 `/com.hermeswebui.studio/` and the separate numeric `port: 8648`.
 The packaged nginx entry redirects that route (with or without its trailing
 slash) to `http://<NAS-host>:8648/` in the new browser tab. Studio's assets,
@@ -194,24 +193,29 @@ machine-read configuration.
 | --- | --- | --- | --- | --- |
 | `depends/`, `bin/`, `init.d/`, `nginx/`, metadata, `webui.bz2` | Read-only installed files | Install / dpkg | Fixed package size | Replaced by upgrades |
 | `webui/` | Static frontend | Configure / postinst | Fixed package size | Regenerated on upgrade, deleted on removal |
-| `data/studio/` | Studio DB, tokens, uploads, managed runtimes, agent state | First use / Studio | User-managed history, uploads and installed tools; no package-level quota | Preserved |
-| `data/home/` | Dedicated HOME, Hermes config and per-user tools | Configure / postinst; later tools | User-managed | Preserved |
-| `data/workspaces/` | Default workspace and user files | Configure / postinst; later Agent/user | User-managed | Preserved |
-| `data/npm/` | Runtime-installed coding-agent CLIs | Configure / postinst; later npm | User-managed installed tools | Preserved |
-| `data/cache/` | XDG cache | Configure / postinst; later tools | Tool-specific, no package-level quota | Preserved |
-| `data/tmp/` | Runtime temporary files | Configure / postinst; later tools | Tool-specific; global bounds/cleanup need TNAS acceptance | Preserved |
-| `logs/` | Reserved file-log directory; unit stdout/stderr uses journald | Configure / postinst | journald rotation is system-managed | Preserved |
-| systemd enablement links | Unit registration | Configure / systemctl | Fixed | Removed on uninstall |
+| `data/studio/` | Studio DB, tokens, uploads, managed runtimes, agent state | First use / Studio | User-managed history, uploads and installed tools; no package-level quota | Retained on upgrade; deleted on uninstall |
+| `data/home/` | Dedicated HOME, Hermes config and per-user tools | Configure / postinst; later tools | User-managed | Retained on upgrade; deleted on uninstall |
+| `data/workspaces/` | Default workspace and user files | Configure / postinst; later Agent/user | User-managed | Retained on upgrade; deleted on uninstall |
+| `data/npm/` | Runtime-installed coding-agent CLIs | Configure / postinst; later npm | User-managed installed tools | Retained on upgrade; deleted on uninstall |
+| `data/cache/` | XDG cache | Configure / postinst; later tools | Tool-specific, no package-level quota | Retained on upgrade; deleted on uninstall |
+| `data/tmp/` | Runtime temporary files | Configure / postinst; later tools | Tool-specific; global bounds/cleanup need TNAS acceptance | Retained on upgrade; deleted on uninstall |
+| `logs/` | Reserved file-log directory; unit stdout/stderr uses journald | Configure / postinst | journald rotation is system-managed | Retained on upgrade; deleted on uninstall |
+| systemd enablement links | Unit registration | Configure / postinst | Fixed | Removed on uninstall |
 
-The removal and purge scripts deliberately retain data and the dedicated user.
-TOS App Center handling of the installation volume must still be checked on a
-device. This initial test target uses a private application workspace; a stable
-submission must verify the guide's shared-folder mapping for user-visible business
-data and temporary-file bounds/cleanup. The guide leaves shared-folder path
-resolution pending platform confirmation, so this target does not guess a volume
-path or advertise SMB/NFS access. Back up/export test data before uninstalling.
-After uninstall, an administrator may explicitly delete the documented data
-directories if no longer needed. Do not remove an installation volume wholesale.
+Removal and purge delete managed `data/`, `logs/` and `webui/`, and the dedicated
+account when its home matches this application. **Back up/export before uninstall:
+managed workspaces are deleted too.** Upgrades retain data and UID/GID. External
+workspaces, symlink targets outside these directories and administrator backups
+are not recursively deleted. Application-owned systemd registration is removed;
+missing/unloaded units do not block removal. Unit files remain under `init.d/`
+and are registered with an owned symlink in `/etc/systemd/system/`.
+
+Read [the privacy notice](../../PRIVACY.md) and
+[the review remediation checklist](REVIEW-REMEDIATION.md). Both are bundled in the
+package. `BINARY-INVENTORY.json` lists actual ELF paths and SHA-256 values with
+available package metadata; provenance still requires human/security review.
+LAN discovery is disabled for this TOS target. The direct HTTP service remains;
+S4 is not fully resolved until a compatible authenticated portal proxy is tested.
 
 ## Required TNAS acceptance
 
@@ -257,10 +261,10 @@ compatibility. On an authorized TOS 7 x86_64 device:
    the default workspace, and exercise Socket.IO streaming.
 4. Stop/start/restart from the App Center; verify the process exits and returns.
 5. Upgrade with saved conversations, credentials and a workspace file; verify
-   they remain. Remove and reinstall; verify the documented retention policy.
+   they remain. Back up, remove and verify managed data/logs/account are gone; reinstall.
 6. Check for orphaned services/processes and test on a second data volume.
 7. Resolve the user-data shared-folder contract and temporary-file quotas/cleanup
-   before changing `beta` or submitting this as a stable App Center application.
+   before submitting this as a stable App Center application.
 
 Reference: TerraMaster `tos-app-pkg-tools`, TOS 7 guide chapters 4, 8, 13 and 15,
 reviewed at commit `9dc7e43da051b3e4a8e704764ff57e72fc7309fc`.
