@@ -264,6 +264,7 @@ export default {
   agentAutoUpdate: { label: 'Otomatik güncellemeler' },
 
   browser: {
+    cookieConnectPrompt: "Allow the local Chrome extension to send cookies to this browser profile? You will review domains before importing.",
     cookieImport: "Import Chrome cookies",
     cookieImportHint: "Install the Ekko Studio Cookie Import Helper in Chrome on this computer. Generate a code, copy the address and code into the extension, select websites, then return here to review. No passwords are transferred. Cookies may not be sufficient to sign in.",
     cookieImportStart: "Generate one-time import code",

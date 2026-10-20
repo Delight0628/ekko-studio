@@ -343,6 +343,7 @@ export default {
   },
   socialMessages: socialMessagesZh,
   browser: {
+    cookieConnectPrompt: "允许本机 Chrome 扩展向此浏览器配置发送 Cookie？发送后仍需确认域名。",
     cookieImport: "导入 Chrome Cookie",
     cookieImportHint: "在本机 Chrome 安装 Ekko Studio Cookie 导入助手。生成导入码，将地址和导入码复制到插件，选择网站后回到此处确认。不传输密码。仅导入 Cookie 不保证获得登录状态。",
     cookieImportStart: "生成一次性导入码",

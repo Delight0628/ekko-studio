@@ -1,5 +1,3 @@
-const managerUrlInput = document.getElementById("managerUrl");
-const tokenInput = document.getElementById("token");
 const scanButton = document.getElementById("scan");
 const importButton = document.getElementById("import");
 const statusEl = document.getElementById("status");
@@ -15,10 +13,6 @@ let allDomainEntries = []; // 保存原始完整列表
 let filterText = "";
 
 /* ── 工具函数 ── */
-
-function normalizeManagerUrl(value) {
-  return value.trim().replace(/\/+$/, "");
-}
 
 function domainKey(cookie) {
   return (cookie.domain || "").replace(/^\./, "").toLowerCase();
@@ -37,20 +31,6 @@ function setBusy(busy) {
 function getSelectedDomains() {
   return Array.from(domainsEl.querySelectorAll(".domain input[type='checkbox']:checked"))
     .map((input) => input.value);
-}
-
-/* ── 设置持久化 ── */
-
-async function saveSettings() {
-  await chrome.storage.local.set({
-    managerUrl: normalizeManagerUrl(managerUrlInput.value),
-  });
-}
-
-async function loadSettings() {
-  const stored = await chrome.storage.local.get(["managerUrl"]);
-  if (stored.managerUrl) managerUrlInput.value = stored.managerUrl;
-  await chrome.storage.local.remove("token");
 }
 
 /* ── 渲染域名列表 ── */
@@ -209,7 +189,6 @@ async function scanDomains() {
   setBusy(true);
   setStatus("正在扫描当前浏览器 Cookie...");
   try {
-    await saveSettings();
     const cookies = await chrome.cookies.getAll({});
     const counts = new Map();
     for (const cookie of cookies) {
@@ -254,25 +233,7 @@ function toImportCookie(cookie) {
 }
 
 async function importSelected() {
-  const managerUrl = normalizeManagerUrl(managerUrlInput.value);
-  const token = tokenInput.value.trim();
   const selectedDomains = getSelectedDomains();
-  if (!managerUrl) {
-    setStatus("请输入 Manager 地址。", "error");
-    return;
-  }
-  try {
-    const url = new URL(managerUrl);
-    if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !url.port
-      || url.username || url.password || url.pathname !== "/" || url.search || url.hash) throw new Error();
-  } catch {
-    setStatus("仅支持本机 Studio 地址：http://127.0.0.1:端口", "error");
-    return;
-  }
-  if (!token) {
-    setStatus("请输入一次性导入码。", "error");
-    return;
-  }
   if (selectedDomains.length === 0) {
     setStatus("请选择要导入的网站。", "error");
     return;
@@ -281,7 +242,6 @@ async function importSelected() {
   setBusy(true);
   setStatus("正在读取所选网站 Cookie...");
   try {
-    await saveSettings();
     const cookies = [];
     const seen = new Set();
     let skipped = 0;
@@ -303,8 +263,20 @@ async function importSelected() {
       return;
     }
 
+    setStatus("正在连接本机 Ekko Studio，请在 Studio 确认连接…");
+    const connection = await fetch("http://127.0.0.1:19489/api/cookie-import-helper/connect", {
+      method: "POST", redirect: "error", signal: AbortSignal.timeout(120000),
+    });
+    const target = await connection.json();
+    if (!connection.ok) throw new Error(target.detail || "请先启动本机 Ekko Studio");
+    const address = new URL(target.managerUrl);
+    if (address.protocol !== "http:" || address.hostname !== "127.0.0.1" || !address.port
+      || address.username || address.password || address.pathname !== "/" || address.search || address.hash
+      || typeof target.token !== "string") throw new Error("无效的 Studio 连接");
+    const managerUrl = address.origin;
+    const token = target.token;
     const response = await fetch(managerUrl + "/api/cookie-import-helper/submit", {
-      method: "POST",
+      method: "POST", redirect: "error",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         token: token,
@@ -317,8 +289,6 @@ async function importSelected() {
       throw new Error(body.detail || ("导入失败 (" + response.status + ")"));
     }
 
-    await chrome.storage.local.remove("token");
-    tokenInput.value = "";
     setStatus("已发送 " + body.cookie_count + " 个 Cookie，请回到 Ekko Studio 确认后完成导入。" + (skipped ? " 已跳过 " + skipped + " 个分区 Cookie。" : ""), "success");
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "导入失败", "error");
@@ -329,11 +299,5 @@ async function importSelected() {
 
 /* ── 事件绑定 ── */
 
-managerUrlInput.addEventListener("change", saveSettings);
-tokenInput.addEventListener("change", saveSettings);
 scanButton.addEventListener("click", scanDomains);
 importButton.addEventListener("click", importSelected);
-
-loadSettings().catch((error) => {
-  setStatus(error instanceof Error ? error.message : "读取设置失败", "error");
-});

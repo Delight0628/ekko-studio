@@ -66,6 +66,8 @@ export class BrowserCookieImport {
   private timer?: NodeJS.Timeout
   private generation = 0
 
+  constructor(private readonly onPending?: () => void) {}
+
   async start(profileId: string): Promise<CookieImportStatus> {
     await this.cancel()
     const generation = ++this.generation
@@ -120,6 +122,7 @@ export class BrowserCookieImport {
           current.cookieCount = cookies.length
           this.status = current
           reply(202, { cookie_count: cookies.length, status: 'pending_confirmation' })
+          this.onPending?.()
         } catch {
           reply(400, { detail: 'Invalid cookie payload (maximum 1000 cookies; partitioned cookies are unsupported)' })
         } finally { chunks.length = 0 }

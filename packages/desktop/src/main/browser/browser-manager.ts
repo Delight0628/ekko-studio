@@ -16,6 +16,7 @@ import {
 } from 'electron'
 import { BrowserAutomation } from './browser-automation'
 import { BrowserProfileStore } from './browser-profile-store'
+import { BrowserCookieDiscovery } from './browser-cookie-discovery'
 import { BrowserCookieImport } from './browser-cookie-import'
 import { BrowserSessionCookieStore } from './browser-session-cookie-store'
 import { MAX_BROWSER_TABS } from './browser-types'
@@ -53,6 +54,11 @@ interface TabRecord {
 }
 
 interface BrowserManagerOptions {
+  cookieConnectLabel?: string
+  cookieReviewLabel?: string
+  cookieAllowLabel?: string
+  cookieCancelLabel?: string
+  cookieResultLabel?: string
   selectElementLabel: string
   selectRegionLabel: string
   onAnnotationRequest: (tabId: string, mode: 'element' | 'region') => void
@@ -93,7 +99,52 @@ function proxyConfig(profile: DesktopBrowserProfile): ProxyConfig {
 
 export class BrowserManager {
   readonly automation = new BrowserAutomation()
-  private readonly cookieImport = new BrowserCookieImport()
+  private readonly cookieDiscovery = new BrowserCookieDiscovery()
+  private automaticImport = false
+  private cookieImportsDisposed = false
+  private readonly cookieImport = new BrowserCookieImport(() => {
+    if (this.automaticImport) void this.reviewAutomaticCookieImport()
+  })
+
+  private async connectCookieExtension() {
+    if (this.cookieImportsDisposed || this.cookieImport.getStatus()) throw new Error('Import unavailable')
+    const profile = this.requireProfile(this.activeProfileId)
+    this.window.show()
+    const { response } = await dialog.showMessageBox(this.window, {
+      type: 'question', title: 'Ekko Studio',
+      message: this.options?.cookieConnectLabel || 'Allow the Chrome extension to send cookies?',
+      detail: profile.name, buttons: [this.options?.cookieCancelLabel || 'Cancel', this.options?.cookieAllowLabel || 'Allow'],
+      defaultId: 0, cancelId: 0,
+    })
+    if (response !== 1 || this.cookieImportsDisposed || this.cookieImport.getStatus()) throw new Error('Import not approved')
+    // Bind the exact profile shown in the prompt, even if the active profile changed meanwhile.
+    this.requireProfile(profile.id)
+    this.automaticImport = true
+    return this.cookieImport.start(profile.id)
+  }
+
+  private async reviewAutomaticCookieImport(): Promise<void> {
+    const pending = this.cookieImport.getStatus()
+    if (!pending || pending.phase !== 'review') return
+    try {
+      const profile = this.requireProfile(pending.profileId)
+      this.window.show()
+      const { response } = await dialog.showMessageBox(this.window, {
+        type: 'warning', title: 'Ekko Studio',
+        message: this.options?.cookieReviewLabel || 'Import these cookies? Matching cookies will be overwritten.',
+        detail: `${profile.name} · ${pending.cookieCount} Cookie\n${pending.domains.join('\n')}`,
+        buttons: [this.options?.cookieCancelLabel || 'Cancel', this.options?.cookieAllowLabel || 'Allow'], defaultId: 0, cancelId: 0,
+      })
+      const current = this.cookieImport.getStatus()
+      if (!current || current.expiresAt !== pending.expiresAt || current.profileId !== pending.profileId) return
+      if (response !== 1) { await this.cancelCookieImport(); return }
+      const result = await this.confirmCookieImport()
+      await dialog.showMessageBox(this.window, { type: result.failed ? 'warning' : 'info', title: 'Ekko Studio',
+        message: (this.options?.cookieResultLabel || 'Imported: {imported}; failed: {failed}.').replace('{imported}', String(result.imported)).replace('{failed}', String(result.failed)) })
+    } catch {
+      await this.cancelCookieImport()
+    }
+  }
   private readonly profileStore: BrowserProfileStore
   private readonly records = new Map<string, TabRecord>()
   private tabMutationQueue: Promise<void> = Promise.resolve()
@@ -123,12 +174,13 @@ export class BrowserManager {
 
   async startCookieImport(profileId: string) {
     this.requireProfile(profileId)
+    this.automaticImport = false
     return this.cookieImport.start(profileId)
   }
 
   cookieImportStatus() { return this.cookieImport.getStatus() }
 
-  async cancelCookieImport(): Promise<void> { await this.cookieImport.cancel() }
+  async cancelCookieImport(): Promise<void> { this.automaticImport = false; await this.cookieImport.cancel() }
 
   async confirmCookieImport(): Promise<{ imported: number; failed: number }> {
     const { profileId, cookies } = await this.cookieImport.take()
@@ -151,6 +203,9 @@ export class BrowserManager {
     const profile = this.profileStore.active()
     this.activeProfileId = profile.id
     await this.restoreTabs(profile)
+    await this.cookieDiscovery.start(() => this.connectCookieExtension()).catch(() => {
+      console.warn('[desktop-browser] Cookie extension discovery unavailable (another Studio instance may be running)')
+    })
     this.emitState()
   }
 
@@ -776,6 +831,8 @@ export class BrowserManager {
   }
 
   async destroy(timeoutMs = SESSION_SHUTDOWN_TIMEOUT_MS): Promise<void> {
+    this.cookieImportsDisposed = true
+    await this.cookieDiscovery.stop()
     await this.cookieImport.cancel()
     for (const item of this.downloadItems.values()) item.cancel()
     this.downloadItems.clear()

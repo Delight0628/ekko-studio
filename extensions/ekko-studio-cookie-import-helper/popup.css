@@ -289,3 +289,8 @@ button:disabled {
 footer {
   margin-top: 10px;
 }
+
+.actions { margin: 0 0 10px; }
+.actions button { flex: 1; }
+#filterInput { margin-bottom: 10px; }
+.status:empty { display: none; }

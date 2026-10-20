@@ -6,7 +6,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({
   app: { getLocale: () => 'en' }, BrowserWindow: class {}, WebContentsView: class {},
-  dialog: {}, Menu: {}, session: {}, shell: {},
+  dialog: { showMessageBox: vi.fn() }, Menu: {}, session: {}, shell: {},
 }))
 import { BrowserManager } from '../../packages/desktop/src/main/browser/browser-manager'
 
@@ -40,4 +40,28 @@ it('writes only the approved profile, configures before writing, persists and sa
   expect(internal.flushProfileSession).toHaveBeenCalledWith(expect.objectContaining({ id: profileId }))
   await expect(manager.confirmCookieImport()).rejects.toThrow('No pending')
   expect(manager.cookieImportStatus()).toBeNull()
+})
+
+
+it('auto-connect binds the profile shown in the native prompt and requires domain approval', async () => {
+  const { dialog } = await import('electron')
+  const root = await mkdtemp(join(tmpdir(), 'ekko-auto-cookie-'))
+  roots.push(root)
+  const manager = new BrowserManager({ show: vi.fn() } as unknown as BrowserWindow, root)
+  const internal = manager as any
+  await internal.profileStore.initialize()
+  internal.activeProfileId = internal.profileStore.active().id
+  vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({ response: 1, checkboxChecked: false })
+  const target = await internal.connectCookieExtension()
+  expect(target.profileId).toBe(internal.activeProfileId)
+  expect(manager.cookieImportStatus()?.phase).toBe('waiting')
+  const confirm = vi.spyOn(manager, 'confirmCookieImport').mockResolvedValue({ imported: 1, failed: 0 })
+  vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({ response: 0, checkboxChecked: false })
+  await fetch(target.managerUrl + '/api/cookie-import-helper/submit', {
+    method: 'POST', headers: { Origin: `chrome-extension://${'a'.repeat(32)}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: target.token, cookies: [{ name: 'one', value: 'synthetic', domain: 'example.com' }] }),
+  })
+  await vi.waitFor(() => expect(manager.cookieImportStatus()).toBeNull())
+  expect(confirm).not.toHaveBeenCalled()
+  expect(dialog.showMessageBox).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ detail: expect.stringContaining('example.com') }))
 })
