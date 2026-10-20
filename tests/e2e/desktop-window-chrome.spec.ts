@@ -886,3 +886,28 @@ test('manages desktop browser profiles with switchable cards and editor modals',
     expect.objectContaining({ name: 'Work', proxyMode: 'system' }),
   ])
 })
+
+test('remote device browser requires explicit consent before enabling its relay', async ({ page }) => {
+  await installDesktopBridge(page, 'win32', true)
+  await authenticate(page, TEST_ACCESS_KEY, 'research')
+  await mockChatSocket(page)
+  await mockHermesApi(page)
+  await page.addInitScript(() => {
+    const desktop = (window as any).hermesDesktop
+    desktop.remoteMode = true
+    ;(window as any).__remoteBrowserConsent = []
+    desktop.browser.setRemoteControl = async (enabled: boolean) => {
+      ;(window as any).__remoteBrowserConsent.push(enabled)
+      return false // Native dialog cancelled; no socket may be created.
+    }
+    desktop.browser.remoteRequest = async () => { throw new Error('Not authorized') }
+  })
+  await page.goto('/#/hermes/chat')
+  await page.locator('.header-tool-toggle').click()
+  const panel = page.locator('.chat-tool-panel')
+  await panel.getByRole('tab', { name: 'Browser', exact: true }).click()
+  await panel.getByRole('button', { name: 'Allow remote control', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).__remoteBrowserConsent.includes(true))).toBe(true)
+  await expect(panel.getByRole('button', { name: 'Allow remote control', exact: true })).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Stop remote control', exact: true })).toHaveCount(0)
+})

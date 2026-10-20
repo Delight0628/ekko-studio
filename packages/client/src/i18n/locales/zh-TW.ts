@@ -386,6 +386,9 @@ export default {
   },
   socialMessages: socialMessagesZhTw,
   browser: {
+    remoteControl: '允许远程控制',
+    remoteControlStop: '停止远程控制',
+
     title: '瀏覽器', settings: '瀏覽器設定', desktopOnly: '內建瀏覽器僅在 Ekko Studio 桌面版可用。', newTab: '新分頁',
     back: '上一頁', forward: '下一頁', reload: '重新整理', stop: '停止', addressPlaceholder: '搜尋或輸入網址',
     undoAnnotation: '復原上一個', deleteAnnotation: '刪除標註 {index}',

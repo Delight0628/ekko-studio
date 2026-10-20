@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { NSpin, NButton, NInput, NPopover, NSelect, useDialog, useMessage } from 'naive-ui'
+import { remoteBrowserEnabled, startRemoteBrowserRelay, stopRemoteBrowserRelay } from '@/composables/useRemoteBrowserRelay'
+import { useProfilesStore } from '@/stores/hermes/profiles'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { useI18n } from 'vue-i18n'
@@ -17,6 +19,15 @@ const { t } = useI18n()
 const message = useMessage()
 const dialog = useDialog()
 const bridge = desktopBridge()?.browser
+const remoteControlAvailable = desktopBridge()?.remoteMode === true && !!bridge?.setRemoteControl
+const relayProfiles = useProfilesStore()
+watch(() => relayProfiles.activeProfileName, () => { void stopRemoteBrowserRelay() })
+async function toggleRemoteControl(): Promise<void> {
+  try {
+    if (remoteBrowserEnabled.value) await stopRemoteBrowserRelay()
+    else await startRemoteBrowserRelay()
+  } catch (error) { message.error(error instanceof Error ? error.message : String(error)) }
+}
 const EXTERNAL_OVERLAY_SELECTOR = [
   '[data-desktop-browser-overlay]',
   '.n-modal-mask',
@@ -522,6 +533,7 @@ onUnmounted(() => {
             <path d="M20 4v4h-4" />
           </svg>
         </button>
+        <NButton v-if="remoteControlAvailable" size="tiny" :type="remoteBrowserEnabled ? 'warning' : 'default'" @click="toggleRemoteControl">{{ t(remoteBrowserEnabled ? 'browser.remoteControlStop' : 'browser.remoteControl') }}</NButton>
         <NInput v-model:value="address" size="small" :placeholder="t('browser.addressPlaceholder')" :disabled="busy || hasAnnotationSession" @keydown.enter="navigate" />
         <NSelect
           class="profile-switcher"

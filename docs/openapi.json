@@ -13,6 +13,10 @@
   ],
   "tags": [
     {
+      "name": "Desktop Browser",
+      "description": "Authenticated remote Desktop browser relay with explicit Desktop consent"
+    },
+    {
       "name": "Profiles",
       "description": "Hermes profile management"
     },
@@ -12784,6 +12788,78 @@
           }
         },
         "x-session-share-permission": "input"
+      }
+    },
+    "/api/studio/desktop-browser/request": {
+      "post": {
+        "tags": [
+          "Desktop Browser"
+        ],
+        "summary": "Operate the explicitly authorized remote Desktop browser",
+        "description": "Requires an identified Studio user and matching Profile with exactly one connected, explicitly authorized Desktop. No browser credentials or debug ports are exposed. Disconnected/ambiguous devices fail closed.",
+        "operationId": "requestDesktopBrowser",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Identified Studio account required"
+          },
+          "409": {
+            "description": "Unavailable, ambiguous, disconnected, revoked or invalid browser operation"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "method"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "state",
+                      "tabs.list",
+                      "tabs.create",
+                      "tabs.activate",
+                      "tabs.close",
+                      "lease.release",
+                      "navigate",
+                      "navigation.action",
+                      "snapshot",
+                      "text.read",
+                      "interact",
+                      "interact.batch",
+                      "screenshot",
+                      "console.read",
+                      "console.clear"
+                    ]
+                  },
+                  "params": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/studio/files/copy": {

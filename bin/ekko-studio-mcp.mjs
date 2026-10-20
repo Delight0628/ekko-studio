@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { browserIntent, matchBrowserSnapshot, verifyBrowserResult } from './browser/jev.mjs'
 import { validateBrowserArguments } from './browser/arguments.mjs'
 import { browserOutput } from './browser/output.mjs'
@@ -629,6 +630,7 @@ function withAuthArgs(args, options = {}) {
   }
 }
 
+const browserCallContext = new AsyncLocalStorage()
 const BROWSER_CLIENT_ID = `${SERVER_NAME}:${process.pid}:${randomUUID()}`
 let cachedBrowserSession = null
 
@@ -682,7 +684,13 @@ async function browserSession(descriptor, signal) {
 }
 
 async function browserRequest(method, params = {}, signal) {
-  const descriptor = browserDescriptor()
+  let descriptor
+  try { descriptor = browserDescriptor() } catch {
+    return request('/api/studio/desktop-browser/request', {
+      method: 'POST', body: { method, params }, signal,
+      ...(browserCallContext.getStore() || {}),
+    })
+  }
   const session = await browserSession(descriptor, signal)
   signal?.throwIfAborted()
   const operationId = randomUUID()
@@ -1754,13 +1762,6 @@ function serverInstructions() {
 }
 
 function visibleTools() {
-  if (ACTIVE_TOOLSET === 'browser') {
-    try {
-      browserDescriptor()
-    } catch {
-      return []
-    }
-  }
   const categoryToolset = categoryToolsetDefinition(ACTIVE_TOOLSET)
   if (categoryToolset) return [categoryToolset]
   const visible = activeToolsetTools()
@@ -1805,6 +1806,10 @@ async function callCategoryToolset(args = {}, signal) {
 }
 
 async function callTool(name, args = {}, signal) {
+  return browserCallContext.run({ ...(browserCallContext.getStore() || {}), ...(args.profile ? { profile: args.profile } : {}), ...(args.token ? { token: args.token } : {}) }, () => callToolInner(name, args, signal))
+}
+
+async function callToolInner(name, args = {}, signal) {
   if (!isToolCallable(name)) {
     return errorText(`Tool is not available in the active '${ACTIVE_TOOLSET}' MCP toolset: ${name}`)
   }

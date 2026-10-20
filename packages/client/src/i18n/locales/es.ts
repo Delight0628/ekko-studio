@@ -386,6 +386,9 @@ export default {
   },
   socialMessages: socialMessagesEs,
   browser: {
+    remoteControl: 'Allow remote control',
+    remoteControlStop: 'Stop remote control',
+
     title: 'Navegador', settings: 'Ajustes del navegador', desktopOnly: 'El navegador integrado solo está disponible en Ekko Studio Desktop.', newTab: 'Nueva pestaña',
     back: 'Atrás', forward: 'Adelante', reload: 'Recargar', stop: 'Detener', addressPlaceholder: 'Buscar o escribir una dirección',
     undoAnnotation: 'Deshacer última', deleteAnnotation: 'Eliminar anotación {index}',

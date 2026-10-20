@@ -43,6 +43,7 @@ const openapi = {
 
 // Tag mappings based on route directories
 const tagMappings = {
+  'modules/studio/routes/desktop-browser.ts': { name: 'Desktop Browser', description: 'Authenticated remote Desktop browser relay with explicit Desktop consent' },
   'modules/hermes/routes/profiles.ts': { name: 'Profiles', description: 'Hermes profile management' },
   'modules/hermes/routes/models.ts': { name: 'Models', description: 'Model configuration' },
   'modules/hermes/routes/providers.ts': { name: 'Providers', description: 'Model provider management' },
@@ -1825,6 +1826,21 @@ themeZipImport.responses = {
   '400': { description: 'Invalid or unsupported archive, manifest, settings or entries' },
   '401': { $ref: '#/components/responses/Unauthorized' },
   '413': { description: 'ZIP or background exceeds the allowed size' }, '415': { description: 'Expected ZIP bytes or a supported background image' },
+}
+
+const browserRelayOperation = openapi.paths['/api/studio/desktop-browser/request']?.post
+if (browserRelayOperation) {
+  browserRelayOperation.summary = 'Operate the explicitly authorized remote Desktop browser'
+  browserRelayOperation.description = 'Requires an identified Studio user and matching Profile with exactly one connected, explicitly authorized Desktop. No browser credentials or debug ports are exposed. Disconnected/ambiguous devices fail closed.'
+  browserRelayOperation.requestBody = { required: true, content: { 'application/json': { schema: {
+    type: 'object', required: ['method'], additionalProperties: false,
+    properties: {
+      method: { type: 'string', enum: ['state', 'tabs.list', 'tabs.create', 'tabs.activate', 'tabs.close', 'lease.release', 'navigate', 'navigation.action', 'snapshot', 'text.read', 'interact', 'interact.batch', 'screenshot', 'console.read', 'console.clear'] },
+      params: { type: 'object', additionalProperties: true },
+    },
+  } } } }
+  browserRelayOperation.responses['403'] = { description: 'Identified Studio account required' }
+  browserRelayOperation.responses['409'] = { description: 'Unavailable, ambiguous, disconnected, revoked or invalid browser operation' }
 }
 
 // Write output

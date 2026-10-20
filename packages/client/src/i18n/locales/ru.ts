@@ -386,6 +386,9 @@ export default {
   },
   socialMessages: socialMessagesRu,
   browser: {
+    remoteControl: 'Allow remote control',
+    remoteControlStop: 'Stop remote control',
+
     title: 'Браузер', settings: 'Настройки браузера', desktopOnly: 'Встроенный браузер доступен только в Ekko Studio Desktop.', newTab: 'Новая вкладка',
     back: 'Назад', forward: 'Вперёд', reload: 'Обновить', stop: 'Остановить', addressPlaceholder: 'Поиск или адрес',
     undoAnnotation: 'Отменить последнюю', deleteAnnotation: 'Удалить аннотацию {index}',

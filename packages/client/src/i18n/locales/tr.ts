@@ -309,6 +309,9 @@ export default {
   agentAutoUpdate: { label: 'Otomatik güncellemeler' },
 
   browser: {
+    remoteControl: 'Allow remote control',
+    remoteControlStop: 'Stop remote control',
+
     title: 'Tarayıcı',
     settings: 'Tarayıcı ayarları',
     desktopOnly: 'Yerleşik tarayıcı yalnızca Ekko Studio Desktop sürümünde kullanılabilir.',
