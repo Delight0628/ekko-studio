@@ -2,7 +2,7 @@ export const remoteDeviceMessages = {
   "en": {
     "title": "Remote devices",
     "description": "Save other Studio devices here and switch between them and this computer.",
-    "local": "This computer",
+    "local": "localhost",
     "localHint": "Use Studio and agents running on this computer.",
     "current": "Current device",
     "connect": "Switch to device",
@@ -32,7 +32,7 @@ export const remoteDeviceMessages = {
   "zh": {
     "title": "远程设备",
     "description": "保存其他 Studio 设备，在远程设备与本机之间切换。",
-    "local": "本机",
+    "local": "localhost",
     "localHint": "使用在这台电脑上运行的 Studio 和 Agent。",
     "current": "当前设备",
     "connect": "切换到此设备",
@@ -62,7 +62,7 @@ export const remoteDeviceMessages = {
   "zh-TW": {
     "title": "遠端裝置",
     "description": "儲存其他 Studio 裝置，在遠端裝置與本機之間切換。",
-    "local": "本機",
+    "local": "localhost",
     "localHint": "使用在這台電腦上執行的 Studio 和 Agent。",
     "current": "目前裝置",
     "connect": "切換至此裝置",
@@ -92,7 +92,7 @@ export const remoteDeviceMessages = {
   "ja": {
     "title": "リモートデバイス",
     "description": "他の Studio デバイスを保存し、このコンピューターとの間で切り替えます。",
-    "local": "このコンピューター",
+    "local": "localhost",
     "localHint": "このコンピューターで実行中の Studio と Agent を使用します。",
     "current": "現在のデバイス",
     "connect": "このデバイスに切り替え",
@@ -122,7 +122,7 @@ export const remoteDeviceMessages = {
   "ko": {
     "title": "원격 기기",
     "description": "다른 Studio 기기를 저장하고 이 컴퓨터와 전환하세요.",
-    "local": "이 컴퓨터",
+    "local": "localhost",
     "localHint": "이 컴퓨터에서 실행 중인 Studio와 Agent를 사용합니다.",
     "current": "현재 기기",
     "connect": "이 기기로 전환",
@@ -152,7 +152,7 @@ export const remoteDeviceMessages = {
   "de": {
     "title": "Entfernte Geräte",
     "description": "Andere Studio-Geräte speichern und zwischen ihnen und diesem Computer wechseln.",
-    "local": "Dieser Computer",
+    "local": "localhost",
     "localHint": "Studio und Agents auf diesem Computer verwenden.",
     "current": "Aktuelles Gerät",
     "connect": "Zu diesem Gerät wechseln",
@@ -182,7 +182,7 @@ export const remoteDeviceMessages = {
   "fr": {
     "title": "Appareils distants",
     "description": "Enregistrez d’autres appareils Studio et basculez entre eux et cet ordinateur.",
-    "local": "Cet ordinateur",
+    "local": "localhost",
     "localHint": "Utiliser Studio et les agents exécutés sur cet ordinateur.",
     "current": "Appareil actuel",
     "connect": "Utiliser cet appareil",
@@ -212,7 +212,7 @@ export const remoteDeviceMessages = {
   "es": {
     "title": "Dispositivos remotos",
     "description": "Guarda otros dispositivos Studio y cambia entre ellos y este equipo.",
-    "local": "Este equipo",
+    "local": "localhost",
     "localHint": "Usar Studio y los agentes que se ejecutan en este equipo.",
     "current": "Dispositivo actual",
     "connect": "Cambiar a este dispositivo",
@@ -242,7 +242,7 @@ export const remoteDeviceMessages = {
   "pt": {
     "title": "Dispositivos remotos",
     "description": "Salve outros dispositivos Studio e alterne entre eles e este computador.",
-    "local": "Este computador",
+    "local": "localhost",
     "localHint": "Usar o Studio e os agentes executados neste computador.",
     "current": "Dispositivo atual",
     "connect": "Mudar para este dispositivo",
@@ -272,7 +272,7 @@ export const remoteDeviceMessages = {
   "ru": {
     "title": "Удалённые устройства",
     "description": "Сохраняйте устройства Studio и переключайтесь между ними и этим компьютером.",
-    "local": "Этот компьютер",
+    "local": "localhost",
     "localHint": "Использовать Studio и агентов на этом компьютере.",
     "current": "Текущее устройство",
     "connect": "Переключиться",
@@ -302,7 +302,7 @@ export const remoteDeviceMessages = {
   "ar": {
     "title": "الأجهزة البعيدة",
     "description": "احفظ أجهزة Studio الأخرى وبدّل بينها وبين هذا الكمبيوتر.",
-    "local": "هذا الكمبيوتر",
+    "local": "localhost",
     "localHint": "استخدم Studio والوكلاء الذين يعملون على هذا الكمبيوتر.",
     "current": "الجهاز الحالي",
     "connect": "التبديل إلى هذا الجهاز",
@@ -332,7 +332,7 @@ export const remoteDeviceMessages = {
   "tr": {
     "title": "Uzak cihazlar",
     "description": "Diğer Studio cihazlarını kaydedin ve bu bilgisayar ile aralarında geçiş yapın.",
-    "local": "Bu bilgisayar",
+    "local": "localhost",
     "localHint": "Bu bilgisayarda çalışan Studio ve ajanları kullanın.",
     "current": "Geçerli cihaz",
     "connect": "Bu cihaza geç",

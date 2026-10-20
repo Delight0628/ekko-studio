@@ -83,6 +83,8 @@ They retain the last appearance if the remote page stops responding. Wallpaper
 resources and remote scripts are never loaded into the desktop-owned UI; a
 separate management window cannot sample the main window's wallpaper backdrop.
 
+The local device is consistently named `localhost` in all languages; only the
+display name changes, and local mode still uses a null remote server URL.
 The header button is 120px wide and its menu is 224px; long names truncate with
 full-name/address tooltips. The manager uses device cards and a collapsible add
 form. Switch and delete confirmation use a compact local themed window. Only
