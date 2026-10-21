@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-const fixture = vi.hoisted(() => ({ token: 'account', mode: true, allow: true, callbacks: new Map<string, (...args: any[]) => void>(), revoke: vi.fn(), request: vi.fn(async () => ({ result: { tabs: [] } })), emitted: [] as string[], invalidated: null as (() => void) | null }))
-vi.mock('socket.io-client', () => ({ io: vi.fn(() => ({ on: (event: string, cb: (...args: any[]) => void) => fixture.callbacks.set(event, cb), removeAllListeners: vi.fn(), disconnect: vi.fn(), connected: true, emit: (name: string) => fixture.emitted.push(name) })) }))
+const fixture = vi.hoisted(() => ({ token: 'account', mode: true, allow: true, connected: true, callbacks: new Map<string, (...args: any[]) => void>(), revoke: vi.fn(), request: vi.fn(async () => ({ result: { tabs: [] } })), emitted: [] as string[], invalidated: null as (() => void) | null }))
+vi.mock('socket.io-client', () => ({ io: vi.fn(() => ({ get connected() { return fixture.connected }, on: (event: string, cb: (...args: any[]) => void) => fixture.callbacks.set(event, cb), removeAllListeners: vi.fn(), disconnect: vi.fn(), emit: (name: string) => fixture.emitted.push(name) })) }))
 vi.mock('@/api/client', () => ({ getApiKey: () => fixture.token, getBaseUrlValue: () => 'https://nas.example', getActiveProfileName: () => 'default' }))
 vi.mock('@/api/auth-invalidation', () => ({ onAuthInvalidated: (cb: () => void) => { fixture.invalidated = cb; return () => { fixture.invalidated = null } } }))
 vi.mock('@/utils/desktop-bridge', () => ({ desktopBridge: () => ({ remoteMode: fixture.mode, browser: { remoteRequest: fixture.request, setRemoteControl: async (enabled: boolean) => { if (!enabled) fixture.revoke(); return enabled && fixture.allow } } }) }))
 
 describe('remote browser consent lifecycle', () => {
   afterEach(async () => { const relay = await import('../../packages/client/src/composables/useRemoteBrowserRelay'); await relay.stopRemoteBrowserRelay() })
-  beforeEach(() => { fixture.emitted.splice(0); vi.resetModules(); fixture.callbacks.clear(); fixture.request.mockClear(); fixture.revoke.mockClear(); fixture.token = 'account'; fixture.mode = true; fixture.allow = true })
+  beforeEach(() => { fixture.emitted.splice(0); vi.resetModules(); fixture.callbacks.clear(); fixture.request.mockClear(); fixture.revoke.mockClear(); fixture.token = 'account'; fixture.mode = true; fixture.allow = true; fixture.connected = true })
   it('requires Desktop consent and an authenticated remote session', async () => {
     const relay = await import('../../packages/client/src/composables/useRemoteBrowserRelay')
     fixture.allow = false
@@ -49,4 +49,50 @@ describe('remote browser consent lifecycle', () => {
     expect(relay.remoteBrowserOwnerState.value).toBe('active')
   })
 
+  it('does not report sharing enabled until the server accepts the connection', async () => {
+    fixture.connected = false
+    const relay = await import('../../packages/client/src/composables/useRemoteBrowserRelay')
+    const pending = relay.startRemoteBrowserRelay()
+    await vi.waitFor(() => expect(fixture.callbacks.has('connect')).toBe(true))
+    expect(relay.remoteBrowserEnabled.value).toBe(false)
+    fixture.connected = true
+    fixture.callbacks.get('connect')!()
+    await pending
+    expect(relay.remoteBrowserEnabled.value).toBe(true)
+    await relay.stopRemoteBrowserRelay()
+  })
+  it('returns connection errors to the caller and revokes the grant', async () => {
+    fixture.connected = false
+    const relay = await import('../../packages/client/src/composables/useRemoteBrowserRelay')
+    const pending = relay.startRemoteBrowserRelay()
+    const rejected = expect(pending).rejects.toThrow('authentication/profile access denied')
+    await vi.waitFor(() => expect(fixture.callbacks.has('connect_error')).toBe(true))
+    fixture.callbacks.get('connect_error')!(new Error('authentication/profile access denied'))
+    await rejected
+    expect(relay.remoteBrowserEnabled.value).toBe(false)
+    expect(fixture.revoke).toHaveBeenCalledTimes(2)
+  })
+  it('settles a pending connection when sharing is stopped', async () => {
+    fixture.connected = false
+    const relay = await import('../../packages/client/src/composables/useRemoteBrowserRelay')
+    const pending = relay.startRemoteBrowserRelay()
+    const rejected = expect(pending).rejects.toThrow('cancelled')
+    await vi.waitFor(() => expect(fixture.callbacks.has('connect')).toBe(true))
+    await relay.stopRemoteBrowserRelay()
+    await rejected
+    expect(relay.remoteBrowserEnabled.value).toBe(false)
+  })
+  it('revokes and reports a connection timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      fixture.connected = false
+      const relay = await import('../../packages/client/src/composables/useRemoteBrowserRelay')
+      const pending = relay.startRemoteBrowserRelay()
+      const rejected = expect(pending).rejects.toThrow('timed out')
+      await vi.advanceTimersByTimeAsync(10_001)
+      await rejected
+      expect(relay.remoteBrowserEnabled.value).toBe(false)
+      expect(fixture.revoke).toHaveBeenCalledTimes(2)
+    } finally { vi.useRealTimers() }
+  })
 })

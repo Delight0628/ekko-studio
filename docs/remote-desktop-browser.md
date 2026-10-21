@@ -9,8 +9,14 @@ PID. Previously the browser MCP returned an empty tool list in this setup.
 Both server and Desktop client must include this change. Connect to the remote
 Studio through Desktop device management and log in. Open the browser panel,
 choose **Allow remote control**. This single action enables sharing without a
-second confirmation dialog. The grant lasts for the connection only. Start a new
+second confirmation dialog. The button stays pending until the server accepts
+the Socket.IO connection; a connection failure is shown and revokes the local
+grant instead of reporting sharing as enabled. The grant lasts for the connection only. Start a new
 Agent turn/reconnect its browser MCP if it previously cached an empty catalog.
+
+Desktop startup allows each remote readiness probe up to ten seconds, bounded
+by the remaining overall readiness timeout (thirty seconds by default). A slow
+NAS response taking more than two seconds no longer fails every startup probe.
 
 The browser MCP always advertises its compact catalog, even offline. Local
 broker access retains its original behavior; without a local broker it calls

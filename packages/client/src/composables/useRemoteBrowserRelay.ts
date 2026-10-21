@@ -12,12 +12,14 @@ let stopActivity: (() => void) | null = null
 let generation = 0
 let socket: Socket | null = null
 let stopAuth: (() => void) | null = null
+let cancelConnection: (() => void) | null = null
 
 export async function stopRemoteBrowserRelay(): Promise<void> {
   generation++
   remoteBrowserEnabled.value = false
   remoteBrowserOwnerState.value = 'connecting'
   stopActivity?.(); stopActivity = null
+  cancelConnection?.(); cancelConnection = null
   const previous = socket
   socket = null
   previous?.removeAllListeners()
@@ -54,7 +56,6 @@ export async function startRemoteBrowserRelay(): Promise<void> {
   connection.on('browser.owner-state', state => {
     if (socket === connection && ['active', 'standby', 'busy'].includes(state)) remoteBrowserOwnerState.value = state
   })
-  remoteBrowserEnabled.value = true
   stopAuth = onAuthInvalidated(() => { void stopRemoteBrowserRelay() })
   connection.on('browser.request', async (body, acknowledge) => {
     if (typeof acknowledge !== 'function') return
@@ -66,8 +67,33 @@ export async function startRemoteBrowserRelay(): Promise<void> {
   })
   const stop = () => { if (socket === connection) void stopRemoteBrowserRelay() }
   connection.on('disconnect', stop)
-  connection.on('connect_error', stop)
   connection.on('browser.revoked', stop)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let cancel: (() => void) | undefined
+  try {
+    await new Promise<void>((resolve, reject) => {
+      cancel = () => reject(new Error('Desktop browser connection was cancelled'))
+      cancelConnection = cancel
+      connection.on('connect', () => resolve())
+      connection.on('connect_error', error => {
+        reject(error)
+        stop()
+      })
+      timer = setTimeout(() => {
+        reject(new Error('Desktop browser connection timed out'))
+        stop()
+      }, 10_000)
+      if (connection.connected) resolve()
+    })
+    if (socket !== connection || generation !== startedGeneration) throw new Error('Desktop browser connection was cancelled')
+    remoteBrowserEnabled.value = true
+  } catch (error) {
+    if (socket === connection) await stopRemoteBrowserRelay()
+    throw error
+  } finally {
+    clearTimeout(timer)
+    if (cancelConnection === cancel) cancelConnection = null
+  }
 }
 
 if (typeof window !== 'undefined') window.addEventListener('beforeunload', () => { void stopRemoteBrowserRelay() })

@@ -121,6 +121,27 @@ describe('remote server readiness probe', () => {
     expect(fetchMock).toHaveBeenCalledWith('http://remote.example:6060/health/ready', expect.anything())
   })
 
+  it('accepts a ready server whose response takes longer than two seconds', async () => {
+    vi.stubGlobal('fetch', vi.fn((_url, options) => new Promise<Response>((resolve, reject) => {
+      const timer = setTimeout(() => resolve(new Response(JSON.stringify({ status: 'ready' }))), 2_200)
+      options.signal.addEventListener('abort', () => {
+        clearTimeout(timer)
+        reject(options.signal.reason)
+      }, { once: true })
+    })))
+    await expect(waitForRemoteServerReady('https://remote.example', 5_000)).resolves.toBeUndefined()
+  })
+
+  it('limits a stalled request to the remaining overall timeout', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    vi.stubGlobal('fetch', vi.fn((_url, options) => new Promise<Response>((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true })
+    })))
+    await expect(waitForRemoteServerReady('https://remote.example', 100)).rejects.toThrow('did not become ready')
+    expect(timeout).toHaveBeenCalledOnce()
+    expect(timeout.mock.calls[0][0]).toBeLessThanOrEqual(100)
+  })
+
   it('retries while the server answers non-2xx', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({ ok: false, status: 503 } as Response)
