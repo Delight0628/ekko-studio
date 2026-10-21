@@ -538,7 +538,7 @@ onUnmounted(() => {
           </svg>
         </button>
         <div v-if="remoteControlAvailable" class="remote-control-action">
-          <span v-if="remoteBrowserEnabled" role="status" data-testid="browser-relay-owner">{{ t(`browser.remoteOwner${remoteBrowserOwnerState[0].toUpperCase()}${remoteBrowserOwnerState.slice(1)}`) }}</span>
+          <span v-if="remoteBrowserEnabled && remoteBrowserOwnerState !== 'active'" role="status" data-testid="browser-relay-owner">{{ t(`browser.remoteOwner${remoteBrowserOwnerState[0].toUpperCase()}${remoteBrowserOwnerState.slice(1)}`) }}</span>
           <NButton size="small" :type="remoteBrowserEnabled ? 'warning' : 'default'" :secondary="remoteBrowserEnabled" :loading="remoteControlPending" :aria-pressed="remoteBrowserEnabled" @click="toggleRemoteControl">{{ t(remoteBrowserEnabled ? 'browser.remoteControlStop' : 'browser.remoteControl') }}</NButton>
         </div>
         <NInput v-model:value="address" size="small" :placeholder="t('browser.addressPlaceholder')" :disabled="busy || hasAnnotationSession" @keydown.enter="navigate" />
