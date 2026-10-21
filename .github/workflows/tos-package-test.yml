@@ -89,7 +89,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: '24.22.1'
           cache: npm
           cache-dependency-path: ${{ env.TOS_SOURCE_DIR }}/package-lock.json
 
@@ -154,7 +154,7 @@ jobs:
           ref: ${{ github.sha }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: '24.22.1'
       - uses: actions/download-artifact@v4
         with:
           name: tos7-x86_64-test
