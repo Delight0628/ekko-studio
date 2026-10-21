@@ -1831,10 +1831,11 @@ themeZipImport.responses = {
 const browserRelayOperation = openapi.paths['/api/studio/desktop-browser/request']?.post
 if (browserRelayOperation) {
   browserRelayOperation.summary = 'Operate the explicitly authorized remote Desktop browser'
-  browserRelayOperation.description = 'Requires an identified Studio user and matching Profile with exactly one connected, explicitly authorized Desktop. No browser credentials or debug ports are exposed. Disconnected/ambiguous devices fail closed.'
+  browserRelayOperation.description = 'Requires an identified Studio user and matching Profile with an explicitly authorized active Desktop. Ownership transfers only on real user input after 10 minutes of owner inactivity and no in-flight operation. No browser credentials or debug ports are exposed. Run bindings never silently switch desktops; disconnected or replaced targets fail closed.'
   browserRelayOperation.requestBody = { required: true, content: { 'application/json': { schema: {
-    type: 'object', required: ['method'], additionalProperties: false,
+    type: 'object', required: ['method', 'client_id'], additionalProperties: false,
     properties: {
+      client_id: { type: 'string', minLength: 1, maxLength: 200, description: 'Stable browser MCP process identity bound with authenticated token/context to the original Desktop.' },
       method: { type: 'string', enum: ['state', 'tabs.list', 'tabs.create', 'tabs.activate', 'tabs.close', 'lease.release', 'navigate', 'navigation.action', 'snapshot', 'text.read', 'interact', 'interact.batch', 'screenshot', 'console.read', 'console.clear'] },
       params: { type: 'object', additionalProperties: true },
     },

@@ -1,12 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-const fixture = vi.hoisted(() => ({ token: 'account', mode: true, allow: true, callbacks: new Map<string, (...args: any[]) => void>(), revoke: vi.fn(), request: vi.fn(async () => ({ result: { tabs: [] } })), invalidated: null as (() => void) | null }))
-vi.mock('socket.io-client', () => ({ io: vi.fn(() => ({ on: (event: string, cb: (...args: any[]) => void) => fixture.callbacks.set(event, cb), removeAllListeners: vi.fn(), disconnect: vi.fn() })) }))
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+const fixture = vi.hoisted(() => ({ token: 'account', mode: true, allow: true, callbacks: new Map<string, (...args: any[]) => void>(), revoke: vi.fn(), request: vi.fn(async () => ({ result: { tabs: [] } })), emitted: [] as string[], invalidated: null as (() => void) | null }))
+vi.mock('socket.io-client', () => ({ io: vi.fn(() => ({ on: (event: string, cb: (...args: any[]) => void) => fixture.callbacks.set(event, cb), removeAllListeners: vi.fn(), disconnect: vi.fn(), connected: true, emit: (name: string) => fixture.emitted.push(name) })) }))
 vi.mock('@/api/client', () => ({ getApiKey: () => fixture.token, getBaseUrlValue: () => 'https://nas.example', getActiveProfileName: () => 'default' }))
 vi.mock('@/api/auth-invalidation', () => ({ onAuthInvalidated: (cb: () => void) => { fixture.invalidated = cb; return () => { fixture.invalidated = null } } }))
 vi.mock('@/utils/desktop-bridge', () => ({ desktopBridge: () => ({ remoteMode: fixture.mode, browser: { remoteRequest: fixture.request, setRemoteControl: async (enabled: boolean) => { if (!enabled) fixture.revoke(); return enabled && fixture.allow } } }) }))
 
 describe('remote browser consent lifecycle', () => {
-  beforeEach(() => { vi.resetModules(); fixture.callbacks.clear(); fixture.request.mockClear(); fixture.revoke.mockClear(); fixture.token = 'account'; fixture.mode = true; fixture.allow = true })
+  afterEach(async () => { const relay = await import('../../packages/client/src/composables/useRemoteBrowserRelay'); await relay.stopRemoteBrowserRelay() })
+  beforeEach(() => { fixture.emitted.splice(0); vi.resetModules(); fixture.callbacks.clear(); fixture.request.mockClear(); fixture.revoke.mockClear(); fixture.token = 'account'; fixture.mode = true; fixture.allow = true })
   it('requires Desktop consent and an authenticated remote session', async () => {
     const relay = await import('../../packages/client/src/composables/useRemoteBrowserRelay')
     fixture.allow = false
@@ -35,4 +37,16 @@ describe('remote browser consent lifecycle', () => {
     expect(relay.remoteBrowserEnabled.value).toBe(false)
     expect(fixture.revoke).toHaveBeenCalled()
   })
+  it('does not treat synthetic input or Agent calls as user activity and displays owner state', async () => {
+    const relay = await import('../../packages/client/src/composables/useRemoteBrowserRelay')
+    await relay.startRemoteBrowserRelay()
+    window.dispatchEvent(new Event('pointerdown'))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }))
+    expect(fixture.emitted).toEqual([])
+    fixture.callbacks.get('browser.owner-state')!('standby')
+    expect(relay.remoteBrowserOwnerState.value).toBe('standby')
+    fixture.callbacks.get('browser.owner-state')!('active')
+    expect(relay.remoteBrowserOwnerState.value).toBe('active')
+  })
+
 })

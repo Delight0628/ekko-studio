@@ -330,6 +330,6 @@ describe('remote Desktop browser transport', () => {
     const result = await rpc(2, 'tools/call', { name: 'ekko_studio_browser_toolset', arguments: { action: 'call', tool: 'ekko_studio_browser_tabs', arguments: { action: 'list' } } })
     expect(result.result.isError).not.toBe(true)
     expect(JSON.parse(result.result.content[0].text).result.tabs[0].id).toBe('desktop-tab')
-    expect(received).toEqual([{ path: '/api/studio/desktop-browser/request', auth: 'Bearer account-fixture', profile: 'research', body: { method: 'tabs.list', params: {} } }])
+    expect(received).toEqual([{ path: '/api/studio/desktop-browser/request', auth: 'Bearer account-fixture', profile: 'research', body: { method: 'tabs.list', params: {}, client_id: expect.any(String) } }])
   })
 })

@@ -309,6 +309,11 @@ export default {
   agentAutoUpdate: { label: 'Otomatik güncellemeler' },
 
   browser: {
+    remoteOwnerActive: 'Current control device',
+    remoteOwnerStandby: 'Standby — another device is active',
+    remoteOwnerBusy: 'Standby — browser operation in progress',
+    remoteOwnerConnecting: 'Connecting',
+
     remoteControl: 'Allow remote control',
     remoteControlStop: 'Stop remote control',
 

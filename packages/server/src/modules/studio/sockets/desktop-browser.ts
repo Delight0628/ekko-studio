@@ -21,6 +21,7 @@ export function registerDesktopBrowserRelay(io: Server): void {
     const release = desktopBrowserRelays.register({
       id: socket.id, userId: socket.data.user.id, profile: socket.data.profile,
       revoke: () => { socket.emit('browser.revoked') },
+      ownerState: state => { socket.emit('browser.owner-state', state) },
       request: async body => {
         const user = await authenticateUserToken(String(socket.handshake.auth?.token || ''))
         if (!user || user.id !== socket.data.user.id ||
@@ -32,6 +33,13 @@ export function registerDesktopBrowserRelay(io: Server): void {
         if (!reply || typeof reply !== 'object' || reply.error) throw new Error(String(reply?.error || 'Invalid Desktop browser response'))
         return reply.envelope
       },
+    })
+    let lastActivity = 0
+    socket.on('browser.user-activity', () => {
+      const now = Date.now()
+      if (now - lastActivity < 1000) return
+      lastActivity = now
+      desktopBrowserRelays.activity(socket.id)
     })
     socket.once('disconnect', release)
   })

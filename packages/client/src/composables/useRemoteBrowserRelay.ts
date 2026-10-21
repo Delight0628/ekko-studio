@@ -7,6 +7,8 @@ import { desktopBridge } from '@/utils/desktop-bridge'
 
 // One desktop capability per main renderer; survives panel collapse, not logout.
 export const remoteBrowserEnabled = ref(false)
+export const remoteBrowserOwnerState = ref<'active' | 'standby' | 'busy' | 'connecting'>('connecting')
+let stopActivity: (() => void) | null = null
 let generation = 0
 let socket: Socket | null = null
 let stopAuth: (() => void) | null = null
@@ -14,6 +16,8 @@ let stopAuth: (() => void) | null = null
 export async function stopRemoteBrowserRelay(): Promise<void> {
   generation++
   remoteBrowserEnabled.value = false
+  remoteBrowserOwnerState.value = 'connecting'
+  stopActivity?.(); stopActivity = null
   const previous = socket
   socket = null
   previous?.removeAllListeners()
@@ -35,6 +39,21 @@ export async function startRemoteBrowserRelay(): Promise<void> {
     transports: ['websocket'], reconnection: false,
   })
   socket = connection
+  let lastActivity = -Infinity
+  const reportActivity = (event: Event) => {
+    if (!event.isTrusted || document.visibilityState !== 'visible' || !connection.connected) return
+    const now = performance.now()
+    if (now - lastActivity < 1000) return
+    lastActivity = now
+    connection.emit('browser.user-activity')
+  }
+  // Capture real input, not focus/visibility, timers or synthetic Agent events.
+  const activityEvents = ['pointerdown', 'keydown', 'wheel'] as const
+  for (const event of activityEvents) window.addEventListener(event, reportActivity, { capture: true, passive: true })
+  stopActivity = () => { for (const event of activityEvents) window.removeEventListener(event, reportActivity, true) }
+  connection.on('browser.owner-state', state => {
+    if (socket === connection && ['active', 'standby', 'busy'].includes(state)) remoteBrowserOwnerState.value = state
+  })
   remoteBrowserEnabled.value = true
   stopAuth = onAuthInvalidated(() => { void stopRemoteBrowserRelay() })
   connection.on('browser.request', async (body, acknowledge) => {

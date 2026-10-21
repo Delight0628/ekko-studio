@@ -386,6 +386,11 @@ export default {
   },
   socialMessages: socialMessagesZhTw,
   browser: {
+    remoteOwnerActive: '当前控制设备',
+    remoteOwnerStandby: '待命：另一设备正在使用，闲置10分钟后可接管',
+    remoteOwnerBusy: '待命：浏览器操作正在执行',
+    remoteOwnerConnecting: '正在连接',
+
     remoteControl: '允许远程控制',
     remoteControlStop: '停止远程控制',
 

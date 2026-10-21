@@ -27,8 +27,20 @@ connection is outbound Socket.IO; no CDP/listening port is exposed on the LAN.
 Relay routing requires an authenticated user and an authorized Profile. Requests
 are rechecked for revoked/expired credentials. Model-run credentials must map
 to an identified user through the existing HTTP authentication middleware.
-Anonymous/server-token calls cannot inherit another user's desktop. More than
-one matching Desktop connection fails closed instead of choosing one.
+Anonymous/server-token calls cannot inherit another user's desktop. The first authorized Desktop is the active owner. A second Desktop remains on
+standby until the owner has had no reported human input for 10 minutes. A fresh
+trusted pointer/key/wheel event in the visible Studio renderer can then transfer
+ownership, but never while a browser request is in flight. Background heartbeat,
+focus, visibility and Agent calls do not refresh human activity. Input inside
+an embedded external browser page is not currently reported as Studio input.
+Each authenticated MCP run is pinned to its first Desktop. After takeover or
+disconnection, further calls from that old binding fail rather than following
+the new owner. For legacy profile credentials the binding conservatively spans
+the MCP process lifetime: reconnect that MCP to intentionally use the new owner.
+In-flight work is allowed to finish; it never jumps desktops mid-operation.
+Standby activity while busy is not replayed later. Both desktops show active,
+standby or busy state. Ownership transfer is not an extra authorization grant;
+both devices must already have explicitly enabled sharing.
 
 This grants **account/Profile-level** browser access, not isolation between
 individual chat runs in that same Profile.
