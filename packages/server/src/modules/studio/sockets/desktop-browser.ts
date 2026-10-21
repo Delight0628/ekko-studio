@@ -29,7 +29,7 @@ export function registerDesktopBrowserRelay(io: Server): void {
           socket.disconnect(true)
           throw new Error('Desktop browser authorization expired')
         }
-        const reply = await socket.timeout(40_000).emitWithAck('browser.request', body)
+        const reply = await socket.timeout(300_000).emitWithAck('browser.request', body)
         if (!reply || typeof reply !== 'object' || reply.error) throw new Error(String(reply?.error || 'Invalid Desktop browser response'))
         return reply.envelope
       },

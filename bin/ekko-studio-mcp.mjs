@@ -702,7 +702,7 @@ async function browserRequest(method, params = {}, signal) {
       'X-Hermes-Browser-Client': session.clientId,
     },
     body: JSON.stringify({ method, params, operation_id: operationId }),
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(45_000)]) : AbortSignal.timeout(45_000),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(300_000)]) : AbortSignal.timeout(300_000),
   })
   const payload = await response.json().catch(() => null)
   if (!response.ok) throw new Error(payload?.error || `Browser Broker HTTP ${response.status}`)

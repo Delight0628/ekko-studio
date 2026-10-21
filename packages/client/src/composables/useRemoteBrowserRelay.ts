@@ -38,7 +38,7 @@ export async function startRemoteBrowserRelay(): Promise<void> {
   const endpoint = socketEndpoint(getBaseUrlValue(), '/desktop-browser')
   const connection = io(endpoint.url, {
     path: endpoint.path, auth: { token: getApiKey(), profile: getActiveProfileName() || 'default' },
-    transports: ['websocket'], reconnection: false,
+    transports: ['websocket'], reconnection: false, timeout: 300_000,
   })
   socket = connection
   let lastActivity = -Infinity
@@ -82,7 +82,7 @@ export async function startRemoteBrowserRelay(): Promise<void> {
       timer = setTimeout(() => {
         reject(new Error('Desktop browser connection timed out'))
         stop()
-      }, 10_000)
+      }, 300_000)
       if (connection.connected) resolve()
     })
     if (socket !== connection || generation !== startedGeneration) throw new Error('Desktop browser connection was cancelled')

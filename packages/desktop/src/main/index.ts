@@ -204,7 +204,7 @@ function desktopRemoteDevices(): DesktopRemoteDevices {
     home: webUiHome(),
     activeServerUrl: activeRemoteServerUrl,
     env: process.env,
-    checkReady: url => waitForRemoteServerReady(url, Math.min(remoteReadyTimeoutMs(), 5000)),
+    checkReady: url => waitForRemoteServerReady(url, remoteReadyTimeoutMs()),
     restart: () => scheduleAppRestart(250),
   })
 }
@@ -1375,7 +1375,7 @@ ipcMain.handle('hermes-desktop:browser-remote-request', async (event, input: unk
   if (!grant || !activeRemoteServerUrl) throw new Error('Desktop browser remote control has not been authorized')
   const response = await fetch(grant.endpoint, {
     method: 'POST', headers: { Authorization: `Bearer ${grant.token}`, 'Content-Type': 'application/json', 'X-Hermes-Browser-Client': grant.clientId },
-    body: JSON.stringify(input), signal: AbortSignal.timeout(35_000),
+    body: JSON.stringify(input), signal: AbortSignal.timeout(300_000),
   })
   const result = await response.json() as { error?: string }
   if (grant !== remoteBrowserGrant) throw new Error('Desktop browser permission was revoked')

@@ -14,9 +14,11 @@ the Socket.IO connection; a connection failure is shown and revokes the local
 grant instead of reporting sharing as enabled. The grant lasts for the connection only. Start a new
 Agent turn/reconnect its browser MCP if it previously cached an empty catalog.
 
-Desktop startup allows each remote readiness probe up to ten seconds, bounded
-by the remaining overall readiness timeout (thirty seconds by default). A slow
-NAS response taking more than two seconds no longer fails every startup probe.
+Desktop startup and device selection allow up to 300 seconds for remote
+readiness, with each response bounded by the remaining overall timeout.
+The sharing connection and browser relay response budgets are also 300 seconds.
+Explicit caller cancellation and shorter configured readiness overrides still
+take precedence.
 
 The browser MCP always advertises its compact catalog, even offline. Local
 broker access retains its original behavior; without a local broker it calls

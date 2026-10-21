@@ -94,6 +94,7 @@ it('leases authenticated direct-chat MCP credentials without replacing a running
     await requireUserJwt(ctx, next)
     expect(next).toHaveBeenCalledOnce()
     expect((a.servers!['ekko-studio-browser'] as any).env.AUTH_TOKEN).toBe('')
+    expect((a.servers!['ekko-studio-browser'] as any).requestTimeoutMs).toBe(300_000)
     expect(a.servers!.custom).toBe(servers.custom)
     expect(servers['ekko-studio-browser'].env.AUTH_TOKEN).toBe('stale-static-token')
     controller.abort()

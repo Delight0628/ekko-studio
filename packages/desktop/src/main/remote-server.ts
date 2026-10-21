@@ -5,9 +5,9 @@ import { webUiHome } from './paths'
 export const REMOTE_SERVER_URL_ENV = 'EKKO_STUDIO_DESKTOP_SERVER_URL'
 export const REMOTE_SERVER_SETTINGS_NAME = 'desktop-remote-server.json'
 
-const DEFAULT_REMOTE_READY_TIMEOUT_MS = 30_000
+const DEFAULT_REMOTE_READY_TIMEOUT_MS = 300_000
 const REMOTE_READY_POLL_INTERVAL_MS = 500
-const REMOTE_READY_REQUEST_TIMEOUT_MS = 10_000
+const REMOTE_READY_REQUEST_TIMEOUT_MS = 300_000
 
 export function desktopPreloadArguments(kind: 'main' | 'pet' | 'chat', remoteMode: boolean): string[] {
   return [

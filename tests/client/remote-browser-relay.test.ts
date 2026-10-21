@@ -89,7 +89,10 @@ describe('remote browser consent lifecycle', () => {
       const relay = await import('../../packages/client/src/composables/useRemoteBrowserRelay')
       const pending = relay.startRemoteBrowserRelay()
       const rejected = expect(pending).rejects.toThrow('timed out')
-      await vi.advanceTimersByTimeAsync(10_001)
+      await vi.advanceTimersByTimeAsync(299_999)
+      expect(relay.remoteBrowserEnabled.value).toBe(false)
+      expect(fixture.revoke).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(2)
       await rejected
       expect(relay.remoteBrowserEnabled.value).toBe(false)
       expect(fixture.revoke).toHaveBeenCalledTimes(2)

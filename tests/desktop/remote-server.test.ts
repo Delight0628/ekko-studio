@@ -103,11 +103,11 @@ describe('remote server URL sources', () => {
 })
 
 describe('remote readiness timeout', () => {
-  it('defaults to 30 seconds and accepts positive overrides', () => {
-    expect(remoteReadyTimeoutMs({})).toBe(30_000)
+  it('defaults to 300 seconds and accepts positive overrides', () => {
+    expect(remoteReadyTimeoutMs({})).toBe(300_000)
     expect(remoteReadyTimeoutMs({ EKKO_STUDIO_DESKTOP_REMOTE_READY_TIMEOUT_MS: '5000' })).toBe(5000)
-    expect(remoteReadyTimeoutMs({ EKKO_STUDIO_DESKTOP_REMOTE_READY_TIMEOUT_MS: '-1' })).toBe(30_000)
-    expect(remoteReadyTimeoutMs({ EKKO_STUDIO_DESKTOP_REMOTE_READY_TIMEOUT_MS: 'abc' })).toBe(30_000)
+    expect(remoteReadyTimeoutMs({ EKKO_STUDIO_DESKTOP_REMOTE_READY_TIMEOUT_MS: '-1' })).toBe(300_000)
+    expect(remoteReadyTimeoutMs({ EKKO_STUDIO_DESKTOP_REMOTE_READY_TIMEOUT_MS: 'abc' })).toBe(300_000)
   })
 })
 
@@ -140,6 +140,14 @@ describe('remote server readiness probe', () => {
     await expect(waitForRemoteServerReady('https://remote.example', 100)).rejects.toThrow('did not become ready')
     expect(timeout).toHaveBeenCalledOnce()
     expect(timeout.mock.calls[0][0]).toBeLessThanOrEqual(100)
+  })
+
+  it('gives a readiness response the configured 300-second budget', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ status: 'ready' }))))
+    await waitForRemoteServerReady('https://remote.example', remoteReadyTimeoutMs({}))
+    expect(timeout.mock.calls[0][0]).toBeGreaterThan(299_000)
+    expect(timeout.mock.calls[0][0]).toBeLessThanOrEqual(300_000)
   })
 
   it('retries while the server answers non-2xx', async () => {
