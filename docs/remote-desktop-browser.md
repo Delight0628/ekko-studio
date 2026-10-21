@@ -8,8 +8,8 @@ PID. Previously the browser MCP returned an empty tool list in this setup.
 
 Both server and Desktop client must include this change. Connect to the remote
 Studio through Desktop device management and log in. Open the browser panel,
-choose **Allow remote control**, then approve the native Desktop warning that
-names the remote server. The grant lasts for the connection only. Start a new
+choose **Allow remote control**. This single action enables sharing without a
+second confirmation dialog. The grant lasts for the connection only. Start a new
 Agent turn/reconnect its browser MCP if it previously cached an empty catalog.
 
 The browser MCP always advertises its compact catalog, even offline. Local
@@ -31,7 +31,7 @@ Anonymous/server-token calls cannot inherit another user's desktop. More than
 one matching Desktop connection fails closed instead of choosing one.
 
 This grants **account/Profile-level** browser access, not isolation between
-individual chat runs in that same Profile. The consent warning discloses this.
+individual chat runs in that same Profile.
 Agents can read logged-in pages, take screenshots and operate controls. Only
 approve a trusted Studio server/account, use HTTPS on untrusted networks, and
 stop sharing before another person uses that account/Profile.
@@ -54,7 +54,7 @@ authentication rejection, expired authorization, MCP subprocess fallback,
 disconnection/late-response discard, explicit consent, and existing broker
 leases/takeover. Builds cover the server/client and Desktop TypeScript.
 
-A real Desktop + remote NAS test remains required: approve sharing, list the
+A real Desktop + remote NAS test remains required: enable sharing, list the
 visible tabs, open a harmless page, capture it, then stop sharing and verify
 further calls fail. This checkout does not update or restart any installed
 Desktop/NAS instance automatically.

@@ -21,12 +21,16 @@ const dialog = useDialog()
 const bridge = desktopBridge()?.browser
 const remoteControlAvailable = desktopBridge()?.remoteMode === true && !!bridge?.setRemoteControl
 const relayProfiles = useProfilesStore()
+const remoteControlPending = ref(false)
 watch(() => relayProfiles.activeProfileName, () => { void stopRemoteBrowserRelay() })
 async function toggleRemoteControl(): Promise<void> {
+  if (remoteControlPending.value) return
+  remoteControlPending.value = true
   try {
     if (remoteBrowserEnabled.value) await stopRemoteBrowserRelay()
     else await startRemoteBrowserRelay()
   } catch (error) { message.error(error instanceof Error ? error.message : String(error)) }
+  finally { remoteControlPending.value = false }
 }
 const EXTERNAL_OVERLAY_SELECTOR = [
   '[data-desktop-browser-overlay]',
@@ -533,7 +537,9 @@ onUnmounted(() => {
             <path d="M20 4v4h-4" />
           </svg>
         </button>
-        <NButton v-if="remoteControlAvailable" size="tiny" :type="remoteBrowserEnabled ? 'warning' : 'default'" @click="toggleRemoteControl">{{ t(remoteBrowserEnabled ? 'browser.remoteControlStop' : 'browser.remoteControl') }}</NButton>
+        <div v-if="remoteControlAvailable" class="remote-control-action">
+          <NButton size="small" :type="remoteBrowserEnabled ? 'warning' : 'default'" :secondary="remoteBrowserEnabled" :loading="remoteControlPending" :aria-pressed="remoteBrowserEnabled" @click="toggleRemoteControl">{{ t(remoteBrowserEnabled ? 'browser.remoteControlStop' : 'browser.remoteControl') }}</NButton>
+        </div>
         <NInput v-model:value="address" size="small" :placeholder="t('browser.addressPlaceholder')" :disabled="busy || hasAnnotationSession" @keydown.enter="navigate" />
         <NSelect
           class="profile-switcher"
@@ -636,6 +642,7 @@ onUnmounted(() => {
 .new-tab, .toolbar > button, .download-trigger { border: 0; background: transparent; color: inherit; cursor: pointer; border-radius: var(--radius-component, 6px); }.new-tab { width: 34px; height: 34px; font-size: calc(var(--font-size-base, 14px) * 20 / 14); }.toolbar > button, .download-trigger { width: 30px; height: 30px; font-size: calc(var(--font-size-base, 14px) * 18 / 14); }.toolbar > button { display: inline-grid; place-items: center; padding: 0; }.toolbar > button:hover, .download-trigger:hover, .new-tab:hover { background: rgba(127,127,127,.15); }.toolbar > button:disabled { opacity: .35; }
 .toolbar { height: 46px; flex: 0 0 46px; padding: calc(7px * var(--spacing-scale, 1)) calc(10px * var(--spacing-scale, 1)); border-bottom: var(--border-width, 1px) solid var(--border-color); display: flex; align-items: center; gap: calc(8px * var(--spacing-scale, 1)); }
 .toolbar-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.remote-control-action { flex: 0 0 auto; }
 .toolbar-stop-icon { fill: currentColor; stroke: none; }
 .profile-switcher { width: 136px; flex: 0 0 136px; }
 .download-trigger { position: relative; flex: 0 0 30px; padding: 0; }

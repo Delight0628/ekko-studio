@@ -1353,12 +1353,8 @@ ipcMain.handle('hermes-desktop:browser-remote-control', async (event, enable: un
   const generation = remoteBrowserGrantGeneration
   const owner = mainWindow.webContents
   const remoteUrl = activeRemoteServerUrl
-  const response = await dialog.showMessageBox(mainWindow, {
-    type: 'warning', buttons: [t('common.cancel'), t('browser.remoteControlAllow')],
-    defaultId: 0, cancelId: 0, title: t('browser.remoteControl'),
-    message: t('browser.remoteControlWarning'), detail: activeRemoteServerUrl,
-  })
-  if (generation !== remoteBrowserGrantGeneration || response.response !== 1 || owner.isDestroyed() || mainWindow?.webContents !== owner || activeRemoteServerUrl !== remoteUrl) return false
+  // Clicking the browser-panel switch is the explicit grant. Do not prompt twice.
+  if (owner.isDestroyed()) return false
   owner.once('did-start-navigation', revokeRemoteBrowserGrant)
   owner.once('render-process-gone', revokeRemoteBrowserGrant)
   const descriptor = await browserBroker.start()
@@ -1369,7 +1365,7 @@ ipcMain.handle('hermes-desktop:browser-remote-control', async (event, enable: un
   })
   const session = await registration.json() as { client_id: string; session_token: string }
   if (!registration.ok || !session.client_id || !session.session_token) throw new Error('Browser relay registration failed')
-  if (generation !== remoteBrowserGrantGeneration || owner.isDestroyed()) { browserBroker?.revokeClient(session.client_id); return false }
+  if (generation !== remoteBrowserGrantGeneration || owner.isDestroyed() || mainWindow?.webContents !== owner || activeRemoteServerUrl !== remoteUrl) { browserBroker?.revokeClient(session.client_id); return false }
   remoteBrowserGrant = { clientId: session.client_id, token: session.session_token, endpoint: descriptor.endpoint }
   return true
 })
