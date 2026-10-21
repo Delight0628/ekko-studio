@@ -716,15 +716,22 @@ describe('ekko-agent context usage events', () => {
     }))
   })
 
-  it('uses the Hermes Responses default reasoning effort when none is selected', async () => {
-    agentRunMock.mockResolvedValueOnce({
-      runId: 'run-1',
-      output: { role: 'assistant', content: 'done' },
-      steps: [],
-      messages: [],
-      events: [],
-      contextEstimate: { contextTokens: 5_000 },
+  it('defaults to no reasoning when no effort is selected', async () => {
+    const { AgentRuntime } = await import('../../packages/ekko-agent/src/runtime/runtime')
+    const { OpenAIResponsesModelClient } = await import('../../packages/ekko-agent/src/model/providers/openai-responses')
+    const fetchMock = vi.fn(async (_url: string | URL, _init?: RequestInit) => new Response(JSON.stringify({
+      output_text: 'done', status: 'completed',
+    })))
+    const modelClient = new OpenAIResponsesModelClient({
+      id: 'test', type: 'openai', requestStyle: 'openai-responses',
+      baseUrl: 'https://model.example.test/v1', defaultModel: 'ekko-test-model',
+      capabilities: { streaming: false },
+    }, { fetch: fetchMock })
+    const runtime = new AgentRuntime({
+      modelClient, toolsEnabled: false, skillsEnabled: false,
+      modelDefaults: { reasoningEffort: 'medium' },
     })
+    agentRunMock.mockImplementationOnce(input => runtime.run({ ...input, modelClient, onEvent: undefined }))
     const { handleEkkoAgentRun } = await import('../../packages/server/src/modules/studio/services/chat-run/handle-ekko-agent-run')
     const { nsp, socket, sessionMap } = makeHarness()
 
@@ -735,12 +742,34 @@ describe('ekko-agent context usage events', () => {
     }, 'default', sessionMap, vi.fn(() => false))
 
     expect(agentRunMock).toHaveBeenCalledWith(expect.objectContaining({
-      reasoningEffort: 'medium',
+      reasoningEffort: 'none',
       reasoningSummary: 'auto',
       modelDefaults: expect.objectContaining({
-        reasoningEffort: 'medium',
+        reasoningEffort: 'none',
         reasoningSummary: 'auto',
       }),
+    }))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(body.reasoning).toEqual({ effort: 'none', summary: 'auto' })
+  })
+
+  it.each([
+    { requested: undefined, expected: 'high' },
+    { requested: '', expected: 'none' },
+  ])('uses $expected when the stored effort is high and the request effort is $requested', async ({ requested, expected }) => {
+    getSessionMock.mockReturnValue({ ...getSessionMock(), reasoning_effort: 'high' })
+    agentRunMock.mockResolvedValueOnce({
+      runId: 'run-1', output: { role: 'assistant', content: 'done' }, steps: [], messages: [], events: [],
+    })
+    const { handleEkkoAgentRun } = await import('../../packages/server/src/modules/studio/services/chat-run/handle-ekko-agent-run')
+    const { nsp, socket, sessionMap } = makeHarness()
+    await handleEkkoAgentRun(nsp as any, socket as any, {
+      session_id: 'session-1', input: 'answer directly', coding_agent_id: 'ekko-agent',
+      reasoning_effort: requested,
+    }, 'default', sessionMap, vi.fn(() => false))
+    expect(agentRunMock).toHaveBeenCalledWith(expect.objectContaining({
+      reasoningEffort: expected, modelDefaults: expect.objectContaining({ reasoningEffort: expected }),
     }))
   })
 

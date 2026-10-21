@@ -133,7 +133,7 @@ function normalizeReasoningEffort(value: unknown): ModelReasoningEffort | undefi
 }
 
 function resolveReasoningEffort(value: unknown): ModelReasoningEffort {
-  return normalizeReasoningEffort(value) ?? 'medium'
+  return normalizeReasoningEffort(value) ?? 'none'
 }
 
 function parseJsonRecord(value: unknown): Record<string, unknown> | null {

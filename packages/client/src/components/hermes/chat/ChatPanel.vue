@@ -1208,6 +1208,7 @@ watch(newChatNativeCatalog, catalog => {
   }
 });
 const newChatDraftConfig = computed(() => ({
+  agent: newChatAgent.value,
   profile: newChatProfile.value,
   provider: isNewChatGlobalCodingAgent.value ? "" : newChatProvider.value,
   model: isNewChatGlobalCodingAgent.value ? newChatNativeSelection.value.model : newChatModel.value,
