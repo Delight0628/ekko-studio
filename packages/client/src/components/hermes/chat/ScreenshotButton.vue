@@ -91,7 +91,7 @@ async function start(hideWindows = false) {
     if (disposed) return
     const detail = reason instanceof Error ? reason.message : String(reason)
     if (detail.includes('SCREENSHOT_PERMISSION_DENIED') && permissions) {
-      permissionNeeded.value = true
+      await authorizeScreenRecording()
       return
     }
     const key = detail.includes('SCREENSHOT_PERMISSION_DENIED') ? 'permissionDenied'
@@ -111,8 +111,15 @@ async function authorizeScreenRecording() {
   if (!permissions || permissionOpening.value || disposed) return
   permissionOpening.value = true
   permissionError.value = ''
-  try { await permissions.request('screenRecording') }
-  catch { if (!disposed) permissionError.value = t('computerUsePermissions.openFailed') }
+  try {
+    await permissions.request('screenRecording')
+    if (!disposed) permissionNeeded.value = false
+  } catch {
+    if (!disposed) {
+      permissionNeeded.value = true
+      permissionError.value = t('computerUsePermissions.openFailed')
+    }
+  }
   finally { permissionOpening.value = false }
 }
 

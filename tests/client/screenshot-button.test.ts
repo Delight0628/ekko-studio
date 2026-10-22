@@ -116,7 +116,7 @@ describe('screenshot composer button', () => {
     expect(wrapper.get('button').attributes('disabled')).toBeUndefined()
   })
 
-  it('offers inline authorization instead of a dialog and requests only after a click', async () => {
+  it('opens system authorization directly after the screenshot permission failure', async () => {
     nativeBridge(vi.fn().mockRejectedValue(new Error('SCREENSHOT_PERMISSION_DENIED')))
     const request = vi.fn().mockResolvedValue(undefined)
     desktop.bridge.platform = 'darwin'
@@ -124,12 +124,9 @@ describe('screenshot composer button', () => {
     const wrapper = mount(ScreenshotButton)
     await wrapper.get('button.screenshot-button').trigger('click')
     await flushPromises()
-    expect(wrapper.get('[data-testid="screenshot-permission-guide"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="screenshot-permission-guide"]').exists()).toBe(false)
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
-    expect(request).not.toHaveBeenCalled()
-    await wrapper.get('[data-testid="screenshot-authorize"]').trigger('click')
-    await flushPromises()
-    expect(request).toHaveBeenCalledWith('screenRecording')
+    expect(request).toHaveBeenCalledExactlyOnceWith('screenRecording')
   })
 
   it('keeps the inline retry action when opening system settings fails', async () => {
