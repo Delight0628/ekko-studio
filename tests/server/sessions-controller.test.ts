@@ -260,12 +260,34 @@ vi.mock('../../packages/server/src/modules/studio/public/session-agent-runtime',
 vi.mock('../../packages/server/src/modules/studio/services/task-plans', () => ({
   getSessionTaskPlans: vi.fn(() => []),
 }))
+vi.mock('../../packages/server/src/modules/studio/services/session-tasks', () => ({
+  getSessionTasks: (sessionId: string) => ({ session_id: sessionId, revision: 0, updated_at: 0, tasks: [] }),
+}))
 
 vi.mock('../../packages/server/src/modules/studio/public/agent-status-registry', () => ({
   isHermesAgentAvailable: vi.fn(() => agentStatusMocks.hermesAvailable),
 }))
 
 describe('session conversations controller', () => {
+  it('reads the durable goal ledger only for an existing accessible session', async () => {
+    const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
+    getSessionMock.mockReturnValue({ id: 's1', profile: 'research' })
+    const context = () => ({ params: { id: 's1' }, query: {}, state: {} }) as any
+    const ok = context()
+    mod.getTasks(ok)
+    expect(ok.body).toEqual({ session_id: 's1', revision: 0, updated_at: 0, tasks: [] })
+    const wrong = context(); wrong.query.profile = 'other'
+    mod.getTasks(wrong)
+    expect(wrong.status).toBe(404)
+    const forbidden = context(); forbidden.state.user = { id: 3, role: 'user' }
+    listUserProfilesMock.mockReturnValue([{ profile_name: 'other' }])
+    mod.getTasks(forbidden)
+    expect(forbidden.status).toBe(403)
+    getSessionMock.mockReturnValue(null)
+    const missing = context()
+    mod.getTasks(missing)
+    expect(missing.status).toBe(404)
+  })
   it('forwards the optional model endpoint to context resolution without changing legacy requests', async () => {
     const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
     getHermesModelContextLengthMock.mockReturnValue(202800)

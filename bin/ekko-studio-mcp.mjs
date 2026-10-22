@@ -245,7 +245,8 @@ async function requestEnvelope(path, options = {}) {
     : defaultProfile()
   // Explicit run bindings take precedence. Shared Hermes MCP connections can
   // select a restricted group-plan credential without changing process state.
-  const contextId = path === '/api/studio/task-plans/update' ? String(options.body?.context_id || '') : undefined
+  const contextId = ['/api/studio/task-plans/update', '/api/studio/session-tasks/list', '/api/studio/session-tasks/update'].includes(path)
+    ? String(options.body?.context_id || '') : undefined
   const runCredential = readRunCredential(profile, contextId)
   const token = runCredential?.token || readToken(options.token, options.allowTokenFile !== false, profile)
   const method = options.method || 'GET'
@@ -1111,6 +1112,32 @@ const tools = [
     }, ['context_id', 'plan']),
   },
   {
+    name: 'ekko_studio_list_session_tasks',
+    toolset: 'plan',
+    description: 'At the beginning of every turn, read the current session user goals and open/completed states, review past delivery and identify concrete new tasks. Goals span turns; ekko_studio_update_plan manages execution steps for one run. Use only the latest context_id; the server binds the session. Unavailable to group chat, workflows, global agents, delegated and background tasks.',
+    inputSchema: inputSchema({
+      context_id: { type: 'string', description: 'Current turn context supplied by Studio.' },
+    }, ['context_id']),
+  },
+  {
+    name: 'ekko_studio_update_session_tasks',
+    toolset: 'plan',
+    description: 'Persist changed/new user goals across turns. At turn start, review history and create concrete tasks before execution; before the final response, update progress and verified completion with completion_evidence. Reuse existing ids for continuations or corrections; omitted goals are retained. Use revision from the latest read/update; reread on conflict. open means unfinished including blocked/interrupted. Turn end or finished plan steps never proves goal completion. Independent of ekko_studio_update_plan; no page card. The server binds the session through the latest context_id.',
+    inputSchema: inputSchema({
+      context_id: { type: 'string', description: 'Current turn context supplied by Studio.' },
+      revision: { type: 'integer', minimum: 0 },
+      changes: { type: 'array', minItems: 1, maxItems: 30, items: {
+        type: 'object', additionalProperties: false, required: ['title', 'summary', 'status'], properties: {
+          id: { type: 'string', minLength: 1, maxLength: 100 },
+          title: { type: 'string', minLength: 1, maxLength: 200 },
+          summary: { type: 'string', minLength: 1, maxLength: 1000 },
+          status: { type: 'string', enum: ['open', 'completed'] },
+          completion_evidence: { type: 'string', maxLength: 1000, description: 'Required when newly completing a goal: concise evidence of verified delivery.' },
+        },
+      } },
+    }, ['context_id', 'revision', 'changes']),
+  },
+  {
     name: 'ekko_studio_use_chat_run',
     toolset: 'use',
     description: 'Start one user-requested Ekko Studio chat or coding-agent run through the HTTP bridge and wait for completion. Do not use this as an internal delegation or subtask mechanism.',
@@ -1752,6 +1779,7 @@ function categoryToolByName(name) {
 function serverInstructions() {
   if (ACTIVE_TOOLSET === 'plan') return SHARED_TASK_PLAN_ENABLED
     ? 'Use ekko_studio_update_plan from ekko-studio-interaction to maintain the current Studio task card. Use only the context_id supplied with the latest input; expired contexts cannot update another turn.'
+      + ' At the beginning of each turn, use ekko_studio_list_session_tasks to review past user goals, then ekko_studio_update_session_tasks to reconcile statuses and create concrete new goals before execution. Update results before the final response. Session goals span turns and are distinct from per-turn plan steps; no page card is created. Completed goals require evidence of verified delivery.'
       + (USER_CLARIFICATION_ENABLED ? ' Use ekko_studio_clarify from this same MCP server to ask a necessary question and wait for the user in Studio/App, using the latest interaction context_id. Never treat timeout, dismissal, or cancellation as approval.' : '')
     : ''
   if (ACTIVE_TOOLSET === 'api') {
@@ -1910,6 +1938,14 @@ async function callToolInner(name, args = {}, signal) {
     case 'ekko_studio_update_plan':
       return jsonText(await request('/api/studio/task-plans/update', withAuthArgs(args, {
         method: 'POST', body: pickDefined(args, ['context_id', 'explanation', 'plan']),
+      })))
+    case 'ekko_studio_list_session_tasks':
+      return jsonText(await request('/api/studio/session-tasks/list', withAuthArgs(args, {
+        method: 'POST', body: pickDefined(args, ['context_id']),
+      })))
+    case 'ekko_studio_update_session_tasks':
+      return jsonText(await request('/api/studio/session-tasks/update', withAuthArgs(args, {
+        method: 'POST', body: pickDefined(args, ['context_id', 'revision', 'changes']),
       })))
     case 'ekko_studio_use_chat_run':
       return jsonText(await request('/api/studio/chat-run/runs', withAuthArgs(args, {

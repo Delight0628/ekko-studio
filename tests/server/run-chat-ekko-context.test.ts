@@ -7,6 +7,9 @@ import { respondToEkkoClarification } from '../../packages/server/src/modules/ek
 import * as runUsageStore from '../../packages/server/src/modules/studio/repositories/run-usage-store'
 
 const saveTaskPlanMock = vi.hoisted(() => vi.fn())
+const getSessionTasksMock = vi.hoisted(() => vi.fn((sessionId: string) => ({ session_id: sessionId, revision: 0, updated_at: 0, tasks: [] })))
+const updateSessionTasksMock = vi.hoisted(() => vi.fn((sessionId: string) => ({ session_id: sessionId, revision: 1, updated_at: 1, tasks: [] })))
+vi.mock('../../packages/server/src/modules/studio/services/session-tasks', () => ({ getSessionTasks: getSessionTasksMock, updateSessionTasks: updateSessionTasksMock }))
 vi.mock('../../packages/server/src/modules/studio/repositories/task-plan-store', () => ({ saveTaskPlan: saveTaskPlanMock }))
 
 const getSessionMock = vi.hoisted(() => vi.fn())
@@ -176,6 +179,42 @@ function continuationContext(subagentId = 'child-background') {
 }
 
 describe('ekko-agent context usage events', () => {
+  it('binds native goal reads/writes to this live turn and rejects changed profile/history or finished runs', async () => {
+    const { handleEkkoAgentRun } = await import('../../packages/server/src/modules/studio/services/chat-run/handle-ekko-agent-run')
+    const { nsp, socket, sessionMap, events } = makeHarness()
+    const update = { revision: 0, changes: [{ title: 'CSV export', summary: 'Requested', status: 'open' }] }
+    let context: any
+    agentRunMock.mockImplementationOnce(async (input: any) => {
+      context = input.toolContext
+      expect(context.listSessionTasks()).toMatchObject({ session_id: 'session-1', tasks: [] })
+      context.updateSessionTasks(update)
+      expect(updateSessionTasksMock).toHaveBeenCalledWith('session-1', 'default', update, 0)
+      getSessionMock.mockReturnValue({ id: 'session-1', profile: 'other' })
+      expect(() => context.listSessionTasks()).toThrow('unavailable')
+      expect(() => context.updateSessionTasks(update)).toThrow('unavailable')
+      getSessionMock.mockReturnValue({ id: 'session-1', profile: 'default', history_revision: 1 })
+      expect(() => context.updateSessionTasks(update)).toThrow('unavailable')
+      getSessionMock.mockReturnValue({ id: 'session-1', profile: 'default' })
+      return { runId: 'goals', output: { role: 'assistant', content: 'Working' }, steps: [], messages: [], events: [] }
+    })
+    await handleEkkoAgentRun(nsp as any, socket as any, {
+      session_id: 'session-1', input: 'Add CSV export', coding_agent_id: 'ekko-agent',
+    }, 'default', sessionMap, vi.fn(() => false))
+    expect(getSessionTasksMock).toHaveBeenCalledWith('session-1')
+    expect(updateSessionTasksMock).toHaveBeenCalledTimes(1)
+    expect(() => context.updateSessionTasks(update)).toThrow('expired')
+    expect(events.some((entry: any) => entry.event === 'plan.updated')).toBe(false)
+  })
+
+  it.each(['group_chat', 'workflow', 'global_agent'] as const)('does not bind single-session goal reads for %s', async source => {
+    const { handleEkkoAgentRun } = await import('../../packages/server/src/modules/studio/services/chat-run/handle-ekko-agent-run')
+    const { nsp, socket, sessionMap } = makeHarness()
+    await handleEkkoAgentRun(nsp as any, socket as any, {
+      session_id: 'session-1', input: 'Work on this task', coding_agent_id: 'ekko-agent', source,
+    }, 'default', sessionMap, vi.fn(() => false))
+    expect(agentRunMock.mock.calls.at(-1)![0].toolContext.listSessionTasks).toBeUndefined()
+    expect(agentRunMock.mock.calls.at(-1)![0].toolContext.updateSessionTasks).toBeUndefined()
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     agentEstimateContextMock.mockResolvedValue({ contextTokens: 5_000 })

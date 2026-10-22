@@ -1473,6 +1473,8 @@ export * from './tools/manager'
 
 export * from './tools/registry'
 
+export * from './tools/session-tasks'
+
 export * from './tools/recovery'
 
 export * from './tools/skills'
@@ -2857,6 +2859,7 @@ export interface SystemPromptInput {
   userSystemMessages?: string[]
   memoryContext?: string
   planningEnabled?: boolean
+  sessionTasksEnabled?: boolean
   clarificationEnabled?: boolean
   skillDiscoveryEnabled?: boolean
   skillManagementEnabled?: boolean
@@ -3544,6 +3547,52 @@ export interface DefaultToolRegistryOptions {
 
 export function createDefaultToolRegistry(options: DefaultToolRegistryOptions = {}): AgentToolRegistry
 ```
+### `src/tools/session-tasks.ts`
+
+```ts
+export interface AgentSessionTask {
+  id: string
+  title: string
+  summary: string
+  status: 'open' | 'completed'
+}
+
+export interface AgentSessionTasksSnapshot {
+  session_id: string
+  revision: number
+  updated_at: number
+  tasks: AgentSessionTask[]
+}
+
+export interface AgentSessionTaskChange {
+  id?: string
+  title: string
+  summary: string
+  status: 'open' | 'completed'
+  completion_evidence?: string
+}
+
+export interface AgentSessionTasksUpdate {
+  revision: number
+  changes: AgentSessionTaskChange[]
+}
+
+export function parseSessionTasksUpdate(input: Record<string, unknown>): AgentSessionTasksUpdate
+
+export class ListSessionTasksTool implements AgentTool {
+  readonly concurrency = 'parallel' as const
+  readonly definition = { name: 'list_session_tasks', description: 'Read durable user goals for the current session at the beginning of every turn. Review past delivery and outstanding work, then create/update concrete goals with update_session_tasks before execution. Goals span turns; update_plan manages only execution steps for this run. The host binds the session. Follow the latest user request.', parameters: { type: 'object', properties: {}, required: [], additionalProperties: false }, }
+  async execute(input: Record<string, unknown>, context?: AgentToolContext): Promise<AgentToolResult>
+}
+
+export class UpdateSessionTasksTool implements AgentTool {
+  readonly concurrency = 'serial' as const
+  readonly definition = { name: 'update_session_tasks', description: 'Persist new/changed user goals for the current session. After reviewing history at turn start, create concrete tasks before executing them and reconcile prior statuses. Before the final response, save progress and verified completion with completion_evidence. Reuse existing ids; omit id only for a new goal. Omitted goals are retained. Use revision from the latest read/update; reread on conflict. open means unfinished, including blocked/interrupted work. Turn end or a finished update_plan never proves goal completion. This updates session goals, independently of run execution plans, without a page card.', parameters: { type: 'object', additionalProperties: false, required: ['revision', 'changes'], properties: { revision: { type: 'integer', minimum: 0 }, changes: { type: 'array', minItems: 1, maxItems: 30, items: { type: 'object', additionalProperties: false, required: ['title', 'summary', 'status'], properties: { id: { type: 'string', minLength: 1, maxLength: 100 }, title: { type: 'string', minLength: 1, maxLength: 200 }, summary: { type: 'string', minLength: 1, maxLength: 1000 }, status: { type: 'string', enum: ['open', 'completed'] }, completion_evidence: { type: 'string', maxLength: 1000, description: 'Required when newly completing a goal: concise evidence that its requested outcome was delivered and verified.' }, }, } }, }, }, }
+  async execute(input: Record<string, unknown>, context?: AgentToolContext): Promise<AgentToolResult>
+}
+
+export function createSessionTasksToolProvider(): AgentToolProvider
+```
 ### `src/tools/skills.ts`
 
 ```ts
@@ -3722,6 +3771,8 @@ export interface AgentToolAuthorizationDecision {
 export type AgentToolAuthorizer = ( toolName: string, input: Record<string, unknown>, context?: AgentToolContext, ) => Promise<AgentToolAuthorizationDecision>
 
 export interface AgentToolContext {
+  listSessionTasks?: () => import('./session-tasks').AgentSessionTasksSnapshot | Promise<import('./session-tasks').AgentSessionTasksSnapshot>
+  updateSessionTasks?: (update: import('./session-tasks').AgentSessionTasksUpdate) => import('./session-tasks').AgentSessionTasksSnapshot | Promise<import('./session-tasks').AgentSessionTasksSnapshot>
   updatePlan?: (update: import('./plan').AgentPlanUpdate) => import('./plan').AgentTaskPlan
   runId?: string
   cwd?: string

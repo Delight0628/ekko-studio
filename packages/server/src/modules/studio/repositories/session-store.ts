@@ -3,7 +3,7 @@
  * Uses the same ensureTable/getDb pattern as usage-store.ts.
  */
 import { isSqliteAvailable, getDb } from '../infrastructure/database'
-import { TASK_PLANS_TABLE, COMPRESSION_SNAPSHOT_TABLE, SESSIONS_TABLE, MESSAGES_TABLE, SESSION_CATEGORIES_TABLE } from '../infrastructure/database/schemas'
+import { TASK_PLANS_TABLE, SESSION_TASKS_TABLE, COMPRESSION_SNAPSHOT_TABLE, SESSIONS_TABLE, MESSAGES_TABLE, SESSION_CATEGORIES_TABLE } from '../infrastructure/database/schemas'
 import { normalizeMessageContentForStorageRole } from './message-content'
 import { copyCompressionSnapshot } from './compression-snapshot'
 import { recordSkillUsageMessage } from './skill-usage-store'
@@ -510,6 +510,7 @@ export function deleteSession(id: string): boolean {
   db.exec('BEGIN')
   try {
     db.prepare(`DELETE FROM ${TASK_PLANS_TABLE} WHERE session_id = ?`).run(id)
+    db.prepare(`DELETE FROM ${SESSION_TASKS_TABLE} WHERE session_id = ?`).run(id)
     db.prepare(`DELETE FROM ${COMPRESSION_SNAPSHOT_TABLE} WHERE session_id = ?`).run(id)
     db.prepare(`DELETE FROM ${MESSAGES_TABLE} WHERE session_id = ?`).run(id)
     const result = db.prepare(`DELETE FROM ${SESSIONS_TABLE} WHERE id = ?`).run(id)
@@ -528,10 +529,13 @@ export function clearSessionMessages(id: string): number {
   try {
     const result = db.prepare(`DELETE FROM ${MESSAGES_TABLE} WHERE session_id = ?`).run(id)
     db.prepare(`DELETE FROM ${TASK_PLANS_TABLE} WHERE session_id = ?`).run(id)
+    db.prepare(`DELETE FROM ${SESSION_TASKS_TABLE} WHERE session_id = ?`).run(id)
     db.prepare(`DELETE FROM ${COMPRESSION_SNAPSHOT_TABLE} WHERE session_id = ?`).run(id)
     db.prepare(
       `UPDATE ${SESSIONS_TABLE}
        SET history_revision = history_revision + 1,
+           task_summary_revision = task_summary_revision + 1,
+           task_summary_updated_at = 0,
            history_cleared_at = ?,
            message_count = 0,
            last_active = started_at

@@ -1844,6 +1844,69 @@ if (browserRelayOperation) {
   browserRelayOperation.responses['409'] = { description: 'Unavailable, ambiguous, disconnected, revoked or invalid browser operation' }
 }
 
+// Durable session goals are maintained by the current conversation model, separate from run plans.
+openapi.components.schemas.SessionTask = {
+  type: 'object', required: ['id', 'title', 'summary', 'status', 'source_message_id', 'created_at', 'updated_at'],
+  properties: {
+    id: { type: 'string' }, title: { type: 'string', maxLength: 200 }, summary: { type: 'string', maxLength: 1000 },
+    status: { type: 'string', enum: ['open', 'completed'] },
+    source_message_id: { type: 'integer' }, evidence_message_id: { type: 'integer', nullable: true },
+    completion_evidence: { type: 'string', description: 'Concise evidence of verified delivery supplied by the conversation agent.' },
+    created_at: { type: 'integer', description: 'Unix time in milliseconds.' }, updated_at: { type: 'integer' },
+    completed_at: { type: 'integer', nullable: true },
+  },
+}
+const sessionTasksOperation = openapi.paths['/api/studio/sessions/{id}/tasks'].get
+sessionTasksOperation.operationId = 'getSessionTasks'
+sessionTasksOperation.summary = 'Read durable session goals'
+sessionTasksOperation.description = 'Returns persisted goals for an accessible Studio session. The current conversation agent reviews them at turn start, creates new tasks before execution and updates results before its final response. Goals span turns and are separate from run plans. No page card is added.'
+sessionTasksOperation.parameters = [
+  { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+  { name: 'profile', in: 'query', required: false, schema: { type: 'string' }, description: 'Optional exact session profile filter.' },
+]
+sessionTasksOperation.responses = {
+  '200': { description: 'Current goal ledger; tasks is empty before the first goal is recorded.', content: { 'application/json': { schema: {
+    type: 'object', required: ['session_id', 'revision', 'updated_at', 'tasks'], properties: {
+      session_id: { type: 'string' }, revision: { type: 'integer', minimum: 0 }, updated_at: { type: 'integer' },
+      tasks: { type: 'array', items: { $ref: '#/components/schemas/SessionTask' } },
+    },
+  } } } },
+  '401': { $ref: '#/components/responses/Unauthorized' },
+  '403': { description: 'The authenticated user cannot access this session profile.' },
+  '404': { description: 'Session not found, or the explicit profile filter does not match.' },
+}
+
+
+const sessionTaskChangeSchema = {
+  type: 'object', additionalProperties: false, required: ['title', 'summary', 'status'], properties: {
+    id: { type: 'string', minLength: 1, maxLength: 100 },
+    title: { type: 'string', minLength: 1, maxLength: 200 },
+    summary: { type: 'string', minLength: 1, maxLength: 1000 },
+    status: { type: 'string', enum: ['open', 'completed'] },
+    completion_evidence: { type: 'string', maxLength: 1000, description: 'Required for newly completed goals: evidence of verified delivery.' },
+  },
+}
+for (const action of ['list', 'update']) {
+  const operation = openapi.paths[`/api/studio/session-tasks/${action}`].post
+  operation.summary = `${action === 'list' ? 'Read' : 'Update'} the active turn session goals`
+  operation.description = 'The current turn context binds the session and profile. Expired contexts, other profiles, group chats, workflows and background/delegated runs are rejected. No per-turn task plan is created or modified. Writes upsert only changed/new goals and preserve omitted goals; revision conflicts require rereading. New completions require completion_evidence.'
+  operation.requestBody = { required: true, content: { 'application/json': { schema: {
+    type: 'object', additionalProperties: false,
+    required: action === 'list' ? ['context_id'] : ['context_id', 'revision', 'changes'],
+    properties: { context_id: { type: 'string', minLength: 1 }, ...(action === 'update' ? {
+      revision: { type: 'integer', minimum: 0 },
+      changes: { type: 'array', minItems: 1, maxItems: 30, items: sessionTaskChangeSchema },
+    } : {}) },
+  } } } }
+  operation.responses = {
+    ...sessionTasksOperation.responses,
+    '400': { description: 'Invalid input, foreign task id, duplicate goal or missing completion evidence.' },
+    '409': { description: 'Context expired, session scope unavailable, or revision changed; reread before retrying.' },
+    '503': { description: 'Chat run service unavailable.' },
+  }
+  delete operation.responses['404']
+}
+
 // Write output
 const outputPath = join(rootDir, 'docs/openapi.json')
 writeFileSync(outputPath, JSON.stringify(openapi, null, 2))
