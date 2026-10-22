@@ -268,3 +268,12 @@ native observation and images. They never click, retry or alter native success.
 Field values and images are excluded from JEV. Disabled/unconfigured features
 make zero provider requests; optional failures retain the native result.
 See [configuration and examples](../packages/ekko-agent/docs/computer-use.md#optional-jev-assessments).
+
+### Gateway base URL paths
+
+The base URL must include any gateway path prefix. For example, if the gateway serves
+`/typesafe/v1/systemone`, configure `https://gateway.example/typesafe`. The SDK appends
+`/v1/systemone`; do not include that endpoint in the base URL. An upstream HTTP 404
+is reported as `jev_endpoint_not_found` and prompts users to check the address and
+path prefix, rather than change the model. Other causes of upstream 404 responses
+are still possible; this message is a diagnostic hint, not automatic URL rewriting.

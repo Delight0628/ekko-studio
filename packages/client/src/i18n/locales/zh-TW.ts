@@ -213,6 +213,7 @@ export default {
       "auth_failed": "TypeSafe 驗證失敗，請檢查 API 金鑰及其權限。",
       "rate_limited": "已達到 TypeSafe 請求頻率限制，請稍後再試。",
       "provider_error": "TypeSafe 無法處理請求，請檢查模型後重試。",
+      "endpoint_not_found": "JEV 介面不存在（HTTP 404），請檢查介面位址是否包含閘道所需的路徑前綴。",
       "request_failed": "無法連線至 JEV，請檢查 API 位址與網路連線。",
       "settings_failed": "無法讀取或儲存 JEV 設定，請檢查 Studio 資料目錄。",
       "forbidden": "你沒有存取此設定檔的權限。",

@@ -213,6 +213,7 @@ export default {
       "auth_failed": "TypeSafe authentication failed. Check the API key and its permissions.",
       "rate_limited": "TypeSafe rate limit reached. Try again later.",
       "provider_error": "TypeSafe could not process the request. Check the model and try again.",
+      "endpoint_not_found": "JEV endpoint not found (HTTP 404). Check the API base URL and include any gateway path prefix.",
       "request_failed": "Unable to connect to JEV. Check the API URL and network connection.",
       "settings_failed": "Unable to read or save JEV settings. Check the Studio data directory.",
       "forbidden": "You do not have access to this Profile.",

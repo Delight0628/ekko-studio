@@ -213,6 +213,7 @@ export default {
       "auth_failed": "Échec de l’authentification TypeSafe. Vérifiez la clé API et ses autorisations.",
       "rate_limited": "Limite de requêtes TypeSafe atteinte. Réessayez plus tard.",
       "provider_error": "TypeSafe n’a pas pu traiter la requête. Vérifiez le modèle et réessayez.",
+      "endpoint_not_found": "Point de terminaison JEV introuvable (HTTP 404). Vérifiez que l’URL de base de l’API inclut le préfixe de chemin de la passerelle.",
       "request_failed": "Impossible de joindre JEV. Vérifiez l’adresse de l’API et le réseau.",
       "settings_failed": "Impossible de lire ou d’enregistrer les paramètres JEV. Vérifiez le dossier de données Studio.",
       "forbidden": "Vous n’avez pas accès à ce profil.",

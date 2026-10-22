@@ -287,6 +287,7 @@ export default {
       auth_failed: 'TypeSafe kimlik doğrulaması başarısız oldu. API anahtarını ve izinlerini denetleyin.',
       rate_limited: 'TypeSafe istek sınırına ulaşıldı. Daha sonra yeniden deneyin.',
       provider_error: 'TypeSafe isteği işleyemedi. Modeli denetleyip yeniden deneyin.',
+      "endpoint_not_found": "JEV uç noktası bulunamadı (HTTP 404). API temel URL’sini ve ağ geçidi yol önekini kontrol edin.",
       request_failed: 'JEV\'e bağlanılamadı. API URL\'sini ve ağ bağlantısını denetleyin.',
       settings_failed: 'JEV ayarları okunamadı veya kaydedilemedi. Studio veri dizinini denetleyin.',
       forbidden: 'Bu Profile erişiminiz yok.',

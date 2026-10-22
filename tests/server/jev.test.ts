@@ -278,10 +278,10 @@ describe('shared JEV client', () => {
     expect(JSON.parse(init!.body as string).model).toBe('jev-override')
   })
 
-  it.each([401, 403, 429, 500])('sanitizes provider HTTP %i errors without retries', async status => {
+  it.each([400, 401, 403, 404, 429, 500, 503])('sanitizes provider HTTP %i errors without retries', async status => {
     await saveJevSettings('research', { apiKey: 'private-key' })
     upstream.mockResolvedValue(Response.json({ error: 'private-key and private-state' }, { status }))
-    const code = [401, 403].includes(status) ? 'jev_auth_failed' : status === 429 ? 'jev_rate_limited' : 'jev_provider_error'
+    const code = [401, 403].includes(status) ? 'jev_auth_failed' : status === 404 ? 'jev_endpoint_not_found' : status === 429 ? 'jev_rate_limited' : 'jev_provider_error'
     await expect(evaluateJev('research', { state: 'private-state', questions })).rejects.toMatchObject({ status: 502, code, message: `JEV provider returned HTTP ${status}` })
     expect(upstream).toHaveBeenCalledTimes(1)
   })

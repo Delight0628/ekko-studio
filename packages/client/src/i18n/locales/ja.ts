@@ -213,6 +213,7 @@ export default {
       "auth_failed": "TypeSafe の認証に失敗しました。API キーと権限を確認してください。",
       "rate_limited": "TypeSafe のリクエスト制限に達しました。しばらくしてから再試行してください。",
       "provider_error": "TypeSafe がリクエストを処理できませんでした。モデルを確認して再試行してください。",
+      "endpoint_not_found": "JEV エンドポイントが見つかりません（HTTP 404）。API ベース URL にゲートウェイのパス接頭辞が含まれているか確認してください。",
       "request_failed": "JEV に接続できません。API URL とネットワークを確認してください。",
       "settings_failed": "JEV 設定を読み込みまたは保存できません。Studio のデータディレクトリを確認してください。",
       "forbidden": "このプロファイルへのアクセス権がありません。",
