@@ -1136,7 +1136,11 @@ export class CodingAgentRunManager {
   resolveApproval(sessionId: string, approvalId: string, choice = 'deny'): { handled: boolean; resolved: boolean } {
     const run = this.getBySession(sessionId)
     const codexResult = run?.codexAppServerTurn?.resolveApproval(approvalId, String(choice || 'deny').trim().toLowerCase())
-    if (codexResult?.handled) return codexResult
+    if (codexResult?.handled) {
+      logger.info({ sessionId, approvalId, choice, resolved: codexResult.resolved },
+        '[coding-agent-run] Codex approval decision received')
+      return codexResult
+    }
     // Expired/foreign native approvals must not fall through to the Hermes bridge.
     if (approvalId.startsWith('codex_')) return { handled: true, resolved: false }
     const request = run?.piUiRequests?.get(approvalId)
@@ -1232,6 +1236,12 @@ export class CodingAgentRunManager {
     if (!agentSessionId) return
     const run = this.runs.get(agentSessionId)
     if (!run) return
+    if (run.launch.agentId === 'codex' && run.codexAppServerTurn && !run.acceptingPrintEvent
+      && event.type === 'response.output_text.delta') {
+      // App-server supplies the authoritative text deltas. The provider proxy
+      // observes the same text before the native stream and must not replay it.
+      return
+    }
     const responseEvent = this.normalizeCodexChatTextEvent(run, event)
     if (!responseEvent) return
     const storageSafeResponseEvent = truncateCodingAgentToolOutputEvent(responseEvent)
@@ -1455,6 +1465,10 @@ export class CodingAgentRunManager {
         : ''
     if (!text) return event
     const existing = run.codexChatText || ''
+    if (run.codexAppServerTurn && run.acceptingPrintEvent) {
+      run.codexChatText = `${existing}${text}`
+      return event
+    }
     const baseline = existing || (run.acceptingPrintEvent ? '' : run.printText || '')
     const delta = text.length >= 16 ? appendedTextDelta(baseline, text) : text
     if (!delta) return null
@@ -3159,29 +3173,37 @@ export class CodingAgentRunManager {
       session: id => this.recordCodexNativeSessionId(run, id),
       event: (method, params) => this.handleCodexProtocolEvent(run, method, params),
       activity: () => this.touch(run),
-      approval: request => this.emitToChat(run.launch.sessionId, 'approval.requested', {
-        event: 'approval.requested',
-        session_id: run.launch.sessionId,
-        approval_id: request.id,
-        title: 'Codex',
-        command: request.command,
-        description: request.description,
-        choices: request.choices,
-        allow_permanent: Boolean(request.execpolicyAmendment),
-        ...(request.execpolicyAmendment ? { execpolicy_amendment: request.execpolicyAmendment } : {}),
-        source: 'codex',
-        timeout_ms: request.timeoutMs,
-        remaining_timeout_ms: request.timeoutMs,
-        requested_at: Date.now(),
-      }),
-      approvalResolved: (id, reason) => this.emitToChat(run.launch.sessionId, 'approval.resolved', {
-        event: 'approval.resolved',
-        session_id: run.launch.sessionId,
-        approval_id: id,
-        choice: 'deny',
-        resolved: true,
-        reason,
-      }),
+      approval: request => {
+        logger.info({ runId: run.id, sessionId: run.launch.sessionId, approvalId: request.id, choices: request.choices },
+          '[coding-agent-run] Codex approval requested')
+        this.emitToChat(run.launch.sessionId, 'approval.requested', {
+          event: 'approval.requested',
+          session_id: run.launch.sessionId,
+          approval_id: request.id,
+          title: 'Codex',
+          command: request.command,
+          description: request.description,
+          choices: request.choices,
+          allow_permanent: Boolean(request.execpolicyAmendment),
+          ...(request.execpolicyAmendment ? { execpolicy_amendment: request.execpolicyAmendment } : {}),
+          source: 'codex',
+          timeout_ms: request.timeoutMs,
+          remaining_timeout_ms: request.timeoutMs,
+          requested_at: Date.now(),
+        })
+      },
+      approvalResolved: (id, reason) => {
+        logger.info({ runId: run.id, sessionId: run.launch.sessionId, approvalId: id, reason },
+          '[coding-agent-run] Codex approval cleared')
+        this.emitToChat(run.launch.sessionId, 'approval.resolved', {
+          event: 'approval.resolved',
+          session_id: run.launch.sessionId,
+          approval_id: id,
+          choice: 'deny',
+          resolved: true,
+          reason,
+        })
+      },
       failed: message => {
         run.codexTurnFailed = true
         run.codexPendingError = message
@@ -3364,7 +3386,7 @@ export class CodingAgentRunManager {
       return
     }
     if (method === 'item/agentMessage/delta' || method === 'item/assistantMessage/delta') {
-      this.appendCodexText(run, String(params.delta || params.text || ''))
+      this.appendCodexText(run, String(params.delta || params.text || ''), true)
       return
     }
     if (
@@ -3922,7 +3944,9 @@ export class CodingAgentRunManager {
   private emitToChat(sessionId: string, event: string, payload: any) {
     try {
       getChatRunServer()?.emitExternalEvent?.(sessionId, event, payload)
-    } catch {}
+    } catch (err) {
+      logger.warn({ err, sessionId, event }, '[coding-agent-run] failed to emit chat event')
+    }
   }
 
   private emitTerminalStatus(run: ManagedCodingAgentRun, text: string) {

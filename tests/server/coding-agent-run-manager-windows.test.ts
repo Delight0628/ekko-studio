@@ -71,6 +71,7 @@ vi.mock('child_process', () => ({
 
 vi.mock('../../packages/server/src/modules/studio/repositories/session-store', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../packages/server/src/modules/studio/repositories/session-store')>(),
+  addMessage: vi.fn(() => 1),
   updateSessionStats: vi.fn(),
 }))
 
@@ -1158,6 +1159,44 @@ describe('coding agent Windows process launch', () => {
     if (run?.idleTimer) clearTimeout(run.idleTimer)
     ;(manager as any).runs.clear()
     ;(manager as any).sessionIndex.clear()
+  })
+
+  it.each([
+    ['short Chinese chunks', ['我会', '创建文件', '，然后等待审批。']],
+    ['legitimate repeated chunks', ['这是同一原生消息中刻意重复的一段完整文本。', '这是同一原生消息中刻意重复的一段完整文本。']],
+  ] as Array<[string, string[]]>)('uses native Codex text once instead of replaying proxy deltas: %s', async (_name, chunks) => {
+    const manager = new CodingAgentRunManager()
+    const emitted = vi.fn()
+    ;(manager as any).ensureDbSession = vi.fn()
+    ;(manager as any).addUserMessage = vi.fn()
+    ;(manager as any).emitToChat = emitted
+    manager.start({
+      agentSessionId: 'codex-text-run', agentId: 'codex', mode: 'scoped',
+      profile: 'default', provider: 'test', model: 'test', sessionId: 'codex-text-session',
+      command: 'codex.cmd', args: [], shellCommand: 'codex', workspaceDir: process.cwd(),
+      state: { messages: [], isWorking: false, events: [], queue: [] },
+    })
+    try {
+      manager.send('codex-text-session', 'hello')
+      await flushCodexHandshake()
+      const child = testState.spawnCalls[0]!.child
+      const frame = (method: string, params: Record<string, unknown>) => child.stdout.emit('data',
+        Buffer.from(JSON.stringify({ method, params: {
+          threadId: 'native-codex-thread', turnId: 'native-codex-turn', ...params,
+        } }) + '\n'))
+      for (const delta of chunks) {
+        manager.handleResponseEvent('codex-text-run', { type: 'response.output_text.delta', data: { delta } })
+        frame('item/agentMessage/delta', { itemId: 'text-item', delta })
+      }
+      frame('item/completed', { item: { id: 'text-item', type: 'agentMessage', text: chunks.join('') } })
+      const text = emitted.mock.calls.filter(([, event]) => event === 'message.delta')
+        .map(([, , payload]) => payload.delta).join('')
+      expect(text).toBe(chunks.join(''))
+      const run = (manager as any).runs.get('codex-text-run')
+      expect(run.codexChatText).toBe(chunks.join(''))
+    } finally {
+      manager.shutdown()
+    }
   })
 
   it('routes Codex approvals only to their owning Studio session', async () => {

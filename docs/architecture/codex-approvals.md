@@ -57,6 +57,15 @@ configuration continue to use the existing launch configuration. Prompt text
 and image paths travel over JSON-RPC stdin. Historical turns returned by
 `thread/resume` are not replayed into Studio.
 
+While an app-server turn is active, native text notifications are the only
+source of displayed reply text. The scoped provider proxy still supplies
+transport and usage accounting, but its text deltas must not be displayed a
+second time. Native deltas are appended exactly, including short Chinese
+fragments and intentional repetition; completed item snapshots reconcile
+without replaying streamed text. Approval request, decision, expiry and
+chat-event delivery failure logs identify the affected session without
+logging the command or provider credentials.
+
 A `turn/start` response only acknowledges dispatch. A turn succeeds after a
 matching `turn/completed` notification with status `completed`, followed by
 process close and existing native usage reconciliation. A premature process
