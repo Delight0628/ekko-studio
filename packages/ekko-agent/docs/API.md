@@ -440,7 +440,7 @@ Studio 的 `ekkoSkillsEnabled` 映射到此字段；共用参数为 `skillsCandi
 | `jev.skillsMinConfidence` | `number` | 补充匹配或跳过学习复盘的最低置信度，默认 0.8，范围 0.5–1。 |
 | `jev.skillsTimeoutMs` | `number` | 单次技能判断总预算，默认 3000，范围 100–30000 毫秒。 |
 | `jev.apiKey` | `string` | 独立运行时可保存的本地密钥，默认空；运行参数可临时覆盖。 |
-| `jev.baseUrl` | `string` | API 根地址，默认 `https://api.typesafe.ai`，不带 `/v1`。 |
+| `jev.baseUrl` | `string` | API 根地址，默认 `https://api.typesafe.ai`；也接受末尾带 `/v1` 或 `/v1/systemone` 的地址，自动规范化并保留网关前缀。 |
 | `jev.model` | `string` | 默认 `jev-latest`。 |
 | `jev.timeoutMs` | `number` | 默认 10000，范围 1000–120000 毫秒。 |
 | `model.providerCatalog` | `Record<string, EkkoModelProviderPreset>` | 可安装目录。 |

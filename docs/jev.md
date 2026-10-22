@@ -6,10 +6,16 @@ declared Studio default, and expose adjustable options in the frontend. `npm run
 enforces the registration and configuration wiring.
 
 The Models page has a **JEV** tab for the selected `modelProfile`. Save a TypeSafe
-API key, API root (default `https://api.typesafe.ai`, without `/v1`), model
+API key, API root (default `https://api.typesafe.ai`), model
 (`jev-latest`) and timeout. **Test saved configuration** submits one fixed sample
 with Choice, Score and Noul questions; it uses the saved settings, not unsaved form
 values, and consumes a provider request.
+
+The API URL also accepts a trailing `/v1` or the full `/v1/systemone` endpoint.
+Studio and standalone Ekko normalize either form to the API root before the SDK
+adds its endpoint path, preserving any gateway prefix. Existing saved URLs are
+normalized when read. For example, `https://api.example.com/v1/systemone` uses
+the API root `https://api.example.com` and sends one request to the supplied endpoint.
 
 Changing the page Profile only changes the configuration being edited. Each HTTP
 request explicitly sends `X-Hermes-Profile`; it does not change the active global
