@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 import type { CodingAgentImageInput } from '../../protocol/types'
 
@@ -16,12 +16,22 @@ interface PendingRequest {
 interface PendingApproval {
   rpcId: string | number
   timer: ReturnType<typeof setTimeout>
+  choices: string[]
+  sessionKey?: string
+  execpolicyAmendment?: string[]
 }
 
 interface Callbacks {
   session(id: string): void
   event(method: string, params: any): void
-  approval(request: { id: string; description: string; timeoutMs: number }): void
+  approval(request: {
+    id: string
+    command: string
+    description: string
+    choices: string[]
+    execpolicyAmendment?: string[]
+    timeoutMs: number
+  }): void
   approvalResolved(id: string, reason: string): void
   failed(message: string): void
   inputClosed(): void
@@ -42,7 +52,11 @@ export class CodexAppServerTurn {
   private earlyEvents: any[] = []
   completed = false
 
-  constructor(private child: ChildProcess, private callbacks: Callbacks) {
+  constructor(
+    private child: ChildProcess,
+    private callbacks: Callbacks,
+    private sessionApprovals = new Set<string>(),
+  ) {
     child.stdout?.on('data', (chunk: Buffer) => {
       if (this.closed) return
       this.callbacks.activity()
@@ -169,30 +183,65 @@ export class CodexAppServerTurn {
       return
     }
     if ([...this.approvals.values()].some(request => request.rpcId === message.id)) return
+    const sessionKey = this.commandSessionKey(message.method, params)
+    if (sessionKey && this.sessionApprovals.has(sessionKey)) {
+      this.write({ id: message.id, result: { decision: 'acceptForSession' } })
+      return
+    }
+    const proposed = params.proposedExecpolicyAmendment
+    const execpolicyAmendment = message.method === 'item/commandExecution/requestApproval'
+      && Array.isArray(proposed) && proposed.length > 0
+      && proposed.every(value => typeof value === 'string' && value.trim().length > 0)
+      ? [...proposed] as string[] : undefined
+    const choices = ['once', 'session', ...(execpolicyAmendment ? ['always'] : []), 'deny']
     const id = `codex_${randomUUID()}`
     const timer = setTimeout(() => {
       if (this.resolveApproval(id, 'deny').resolved) this.callbacks.approvalResolved(id, 'Codex approval expired')
     }, CODEX_APPROVAL_TIMEOUT_MS)
     timer.unref?.()
-    this.approvals.set(id, { rpcId: message.id, timer })
+    this.approvals.set(id, { rpcId: message.id, timer, choices, sessionKey, execpolicyAmendment })
     this.callbacks.approval({
       id,
-      description: [params.reason, params.command, params.cwd, params.grantRoot].filter(value => typeof value === 'string').join('\n'),
+      command: typeof params.command === 'string' ? params.command : '',
+      description: [params.reason, params.cwd, params.grantRoot].filter(value => typeof value === 'string' && value.trim()).join('\n'),
+      choices,
+      ...(execpolicyAmendment ? { execpolicyAmendment } : {}),
       timeoutMs: CODEX_APPROVAL_TIMEOUT_MS,
     })
+  }
+
+  private commandSessionKey(method: string, params: any): string | undefined {
+    // The CLI process is disposable between turns. Reapply an explicit session
+    // grant only for the identical command, directory and native thread/context.
+    // Network and stdin grants have different scopes and remain native-only.
+    if (method !== 'item/commandExecution/requestApproval'
+      || (params.kind && params.kind !== 'command') || params.networkApprovalContext
+      || typeof params.command !== 'string' || !params.command.trim()
+      || typeof params.cwd !== 'string' || !params.cwd.trim()) return undefined
+    return createHash('sha256').update(JSON.stringify([
+      this.threadId, params.command, params.cwd,
+      params.environmentId ?? null, params.reason ?? null,
+    ])).digest('hex')
   }
 
   resolveApproval(id: string, choice: string): { handled: boolean; resolved: boolean } {
     const request = this.approvals.get(id)
     if (!request) return { handled: false, resolved: false }
-    if (!['once', 'deny'].includes(choice)) return { handled: true, resolved: false }
+    if (!request.choices.includes(choice)) return { handled: true, resolved: false }
+    const decision = choice === 'always'
+      ? { acceptWithExecpolicyAmendment: { execpolicy_amendment: request.execpolicyAmendment } }
+      : choice === 'session' ? 'acceptForSession' : choice === 'once' ? 'accept' : 'decline'
     try {
-      this.write({ id: request.rpcId, result: { decision: choice === 'once' ? 'accept' : 'decline' } })
+      this.write({ id: request.rpcId, result: { decision } })
     } catch {
       return { handled: true, resolved: false }
     }
     clearTimeout(request.timer)
     this.approvals.delete(id)
+    if (choice === 'session' && request.sessionKey) {
+      if (this.sessionApprovals.size >= 256) this.sessionApprovals.delete(this.sessionApprovals.values().next().value!)
+      this.sessionApprovals.add(request.sessionKey)
+    }
     this.callbacks.activity()
     return { handled: true, resolved: true }
   }

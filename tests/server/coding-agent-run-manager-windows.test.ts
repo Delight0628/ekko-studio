@@ -1180,7 +1180,10 @@ describe('coding agent Windows process launch', () => {
       params: { threadId: 'native-codex-thread', turnId: 'native-codex-turn', itemId: 'command-item', command: 'echo test' },
     })}\n`))
     const approval = emitted.mock.calls.find(([, event]) => event === 'approval.requested')![2]
-    expect(approval).toMatchObject({ source: 'codex', title: 'Codex', choices: ['once', 'deny'], description: 'echo test' })
+    expect(approval).toMatchObject({
+      source: 'codex', title: 'Codex', choices: ['once', 'session', 'deny'], command: 'echo test',
+      description: '', allow_permanent: false,
+    })
     expect(manager.resolveApproval('other-session', approval.approval_id, 'once')).toEqual({ handled: true, resolved: false })
     expect(manager.resolveApproval('codex-approval-session', approval.approval_id, 'once')).toEqual({ handled: true, resolved: true })
     expect(child.stdin.write.mock.calls.map(([data]: [string]) => JSON.parse(data)))

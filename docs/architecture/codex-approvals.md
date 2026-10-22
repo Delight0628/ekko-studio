@@ -19,11 +19,30 @@ event. Only the owning Studio session can resolve the generated approval ID:
 | Studio decision | Codex response |
 | --- | --- |
 | `once` | `accept` |
+| `session` | `acceptForSession` |
+| `always` (only when Codex proposes a rule) | `acceptWithExecpolicyAmendment` with the unmodified proposal |
 | `deny` | `decline` |
 | Any other choice | Rejected without resolving the request |
 
-No session-wide approval or exec-policy amendment is submitted. The adapter
-tracks JSON-RPC request IDs separately from item IDs because one item can
+The adapter never invents persistent rules. `always` is available only for a
+nonempty native `proposedExecpolicyAmendment`; the UI shows the exact proposed
+argument prefix before the user chooses. Codex owns saving/enforcing that rule
+in the active Codex configuration home, which can be isolated by Studio.
+File-change requests do not offer a persistent command rule.
+
+Codex processes are disposable between turns. To retain an explicit command
+session grant, the managed Studio run remembers a bounded set of fingerprints
+covering native thread, exact command, working directory, environment ID and
+reason. Only an identical command request receives `acceptForSession` again.
+A different command/context or a different Studio run prompts normally. These
+grants disappear when the managed run is closed or invalidated. Network,
+stdin and file-change session decisions retain their native process lifetime;
+they are not broadened into a Studio-side reusable grant.
+
+Command text is carried in the approval event's `command` field, separately
+from the description. Empty or whitespace-only command boxes are not rendered.
+
+The adapter tracks JSON-RPC request IDs separately from item IDs because one item can
 have several independent approval callbacks. Requests for other threads or
 turns are declined. Requests arriving before the `turn/start` response are
 queued until their turn ID can be checked.

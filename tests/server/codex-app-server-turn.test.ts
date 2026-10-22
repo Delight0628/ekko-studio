@@ -8,7 +8,7 @@ import {
   codexAppServerArgs,
 } from '../../packages/server/src/modules/coding-agents/services/codex/app-server-turn'
 
-function fixture() {
+function fixture(sessionApprovals?: Set<string>) {
   const writes: any[] = []
   const child = new EventEmitter() as ChildProcess
   child.stdout = new PassThrough()
@@ -22,7 +22,7 @@ function fixture() {
     session: vi.fn(), event: vi.fn(), approval: vi.fn(), approvalResolved: vi.fn(),
     failed: vi.fn(), activity: vi.fn(), inputClosed: vi.fn(),
   }
-  const turn = new CodexAppServerTurn(child, callbacks)
+  const turn = new CodexAppServerTurn(child, callbacks, sessionApprovals)
   const send = (message: object) => (child.stdout as PassThrough).write(`${JSON.stringify(message)}\n`)
   const tick = async () => { await Promise.resolve(); await Promise.resolve() }
   const initialize = async (options: Record<string, unknown> = {}) => {
@@ -32,9 +32,9 @@ function fixture() {
     await tick()
     return { ready, tick }
   }
-  const start = async (options: Record<string, unknown> = {}) => {
+  const start = async (options: Record<string, unknown> = {}, threadId = 'thread-1') => {
     const { ready, tick } = await initialize(options)
-    send({ id: 2, result: { thread: { id: 'thread-1' } } })
+    send({ id: 2, result: { thread: { id: threadId } } })
     await tick()
     send({ id: 3, result: { turn: { id: 'turn-1' } } })
     await ready
@@ -78,17 +78,98 @@ describe('Codex app-server chat transport', () => {
     f.turn.dispose()
   })
 
-  it.each(['once', 'deny'])('resolves a command approval exactly once for choice %s', async choice => {
+  it.each(['once', 'session', 'deny'])('resolves a command approval exactly once for choice %s', async choice => {
     const f = fixture()
     await f.start()
     f.approval('request-99')
     const request = f.callbacks.approval.mock.calls[0]![0]
-    expect(request).toMatchObject({ description: 'echo test\n/workspace', timeoutMs: CODEX_APPROVAL_TIMEOUT_MS })
+    expect(request).toMatchObject({
+      command: 'echo test', description: '/workspace', choices: ['once', 'session', 'deny'],
+      timeoutMs: CODEX_APPROVAL_TIMEOUT_MS,
+    })
     expect(f.writes.some(message => message.id === 'request-99')).toBe(false)
     expect(f.turn.resolveApproval(request.id, 'always')).toEqual({ handled: true, resolved: false })
     expect(f.turn.resolveApproval(request.id, choice)).toEqual({ handled: true, resolved: true })
-    expect(f.writes.at(-1)).toMatchObject({ id: 'request-99', result: { decision: choice === 'once' ? 'accept' : 'decline' } })
+    expect(f.writes.at(-1)).toMatchObject({
+      id: 'request-99',
+      result: { decision: choice === 'session' ? 'acceptForSession' : choice === 'once' ? 'accept' : 'decline' },
+    })
     expect(f.turn.resolveApproval(request.id, choice)).toEqual({ handled: false, resolved: false })
+    f.turn.dispose()
+  })
+
+  it('persists only the exact user-approved command context across turns of one managed session', async () => {
+    const grants = new Set<string>()
+    const first = fixture(grants)
+    await first.start()
+    first.approval()
+    const id = first.callbacks.approval.mock.calls[0]![0].id
+    expect(first.turn.resolveApproval(id, 'session').resolved).toBe(true)
+    first.turn.dispose()
+
+    const resumed = fixture(grants)
+    await resumed.start({ nativeSessionId: 'thread-1' })
+    resumed.approval()
+    expect(resumed.callbacks.approval).not.toHaveBeenCalled()
+    expect(resumed.writes.at(-1)).toMatchObject({ id: 99, result: { decision: 'acceptForSession' } })
+    resumed.approval(100, { command: 'echo different' })
+    resumed.approval(101, { cwd: '/different-directory' })
+    resumed.approval(102, { environmentId: 'remote-device' })
+    resumed.approval(103, { reason: 'new reason' })
+    resumed.approval(104, { kind: 'stdin' })
+    expect(resumed.callbacks.approval).toHaveBeenCalledTimes(5)
+    resumed.turn.dispose()
+
+    const otherThread = fixture(grants)
+    await otherThread.start({}, 'another-thread')
+    otherThread.approval(99, { threadId: 'another-thread' })
+    expect(otherThread.callbacks.approval).toHaveBeenCalledOnce()
+    otherThread.turn.dispose()
+
+    const otherSession = fixture()
+    await otherSession.start()
+    otherSession.approval()
+    expect(otherSession.callbacks.approval).toHaveBeenCalledOnce()
+    otherSession.turn.dispose()
+  })
+
+  it.each(['once', 'deny'])('does not retain a session grant for %s', async choice => {
+    const grants = new Set<string>()
+    const f = fixture(grants)
+    await f.start()
+    f.approval()
+    f.turn.resolveApproval(f.callbacks.approval.mock.calls[0]![0].id, choice)
+    expect(grants.size).toBe(0)
+    f.turn.dispose()
+  })
+
+  it('offers persistent approval only for the native-proposed rule and sends it unchanged', async () => {
+    const f = fixture()
+    await f.start()
+    const rule = ['echo', 'test']
+    f.approval(99, { proposedExecpolicyAmendment: rule })
+    const request = f.callbacks.approval.mock.calls[0]![0]
+    expect(request).toMatchObject({
+      command: 'echo test', choices: ['once', 'session', 'always', 'deny'], execpolicyAmendment: rule,
+    })
+    expect(f.turn.resolveApproval(request.id, 'always').resolved).toBe(true)
+    expect(f.writes.at(-1)).toMatchObject({
+      id: 99, result: { decision: { acceptWithExecpolicyAmendment: { execpolicy_amendment: rule } } },
+    })
+    f.turn.dispose()
+  })
+
+  it('does not offer persistent permission for missing/malformed proposals or file changes', async () => {
+    const f = fixture()
+    await f.start()
+    for (const [index, value] of [null, [], [''], [1], 'echo'].entries()) {
+      f.approval(index + 80, { proposedExecpolicyAmendment: value })
+      const request = f.callbacks.approval.mock.calls.at(-1)![0]
+      expect(request.choices).not.toContain('always')
+      expect(f.turn.resolveApproval(request.id, 'always')).toEqual({ handled: true, resolved: false })
+    }
+    f.approval(99, { proposedExecpolicyAmendment: ['echo'] }, 'item/fileChange/requestApproval')
+    expect(f.callbacks.approval.mock.calls.at(-1)![0].choices).toEqual(['once', 'session', 'deny'])
     f.turn.dispose()
   })
 

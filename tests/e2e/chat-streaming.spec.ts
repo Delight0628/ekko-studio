@@ -888,7 +888,7 @@ test('surfaces an empty completed run as an error instead of leaving chat stalle
   expect(api.unexpectedRequests).toEqual([])
 })
 
-for (const decision of ['once', 'deny']) {
+for (const decision of ['once', 'session', 'always', 'deny']) {
   test(`routes a Codex command approval with explicit ${decision} decision`, async ({ page }) => {
     await authenticate(page, TEST_ACCESS_KEY, 'research')
     const api = await mockHermesApi(page)
@@ -901,19 +901,53 @@ for (const decision of ['once', 'deny']) {
       socket.__trigger('run.started', { event: 'run.started', session_id: sid, run_id: 'codex-run' })
       socket.__trigger('approval.requested', {
         event: 'approval.requested', session_id: sid, approval_id: 'codex-command',
-        title: 'Codex', description: 'Review command: echo test', source: 'codex',
-        choices: ['once', 'deny'], timeout_ms: 300_000,
+        title: 'Codex', command: 'echo test', description: 'Review the requested command', source: 'codex',
+        choices: ['once', 'session', 'always', 'deny'],
+        allow_permanent: true, execpolicy_amendment: ['echo', 'test'], timeout_ms: 300_000,
         remaining_timeout_ms: 300_000, requested_at: Date.now(),
       })
     }, run.session_id)
-    await expect(page.getByText('Review command: echo test')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Allow session' })).toHaveCount(0)
-    await page.getByRole('button', { name: decision === 'once' ? 'Allow once' : 'Deny', exact: true }).click()
+    await expect(page.getByText('Review the requested command')).toBeVisible()
+    await expect(page.locator('.approval-float-command')).toHaveText('echo test')
+    await expect(page.getByRole('button', { name: 'Allow session', exact: true })).toBeVisible()
+    await expect(page.getByText('Always: ["echo","test"]', { exact: true })).toBeVisible()
+    if (decision === 'always') await page.screenshot({ path: test.info().outputPath('codex-approval-options.png') })
+    const labels: Record<string, string> = { once: 'Allow once', session: 'Allow session', always: 'Always', deny: 'Deny' }
+    await page.getByRole('button', { name: labels[decision], exact: true }).click()
     await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.emitted
       .filter((entry: any) => entry.event === 'approval.respond'))).toEqual([{
       event: 'approval.respond',
       payload: { session_id: run.session_id, approval_id: 'codex-command', choice: decision },
     }])
+    expect(api.unexpectedRequests).toEqual([])
+  })
+}
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`does not render an empty Codex command box or unsupported persistent choice in ${scheme} mode`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme })
+    if (scheme === 'dark') await page.setViewportSize({ width: 390, height: 844 })
+    await authenticate(page, TEST_ACCESS_KEY, 'research')
+    const api = await mockHermesApi(page, { theme: { brightness: scheme } })
+    await mockChatSocket(page)
+    await page.goto('/#/hermes/chat')
+    await sendChatMessage(page, 'Review a permission request')
+    const { run } = await waitForRun(page)
+    await page.evaluate((sid) => {
+      const socket = (window as any).__PW_CHAT_SOCKET__.latest
+      socket.__trigger('run.started', { event: 'run.started', session_id: sid, run_id: 'codex-empty' })
+      socket.__trigger('approval.requested', {
+        event: 'approval.requested', session_id: sid, approval_id: 'codex-empty-command',
+        command: '  ', description: 'Review this permission request', source: 'codex',
+        choices: ['once', 'session', 'deny'], timeout_ms: 300_000, remaining_timeout_ms: 300_000,
+      })
+    }, run.session_id)
+    await expect(page.getByText('Review this permission request')).toBeVisible()
+    await expect(page.locator('.approval-float-command')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Allow session', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Always', exact: true })).toHaveCount(0)
+    await page.screenshot({ path: test.info().outputPath(`codex-no-empty-box-${scheme}.png`) })
+    await page.getByRole('button', { name: 'Deny', exact: true }).click()
     expect(api.unexpectedRequests).toEqual([])
   })
 }

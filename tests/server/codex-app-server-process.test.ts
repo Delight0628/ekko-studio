@@ -25,7 +25,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
 `
 
 describe('Codex app-server real stdio lifecycle', () => {
-  it.each(['once', 'deny'])('waits for the Studio %s response before completing', async choice => {
+  it.each(['once', 'session', 'deny'])('waits for the Studio %s response before completing', async choice => {
     const child = spawn(process.execPath, ['-e', fixture], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     const closed = once(child, 'close')
     const callbacks = {
@@ -45,7 +45,7 @@ describe('Codex app-server real stdio lifecycle', () => {
       expect(turn.completed).toBe(true)
       expect(callbacks.failed).not.toHaveBeenCalled()
       expect(callbacks.event).toHaveBeenCalledWith('item/agentMessage/delta',
-        expect.objectContaining({ delta: `decision=${choice === 'once' ? 'accept' : 'decline'}` }))
+        expect.objectContaining({ delta: `decision=${choice === 'session' ? 'acceptForSession' : choice === 'once' ? 'accept' : 'decline'}` }))
     } finally {
       turn.dispose()
       if (child.exitCode === null) child.kill()

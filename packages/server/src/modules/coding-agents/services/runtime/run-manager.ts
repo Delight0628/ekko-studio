@@ -225,6 +225,7 @@ export interface ManagedCodingAgentRun {
   codexPendingError?: string
   codexTurnFailed?: boolean
   codexAppServerTurn?: CodexAppServerTurn
+  codexSessionApprovals?: Set<string>
   nativeUsage?: NativeTurnUsage
   nativeTurnStartedAt?: number
   nativeCompletionPending?: boolean
@@ -3163,8 +3164,11 @@ export class CodingAgentRunManager {
         session_id: run.launch.sessionId,
         approval_id: request.id,
         title: 'Codex',
+        command: request.command,
         description: request.description,
-        choices: ['once', 'deny'],
+        choices: request.choices,
+        allow_permanent: Boolean(request.execpolicyAmendment),
+        ...(request.execpolicyAmendment ? { execpolicy_amendment: request.execpolicyAmendment } : {}),
         source: 'codex',
         timeout_ms: request.timeoutMs,
         remaining_timeout_ms: request.timeoutMs,
@@ -3189,7 +3193,7 @@ export class CodingAgentRunManager {
         }, 5_000)
         run.currentChildKillTimer.unref?.()
       },
-    })
+    }, run.codexSessionApprovals ??= new Set())
     run.codexAppServerTurn = turn
 
     child.stderr?.on('data', (chunk: Buffer) => {
