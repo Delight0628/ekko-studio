@@ -3,13 +3,32 @@
 - Scope: responsive Studio Web UI and Desktop, with a companion native App list.
 - Extends: `2026-10-22-session-task-summaries.md`.
 
-The task entry in the shared navigation opens `/hermes/tasks`. This route uses a
-minimal layout with no navigation rail, contextual sidebar, page heading, count
-cards or banner. Search, status filtering and update-time sorting live in the
-list header, alongside a compact return control. On narrow screens, the session moves below the task and the update
-time below its status. Search and pagination stay in the URL when opening chat
-and returning with browser Back. The page refreshes on visibility/focus and every
-30 seconds while visible; it does not create tasks or change their status.
+The task button in the primary single-chat header opens a right drawer. Its
+clipboard icon follows the header's SVG style and is 16px; the drawer title uses
+an 18px icon. There is no task entry in the navigation rail. On desktop the drawer
+is up to 1200px wide and follows the shared shell header boundary; on mobile it
+fills the viewport. The list fills the drawer body with no inset card, outer
+margins, statistics or banner. The mobile status filter aligns to the trailing
+edge with the same 20px content inset.
+
+Search, status filtering and update-time sorting live in the table header. Each
+summary is a native details/summary disclosure: it defaults to one line and
+expands in place without navigating. The task title and trailing SVG arrow open
+the associated chat turn. Status, disclosure, sort and navigation icons are SVG,
+not character substitutes. Mobile places the source conversation below the
+summary and update time below status.
+
+The drawer uses the overlay theme surface once; its table and wrappers remain
+transparent. The shared drawer, dropdown and input adapters handle custom colors,
+opacity, wallpaper and blur. Keyboard focus is trapped by the drawer and returns
+to its header trigger after closing.
+
+`tasks=1` in the chat URL opens the drawer. Filter and pagination state use
+`taskSearch`, `taskStatus`, `taskOrder` and `taskPage`, so browser Back from a task
+reopens the same filtered drawer. The former `/hermes/tasks` URL redirects to this
+chat drawer and translates its old filters. The drawer refreshes on focus and
+every 30 seconds while visible; closed drawers do not fetch or intercept search
+shortcuts. Reading tasks never changes their status.
 
 `GET /api/studio/session-tasks` returns tasks, total and has_more. The controller
 validates filters/pagination and resolves existing profiles permitted to the
@@ -17,7 +36,7 @@ account. SQL applies that scope and pending-deletion exclusions before counting
 or paging. Run credentials remain profile-bound. The list includes archived
 single-chat sessions; group/workflow/global-agent sessions are excluded.
 
-Each row links to `/hermes/session/:id?profile=...&message=...`. An open task
+Each task title and trailing action link to `/hermes/session/:id?profile=...&message=...`. An open task
 uses its recorded request anchor; a completed task uses its completion anchor.
 Hidden tool anchors are resolved to the preceding visible user message so the
 link lands at the beginning of the associated turn. The persisted ledger still

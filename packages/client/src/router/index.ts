@@ -10,8 +10,10 @@ const router = createRouter({
     {
       path: '/hermes/tasks',
       name: 'hermes.tasks',
-      component: () => import('@/views/hermes/SessionTasksView.vue'),
-      meta: { minimalLayout: true },
+      redirect: to => ({ name: 'hermes.chat', query: {
+        tasks: '1', taskSearch: to.query.search, taskStatus: to.query.status,
+        taskOrder: to.query.order, taskPage: to.query.page,
+      } }),
     },
     {
       path: '/desktop-pet',

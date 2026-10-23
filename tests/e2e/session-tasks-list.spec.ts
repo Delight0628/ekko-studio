@@ -7,6 +7,7 @@ const task = { id: 'one', session_id: 'task-chat', session_title: 'Studio 会话
 test('paginates with stable filters and ignores an older search response', async ({ page }) => {
   await authenticate(page)
   await mockHermesApi(page)
+  await mockChatSocket(page)
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
   let staleStarted = false
@@ -20,7 +21,7 @@ test('paginates with stable filters and ignores an older search response', async
   await page.goto('/#/hermes/tasks?status=open&page=2')
   await expect(page.locator('.task-row')).toContainText('Page 2')
   await page.locator('.n-pagination-item').filter({ hasText: /^1$/ }).click()
-  await expect(page).toHaveURL(/status=open&page=1/)
+  await expect(page).toHaveURL(/taskStatus=open&taskPage=1/)
   await expect(page.locator('.task-row')).toContainText('Page 1')
   await page.getByRole('button', { name: 'Search tasks or conversations' }).click()
   const input = page.getByRole('textbox', { name: 'Search tasks or conversations' })
@@ -30,7 +31,7 @@ test('paginates with stable filters and ignores an older search response', async
   await expect(page.locator('.task-row')).toContainText('Newest result')
   release()
   await expect(page.locator('.task-row')).toContainText('Newest result')
-  await expect(page).not.toHaveURL(/page=/)
+  await expect(page).not.toHaveURL(/taskPage=/)
 })
 
 test('refreshes completion on focus and renders the approved list at desktop and phone widths', async ({ page }) => {
@@ -48,10 +49,10 @@ test('refreshes completion on focus and renders the approved list at desktop and
   await page.screenshot({ path: '/tmp/ekko-task-page-desktop.png' })
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.locator('.task-status').first().evaluate(el => el.getBoundingClientRect().height)).toBeLessThan(28)
-  expect(await page.locator('.mobile-time').first().evaluate(el => el.getBoundingClientRect().height)).toBeLessThanOrEqual(18)
+  expect(await page.locator('.mobile-time').first().evaluate(el => el.getBoundingClientRect().height - parseFloat(getComputedStyle(el).paddingTop))).toBeLessThanOrEqual(18)
   await page.screenshot({ path: '/tmp/ekko-task-page-mobile.png' })
   completed = true
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
   await expect(page.locator('.task-row--completed')).toHaveCount(2)
-  await expect(page.locator('.studio-navigation-rail, .page-sidebar, .hamburger-btn')).toHaveCount(0)
+  await expect(page.locator('.session-tasks-drawer .studio-navigation-rail, .session-tasks-drawer .page-sidebar')).toHaveCount(0)
 })

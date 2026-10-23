@@ -13,7 +13,6 @@ const route = useRoute()
 const { t } = useI18n()
 const canManageAgents = computed(() => isStoredSuperAdmin())
 const entries = computed(() => [
-  { key: 'tasks', route: 'hermes.tasks', label: 'sessionTasks.title', path: 'm9 6 2 2 4-4M9 13l2 2 4-4M4 5h1M4 12h1M4 19h1M9 19h10' },
   { key: 'chat', route: 'hermes.chat', label: 'sidebar.singleChat', path: 'M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
   { key: 'group', route: 'hermes.groupChat', label: 'sidebar.groupChat', path: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' },
   { key: 'workflow', route: 'hermes.workflow', label: 'sidebar.workflow', path: 'M8 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0M22 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0M22 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0M8 12h3a4 4 0 0 0 4-4V6M8 12h3a4 4 0 0 1 4 4v2' },
@@ -34,7 +33,7 @@ const activeKey = computed(() => {
 })
 const mobileNavigation = useMobileNavigation()
 function handleNavigate(key: string) {
-  if (mobileNavigation && ['tasks', 'connections', 'agents', 'models', 'usage', 'apiRelay'].includes(key)) {
+  if (mobileNavigation && ['connections', 'agents', 'models', 'usage', 'apiRelay'].includes(key)) {
     mobileNavigation.open.value = false
   }
 }

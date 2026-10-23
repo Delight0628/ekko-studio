@@ -25,13 +25,14 @@ async function setup(page: Page, options: Parameters<typeof mockHermesApi>[1] = 
   })
 }
 
-test('opens the pure task list from navigation and filters inside the table header', async ({ page }) => {
+test('opens the task drawer from the single-chat header and filters inside the table header', async ({ page }) => {
   await setup(page)
   await page.goto('/#/hermes/chat')
-  await page.getByRole('link', { name: 'Tasks', exact: true }).click()
+  await page.locator('.chat-header').getByRole('button', { name: 'Tasks', exact: true }).click()
   await expect(page.locator('.task-row')).toHaveCount(2)
-  await expect(page.locator('.studio-navigation-rail')).toHaveCount(0)
-  await expect(page.locator('.sidebar, .page-header, h1')).toHaveCount(0)
+  await expect(page.locator('.studio-navigation-rail').getByRole('link', { name: 'Tasks', exact: true })).toHaveCount(0)
+  await expect(page.locator('.session-tasks-drawer')).toBeVisible()
+  await expect(page.locator('.session-tasks-drawer .sidebar, .session-tasks-drawer .page-header')).toHaveCount(0)
   await page.getByRole('button', { name: 'Filter task status' }).click()
   await page.getByRole('menuitem', { name: 'Completed', exact: true }).click()
   await expect(page.locator('.task-row')).toHaveCount(1)
@@ -40,12 +41,12 @@ test('opens the pure task list from navigation and filters inside the table head
   const search = page.getByRole('textbox', { name: 'Search tasks or conversations' })
   await expect(search).toBeFocused()
   await search.fill('no match')
-  await expect(page.getByRole('status')).toContainText('No matching tasks')
+  await expect(page.locator('.session-tasks-drawer').getByRole('status')).toContainText('No matching tasks')
   await expect(page.locator('.session-search-modal')).toHaveCount(0)
   await search.press('Escape')
   await expect(page.locator('.task-row')).toHaveCount(1)
   await page.getByRole('button', { name: 'Updated' }).click()
-  await expect(page).toHaveURL(/order=oldest/)
+  await expect(page).toHaveURL(/taskOrder=oldest/)
 })
 
 for (const listed of [true, false]) {
@@ -77,7 +78,7 @@ for (const listed of [true, false]) {
     await expect(page.locator('#message-53.highlight')).toBeInViewport()
     await page.goBack()
     await page.goBack()
-    await expect(page).toHaveURL(/hermes\/tasks\?status=open/)
+    await expect(page).toHaveURL(/hermes\/chat\?tasks=1&taskStatus=open/)
     await expect(page.locator('.task-row')).toHaveCount(1)
   })
 }
@@ -95,12 +96,12 @@ test('shows loading, error with retry, and an empty ledger without a misleading 
     return route.fulfill({ json: { tasks: [], total: 0, has_more: false } })
   })
   await page.goto('/#/hermes/tasks')
-  await expect(page.getByRole('status')).toContainText('Loading tasks')
+  await expect(page.locator('.session-tasks-drawer').getByRole('status')).toContainText('Loading tasks')
   release()
-  await expect(page.getByRole('status')).toContainText('Could not load tasks')
+  await expect(page.locator('.session-tasks-drawer').getByRole('status')).toContainText('Could not load tasks')
   fail = false
   await page.getByRole('button', { name: 'Retry' }).click()
-  await expect(page.getByRole('status')).toContainText('Tasks recorded in your conversations will appear here')
+  await expect(page.locator('.session-tasks-drawer').getByRole('status')).toContainText('Tasks recorded in your conversations will appear here')
 })
 
 test('warns when a deleted message cannot be located and keeps its conversation open', async ({ page }) => {
@@ -120,13 +121,14 @@ for (const brightness of ['light', 'dark'] as const) {
       await page.setViewportSize({ width: 390, height: 844 })
       await setup(page, { theme: { brightness,
         ...(wallpaper ? { background: { name: 'tasks.png', mime: 'image/png', updatedAt: 1 } } : {}),
-        appearance: { global: { opacity: 0.4 }, regions: { card: { backgroundColor: '#204060', opacity: 0, blur: 12, radius: 14 }, overlay: { backgroundColor: '#304050', opacity: 0.6 } } },
+        appearance: { global: { opacity: 0.4 }, regions: { card: { backgroundColor: '#204060', opacity: 0, blur: 12, radius: 14 }, overlay: { backgroundColor: '#304050', opacity: 0.6, blur: 12 } } },
       } })
       await page.goto('/#/hermes/tasks')
       await expect(page.locator('.task-row')).toHaveCount(2)
-      await expect(page.locator('.task-list')).toHaveCSS('background-color', 'rgba(32, 64, 96, 0)')
-      await expect(page.locator('.task-list')).toHaveCSS('border-radius', '14px')
-      await expect(page.locator('.task-list')).toHaveCSS('backdrop-filter', /blur\(12px\)/)
+      await expect(page.locator('.session-tasks-drawer')).toHaveCSS('background-color', 'rgba(48, 64, 80, 0.6)')
+      await expect(page.locator('.task-list')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+      await expect(page.locator('.session-tasks-drawer')).toHaveCSS('border-radius', '0px')
+      await expect(page.locator('.session-tasks-drawer')).toHaveCSS('backdrop-filter', /blur\(12px\)/)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
       await expect(page.locator('.mobile-source').first()).toBeVisible()
       await expect(page.locator('.source-column').first()).toBeHidden()
