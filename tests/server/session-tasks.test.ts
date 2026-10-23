@@ -102,6 +102,7 @@ describe('conversation-maintained session goals', () => {
     write([goal()])
     sessions[method]('s1')
     expect(service.getSessionTasks('s1').tasks).toEqual([])
+    expect(db.prepare('SELECT COUNT(*) AS n FROM session_tasks WHERE session_id = ?').get('s1')).toMatchObject({ n: 0 })
     expect(() => write([goal()], 1)).toThrow()
   })
 
@@ -121,6 +122,35 @@ describe('conversation-maintained session goals', () => {
 
 describe('task list pages', () => {
   const query = (overrides = {}) => ({ profiles: ['research'], order: 'newest' as const, offset: 0, limit: 50, ...overrides })
+
+  it('caps the accessible list at 100 across pages without deleting stored goals', () => {
+    const id = message('user', 'Many tasks')
+    const insert = db.prepare('INSERT INTO session_tasks (id, session_id, title, summary, status, source_message_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    for (let i = 1; i <= 125; i++) insert.run(`task-${i}`, 's1', `Task ${i}`, '', 'open', id, i, i)
+    const first = service.listSessionTaskItems(query())
+    const second = service.listSessionTaskItems(query({ offset: 50 }))
+    expect(first).toMatchObject({ total: 100, has_more: true })
+    expect(second).toMatchObject({ total: 100, has_more: false })
+    expect(new Set([...first.tasks, ...second.tasks].map(task => task.id)).size).toBe(100)
+    expect(first.tasks[0].title).toBe('Task 125')
+    expect(second.tasks.at(-1)?.title).toBe('Task 26')
+    expect(service.listSessionTaskItems(query({ offset: 95, limit: 100 })).tasks).toHaveLength(5)
+    expect(service.listSessionTaskItems(query({ offset: 100 }))).toEqual({ tasks: [], total: 100, has_more: false })
+    expect(service.listSessionTaskItems(query({ offset: 150 }))).toEqual({ tasks: [], total: 100, has_more: false })
+    expect(service.listSessionTaskItems(query({ search: 'Task 1' })).total).toBe(37)
+    expect(service.getSessionTasks('s1').tasks).toHaveLength(125)
+  })
+
+  it('deleting multiple sessions removes their task rows while retaining other sessions', () => {
+    for (const id of ['s1', 's2', 'kept']) {
+      if (id !== 's1') sessions.createSession({ id, profile: 'research', source: 'coding_agent' })
+      message('user', 'Task request', id)
+      service.updateSessionTasks(id, 'research', { revision: 0, changes: [goal({ title: id })] })
+    }
+    for (const id of ['s1', 's2']) expect(sessions.deleteSession(id)).toBe(true)
+    expect(db.prepare('SELECT session_id FROM session_tasks').all()).toEqual([{ session_id: 'kept' }])
+    expect(service.listSessionTaskItems(query()).tasks.map(task => task.session_id)).toEqual(['kept'])
+  })
 
   it('resolves visible request and completion turns rather than hidden tool messages', () => {
     const source = message('user', 'Add export')

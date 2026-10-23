@@ -29,6 +29,10 @@ reopens the same filtered drawer. The former `/hermes/tasks` URL redirects to th
 chat drawer and translates its old filters. The drawer refreshes on focus and
 every 30 seconds while visible; closed drawers do not fetch or intercept search
 shortcuts. Reading tasks never changes their status.
+Each filtered list is capped at 100 tasks across pagination. Both clients clamp
+older server responses too; repository counts and page bounds enforce the same
+window without deleting stored goals. Existing session deletion/history clearing
+removes task rows in its transaction, with direct database cleanup regressions.
 
 `GET /api/studio/session-tasks` returns tasks, total and has_more. The controller
 validates filters/pagination and resolves existing profiles permitted to the

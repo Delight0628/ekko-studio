@@ -25,7 +25,8 @@ export function listSessionTaskItems(query: SessionTaskListQuery): SessionTaskLi
     args.push(query.search, query.search, query.search)
   }
   const from = `FROM ${SESSION_TASKS_TABLE} t JOIN ${SESSIONS_TABLE} s ON s.id = t.session_id WHERE ${where.join(' AND ')}`
-  const total = Number((db.prepare(`SELECT COUNT(*) AS n ${from}`).get(...args) as { n: number }).n)
+  const total = Number((db.prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 ${from} LIMIT 100)`).get(...args) as { n: number }).n)
+  if (query.offset >= total) return { ...empty, total }
   const tasks = db.prepare(`SELECT t.*, s.title AS session_title, s.profile, s.source, s.agent,
     (SELECT m.id FROM ${MESSAGES_TABLE} m WHERE m.session_id = t.session_id
       AND m.role = 'user' AND COALESCE(m.display_role, m.role) = 'user' AND m.content NOT LIKE '/%'
@@ -33,7 +34,7 @@ export function listSessionTaskItems(query: SessionTaskListQuery): SessionTaskLi
       ORDER BY m.id DESC LIMIT 1) AS message_id
     ${from} ORDER BY CASE t.status WHEN 'open' THEN 0 ELSE 1 END,
       t.updated_at ${query.order === 'oldest' ? 'ASC' : 'DESC'}, t.id ASC LIMIT ? OFFSET ?`)
-    .all(...args, query.limit, query.offset) as unknown as SessionTaskListPage['tasks']
+    .all(...args, Math.min(query.limit, total - query.offset), query.offset) as unknown as SessionTaskListPage['tasks']
   return { tasks, total, has_more: query.offset + tasks.length < total }
 }
 

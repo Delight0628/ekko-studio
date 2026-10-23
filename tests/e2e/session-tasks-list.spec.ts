@@ -4,6 +4,26 @@ import { authenticate, mockChatSocket, mockHermesApi } from './fixtures'
 const task = { id: 'one', session_id: 'task-chat', session_title: 'Studio 会话任务', profile: 'research', source: 'coding_agent', agent: 'codex',
   title: '设计任务展示页面', summary: '接入会话任务，完善桌面与手机列表', status: 'open', updated_at: Date.now(), message_id: 1 }
 
+test('limits the task list to two pages even if an older server reports more than 100', async ({ page }) => {
+  await authenticate(page)
+  await mockHermesApi(page)
+  await mockChatSocket(page)
+  const offsets: number[] = []
+  await page.route('**/api/studio/session-tasks?**', route => {
+    const offset = Number(new URL(route.request().url()).searchParams.get('offset'))
+    offsets.push(offset)
+    return route.fulfill({ json: { tasks: Array.from({ length: 50 }, (_, i) => ({ ...task, id: `t${offset+i}`, title: `Task ${offset+i}` })), total: 125, has_more: true } })
+  })
+  await page.goto('/#/hermes/tasks')
+  await expect(page.locator('.task-row')).toHaveCount(50)
+  await expect(page.locator('.n-pagination-item').filter({ hasText: /^3$/ })).toHaveCount(0)
+  await page.locator('.n-pagination-item').filter({ hasText: /^2$/ }).click()
+  await expect(page.locator('.task-title').first()).toHaveText('Task 50')
+  await expect(page.locator('.task-row')).toHaveCount(50)
+  await expect(page.locator('.n-pagination-item').filter({ hasText: /^3$/ })).toHaveCount(0)
+  expect(offsets).toEqual([0, 50])
+})
+
 test('paginates with stable filters and ignores an older search response', async ({ page }) => {
   await authenticate(page)
   await mockHermesApi(page)
