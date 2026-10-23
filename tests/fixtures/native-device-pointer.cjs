@@ -38,6 +38,7 @@ public static class NativeDevicePointer {
  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr handle);
  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr handle, IntPtr process);
+ [DllImport("user32.dll", EntryPoint="GetWindowThreadProcessId")] static extern uint GetWindowThreadProcessIdOut(IntPtr handle, out uint process);
  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint from, uint to, bool attach);
  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr handle, System.Text.StringBuilder text, int length);
@@ -72,7 +73,12 @@ public static class NativeDevicePointer {
   }
   var shellTitle = new System.Text.StringBuilder(512); GetWindowText(foreground, shellTitle, 512);
   if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true" && shellTitle.ToString() == "Search") {
-    ShowWindow(foreground, 0);
+    uint shellProcess;
+    GetWindowThreadProcessIdOut(foreground, out shellProcess);
+    var process = System.Diagnostics.Process.GetProcessById((int)shellProcess);
+    Console.WriteLine("Search overlay owner=" + process.ProcessName + " session=" + process.SessionId + " pointerSession=" + System.Diagnostics.Process.GetCurrentProcess().SessionId);
+    if (process.ProcessName == "SearchHost" || process.ProcessName == "SearchApp") { process.Kill(); process.WaitForExit(3000); }
+    else ShowWindow(foreground, 0);
     System.Threading.Thread.Sleep(300);
     foreground = GetForegroundWindow();
   }
