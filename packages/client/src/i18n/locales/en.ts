@@ -3964,6 +3964,7 @@ export default {
     new_0_7_39_9: "Desktop screenshots can open system settings directly when screen recording permission is missing, avoiding a blocking dialog (#3492)",
     new_0_7_39_10: "Fixed dependency and terminal compatibility issues when building the native Windows ARM64 Hermes runtime (#3429)",
     new_0_7_39_11: "Discontinued dedicated TerraMaster TOS packages and automated builds (#3503)",
+    new_0_7_39_12: "Added separate Webhook subscriptions for session task creation and completion; task titles, summaries and completion evidence follow the content switch (#3512)",
     new_0_7_38_1: "Added automatic API mode matching for known connections and models, including provider-prefixed model names; new connections still default to Chat Completions (#3469)",
     new_0_7_38_2: "Added desktop switching between local and remote devices and device management, replacing the old LAN pairing entry (#3464)",
     new_0_7_38_3: "Added cloud Model API access, per-key model restrictions and lifetime USD budgets; restored Agent usage breakdowns and fixed panel width (#3440, #3450)",

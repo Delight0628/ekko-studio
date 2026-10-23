@@ -169,6 +169,7 @@ export default {
     new_0_7_39_9: "Ekran kaydı izni eksikken masaüstü ekran görüntüleri, engelleyici iletişim kutusu olmadan doğrudan sistem ayarlarını açabilir (#3492)",
     new_0_7_39_10: "Yerel Windows ARM64 Hermes çalışma ortamı oluşturulurken yaşanan bağımlılık ve terminal uyumluluğu sorunları düzeltildi (#3429)",
     new_0_7_39_11: "TerraMaster TOS için özel paketler ve otomatik derlemeler sonlandırıldı (#3503)",
+    new_0_7_39_12: "Oturum görevi oluşturma ve tamamlama için ayrı Webhook abonelikleri eklendi; başlıkların, özetlerin ve tamamlanma kanıtlarının gönderimi içerik ayarına bağlıdır (#3512)",
     new_0_7_38_1: "Bilinen bağlantı ve modeller için otomatik API modu eklendi; sağlayıcı önekli model adları desteklenir ve yeni bağlantılarda varsayılan hâlâ Chat Completions’tır (#3469)",
     new_0_7_38_2: "Masaüstüne yerel ve uzak cihazlar arasında geçiş ve cihaz yönetimi eklendi; eski LAN eşleştirme girişi değiştirildi (#3464)",
     new_0_7_38_3: "Model API’ye bulut erişimi, anahtar başına model kısıtlamaları ve toplam USD bütçeleri eklendi; Agent bazında kullanım dökümü geri getirildi ve panel genişliği düzeltildi (#3440, #3450)",
