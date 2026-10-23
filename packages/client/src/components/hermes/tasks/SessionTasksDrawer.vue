@@ -208,6 +208,7 @@ details[open] .description-text { white-space: pre-wrap; overflow: visible; over
 details[open] summary svg { transform: rotate(180deg); }
 .source-session { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding-top: 3px; color: $text-secondary; font-size: calc(var(--font-size-base, 14px) * 12 / 14); }
 .source-session img { width: 20px; height: 20px; margin-top: 2px; object-fit: contain; }
+.source-session img, .mobile-source img { border-radius: 22%; }
 .source-session div { min-width: 0; }
 .source-session div > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.6; }
 .source-session small { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: $text-muted; font-size: calc(var(--font-size-base, 14px) * 11 / 14); }
