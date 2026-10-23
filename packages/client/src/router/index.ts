@@ -8,6 +8,12 @@ const router = createRouter({
   history: createWebHashHistory(),
   routes: [
     {
+      path: '/hermes/tasks',
+      name: 'hermes.tasks',
+      component: () => import('@/views/hermes/SessionTasksView.vue'),
+      meta: { minimalLayout: true },
+    },
+    {
       path: '/desktop-pet',
       name: 'desktop.pet',
       component: () => import('@/views/hermes/DesktopPetView.vue'),

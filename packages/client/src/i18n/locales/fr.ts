@@ -4,6 +4,28 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesFr } from '../social-messages-locales'
 
 export default {
+  sessionTasks: {
+      "title": "Tâches",
+      "task": "Tâche",
+      "source": "Conversation source",
+      "status": "État",
+      "updated": "Mise à jour",
+      "search": "Rechercher une tâche ou une conversation",
+      "filterStatus": "Filtrer par état",
+      "all": "Tous les états",
+      "open": "Inachevée",
+      "completed": "Terminée",
+      "openChat": "Ouvrir la conversation",
+      "openTask": "Voir dans la conversation : {title}",
+      "loading": "Chargement des tâches",
+      "loadFailed": "Impossible de charger les tâches",
+      "retry": "Réessayer",
+      "noResults": "Aucune tâche correspondante",
+      "empty": "Les tâches de vos conversations apparaîtront ici",
+      "untitled": "Conversation sans titre",
+      "jumpUnavailable": "Le message lié est indisponible. La conversation a été ouverte."
+  },
+
   remoteDevices: remoteDeviceMessages["fr"],
   modelApi: {
     "localRoute": "Adresse locale",

@@ -4,6 +4,28 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesDe } from '../social-messages-locales'
 
 export default {
+  sessionTasks: {
+      "title": "Aufgaben",
+      "task": "Aufgabe",
+      "source": "Ursprungsgespräch",
+      "status": "Status",
+      "updated": "Aktualisiert",
+      "search": "Aufgaben oder Gespräche suchen",
+      "filterStatus": "Nach Status filtern",
+      "all": "Alle Status",
+      "open": "Offen",
+      "completed": "Erledigt",
+      "openChat": "Gespräch öffnen",
+      "openTask": "Im Gespräch ansehen: {title}",
+      "loading": "Aufgaben werden geladen",
+      "loadFailed": "Aufgaben konnten nicht geladen werden",
+      "retry": "Erneut versuchen",
+      "noResults": "Keine passenden Aufgaben",
+      "empty": "Aufgaben aus deinen Gesprächen erscheinen hier",
+      "untitled": "Unbenanntes Gespräch",
+      "jumpUnavailable": "Die verknüpfte Nachricht ist nicht verfügbar. Das Gespräch wurde geöffnet."
+  },
+
   remoteDevices: remoteDeviceMessages["de"],
   modelApi: {
     "localRoute": "Lokale Adresse",

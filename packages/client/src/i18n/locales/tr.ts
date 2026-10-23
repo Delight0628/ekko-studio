@@ -30,6 +30,28 @@ const writeApprovalMessages = {
 }
 
 export default {
+  sessionTasks: {
+      "title": "Görevler",
+      "task": "Görev",
+      "source": "Kaynak sohbet",
+      "status": "Durum",
+      "updated": "Güncellendi",
+      "search": "Görev veya sohbet ara",
+      "filterStatus": "Duruma göre filtrele",
+      "all": "Tüm durumlar",
+      "open": "Tamamlanmadı",
+      "completed": "Tamamlandı",
+      "openChat": "Sohbeti aç",
+      "openTask": "Sohbette görüntüle: {title}",
+      "loading": "Görevler yükleniyor",
+      "loadFailed": "Görevler yüklenemedi",
+      "retry": "Yeniden dene",
+      "noResults": "Eşleşen görev yok",
+      "empty": "Sohbetlerinizde kaydedilen görevler burada görünür",
+      "untitled": "Başlıksız sohbet",
+      "jumpUnavailable": "Bağlantılı mesaj kullanılamıyor. Sohbet açıldı."
+  },
+
   remoteDevices: remoteDeviceMessages["tr"],
   modelApi: {
     "localRoute": "Yerel adres",

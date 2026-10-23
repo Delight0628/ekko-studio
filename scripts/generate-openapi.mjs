@@ -1859,7 +1859,7 @@ openapi.components.schemas.SessionTask = {
 const sessionTasksOperation = openapi.paths['/api/studio/sessions/{id}/tasks'].get
 sessionTasksOperation.operationId = 'getSessionTasks'
 sessionTasksOperation.summary = 'Read durable session goals'
-sessionTasksOperation.description = 'Returns persisted goals for an accessible Studio session. The current conversation agent reviews them at turn start, creates new tasks before execution and updates results before its final response. Goals span turns and are separate from run plans. No page card is added.'
+sessionTasksOperation.description = 'Returns persisted goals for an accessible Studio session. The current conversation agent reviews them at turn start, creates new tasks before execution and updates results before its final response. Goals span turns and are separate from run plans. Reading goals does not create a per-turn task-plan card.'
 sessionTasksOperation.parameters = [
   { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
   { name: 'profile', in: 'query', required: false, schema: { type: 'string' }, description: 'Optional exact session profile filter.' },
@@ -1876,6 +1876,39 @@ sessionTasksOperation.responses = {
   '404': { description: 'Session not found, or the explicit profile filter does not match.' },
 }
 
+
+openapi.components.schemas.SessionTaskListItem = {
+  allOf: [{ $ref: '#/components/schemas/SessionTask' }, {
+    type: 'object', required: ['session_id', 'session_title', 'profile', 'source', 'agent', 'message_id'], properties: {
+      session_id: { type: 'string' }, session_title: { type: 'string', nullable: true }, profile: { type: 'string' },
+      source: { type: 'string' }, agent: { type: 'string' }, message_id: { type: 'integer', nullable: true,
+        description: 'Visible user message beginning the request turn for open tasks or the completion turn for completed tasks. Use with the session/profile to navigate chat.' },
+    },
+  }],
+}
+const taskListOperation = openapi.paths['/api/studio/session-tasks'].get
+taskListOperation.operationId = 'listSessionTaskItems'
+taskListOperation.summary = 'List conversation tasks across accessible profiles'
+taskListOperation.description = 'Lists persisted single-chat tasks, including archived sessions, with stable pagination. Profile access and pending deletions are applied before counting. Group, workflow and global-agent tasks are excluded. Open tasks precede completed tasks; update time and id determine stable order within each status. Does not invoke a model or modify task status.'
+taskListOperation.parameters = [
+  { name: 'profile', in: 'query', schema: { type: 'string' }, description: 'Optional exact profile filter. Empty selects all accessible, existing profiles; run credentials remain bound to their profile.' },
+  { name: 'search', in: 'query', schema: { type: 'string', maxLength: 200 }, description: 'Literal substring in task title, summary or session title.' },
+  { name: 'status', in: 'query', schema: { type: 'string', enum: ['open', 'completed'] } },
+  { name: 'order', in: 'query', schema: { type: 'string', enum: ['newest', 'oldest'], default: 'newest' } },
+  { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0, default: 0 } },
+  { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
+]
+taskListOperation.responses = {
+  '200': { description: 'Authorized task page.', content: { 'application/json': { schema: {
+    type: 'object', required: ['tasks', 'total', 'has_more'], properties: {
+      tasks: { type: 'array', items: { $ref: '#/components/schemas/SessionTaskListItem' } },
+      total: { type: 'integer' }, has_more: { type: 'boolean' },
+    },
+  } } } },
+  '400': { description: 'Invalid filters or pagination.' },
+  '401': { $ref: '#/components/responses/Unauthorized' },
+  '403': { description: 'Profile access denied.' },
+}
 
 const sessionTaskChangeSchema = {
   type: 'object', additionalProperties: false, required: ['title', 'summary', 'status'], properties: {

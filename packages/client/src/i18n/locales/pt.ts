@@ -4,6 +4,28 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesPt } from '../social-messages-locales'
 
 export default {
+  sessionTasks: {
+      "title": "Tarefas",
+      "task": "Tarefa",
+      "source": "Conversa de origem",
+      "status": "Estado",
+      "updated": "Atualização",
+      "search": "Pesquisar tarefas ou conversas",
+      "filterStatus": "Filtrar por estado",
+      "all": "Todos os estados",
+      "open": "Pendente",
+      "completed": "Concluída",
+      "openChat": "Abrir conversa",
+      "openTask": "Ver na conversa: {title}",
+      "loading": "Carregando tarefas",
+      "loadFailed": "Não foi possível carregar as tarefas",
+      "retry": "Tentar novamente",
+      "noResults": "Nenhuma tarefa correspondente",
+      "empty": "As tarefas das suas conversas aparecerão aqui",
+      "untitled": "Conversa sem título",
+      "jumpUnavailable": "A mensagem vinculada não está disponível. A conversa foi aberta."
+  },
+
   remoteDevices: remoteDeviceMessages["pt"],
   modelApi: {
     "localRoute": "Endereço local",

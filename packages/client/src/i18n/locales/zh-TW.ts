@@ -4,6 +4,28 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesZhTw } from '../social-messages'
 
 export default {
+  sessionTasks: {
+      "title": "任務",
+      "task": "任務",
+      "source": "來源對話",
+      "status": "狀態",
+      "updated": "更新於",
+      "search": "搜尋任務或對話",
+      "filterStatus": "篩選任務狀態",
+      "all": "全部狀態",
+      "open": "未完成",
+      "completed": "已完成",
+      "openChat": "開啟對話",
+      "openTask": "在對話中查看：{title}",
+      "loading": "正在載入任務",
+      "loadFailed": "任務載入失敗",
+      "retry": "重試",
+      "noResults": "沒有符合條件的任務",
+      "empty": "對話中記錄的任務會顯示在這裡",
+      "untitled": "未命名對話",
+      "jumpUnavailable": "關聯訊息已無法使用，已開啟所屬對話"
+  },
+
   remoteDevices: remoteDeviceMessages["zh-TW"],
   modelApi: {
     "localRoute": "本機位址",

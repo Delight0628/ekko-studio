@@ -4,6 +4,28 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesEn } from '../social-messages'
 
 export default {
+  sessionTasks: {
+      "title": "Tasks",
+      "task": "Task",
+      "source": "Source conversation",
+      "status": "Status",
+      "updated": "Updated",
+      "search": "Search tasks or conversations",
+      "filterStatus": "Filter task status",
+      "all": "All statuses",
+      "open": "Incomplete",
+      "completed": "Completed",
+      "openChat": "Open conversation",
+      "openTask": "View in conversation: {title}",
+      "loading": "Loading tasks",
+      "loadFailed": "Could not load tasks",
+      "retry": "Retry",
+      "noResults": "No matching tasks",
+      "empty": "Tasks recorded in your conversations will appear here",
+      "untitled": "Untitled conversation",
+      "jumpUnavailable": "The linked message is unavailable. The conversation has been opened."
+  },
+
   remoteDevices: remoteDeviceMessages["en"],
   modelApi: {
     "localRoute": "Local address",

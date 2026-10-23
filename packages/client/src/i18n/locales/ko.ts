@@ -4,6 +4,28 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesKo } from '../social-messages-locales'
 
 export default {
+  sessionTasks: {
+      "title": "작업",
+      "task": "작업",
+      "source": "원본 대화",
+      "status": "상태",
+      "updated": "업데이트",
+      "search": "작업 또는 대화 검색",
+      "filterStatus": "작업 상태 필터",
+      "all": "모든 상태",
+      "open": "미완료",
+      "completed": "완료",
+      "openChat": "대화 열기",
+      "openTask": "대화에서 보기: {title}",
+      "loading": "작업 불러오는 중",
+      "loadFailed": "작업을 불러올 수 없습니다",
+      "retry": "다시 시도",
+      "noResults": "일치하는 작업 없음",
+      "empty": "대화에 기록된 작업이 여기에 표시됩니다",
+      "untitled": "제목 없는 대화",
+      "jumpUnavailable": "연결된 메시지를 사용할 수 없어 대화를 열었습니다."
+  },
+
   remoteDevices: remoteDeviceMessages["ko"],
   modelApi: {
     "localRoute": "로컬 주소",

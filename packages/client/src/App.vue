@@ -136,7 +136,7 @@ function handleViewportResize() {
   viewportWidth.value = window.innerWidth;
 }
 const hasNavigationRail = computed(() =>
-  !isLoginPage.value && !isStandaloneChatPage.value && route.name !== 'desktop.pet',
+  !isLoginPage.value && !isStandaloneChatPage.value && !route.meta.minimalLayout && route.name !== 'desktop.pet',
 );
 const showNavigationRail = computed(() => isWideViewport.value && hasNavigationRail.value);
 provide(navigationRailKey, hasNavigationRail);
@@ -190,6 +190,7 @@ const showAppSidebar = computed(
   () =>
     !isLoginPage.value &&
     !isStandaloneChatPage.value &&
+    !route.meta.minimalLayout &&
     !usesPageSidebar.value &&
     !usesHermesConfigSidebar.value &&
     !usesEkkoConfigSidebar.value &&

@@ -4,6 +4,28 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesAr } from '../social-messages-locales'
 
 export default {
+  sessionTasks: {
+      "title": "المهام",
+      "task": "المهمة",
+      "source": "المحادثة المصدر",
+      "status": "الحالة",
+      "updated": "آخر تحديث",
+      "search": "البحث عن مهام أو محادثات",
+      "filterStatus": "تصفية حسب الحالة",
+      "all": "كل الحالات",
+      "open": "غير مكتملة",
+      "completed": "مكتملة",
+      "openChat": "فتح المحادثة",
+      "openTask": "عرض في المحادثة: {title}",
+      "loading": "جارٍ تحميل المهام",
+      "loadFailed": "تعذر تحميل المهام",
+      "retry": "إعادة المحاولة",
+      "noResults": "لا توجد مهام مطابقة",
+      "empty": "ستظهر هنا المهام المسجلة في محادثاتك",
+      "untitled": "محادثة بلا عنوان",
+      "jumpUnavailable": "الرسالة المرتبطة غير متاحة. تم فتح المحادثة."
+  },
+
   remoteDevices: remoteDeviceMessages["ar"],
   modelApi: {
     "localRoute": "عنوان محلي",

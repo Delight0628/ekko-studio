@@ -4,6 +4,28 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesJa } from '../social-messages-locales'
 
 export default {
+  sessionTasks: {
+      "title": "タスク",
+      "task": "タスク",
+      "source": "元の会話",
+      "status": "状態",
+      "updated": "更新日時",
+      "search": "タスクや会話を検索",
+      "filterStatus": "状態で絞り込み",
+      "all": "すべての状態",
+      "open": "未完了",
+      "completed": "完了",
+      "openChat": "会話を開く",
+      "openTask": "会話で表示：{title}",
+      "loading": "タスクを読み込み中",
+      "loadFailed": "タスクを読み込めませんでした",
+      "retry": "再試行",
+      "noResults": "該当するタスクはありません",
+      "empty": "会話で記録されたタスクがここに表示されます",
+      "untitled": "無題の会話",
+      "jumpUnavailable": "リンク先のメッセージは利用できません。会話を開きました。"
+  },
+
   remoteDevices: remoteDeviceMessages["ja"],
   modelApi: {
     "localRoute": "ローカルアドレス",

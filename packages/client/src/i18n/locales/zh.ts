@@ -4,6 +4,28 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesZh } from '../social-messages'
 
 export default {
+  sessionTasks: {
+      "title": "任务",
+      "task": "任务",
+      "source": "来源会话",
+      "status": "状态",
+      "updated": "更新于",
+      "search": "搜索任务或会话",
+      "filterStatus": "筛选任务状态",
+      "all": "全部状态",
+      "open": "未完成",
+      "completed": "已完成",
+      "openChat": "打开会话",
+      "openTask": "在会话中查看：{title}",
+      "loading": "加载任务中",
+      "loadFailed": "任务加载失败",
+      "retry": "重试",
+      "noResults": "没有符合条件的任务",
+      "empty": "会话中记录的任务会显示在这里",
+      "untitled": "未命名会话",
+      "jumpUnavailable": "关联消息已不可用，已打开所属会话"
+  },
+
   remoteDevices: remoteDeviceMessages["zh"],
   modelApi: {
     "localRoute": "本地地址",

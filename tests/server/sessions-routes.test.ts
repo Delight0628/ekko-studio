@@ -17,6 +17,7 @@ const searchMock = vi.fn(async (ctx: any) => { ctx.body = { results: [{ id: 'sea
 const getMock = vi.fn(async (ctx: any) => { ctx.body = { session: { id: ctx.params.id } } })
 const getContextMock = vi.fn(async (ctx: any) => { ctx.body = { session_id: ctx.params.id, messages: [] } })
 const getTasksMock = vi.fn(async (ctx: any) => { ctx.body = { session_id: ctx.params.id, revision: 0, updated_at: 0, tasks: [] } })
+const listTasksMock = vi.fn(async (ctx: any) => { ctx.body = { tasks: [], total: 0, has_more: false } })
 const removeMock = vi.fn(async (ctx: any) => { ctx.body = { ok: true } })
 const renameMock = vi.fn(async (ctx: any) => { ctx.body = { ok: true } })
 const archiveMock = vi.fn(async (ctx: any) => { ctx.body = { ok: true } })
@@ -68,6 +69,7 @@ vi.mock('../../packages/server/src/modules/studio/controllers/sessions', () => (
   get: getMock,
   getContext: getContextMock,
   getTasks: getTasksMock,
+  listTasks: listTasksMock,
   remove: removeMock,
   batchRemove: batchRemoveMock,
   rename: renameMock,
@@ -171,6 +173,7 @@ describe('session routes', () => {
       '/api/studio/sessions/context-length',
       '/api/studio/sessions/:id/context',
       '/api/studio/sessions/:id/tasks',
+      '/api/studio/session-tasks',
       '/api/studio/sessions/:id/workspace-run-changes',
       '/api/studio/sessions/:id/workspace-run-changes/:changeId/files/:fileId',
       '/api/studio/sessions/:id/workspace-files/list',

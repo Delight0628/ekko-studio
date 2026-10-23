@@ -4,6 +4,28 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesEs } from '../social-messages-locales'
 
 export default {
+  sessionTasks: {
+      "title": "Tareas",
+      "task": "Tarea",
+      "source": "Conversación de origen",
+      "status": "Estado",
+      "updated": "Actualización",
+      "search": "Buscar tareas o conversaciones",
+      "filterStatus": "Filtrar por estado",
+      "all": "Todos los estados",
+      "open": "Pendiente",
+      "completed": "Completada",
+      "openChat": "Abrir conversación",
+      "openTask": "Ver en la conversación: {title}",
+      "loading": "Cargando tareas",
+      "loadFailed": "No se pudieron cargar las tareas",
+      "retry": "Reintentar",
+      "noResults": "No hay tareas coincidentes",
+      "empty": "Las tareas de tus conversaciones aparecerán aquí",
+      "untitled": "Conversación sin título",
+      "jumpUnavailable": "El mensaje vinculado no está disponible. Se ha abierto la conversación."
+  },
+
   remoteDevices: remoteDeviceMessages["es"],
   modelApi: {
     "localRoute": "Dirección local",

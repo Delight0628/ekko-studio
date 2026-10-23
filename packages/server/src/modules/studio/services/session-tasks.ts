@@ -1,6 +1,7 @@
 import { getSessionTasks as readSessionTasks } from '../repositories/session-task-store'
 import { commitSessionTasks, getSessionTasksState } from '../repositories/session-task-store'
 import type { SessionTasksUpdate } from '../contracts/session-task'
+export { listSessionTaskItems } from '../repositories/session-task-store'
 
 export class SessionTasksError extends Error {
   constructor(message: string, public readonly status = 400) { super(message) }

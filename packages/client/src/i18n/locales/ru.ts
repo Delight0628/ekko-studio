@@ -4,6 +4,28 @@ import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesRu } from '../social-messages-locales'
 
 export default {
+  sessionTasks: {
+      "title": "Задачи",
+      "task": "Задача",
+      "source": "Исходный разговор",
+      "status": "Статус",
+      "updated": "Обновлено",
+      "search": "Поиск задач или разговоров",
+      "filterStatus": "Фильтр по статусу",
+      "all": "Все статусы",
+      "open": "Не завершена",
+      "completed": "Завершена",
+      "openChat": "Открыть разговор",
+      "openTask": "Показать в разговоре: {title}",
+      "loading": "Загрузка задач",
+      "loadFailed": "Не удалось загрузить задачи",
+      "retry": "Повторить",
+      "noResults": "Подходящих задач нет",
+      "empty": "Здесь появятся задачи из ваших разговоров",
+      "untitled": "Разговор без названия",
+      "jumpUnavailable": "Связанное сообщение недоступно. Разговор открыт."
+  },
+
   remoteDevices: remoteDeviceMessages["ru"],
   modelApi: {
     "localRoute": "Локальный адрес",

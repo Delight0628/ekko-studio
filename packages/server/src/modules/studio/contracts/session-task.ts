@@ -31,3 +31,29 @@ export interface SessionTasksUpdate {
   revision: number
   changes: SessionTaskChange[]
 }
+
+export interface SessionTaskListItem extends SessionTask {
+  session_id: string
+  session_title: string | null
+  profile: string
+  source: string
+  agent: string
+  /** Visible user message starting the associated request/completion turn. */
+  message_id: number | null
+}
+
+export interface SessionTaskListQuery {
+  profiles: string[]
+  excludeSessionIds?: string[]
+  search?: string
+  status?: 'open' | 'completed'
+  order: 'newest' | 'oldest'
+  offset: number
+  limit: number
+}
+
+export interface SessionTaskListPage {
+  tasks: SessionTaskListItem[]
+  total: number
+  has_more: boolean
+}
