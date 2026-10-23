@@ -36,6 +36,19 @@ beforeEach(() => {
 })
 
 describe('HTTP direct chat authorization', () => {
+  it('snapshots nested input and response options before authentication yields', async () => {
+    let release!: () => void
+    mocks.enabled.mockImplementationOnce(() => new Promise<boolean>(resolve => { release = () => resolve(true) }))
+    const body = { ...request, input: [{ type: 'text', text: 'original' }], include_events: true }
+    const server = port()
+    const result = runChatHttpRequest(body, scope, server)
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+    body.input[0].text = 'changed'
+    body.include_events = false
+    release()
+    expect((await result).body.events).toHaveLength(1)
+    expect(server.startDirectRun.mock.calls[0][0]).toMatchObject({ input: [{ text: 'original' }] })
+  })
   it('fails closed when the execution host is unavailable', async () => {
     expect(await runChatHttpRequest(request, scope, null)).toMatchObject({ status: 503, body: { error: 'Chat run service is unavailable' } })
   })

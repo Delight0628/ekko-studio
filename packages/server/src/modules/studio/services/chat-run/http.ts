@@ -13,7 +13,8 @@ export async function runChatHttpRequest(
   scope: { token: string; profile: string; share?: SessionShareAccess },
   server: DirectChatRunPort | null,
 ): Promise<ChatRunHttpResult> {
-  const body = { ...request }
+  const body = structuredClone(request)
+  const responseOptions = { timeoutMs: body.timeout_ms, includeEvents: body.include_events === true }
   if (scope.share) prepareSessionShareRun(scope.share, body)
   if (body.input == null) return { status: 400, body: { ok: false, error: 'input is required' } }
   const profile = String(body.profile || scope.profile || 'default').trim() || 'default'
@@ -31,7 +32,7 @@ export async function runChatHttpRequest(
   if (typeof payload.session_id !== 'string' || !payload.session_id.trim()) payload.session_id = randomUUID()
   const unavailable = (error: string): ChatRunHttpResult => ({ status: 503, body: {
     ok: false, status: 'connect_error', error, session_id: payload.session_id, output: '',
-    ...(request.include_events === true ? { events: [] } : {}),
+    ...(responseOptions.includeEvents ? { events: [] } : {}),
   } })
   if (!server?.startDirectRun) return unavailable('Chat run service is unavailable')
   let user: DirectChatRunOptions['user']
@@ -57,11 +58,11 @@ export async function runChatHttpRequest(
       }
     }
   } catch (error) { return unavailable(error instanceof Error ? error.message : String(error)) }
-  const numericTimeout = Number(request.timeout_ms)
+  const numericTimeout = Number(responseOptions.timeoutMs)
   const timeoutMs = Number.isFinite(numericTimeout) && numericTimeout > 0 ? Math.min(Math.floor(numericTimeout), 1_800_000) : 300_000
   let revoked = false
   return waitForChatRun({
-    sessionId: payload.session_id, timeoutMs, includeEvents: request.include_events === true,
+    sessionId: payload.session_id, timeoutMs, includeEvents: responseOptions.includeEvents,
     watch: scope.share ? invalidate => watchSessionShare(scope.share!, 'input', () => { revoked = true; invalidate() }) : undefined,
     start: onEvent => server.startDirectRun(payload as ChatRunStartRequest, {
       profile, user, mobileDeviceTarget, shared: Boolean(scope.share), onEvent,

@@ -103,7 +103,7 @@ fixture 包括原始协议帧和对应规范输出，去除秘密与私人会话
 
 领域服务可以继续使用现有 repository 和稳定引擎库；数据格式迁移与服务拆分分提交执行，便于判定行为差异。所有对外 ctx 方法的错误与取消语义必须可测试。
 
-已完成会话单删/批删的服务迁出与 `ctx.sessions.remove` 接入专项核验，范围、限制及证据见[实施记录](studio-plugin-progress.md#t02-进展会话删除共用领域服务)。新 Agent 实例 HTTP 启动与 `ctx.runs.start` 也已共用领域服务，见[启动实施记录](studio-plugin-progress.md#t02-进展agent-实例启动共用领域服务)；只覆盖独立实例、文本输入及持久化回执。旧聊天启动、工作流和其余 namespace 继续保持未完成，T02 不整体勾选。旧聊天准入/排队/推送及失败清理现已迁入无传输对象的服务，原 Socket 通过端口注入执行器，见[准入实施记录](studio-plugin-progress.md#t02-进展旧聊天启动准入服务)。HTTP 的执行事件/等待结果端口现已接入，已移除本机 Socket 回环且未创建假 Socket，见[直调实施记录](studio-plugin-progress.md#t02-进展旧聊天-http-直接调用)。下一项按宿主身份、绑定会话、取消和结果语义接入统一上下文；旧宿主组合与原执行器暂存，不把内部调用者类型或假 Socket 适配暴露给 SDK。
+已完成会话单删/批删的服务迁出与 `ctx.sessions.remove` 接入专项核验，范围、限制及证据见[实施记录](studio-plugin-progress.md#t02-进展会话删除共用领域服务)。新 Agent 实例 HTTP 启动与 `ctx.runs.start` 也已共用领域服务，见[启动实施记录](studio-plugin-progress.md#t02-进展agent-实例启动共用领域服务)；只覆盖独立实例、文本输入及持久化回执。旧聊天启动、工作流和其余 namespace 继续保持未完成，T02 不整体勾选。旧聊天准入/排队/推送及失败清理现已迁入无传输对象的服务，原 Socket 通过端口注入执行器，见[准入实施记录](studio-plugin-progress.md#t02-进展旧聊天启动准入服务)。HTTP 的执行事件/等待结果端口现已接入，已移除本机 Socket 回环且未创建假 Socket，见[直调实施记录](studio-plugin-progress.md#t02-进展旧聊天-http-直接调用)。直调入口已补齐宿主 ExecutionScope、输入/身份快照和准入前取消，见[作用域实施记录](studio-plugin-progress.md#t02-进展直调入口的宿主作用域与输入快照)。下一项仍需公共输入/结果句柄、插件 session owner 授权及真实 worker 验收，才能开放 SDK 旧聊天启动；旧宿主组合与原执行器暂存，不把内部调用者类型或假 Socket 适配暴露给 SDK。
 
 T02 为 Run 相关能力先建立应用服务端口和作用域约束，迁移期可注入旧实现以维持行为；T06 完成统一协调器后替换该实现。临时适配不能进入插件公共 API，最终由 T14 删除，避免让 T02 反向依赖尚未完成的 T06。
 

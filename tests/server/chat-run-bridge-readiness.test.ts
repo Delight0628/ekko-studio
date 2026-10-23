@@ -1451,13 +1451,24 @@ describe('direct chat admission and delivery', () => {
     const { io } = makeServerHarness()
     const server = new ChatRunSocket(io as any)
     ;(server as any).sessionMap.set('session-1', { isWorking: true, messages: [], queue: [], events: [] })
-    const opts = options()
-    const handle = server.startDirectRun({ input: 'queued', session_id: 'session-1', source: 'coding_agent', coding_agent_id: 'codex' }, opts)
+    const controller = new AbortController()
+    const opts = { ...options(), context: { signal: controller.signal, scope: {
+      scopeId: 'context', traceId: 'trace', surface: 'api' as const, profileId: 'default', sessionId: 'session-1',
+      principal: { kind: 'user' as const, id: '42' },
+    } } }
+    const input = { input: 'queued', session_id: 'session-1', source: 'coding_agent', coding_agent_id: 'codex' as const }
+    const handle = server.startDirectRun(input, opts)
+    input.input = 'changed'
+    opts.user.id = 999
+    opts.context.scope.principal.id = '999'
     await tick()
+    controller.abort()
     handle.dispose()
     opts.onEvent.mockClear()
     handleCodingAgentRunMock.mockImplementationOnce(async (...args: any[]) => {
       expect(args[1].user.id).toBe(42)
+      expect(args[1].executionScope).toMatchObject({ scopeId: 'context', principal: { id: '42' }, sessionId: 'session-1' })
+      expect(args[2].input).toBe('queued')
       args[1].observeSession('session-1')
       args[1].reply('run.completed', {})
     })
@@ -1466,6 +1477,26 @@ describe('direct chat admission and delivery', () => {
     expect(handleCodingAgentRunMock).toHaveBeenCalledOnce()
     expect(opts.onEvent).not.toHaveBeenCalled()
     expect((server as any).runWaiters.size).toBe(0)
+    await server.close()
+  })
+
+  it('rejects a cancelled host context before queue, device binding or execution', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io } = makeServerHarness()
+    const server = new ChatRunSocket(io as any)
+    const controller = new AbortController()
+    const opts = { ...options(), context: { signal: controller.signal, scope: {
+      scopeId: 'context', traceId: 'trace', surface: 'api' as const, profileId: 'default', sessionId: 'session-1',
+      principal: { kind: 'user' as const, id: '42' },
+    } } }
+    const handle = server.startDirectRun({ input: 'cancelled', session_id: 'session-1' }, opts)
+    controller.abort()
+    await tick()
+    expect(opts.onEvent).toHaveBeenCalledWith('run.failed', expect.objectContaining({ error: 'Chat admission was cancelled' }))
+    expect(opts.pushActor).not.toHaveBeenCalled()
+    expect(handleBridgeRunMock).not.toHaveBeenCalled()
+    expect((server as any).sessionMap.size).toBe(0)
+    handle.dispose()
     await server.close()
   })
 

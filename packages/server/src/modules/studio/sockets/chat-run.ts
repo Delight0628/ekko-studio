@@ -1,5 +1,6 @@
 import { chatRunCaller, isDirectChatRunCaller, type ChatRunCaller, type ChatRunCallerTarget } from '../services/chat-run/caller'
 import type { DirectChatRunOptions, DirectChatRunHandle } from '../services/chat-run/direct'
+import { createChatRunInvocation } from '../services/chat-run/invocation'
 import { startChatRun, requireChatRunSessionAccess, type ChatRunStartRequest, type ChatRunStartScope, type ChatRunStartPorts } from '../services/chat-run/start'
 import { isBridgeRunSource, isProviderAgentExecution, isEkkoAgentExecution, webhookAgentForRun } from '../services/chat-run/run-routing'
 import { serializeQueuedMessages } from '../services/chat-run/queued-messages'
@@ -1286,8 +1287,9 @@ export class ChatRunSocket {
   }
 
   /** In-process admission. Identity is supplied only by a trusted entrypoint. */
-  startDirectRun(data: ChatRunStartRequest, options: DirectChatRunOptions): DirectChatRunHandle {
+  startDirectRun(request: ChatRunStartRequest, entry: DirectChatRunOptions): DirectChatRunHandle {
     if (this.closing) throw new Error('Chat run service is unavailable')
+    const { data, options, scope } = createChatRunInvocation(request, entry)
     let active = true
     const observed = new Set<string>()
     const deliver = (event: string, payload: any) => {
@@ -1296,6 +1298,7 @@ export class ChatRunSocket {
     const caller: ChatRunCaller = {
       kind: 'direct', originId: `http-run-${randomUUID()}`,
       user: options.user, mobileDeviceTarget: options.mobileDeviceTarget,
+      executionScope: scope,
       isActive: () => active,
       reply: deliver,
       observeSession: sessionId => {
