@@ -1239,10 +1239,11 @@ export class CodingAgentRunManager {
     if (!agentSessionId) return
     const run = this.runs.get(agentSessionId)
     if (!run) return
-    if (run.launch.agentId === 'codex' && run.codexAppServerTurn && !run.acceptingPrintEvent
-      && event.type === 'response.output_text.delta') {
-      // App-server supplies the authoritative text deltas. The provider proxy
-      // observes the same text before the native stream and must not replay it.
+    if (run.launch.agentId === 'codex' && run.codexAppServerTurn && !run.acceptingPrintEvent) {
+      // Native app-server owns the complete chat lifecycle, not just text deltas.
+      // A proxy output_text.done can arrive between native chunks and close the
+      // current assistant message, splitting one native item into several bubbles.
+      // Provider usage is accounted separately by handleProxyUsageEvent.
       return
     }
     const responseEvent = this.normalizeCodexChatTextEvent(run, event)

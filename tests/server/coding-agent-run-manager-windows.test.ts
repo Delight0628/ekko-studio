@@ -1174,6 +1174,7 @@ describe('coding agent Windows process launch', () => {
   })
 
   it.each([
+    ['JSON split by proxy completion', ['{"action":"accept","content":{"label":"WIN11_OK","count', '":7}}']],
     ['short Chinese chunks', ['我会', '创建文件', '，然后等待审批。']],
     ['legitimate repeated chunks', ['这是同一原生消息中刻意重复的一段完整文本。', '这是同一原生消息中刻意重复的一段完整文本。']],
   ] as Array<[string, string[]]>)('uses native Codex text once instead of replaying proxy deltas: %s', async (_name, chunks) => {
@@ -1199,6 +1200,7 @@ describe('coding agent Windows process launch', () => {
       for (const delta of chunks) {
         manager.handleResponseEvent('codex-text-run', { type: 'response.output_text.delta', data: { delta } })
         frame('item/agentMessage/delta', { itemId: 'text-item', delta })
+        manager.handleResponseEvent('codex-text-run', { type: 'response.output_text.done', data: {} })
       }
       frame('item/completed', { item: { id: 'text-item', type: 'agentMessage', text: chunks.join('') } })
       const text = emitted.mock.calls.filter(([, event]) => event === 'message.delta')
@@ -1206,6 +1208,9 @@ describe('coding agent Windows process launch', () => {
       expect(text).toBe(chunks.join(''))
       const run = (manager as any).runs.get('codex-text-run')
       expect(run.codexChatText).toBe(chunks.join(''))
+      const replies = run.state.messages.filter((m: any) => m.role === 'assistant' && !m.tool_calls?.length && m.content)
+      expect(replies).toHaveLength(1)
+      expect(replies[0].content).toBe(chunks.join(''))
     } finally {
       manager.shutdown()
     }

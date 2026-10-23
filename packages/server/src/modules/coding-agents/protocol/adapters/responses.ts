@@ -4,6 +4,7 @@ import { shouldPreserveReasoningContent } from './anthropic'
 
 export interface ResponsesAdapterTarget {
   model: string
+  toolNamespaces?: ReadonlyMap<string, string>
   provider?: string
   baseUrl?: string
   /** Default for providers such as Anthropic Messages that require max_tokens. */
@@ -363,6 +364,26 @@ function responsesAvailableTools(body: any): any[] {
   return tools
 }
 
+/** Resolve external MCP names from this request only, never a global registry.
+ * Ambiguous bare names must not be routed to an arbitrary server. */
+export function responseToolNamespaces(body: any): ReadonlyMap<string, string> {
+  const candidates = new Map<string, Set<string>>()
+  for (const tool of responsesAvailableTools(body)) {
+    const namespace = tool?.type === 'namespace' ? normalizedNamespaceName(tool.name) : ''
+    const functions = tool?.type === 'namespace' ? tool.tools : tool?.type === 'function' ? [tool] : []
+    for (const fn of Array.isArray(functions) ? functions : []) {
+      if (fn?.type !== 'function' || typeof fn.name !== 'string') continue
+      const names = candidates.get(fn.name) || new Set<string>()
+      names.add(namespace || String(fn.namespace || ''))
+      candidates.set(fn.name, names)
+    }
+  }
+  return new Map([...candidates].flatMap(([name, values]) => {
+    const namespace = values.size === 1 ? [...values][0] : ''
+    return namespace ? [[name, namespace] as [string, string]] : []
+  }))
+}
+
 function toolSearchOutputText(item: any): string {
   const names: string[] = []
   for (const tool of Array.isArray(item?.tools) ? item.tools : []) {
@@ -388,7 +409,7 @@ function toolSearchArguments(value: unknown): Record<string, unknown> {
   return safeJsonParse(String(value || '{}'))
 }
 
-function responseToolCall(name: unknown, argumentsValue: unknown, id: unknown, index: number): any {
+function responseToolCall(name: unknown, argumentsValue: unknown, id: unknown, index: number, toolNamespaces?: ReadonlyMap<string, string>): any {
   const rawName = String(name || 'tool')
   const callId = String(id || `call_${index}`)
   if (rawName === TOOL_SEARCH_NAME) {
@@ -407,7 +428,7 @@ function responseToolCall(name: unknown, argumentsValue: unknown, id: unknown, i
     type: 'function_call',
     id: String(id || `fc_${index}`),
     call_id: callId,
-    ...normalizeResponseFunctionCall(rawName, rawArguments),
+    ...normalizeResponseFunctionCall(rawName, rawArguments, toolNamespaces),
   }
 }
 
@@ -415,7 +436,7 @@ export function responseToolNamespaceForName(name: unknown): string | undefined 
   return HERMES_STUDIO_MCP_TOOL_NAMESPACES.get(String(name || ''))
 }
 
-export function normalizeResponseFunctionCall(name: unknown, argumentsValue: unknown): { name: string; arguments: string; namespace?: string } {
+export function normalizeResponseFunctionCall(name: unknown, argumentsValue: unknown, toolNamespaces?: ReadonlyMap<string, string>): { name: string; arguments: string; namespace?: string } {
   const rawName = String(name || 'tool')
   // An empty string starts streamed arguments; adding {} would corrupt the
   // JSON when the client appends subsequent argument deltas.
@@ -438,7 +459,7 @@ export function normalizeResponseFunctionCall(name: unknown, argumentsValue: unk
     }
   }
 
-  const knownNamespace = responseToolNamespaceForName(rawName)
+  const knownNamespace = toolNamespaces?.get(rawName) || responseToolNamespaceForName(rawName)
   return {
     name: rawName,
     arguments: rawArguments,
@@ -920,6 +941,7 @@ export function openAiChatToResponses(data: any, target: ResponsesAdapterTarget)
       call.function?.arguments || '{}',
       call.id,
       output.length,
+      target.toolNamespaces,
     ))
   }
 
@@ -948,6 +970,7 @@ export function anthropicMessageToResponses(data: any, target: ResponsesAdapterT
         block.input || {},
         block.id,
         output.length,
+      target.toolNamespaces,
       ))
     }
   }

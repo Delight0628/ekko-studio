@@ -163,3 +163,18 @@ describe('native scoped model gateway', () => {
     await expect(read(responsesToChatCompletionSse(events, 'model-a', false))).rejects.toThrow('without a final response')
   })
 })
+
+ describe('Codex external MCP namespace proxy wiring', () => {
+  it.each([false, true])('uses the current request definitions (stream=%s)', async stream => {
+    const { codexProxyResponses } = await import('../../packages/server/src/modules/coding-agents/services/codex/proxy')
+    const target = registerCodexProxyTarget({ profile: 'test', provider: 'custom:test', model: 'test', baseUrl: 'https://provider.example/v1', apiKey: 'test', apiMode: 'chat_completions', agentId: 'codex', agentSessionId: 'namespace-test' })
+    const upstream = stream
+      ? 'data: ' + JSON.stringify({choices:[{delta:{tool_calls:[{index:0,id:'call',function:{name:'acceptance_form',arguments:'{}'}}]},finish_reason:'tool_calls'}]}) + '\n\ndata: [DONE]\n\n'
+      : JSON.stringify({choices:[{message:{tool_calls:[{id:'call',function:{name:'acceptance_form',arguments:'{}'}}]}}]})
+    vi.spyOn(globalThis,'fetch').mockResolvedValue(new Response(upstream,{headers:{'content-type':stream?'text/event-stream':'application/json'}}))
+    const ctx=context(target,{stream,input:'test',tools:[{type:'namespace',name:'mcp__external_test',tools:[{type:'function',name:'acceptance_form',parameters:{type:'object',properties:{}}}]}]})
+    await codexProxyResponses(ctx)
+    if(stream) expect(await read(ctx.body)).toContain('"namespace":"mcp__external_test"')
+    else expect(ctx.body.output[0]).toMatchObject({name:'acceptance_form',namespace:'mcp__external_test'})
+  })
+ })
