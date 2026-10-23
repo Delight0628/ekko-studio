@@ -26,6 +26,11 @@ using System;
 using System.Runtime.InteropServices;
 public static class NativeDevicePointer {
  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+ [DllImport("user32.dll")] static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
+ [DllImport("user32.dll")] static extern bool SetThreadDesktop(IntPtr desktop);
+ [DllImport("user32.dll")] static extern IntPtr GetThreadDesktop(uint thread);
+ [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern bool GetUserObjectInformation(IntPtr obj, int index, System.Text.StringBuilder text, uint length, out uint needed);
+ [DllImport("user32.dll")] static extern bool CloseDesktop(IntPtr desktop);
  [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
  [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr handle, ref POINT point);
  [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr handle);
@@ -43,6 +48,16 @@ public static class NativeDevicePointer {
  [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
  [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
  public static void Click(long value, double x, double y) {
+  var inputDesktop = OpenInputDesktop(0, false, 0x0100 | 0x0080 | 0x0040 | 0x0001);
+  uint needed;
+  var desktopName = new System.Text.StringBuilder(256);
+  GetUserObjectInformation(GetThreadDesktop(GetCurrentThreadId()), 2, desktopName, 512, out needed);
+  Console.WriteLine("Pointer desktop=" + desktopName + " inputHandle=" + inputDesktop);
+  if (inputDesktop != IntPtr.Zero) {
+    var inputName = new System.Text.StringBuilder(256);
+    GetUserObjectInformation(inputDesktop, 2, inputName, 512, out needed);
+    Console.WriteLine("Input desktop=" + inputName + " switched=" + SetThreadDesktop(inputDesktop));
+  }
   SetThreadDpiAwarenessContext(new IntPtr(-4));
   var handle = new IntPtr(value);
   var foreground = GetForegroundWindow();
@@ -88,6 +103,7 @@ public static class NativeDevicePointer {
 '@
 [NativeDevicePointer]::Click(${handle}, ${bounds.x + point.x}, ${bounds.y + point.y})
 `
-    await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 15000, windowsHide: true })
+    const result = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 15000, windowsHide: true }).catch(error => { console.error(error.stdout || ''); throw error })
+    console.log(result.stdout)
   } else throw new Error('OS pointer test supports macOS and Windows')
 }
