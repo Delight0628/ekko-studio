@@ -35,7 +35,7 @@ Studio 将现有后端能力组织为有类型、有作用域的 `ctx`。内置�
 | [bootstrap/routes.ts](../../packages/server/src/bootstrap/routes.ts) | 静态装配各模块 HTTP 路由 | 保留传输入口，业务调用统一领域服务；插件路由使用受控网关 |
 | [public/sessions.ts](../../packages/server/src/modules/studio/public/sessions.ts) | 导出会话等 repository 操作 | 对外提供完整会话用例，存储接口留在内部 |
 | [controllers/sessions.ts](../../packages/server/src/modules/studio/controllers/sessions.ts) | 包含访问检查、运行时清理、删除和通知 | 将完整用例下沉，HTTP 只做输入输出映射 |
-| [controllers/chat-run.ts](../../packages/server/src/modules/studio/controllers/chat-run.ts) | `runOnce` 经本地 Socket 客户端发起执行 | HTTP 与 Socket 直接调用同一个运行协调器 |
+| [controllers/chat-run.ts](../../packages/server/src/modules/studio/controllers/chat-run.ts) | `runOnce` 经应用服务直接调用旧运行宿主，与 Socket 共用准入和引擎；已移除本地回连 | HTTP 与 Socket 直接调用同一个运行协调器 |
 | [coding-agents/services/index.ts](../../packages/server/src/modules/coding-agents/services/index.ts) | 约 3900 行，配置准备、环境、安装、MCP 和启动 | 按平台能力、协议驱动、厂商适配拆分 |
 | [runtime/run-manager.ts](../../packages/server/src/modules/coding-agents/services/runtime/run-manager.ts) | 约 3900 行，进程、厂商协议、消息落库、用量、通知 | 协议转换进入插件；状态、持久化和广播归协调器 |
 | [registry/native-agents.ts](../../packages/server/src/modules/coding-agents/services/registry/native-agents.ts) | 部分 Agent 已有定义、配置准备、启动适配表 | 提取可复用 ACP 驱动，消除固定厂商分发表 |
@@ -118,7 +118,7 @@ Hermes、Ekko 保留在现有内置模块中。bootstrap 将它们的运行工�
 
 `ctx` 是类型化服务入口和资源作用域。领域服务保留独立实现，内部按需注入窄接口。禁止每个领域服务都依赖完整 `StudioContext`，以免形成循环依赖和隐式服务查找。
 
-当前实施已将会话删除和新 Agent 实例启动分别收敛为 HTTP/SDK 共用服务。`ctx.runs.start` 暂限未绑定 session/workspace/Run 的独立实例执行，接收后由协调器持有生命周期；旧聊天准入规则已迁入服务，Socket 注入原执行器；其 HTTP 回环、统一上下文接入和父子 Run 迁移仍未完成。实际边界见[实施记录](studio-plugin-progress.md#t02-进展agent-实例启动共用领域服务)，下表继续定义完整目标。
+当前实施已将会话删除和新 Agent 实例启动分别收敛为 HTTP/SDK 共用服务。`ctx.runs.start` 暂限未绑定 session/workspace/Run 的独立实例执行，接收后由协调器持有生命周期；旧聊天准入规则已迁入服务，HTTP/Socket 通过调用者和事件端口共用原执行器，HTTP 已移除本机回环；统一上下文接入和父子 Run 迁移仍未完成。实际边界见[实施记录](studio-plugin-progress.md#t02-进展agent-实例启动共用领域服务)，下表继续定义完整目标。
 
 以下目录覆盖目前后端的主要业务。每个拟议公共方法在实现前必须完成输入输出 schema、权限、取消、错误和副作用归属登记。
 

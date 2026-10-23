@@ -1,4 +1,6 @@
-import { startChatRun, requireChatRunSessionAccess, type ChatRunStartRequest } from '../services/chat-run/start'
+import { chatRunCaller, isDirectChatRunCaller, type ChatRunCaller, type ChatRunCallerTarget } from '../services/chat-run/caller'
+import type { DirectChatRunOptions, DirectChatRunHandle } from '../services/chat-run/direct'
+import { startChatRun, requireChatRunSessionAccess, type ChatRunStartRequest, type ChatRunStartScope, type ChatRunStartPorts } from '../services/chat-run/start'
 import { isBridgeRunSource, isProviderAgentExecution, isEkkoAgentExecution, webhookAgentForRun } from '../services/chat-run/run-routing'
 import { serializeQueuedMessages } from '../services/chat-run/queued-messages'
 import { isNativeCodingAgent } from '../contracts/agents/native-coding-agents'
@@ -403,6 +405,12 @@ export class ChatRunSocket {
     if (event === 'clarify.resolved') this.clearClarifyEventState(sessionId, String(payload.clarify_id))
   })
   private bridgeResumePolls = new Set<string>()
+  private readonly directRunObservers = new Set<{
+    sessionId?: string
+    caller: ChatRunCaller
+    observes(sessionId: string): boolean
+    fail(error: string): void
+  }>()
   private readonly runWaiters = new Map<string, Set<(event: string, payload: any) => void>>()
   private readonly pendingMobileLocations = new Map<string, PendingMobileLocationRequest>()
   private readonly mobileRunTargets = new Map<string, MobileDeviceTarget>()
@@ -851,29 +859,10 @@ export class ChatRunSocket {
     }
 
     socket.on('run', async (data: ChatRunStartRequest) => {
-      await startChatRun(data, {
-        profile: currentProfile(),
-        user: socketUser,
-        shared: Boolean(shared),
-        originId: socket.id,
+      await this.startRun(socket, data, {
+        profile: currentProfile(), user: socketUser, shared: Boolean(shared), originId: socket.id,
         reauthorize: shared ? async () => { await refreshSessionShare(shared, 'input', data.session_id) } : undefined,
-      }, {
-        sessions: this.sessionMap,
-        emit: (event, payload) => { socket.emit(event, payload) },
-        emitSession: (sessionId, event, payload) => this.emitToSession(socket, sessionId, event, payload),
-        publish: (sessionId, event, payload) => { this.nsp.to(`session:${sessionId}`).emit(event, payload) },
-        pushActor: () => authenticatedPushActor(socket.handshake.auth?.token),
-        commands: {
-          ekko: (request, command, profile) => handleEkkoSessionCommand(this.nsp, socket, request, command, profile, this.sessionMap, this.dequeueNextQueuedRun.bind(this)),
-          session: (request, command, profile) => handleSessionCommand(request.session_id!, command, {
-            nsp: this.nsp, socket, sessionMap: this.sessionMap, bridge: this.bridge,
-            profile, model: request.model, provider: request.provider, model_groups: request.model_groups,
-            instructions: request.instructions, queueId: request.queue_id, runQueuedItem: this.runQueuedItem.bind(this),
-          }),
-          codingAgent: (request, command, profile) => handleCodingAgentSessionCommand(this.nsp, socket, request, command, profile, this.sessionMap),
-        },
-        execute: (request, profile, pushTargetId) => this.handleRun(socket, request, profile, false, undefined, pushTargetId),
-      })
+      }, () => authenticatedPushActor(socket.handshake.auth?.token))
     })
 
     socket.on('insert_queued_run', (data: { session_id?: string; queue_id?: string }) => {
@@ -1273,10 +1262,99 @@ export class ChatRunSocket {
     return codingAgentRunManager.resolveClarification(sessionId, clarifyId, response).resolved
   }
 
+  private startRun(socket: ChatRunCallerTarget, data: ChatRunStartRequest, scope: ChatRunStartScope, pushActor: ChatRunStartPorts['pushActor']) {
+    return startChatRun(data, scope, {
+      sessions: this.sessionMap,
+      emit: (event, payload) => chatRunCaller(socket).reply(event, payload),
+      emitSession: (sessionId, event, payload) => this.emitToSession(socket, sessionId, event, payload),
+      publish: (sessionId, event, payload) => {
+        this.nsp.to(`session:${sessionId}`).emit(event, payload)
+        if (isDirectChatRunCaller(socket)) socket.reply(event, payload)
+      },
+      pushActor,
+      commands: {
+        ekko: (request, command, profile) => handleEkkoSessionCommand(this.nsp, socket, request, command, profile, this.sessionMap, this.dequeueNextQueuedRun.bind(this)),
+        session: (request, command, profile) => handleSessionCommand(request.session_id!, command, {
+          nsp: this.nsp, socket, sessionMap: this.sessionMap, bridge: this.bridge,
+          profile, model: request.model, provider: request.provider, model_groups: request.model_groups,
+          instructions: request.instructions, queueId: request.queue_id, runQueuedItem: this.runQueuedItem.bind(this),
+        }),
+        codingAgent: (request, command, profile) => handleCodingAgentSessionCommand(this.nsp, socket, request, command, profile, this.sessionMap),
+      },
+      execute: (request, profile, pushTargetId) => this.handleRun(socket, request, profile, false, undefined, pushTargetId),
+    })
+  }
+
+  /** In-process admission. Identity is supplied only by a trusted entrypoint. */
+  startDirectRun(data: ChatRunStartRequest, options: DirectChatRunOptions): DirectChatRunHandle {
+    if (this.closing) throw new Error('Chat run service is unavailable')
+    let active = true
+    const observed = new Set<string>()
+    const deliver = (event: string, payload: any) => {
+      if (active) options.onEvent(event, buildOutboundRunEvent(event, payload))
+    }
+    const caller: ChatRunCaller = {
+      kind: 'direct', originId: `http-run-${randomUUID()}`,
+      user: options.user, mobileDeviceTarget: options.mobileDeviceTarget,
+      isActive: () => active,
+      reply: deliver,
+      observeSession: sessionId => {
+        if (!active || observed.has(sessionId)) return
+        observed.add(sessionId)
+        const waiters = this.runWaiters.get(sessionId) || new Set()
+        waiters.add(deliver)
+        this.runWaiters.set(sessionId, waiters)
+      },
+      publishToPeers: (sessionId, event, payload) => { this.nsp.to(`session:${sessionId}`).emit(event, payload) },
+    }
+    const observer = {
+      sessionId: data.session_id, caller, observes: (sessionId: string) => observed.has(sessionId),
+      fail: (error: string) => deliver('run.failed', { event: 'run.failed', session_id: data.session_id, error }),
+    }
+    this.directRunObservers.add(observer)
+    const dispose = () => {
+      active = false
+      this.directRunObservers.delete(observer)
+      for (const sessionId of observed) {
+        const waiters = this.runWaiters.get(sessionId)
+        waiters?.delete(deliver)
+        if (!waiters?.size) this.runWaiters.delete(sessionId)
+      }
+      observed.clear()
+    }
+    const dropQueued = () => {
+      for (const [sessionId, state] of this.sessionMap) {
+        const before = state.queue.length
+        state.queue = state.queue.filter(item => item.directCaller !== caller)
+        if (state.queue.length === before) continue
+        if (state.queueInsertion && !state.queue.some(item => item.queue_id === state.queueInsertion?.queueId)) {
+          this.clearQueueInsertion(sessionId, state, 'share_access_denied')
+        }
+        this.nsp.to(`session:${sessionId}`).emit('run.queued', {
+          event: 'run.queued', session_id: sessionId,
+          queue_length: state.queue.length, queued_messages: this.serializeQueuedMessages(state.queue),
+        })
+      }
+    }
+    // Schedule admission after returning the handle so synchronous command replies can
+    // safely release their observer. A queued run retains identity after HTTP timeout.
+    void Promise.resolve().then(() => {
+      if (this.closing) return
+      return this.startRun(caller, data, {
+        profile: options.profile, user: options.user, shared: options.shared,
+        originId: caller.originId, directCaller: caller, reauthorize: options.reauthorize,
+      }, options.pushActor)
+    }).catch(error => deliver('run.failed', {
+      event: 'run.failed', session_id: data.session_id,
+      error: error instanceof Error ? error.message : String(error),
+    }))
+    return { dispose, dropQueued }
+  }
+
   // --- Run dispatcher ---
 
   private async handleRun(
-    socket: Socket,
+    socket: ChatRunCallerTarget,
     data: {
       input: string | ContentBlock[]
       display_input?: string | ContentBlock[] | null
@@ -1337,7 +1415,7 @@ export class ChatRunSocket {
     const surface = data.session_source || source
     if (data.session_id) getOrCreateSession(this.sessionMap, data.session_id).pushTargetId = pushTargetId
     if (data.session_id) {
-      const target = socket.data?.mobileDeviceTarget as MobileDeviceTarget | undefined
+      const target = chatRunCaller(socket).mobileDeviceTarget as MobileDeviceTarget | undefined
       if (target && target.profile === profile && surface !== 'workflow' && surface !== 'group_chat' && !backgroundContinuationContext) {
         this.mobileRunTargets.set(data.session_id, { ...target })
       } else this.mobileRunTargets.delete(data.session_id)
@@ -1429,7 +1507,7 @@ export class ChatRunSocket {
           })
         }
         if (queueRemaining > 0) payload.queue_remaining = queueRemaining
-        socket.emit('run.failed', payload)
+        chatRunCaller(socket).reply('run.failed', payload)
         if (data.session_id && data.background_delegation_id && data.background_claim_id) {
           void this.bridge.releaseBackgroundNotification(
             data.session_id,
@@ -1465,6 +1543,7 @@ export class ChatRunSocket {
           workflowId: data.workflow_id,
           workflowNodeId: data.workflow_node_id,
         })
+        if (isDirectChatRunCaller(socket)) socket.reply(event, payload)
         data.onEvent?.(event, payload)
         this.emitPendingInteraction(profile, event, payload)
       }
@@ -1501,6 +1580,7 @@ export class ChatRunSocket {
           workflowId: data.workflow_id,
           workflowNodeId: data.workflow_node_id,
         })
+        if (isDirectChatRunCaller(socket)) socket.reply(event, payload)
         data.onEvent?.(event, payload)
         this.emitPendingInteraction(profile, event, payload)
       }
@@ -1537,9 +1617,9 @@ export class ChatRunSocket {
           roomId: String(data.group_room_id || ''), agentId: String(data.group_agent_id || ''),
           // Only the internal group coordinator resolves a local requester.
           // Client-supplied group metadata must not delegate a shared session's execution owner.
-          userId: typeof socket.data?.groupRunIsCurrent === 'function' ? socket.data?.user?.id : undefined,
+          userId: typeof chatRunCaller(socket).groupRunIsCurrent === 'function' ? chatRunCaller(socket).user?.id : undefined,
           isActive: () => this.taskPlanRuns.isActive(credentialContext, profile)
-            && (socket.data?.groupRunIsCurrent?.() ?? true),
+            && (chatRunCaller(socket).groupRunIsCurrent?.() ?? true),
         })
         : undefined
       started = await handleCodingAgentRun(this.nsp, socket, { ...data, studio_mcp_token_file: studioMcpTokenFile, task_plan_context_id: planContext, interaction_context_id: interactionContext, instructions, studio_mcp_capabilities: mcpCapabilities }, profile, this.sessionMap)
@@ -1577,7 +1657,7 @@ export class ChatRunSocket {
       })
       const peerTarget = data.peerExcludeSocketId
         ? this.nsp.to(`session:${data.session_id}`).except(data.peerExcludeSocketId)
-        : socket.to(`session:${data.session_id}`)
+        : { emit: (event: string, payload: any) => chatRunCaller(socket).publishToPeers(data.session_id!, event, payload) }
       peerTarget.emit('run.peer_user_message', {
         event: 'run.peer_user_message',
         session_id: data.session_id,
@@ -2235,7 +2315,7 @@ export class ChatRunSocket {
 
   // --- Queue ---
 
-  private dequeueNextQueuedRun(socket: Socket, sessionId: string, fallbackProfile = 'default') {
+  private dequeueNextQueuedRun(socket: ChatRunCallerTarget, sessionId: string, fallbackProfile = 'default') {
     const state = this.sessionMap.get(sessionId)
     if (!state?.queue.length) return false
 
@@ -2261,13 +2341,14 @@ export class ChatRunSocket {
     return true
   }
 
-  private runQueuedItem(socket: Socket, sessionId: string, next: QueuedRun, fallbackProfile = 'default') {
+  private runQueuedItem(socket: ChatRunCallerTarget, sessionId: string, next: QueuedRun, fallbackProfile = 'default') {
+    socket = next.directCaller || socket
     if (next.authorize) {
       const authorize = next.authorize
       void authorize().then(() => this.runQueuedItem(socket, sessionId, { ...next, authorize: undefined }, fallbackProfile)).catch(() => {
         const state = this.sessionMap.get(sessionId)
         if (state) state.isWorking = false
-        this.nsp.to(`session:${sessionId}`).emit('run.failed', { event: 'run.failed', session_id: sessionId, queue_id: next.queue_id, error: 'share_access_denied' })
+        this.emitToSession(socket, sessionId, 'run.failed', { event: 'run.failed', session_id: sessionId, queue_id: next.queue_id, error: 'share_access_denied' })
         this.dequeueNextQueuedRun(socket, sessionId, fallbackProfile)
       })
       return
@@ -2319,7 +2400,18 @@ export class ChatRunSocket {
       background_delegation_id: next.backgroundDelegationId,
       background_claim_id: next.backgroundClaimId,
       autonomous: next.autonomous,
-    }, runProfile, skipUserMessage, backgroundContinuationContext, next.pushTargetId)
+    }, runProfile, skipUserMessage, backgroundContinuationContext, next.pushTargetId).catch(error => {
+      const current = this.sessionMap.get(sessionId)
+      if (current && !current.runId && !current.abortController && !current.activeRunMarker) {
+        current.isWorking = false
+        current.profile = undefined
+      }
+      this.emitToSession(socket, sessionId, 'run.failed', {
+        event: 'run.failed', queue_id: next.queue_id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      if (current && !current.isWorking) this.dequeueNextQueuedRun(socket, sessionId, fallbackProfile)
+    })
   }
 
   // --- Helpers ---
@@ -2590,6 +2682,9 @@ export class ChatRunSocket {
       if (pending.sessionId !== sid) continue
       this.finishMobileHealthRequest(requestId, { status: 'error', error: { code: 'health_failed' } })
     }
+    for (const observer of [...this.directRunObservers]) {
+      if (observer.sessionId === sid) observer.fail('Session was removed')
+    }
     codingAgentRunManager.stop(sid, { reportClosed: false })
     const state = this.sessionMap.get(sid)
     this.finishTaskPlanRun(sid, 'abort.completed')
@@ -2772,7 +2867,8 @@ export class ChatRunSocket {
     return { deleted, hadMemoryState }
   }
 
-  private socketForQueuedRun(sessionId: string, next?: QueuedRun): Socket | null {
+  private socketForQueuedRun(sessionId: string, next?: QueuedRun): ChatRunCallerTarget | null {
+    if (next?.directCaller) return next.directCaller
     if (next?.originSocketId) {
       const origin = this.nsp.sockets.get(next.originSocketId)
       if (origin) return origin
@@ -2829,6 +2925,14 @@ export class ChatRunSocket {
     })
   }
 
+  private emitDirectSessionEvent(sessionId: string, event: string, payload: any, target?: MobileDeviceTarget, exclude?: ChatRunCaller) {
+    for (const observer of this.directRunObservers) {
+      if (observer.caller === exclude || !observer.observes(sessionId)) continue
+      if (target && !sameMobileDevice(target, observer.caller.mobileDeviceTarget)) continue
+      observer.caller.reply(event, payload)
+    }
+  }
+
   private emitMobileLocationEvent(
     profile: string,
     sessionId: string,
@@ -2843,6 +2947,7 @@ export class ChatRunSocket {
       state.events.push({ event, data: tagged })
     }
     this.nsp.to(`session:${sessionId}`).emit(event, tagged)
+    this.emitDirectSessionEvent(sessionId, event, tagged)
     this.emitPendingInteraction(profile, event, tagged)
   }
 
@@ -2901,6 +3006,7 @@ export class ChatRunSocket {
     }
     const target: MobileDeviceTarget = { deviceCode: payload.target_device_id, userId: payload.target_user_id, profile: payload.target_profile }
     this.nsp.to(mobileDeviceRoom(target)).emit(event, tagged)
+    this.emitDirectSessionEvent(sessionId, event, tagged, target)
   }
   private clearMobileCalendarEventState(sessionId: string, requestId: string): void {
     const state = this.sessionMap.get(sessionId)
@@ -2920,8 +3026,9 @@ export class ChatRunSocket {
     }
     const target: MobileDeviceTarget = { deviceCode: payload.target_device_id, userId: payload.target_user_id, profile: payload.target_profile }
     this.nsp.to(mobileDeviceRoom(target)).emit(event, tagged)
+    this.emitDirectSessionEvent(sessionId, event, tagged, target)
   }
-  private emitToSession(socket: Socket, sessionId: string, event: string, payload: any) {
+  private emitToSession(socket: ChatRunCallerTarget, sessionId: string, event: string, payload: any) {
     const tagged = { ...payload, session_id: sessionId }
     const profile = this.resolvePetEventProfile(sessionId, tagged)
     const state = this.sessionMap.get(sessionId)
@@ -2942,8 +3049,9 @@ export class ChatRunSocket {
     this.observePetEvent(profile, event, tagged)
     this.emitPendingInteraction(profile, event, tagged)
     this.nsp.to(`session:${sessionId}`).emit(event, tagged)
-    if (!this.nsp.adapter.rooms.get(`session:${sessionId}`)?.size && socket.connected) {
-      socket.emit(event, tagged)
+    this.emitDirectSessionEvent(sessionId, event, tagged, undefined, isDirectChatRunCaller(socket) ? socket : undefined)
+    if ((isDirectChatRunCaller(socket) || !this.nsp.adapter.rooms.get(`session:${sessionId}`)?.size) && chatRunCaller(socket).isActive()) {
+      chatRunCaller(socket).reply(event, tagged)
     }
   }
 
@@ -3009,6 +3117,8 @@ export class ChatRunSocket {
   async close() {
     if (this.closing) return
     this.closing = true
+    for (const observer of [...this.directRunObservers]) observer.fail('Chat run service is shutting down')
+    this.directRunObservers.clear()
     this.stopUsageUpdates()
     for (const sessionId of this.sessionMap.keys()) this.finishTaskPlanRun(sessionId, 'abort.completed')
     if (this.backgroundPollTimer) {

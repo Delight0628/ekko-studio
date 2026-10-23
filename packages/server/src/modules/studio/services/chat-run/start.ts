@@ -1,3 +1,4 @@
+import type { ChatRunCaller } from '../../contracts/runs/caller'
 import { randomUUID } from 'node:crypto'
 import { normalizeEkkoRunData } from '../../contracts/history-source'
 import type { AuthenticatedUser } from '../../public/auth'
@@ -26,6 +27,7 @@ export interface ChatRunStartScope {
   user?: AuthenticatedUser
   shared?: boolean
   originId?: string
+  directCaller?: ChatRunCaller
   /** Recheck a shared caller when its queued input is eventually dispatched. */
   reauthorize?: () => Promise<void>
 }
@@ -139,6 +141,8 @@ export async function startChatRun(request: ChatRunStartRequest, scope: ChatRunS
   let pushTargetId: string | undefined
   let runProfile: string
   try {
+    // Socket packet middleware already refreshes shares. Direct admission has no packet layer.
+    if (scope.directCaller && scope.reauthorize) await scope.reauthorize()
     runProfile = resolveChatRunProfile(scope, data.session_id, data.profile)
     normalizeEkkoRunData(data, data.session_id ? getSession(data.session_id) : undefined)
     if (!scope.shared && data.session_id && Array.isArray(data.input)) {
@@ -247,6 +251,7 @@ export async function startChatRun(request: ChatRunStartRequest, scope: ChatRunS
         commandPassthrough: data.allow_command_passthrough,
         reasoningEffort: data.reasoning_effort,
         originSocketId: scope.originId,
+        directCaller: scope.directCaller,
         authorize: scope.reauthorize,
         pushTargetId,
       })
