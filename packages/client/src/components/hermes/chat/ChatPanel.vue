@@ -47,11 +47,12 @@ import {
   type DropdownOption,
 } from "naive-ui";
 import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, provide, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { copyToClipboard } from "@/utils/clipboard";
 import FolderPicker from "./FolderPicker.vue";
 import StarIcon from "@/components/common/StarIcon.vue";
+import SessionTaskIcon from '@/components/common/SessionTaskIcon.vue';
 import ChatInput from "./ChatInput.vue";
 import NewChatAgentCards from "./NewChatAgentCards.vue";
 import { prepareAgentDeployment, type AgentDeploymentController } from "./agentDeployment.mjs";
@@ -74,7 +75,7 @@ import { getStoredUserId, isStoredSuperAdmin } from "@/api/client";
 import { loadNewChatFormPreferences, saveNewChatFormPreferences } from "@/utils/new-chat-form-preferences";
 import { useDefaultWorkspace } from "@/composables/useDefaultWorkspace";
 import ModelCascader from "@/components/hermes/models/ModelCascader.vue";
-import { canScopedCodingAgentUseProvider, usesServerManagedProviderAuth } from "@/utils/codingAgentProviders";
+import { configuredProviderApiMode, canScopedCodingAgentUseProvider, usesServerManagedProviderAuth } from "@/utils/codingAgentProviders";
 import { OPEN_SUBAGENT_STREAM_EVENT, type OpenSubagentStreamDetail } from "@/utils/hermes/subagent-stream";
 import { desktopBridge, hasDesktopBrowserBridge } from "@/utils/desktop-bridge";
 import { OPEN_DESKTOP_BROWSER_PANEL_EVENT } from "@/utils/desktop-browser";
@@ -98,6 +99,7 @@ const props = withDefaults(defineProps<{
 provide('hermesWorkspaceFilePreview', true);
 
 const FilesPanel = defineAsyncComponent(async () => (await import('./FilesPanel.vue')).default);
+const SessionTasksDrawer = defineAsyncComponent(async () => (await import('@/components/hermes/tasks/SessionTasksDrawer.vue')).default);
 const ConnectionsPanel = defineAsyncComponent(async () => (await import('@/components/hermes/connections/ConnectionsPanel.vue')).default);
 const AgentManagerPanel = defineAsyncComponent(async () => (await import('@/views/hermes/AgentManagerView.vue')).default);
 const ModelsPanel = defineAsyncComponent(async () => (await import('@/views/hermes/ModelsView.vue')).default);
@@ -112,6 +114,16 @@ const filesStore = useFilesStore();
 const toolPanelStore = useToolPanelStore();
 const sessionBrowserPrefsStore = useSessionBrowserPrefsStore();
 const router = useRouter();
+const route = useRoute();
+const sessionTasksMounted = ref(false);
+const showSessionTasks = computed(() => props.contentMode === 'chat' && chatStore.runtimeMode === 'default' && route.query.tasks === '1');
+watch(showSessionTasks, show => { if (show) sessionTasksMounted.value = true; }, { immediate: true });
+function openSessionTasks() {
+  void router.push({ query: { ...route.query, tasks: '1' } });
+}
+function updateSessionTasksVisibility(show: boolean) {
+  if (!show) void router.replace({ query: { ...route.query, tasks: undefined } });
+}
 const message = useMessage();
 const { t } = useI18n();
 const isSuperAdmin = computed(() => isStoredSuperAdmin());
@@ -1208,6 +1220,7 @@ watch(newChatNativeCatalog, catalog => {
   }
 });
 const newChatDraftConfig = computed(() => ({
+  agent: newChatAgent.value,
   profile: newChatProfile.value,
   provider: isNewChatGlobalCodingAgent.value ? "" : newChatProvider.value,
   model: isNewChatGlobalCodingAgent.value ? newChatNativeSelection.value.model : newChatModel.value,
@@ -1264,11 +1277,16 @@ const newChatMissingCredentials = computed(() =>
   || (newChatNeedsApiKey.value && !newChatApiKey.value.trim())),
 );
 
+const newChatConfiguredApiMode = computed(() => configuredProviderApiMode(selectedNewChatProviderGroup.value, newChatModel.value));
+watch([newChatConfiguredApiMode, newChatApiMode], ([mode]) => {
+  if (mode && newChatApiMode.value !== mode) newChatApiMode.value = mode;
+}, { flush: "sync" });
+
 function defaultNewChatApiMode(group?: AvailableModelGroup): CodingAgentApiMode {
   const providerKey = String(group?.provider || newChatProvider.value || "").toLowerCase();
   const baseUrl = String(group?.base_url || newChatBaseUrl.value || "").toLowerCase();
   return normalizeCodingAgentApiMode(
-    group?.api_mode,
+    configuredProviderApiMode(group, newChatModel.value),
     inferCodingAgentApiMode(providerKey, baseUrl),
   );
 }
@@ -2435,6 +2453,11 @@ async function selectSessionModel(model: string, provider: string) {
   const meta = sessionModelBaseGroups.value.find((group) => group.provider === provider)?.model_meta?.[model];
   if (meta?.disabled || (!sessionModelSessionId.value && !sessionModelIsDraft.value) || sessionModelSwitching.value) return;
   if (isSessionModelScopedCodingAgent.value) {
+    const mode = configuredProviderApiMode(sessionModelBaseGroups.value.find(group => group.provider === provider), model);
+    if (mode) {
+      await applySessionModelSwitch(model, provider, mode);
+      return;
+    }
     pendingSessionModelSwitch.value = { model, provider };
     sessionModelApiMode.value = sessionModelSession.value?.provider === provider && sessionModelSession.value.apiMode
       ? normalizeCodingAgentApiMode(sessionModelSession.value.apiMode, defaultSessionModelApiMode(provider))
@@ -2797,8 +2820,8 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
               />
             </label>
           </div>
-          <div v-if="(isNewChatCodingAgent && effectiveNewChatAgentMode === 'scoped') || newChatNeedsBaseUrl || newChatNeedsApiKey" class="new-chat-settings-group">
-            <label v-if="isNewChatCodingAgent && effectiveNewChatAgentMode === 'scoped'" class="new-chat-field">
+          <div v-if="(isNewChatCodingAgent && effectiveNewChatAgentMode === 'scoped' && !newChatConfiguredApiMode) || newChatNeedsBaseUrl || newChatNeedsApiKey" class="new-chat-settings-group">
+            <label v-if="isNewChatCodingAgent && effectiveNewChatAgentMode === 'scoped' && !newChatConfiguredApiMode" class="new-chat-field">
               <span class="new-chat-label">{{ t("codingAgents.protocolScope") }}</span>
               <NSelect
                 v-bind="newChatSettingsSelectProps"
@@ -3007,6 +3030,8 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
 
 
 
+    <SessionTasksDrawer v-if="sessionTasksMounted && !standalone && chatStore.runtimeMode === 'default'" :show="showSessionTasks" @update:show="updateSessionTasksVisibility" />
+
     <div
       class="chat-main"
       :class="{ 'chat-main--sidebar-collapsed': !pageSidebarExpanded }"
@@ -3033,6 +3058,14 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
           <span class="header-session-title" dir="auto">{{ headerTitle }}</span>
         </div>
         <div class="header-actions">
+          <NTooltip v-if="chatStore.runtimeMode === 'default'" trigger="hover">
+            <template #trigger>
+              <NButton class="header-tasks-button" quaternary size="small" circle :aria-label="t('sessionTasks.title')" :aria-expanded="showSessionTasks" aria-haspopup="dialog" @click="openSessionTasks">
+                <template #icon><SessionTaskIcon :size="16" /></template>
+              </NButton>
+            </template>
+            {{ t('sessionTasks.title') }}
+          </NTooltip>
           <NButton
             v-if="!showNewChatPage && chatStore.activeSession?.workspace"
             class="header-workspace-button"

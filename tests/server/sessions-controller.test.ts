@@ -46,6 +46,7 @@ const loggerWarnMock = vi.fn()
 const getCompressionSnapshotMock = vi.fn()
 const buildDbExportHistoryMock = vi.fn()
 const listUserProfilesMock = vi.fn()
+const listSessionTaskItemsMock = vi.fn(() => ({ tasks: [], total: 0, has_more: false }))
 const readConfigYamlForProfileMock = vi.fn()
 const bridgeSwitchSessionModelMock = vi.fn()
 const bridgeGetRuntimeStateMock = vi.fn()
@@ -260,12 +261,62 @@ vi.mock('../../packages/server/src/modules/studio/public/session-agent-runtime',
 vi.mock('../../packages/server/src/modules/studio/services/task-plans', () => ({
   getSessionTaskPlans: vi.fn(() => []),
 }))
+vi.mock('../../packages/server/src/modules/studio/services/session-tasks', () => ({
+  getSessionTasks: (sessionId: string) => ({ session_id: sessionId, revision: 0, updated_at: 0, tasks: [] }),
+  listSessionTaskItems: listSessionTaskItemsMock,
+}))
 
 vi.mock('../../packages/server/src/modules/studio/public/agent-status-registry', () => ({
   isHermesAgentAvailable: vi.fn(() => agentStatusMocks.hermesAvailable),
 }))
 
 describe('session conversations controller', () => {
+  it('restricts task pages to existing account profiles before pagination, including explicit filters', async () => {
+    const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
+    listUserProfilesMock.mockReturnValue([{ profile_name: 'travel' }, { profile_name: 'deleted-profile' }])
+    const ctx = { query: { profile: '', status: 'open', search: ' export ', offset: '50', limit: '50' }, state: { user: { id: 3, role: 'user' } } } as any
+    mod.listTasks(ctx)
+    expect(listSessionTaskItemsMock).toHaveBeenLastCalledWith(expect.objectContaining({ profiles: ['travel'],
+      status: 'open', search: 'export', offset: 50, limit: 50, order: 'newest' }))
+    expect(ctx.body).toEqual({ tasks: [], total: 0, has_more: false })
+    ctx.query.profile = 'default'
+    mod.listTasks(ctx)
+    expect(listSessionTaskItemsMock).toHaveBeenLastCalledWith(expect.objectContaining({ profiles: [] }))
+    ctx.state.user.role = 'super_admin'
+    ctx.query.profile = ''
+    mod.listTasks(ctx)
+    expect(listSessionTaskItemsMock).toHaveBeenLastCalledWith(expect.objectContaining({ profiles: ['default', 'travel'] }))
+    ctx.get = (name: string) => name === 'x-studio-run-context' ? 'turn' : ''
+    ctx.state.profile = { name: 'travel' }
+    mod.listTasks(ctx)
+    expect(listSessionTaskItemsMock).toHaveBeenLastCalledWith(expect.objectContaining({ profiles: ['travel'] }))
+  })
+
+  it.each([{ profile: ['default', 'travel'] }, { status: 'pending' }, { order: 'anything' }, { limit: '101' }, { offset: '-1' }, { offset: '9007199254740992' }, { search: ['a', 'b'] }])('rejects malformed task list queries: %j', async query => {
+    const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
+    const ctx = { query, state: {} } as any
+    mod.listTasks(ctx)
+    expect(ctx.status).toBe(400)
+  })
+  it('reads the durable goal ledger only for an existing accessible session', async () => {
+    const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
+    getSessionMock.mockReturnValue({ id: 's1', profile: 'research' })
+    const context = () => ({ params: { id: 's1' }, query: {}, state: {} }) as any
+    const ok = context()
+    mod.getTasks(ok)
+    expect(ok.body).toEqual({ session_id: 's1', revision: 0, updated_at: 0, tasks: [] })
+    const wrong = context(); wrong.query.profile = 'other'
+    mod.getTasks(wrong)
+    expect(wrong.status).toBe(404)
+    const forbidden = context(); forbidden.state.user = { id: 3, role: 'user' }
+    listUserProfilesMock.mockReturnValue([{ profile_name: 'other' }])
+    mod.getTasks(forbidden)
+    expect(forbidden.status).toBe(403)
+    getSessionMock.mockReturnValue(null)
+    const missing = context()
+    mod.getTasks(missing)
+    expect(missing.status).toBe(404)
+  })
   it('forwards the optional model endpoint to context resolution without changing legacy requests', async () => {
     const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
     getHermesModelContextLengthMock.mockReturnValue(202800)
@@ -2090,9 +2141,9 @@ describe('session conversations controller', () => {
     const ctx: any = { query: { days: '2', profile: 'default' }, body: null }
     await mod.usageStats(ctx)
 
-    expect(getLocalUsageStatsMock).toHaveBeenCalledWith('default', 2, {})
+    expect(getLocalUsageStatsMock).toHaveBeenCalledWith('default', 2, { origin: 'internal' })
     expect(getRecordedUsageSessionIdsMock).toHaveBeenCalledWith('default')
-    expect(getUsageStatsFromDbMock).toHaveBeenCalledWith(2, undefined, 'default', ['local-session'], [], {})
+    expect(getUsageStatsFromDbMock).toHaveBeenCalledWith(2, undefined, 'default', ['local-session'], [], { origin: 'internal' })
     expect(ctx.body).toMatchObject({
       total_input_tokens: 30,
       total_output_tokens: 15,
@@ -2142,9 +2193,9 @@ describe('session conversations controller', () => {
     const ctx: any = { query: { days: '2' }, state: { profile: { name: 'research' } }, body: null }
     await mod.usageStats(ctx)
 
-    expect(getLocalUsageStatsMock).toHaveBeenCalledWith('research', 2, {})
+    expect(getLocalUsageStatsMock).toHaveBeenCalledWith('research', 2, { origin: 'internal' })
     expect(getRecordedUsageSessionIdsMock).toHaveBeenCalledWith('research')
-    expect(getUsageStatsFromDbMock).toHaveBeenCalledWith(2, undefined, 'research', [], [], {})
+    expect(getUsageStatsFromDbMock).toHaveBeenCalledWith(2, undefined, 'research', [], [], { origin: 'internal' })
     expect(ctx.body).toMatchObject({
       total_input_tokens: 12,
       total_output_tokens: 6,
@@ -2202,8 +2253,8 @@ describe('session conversations controller', () => {
     const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
     const ctx: any = { query: { days: '7', profile: 'default', model: ' one ', agent: 'codex', account: 'unassigned' }, body: null }
     await mod.usageStats(ctx)
-    expect(getLocalUsageStatsMock).toHaveBeenLastCalledWith('default', 7, { model: 'one', agent: 'codex', account: 'unassigned', sessionAccounts: {} })
-    expect(getUsageStatsFromDbMock).toHaveBeenLastCalledWith(7, undefined, 'default', [], [], { model: 'one', agent: 'codex', account: 'unassigned', sessionAccounts: {} })
+    expect(getLocalUsageStatsMock).toHaveBeenLastCalledWith('default', 7, { origin: 'internal', model: 'one', agent: 'codex', account: 'unassigned', sessionAccounts: {} })
+    expect(getUsageStatsFromDbMock).toHaveBeenLastCalledWith(7, undefined, 'default', [], [], { origin: 'internal', model: 'one', agent: 'codex', account: 'unassigned', sessionAccounts: {} })
     expect(ctx.body.filter_options).toEqual({ models: ['one', 'two'], agents: ['codex', 'hermes'], accounts: [{ id: '1', username: 'ekko' }] })
     expect(ctx.body.account_attribution_available).toBe(true)
   })
@@ -2257,8 +2308,8 @@ describe('session conversations controller', () => {
     const ctx: any = { query: { days: '7', profile: '' }, body: null }
     await mod.usageStats(ctx)
     expect(getLocalUsageStatsMock.mock.calls.map(call => call[0])).toEqual(['default', 'travel'])
-    expect(getUsageStatsFromDbMock).toHaveBeenCalledWith(7, undefined, 'default', ['default-local'], [], {})
-    expect(getUsageStatsFromDbMock).toHaveBeenCalledWith(7, undefined, 'travel', ['travel-local'], [], {})
+    expect(getUsageStatsFromDbMock).toHaveBeenCalledWith(7, undefined, 'default', ['default-local'], [], { origin: 'internal' })
+    expect(getUsageStatsFromDbMock).toHaveBeenCalledWith(7, undefined, 'travel', ['travel-local'], [], { origin: 'internal' })
     expect(ctx.body).toMatchObject({ total_input_tokens: 330, total_output_tokens: 33, total_cache_read_tokens: 165,
       total_sessions: 4, total_api_calls: 4, cost_coverage: { reported: 2, estimated: 1, unknown: 1 } })
     expect(ctx.body.total_cost).toBeCloseTo(0.09)
@@ -2304,7 +2355,7 @@ describe('session conversations controller', () => {
     await mod.usageStats(ctx)
     expect(getLocalUsageStatsMock.mock.calls.map(call => call[0])).toEqual(['travel'])
     expect(getUsageStatsFromDbMock).toHaveBeenCalledOnce()
-    expect(getUsageStatsFromDbMock).toHaveBeenCalledWith(30, undefined, 'travel', [], [], {})
+    expect(getUsageStatsFromDbMock).toHaveBeenCalledWith(30, undefined, 'travel', [], [], { origin: 'internal' })
   })
 
   it('returns empty usage without reading a Profile when the administrator has no assigned Profiles', async () => {
@@ -2345,7 +2396,7 @@ describe('session conversations controller', () => {
       const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
       const ctx: any = { query: { days: '1', profile: 'default', period: 'today', time_zone: 'Asia/Shanghai', account: 'unassigned' }, body: null }
       await mod.usageStats(ctx)
-      const selection = { account: 'unassigned', sessionAccounts: {}, today: { startMs: Date.parse('2026-10-10T16:00:00Z'), endMs: Date.parse('2026-10-10T20:00:00Z'), date: '2026-10-11' } }
+      const selection = { origin: 'internal', account: 'unassigned', sessionAccounts: {}, today: { startMs: Date.parse('2026-10-10T16:00:00Z'), endMs: Date.parse('2026-10-10T20:00:00Z'), date: '2026-10-11' } }
       expect(getLocalUsageStatsMock).toHaveBeenLastCalledWith('default', 1, selection)
       expect(getUsageStatsFromDbMock).toHaveBeenLastCalledWith(1, undefined, 'default', [], [], selection)
       expect(ctx.body.period_days).toBe(1)
@@ -2358,6 +2409,25 @@ describe('session conversations controller', () => {
   it('rejects an invalid timezone for today before querying usage', async () => {
     const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
     const ctx: any = { query: { period: 'today', time_zone: 'invalid-zone' }, body: null }
+    await mod.usageStats(ctx)
+    expect(ctx.status).toBe(400)
+    expect(getLocalUsageStatsMock).not.toHaveBeenCalled()
+    expect(getUsageStatsFromDbMock).not.toHaveBeenCalled()
+  })
+
+  it('only reads the external ledger for API usage, never importing native Hermes history', async () => {
+    const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
+    const ctx: any = { query: { profile: 'default', origin: 'external' }, body: null }
+    await mod.usageStats(ctx)
+    expect(getLocalUsageStatsMock).toHaveBeenCalledWith('default', 30, expect.objectContaining({ origin: 'external' }))
+    expect(getUsageStatsFromDbMock).not.toHaveBeenCalled()
+    expect(getRecordedUsageSessionIdsMock).not.toHaveBeenCalled()
+    expect(ctx.body.origin).toBe('external')
+  })
+
+  it('rejects an unknown usage origin instead of mixing the two categories', async () => {
+    const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
+    const ctx: any = { query: { origin: 'all' }, body: null }
     await mod.usageStats(ctx)
     expect(ctx.status).toBe(400)
     expect(getLocalUsageStatsMock).not.toHaveBeenCalled()

@@ -1,3 +1,4 @@
+import { deploymentUrl } from '@/utils/deployment-url'
 import { chatSessionAgentAvatar } from '@/utils/chat-agent-avatar'
 import { deleteSessionMessages, type MessageDeletionResult } from '@/api/studio/sessions'
 import { isNativeCodingAgent } from '@/utils/agent-catalog'
@@ -437,6 +438,7 @@ export interface PendingApproval {
   description: string
   choices: Array<'once' | 'session' | 'always' | 'deny'>
   allowPermanent: boolean
+  permissionRule?: string
   isMemoryWrite: boolean
   requestedAt: number
   countdownDeadline: number
@@ -622,7 +624,7 @@ async function uploadFiles(attachments: Attachment[]): Promise<{ name: string; p
   const headers: Record<string, string> = {}
   if (token) headers.Authorization = `Bearer ${token}`
   if (profileName) headers['X-Hermes-Profile'] = profileName
-  const res = await fetch('/api/studio/uploads', {
+  const res = await fetch(deploymentUrl('/api/studio/uploads'), {
     method: 'POST',
     body: formData,
     headers,
@@ -1799,7 +1801,7 @@ export const useChatStore = defineStore('chat', () => {
     return mapped
   }
 
-  async function loadSessions(profile?: string | null, preferredSessionId?: string | null) {
+  async function loadSessions(profile?: string | null, preferredSessionId?: string | null, preferredFocusId?: string | null) {
     const requestSequence = ++loadSessionsRequestSequence
     const selectionSequence = activeSelectionSequence
     isLoadingSessions.value = true
@@ -1868,7 +1870,8 @@ export const useChatStore = defineStore('chat', () => {
             ? storedId
             : sessions.value[0]?.id
       if (targetId) {
-        await switchSession(targetId, targetId === currentId ? focusMessageId.value : null)
+        await switchSession(targetId, targetId === preferredSessionId && preferredFocusId
+          ? preferredFocusId : targetId === currentId ? focusMessageId.value : null)
       } else {
         clearActiveSession()
       }
@@ -3400,6 +3403,9 @@ export const useChatStore = defineStore('chat', () => {
       description,
       choices: isMemoryWrite ? ['once', 'deny'] : choices.length ? choices : ['once', 'session', 'deny'],
       allowPermanent: Boolean((evt as any).allow_permanent),
+      permissionRule: Array.isArray((evt as any).execpolicy_amendment)
+        && (evt as any).execpolicy_amendment.every((part: unknown) => typeof part === 'string')
+        ? JSON.stringify((evt as any).execpolicy_amendment) : undefined,
       isMemoryWrite,
       requestedAt: Date.now(),
       countdownDeadline: pendingInteractionDeadline(

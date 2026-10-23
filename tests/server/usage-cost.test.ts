@@ -55,6 +55,17 @@ describe('usage cost accounting', () => {
     expect(getLocalUsageStats('other', 30).cost).toBe(0)
   })
 
+  it('keeps missing external measurements unknown despite configured prices, preserving reported costs', () => {
+    saveUsagePricing('p', [{ provider: 'global', model: 'test-model', input: 2, output: 8 }])
+    const external = { sessionId: '', source: 'model_api', agent: 'model_api', origin: 'external', accountId: '7', apiCalls: 1 }
+    record('missing', undefined, external)
+    record('partial', { outputTokens: 20 }, external)
+    record('reported', { cost: 0.02 }, external)
+    expect(getLocalUsageStats('p', 30, { origin: 'external' })).toMatchObject({ total_api_calls: 3, cost: 0.02, cost_coverage: { unknown: 2, reported: 1, estimated: 0 } })
+    expect(getLocalUsageStats('p', 30).total_api_calls).toBe(0)
+    expect(catalogMock.refreshModelCatalog).not.toHaveBeenCalled()
+  })
+
   it('estimates disjoint input/output/cache tokens using saved prices without repricing history', () => {
     const price = { provider: 'global', model: 'test-model', input: 2, output: 8, cacheRead: 0.2, cacheWrite: 2.5 }
     saveUsagePricing('p', [price])
@@ -146,13 +157,18 @@ describe('usage cost accounting', () => {
   it('fills a cold-start record after download without duplicating tokens or repricing a replay', async () => {
     let finish!: (snapshot: unknown) => void
     catalogMock.refreshModelCatalog.mockReturnValue(new Promise(resolve => { finish = resolve }))
-    record('cold', { inputTokens: 1000, outputTokens: 200 })
+    const onRecorded = vi.fn()
+    record('cold', { inputTokens: 1000, outputTokens: 200 }, { onRecorded })
+    expect(onRecorded).toHaveBeenCalledWith(expect.objectContaining({ inputTokens: 1000, isEstimated: false }))
+    expect(onRecorded.mock.calls[0][0].costUsd).toBeUndefined()
     record('cold', { inputTokens: 1000, outputTokens: 200 })
     const before = db.prepare('SELECT * FROM session_usage').get() as any
     expect(before.cost_usd).toBeNull()
     expect(catalogMock.refreshModelCatalog).toHaveBeenCalledTimes(1)
     finish(catalogSnapshot)
     await vi.waitFor(() => expect(getLocalUsageStats('p', 1).cost).toBeCloseTo(0.0036))
+    expect(onRecorded).toHaveBeenCalledTimes(2)
+    expect(onRecorded.mock.calls[1][0]).toMatchObject({ inputTokens: 1000, outputTokens: 200, costUsd: 0.0036, costSource: 'estimated' })
     const after = db.prepare('SELECT * FROM session_usage').get() as any
     expect(after.created_at).toBe(before.created_at)
     expect(getLocalUsageStats('p', 1).input_tokens).toBe(1000)

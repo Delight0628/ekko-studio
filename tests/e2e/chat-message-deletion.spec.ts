@@ -91,6 +91,8 @@ async function setup(page: Page, agent = 'hermes', brightness = 'light', wallpap
 async function enterSelection(page: Page) {
   await page.getByText('Keep this answer', { exact: true }).click({ button: 'right' })
   await page.getByText('Select messages', { exact: true }).click()
+  // Wait for the menu's leave transition before a later right-click reopens it.
+  await expect(page.getByText('Select messages', { exact: true })).not.toBeVisible()
   await expect(page.locator('.message-selection-row')).not.toHaveCount(0)
   const toolbar = page.locator('.message-selection-toolbar')
   await expect(toolbar).toBeVisible()
@@ -295,6 +297,7 @@ for (const agent of ['hermes', 'ekko-agent']) {
     await expect(page.locator('.n-dropdown-option-body').filter({ hasText: 'Select messages' })).toHaveClass(/disabled/)
     expect(requests).toEqual([])
     await page.keyboard.press('Escape')
+    await expect(page.getByText('Select messages', { exact: true })).not.toBeVisible()
     await finishNextRun(0)
     await expect(page.getByText('New answer after deletion 0', { exact: true })).toBeVisible()
     await expect(page.getByText('Select messages', { exact: true })).not.toBeVisible()

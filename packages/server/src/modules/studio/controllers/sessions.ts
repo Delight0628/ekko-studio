@@ -9,6 +9,7 @@ import { ensureBusinessConsumers } from '../services/webhooks/business-consumers
 import { authorizeSessionShare, authorizeShareFile } from '../services/session-shares/access'
 import { sessionShareService } from '../services/session-shares/service'
 import { getSessionTaskPlans } from '../services/task-plans'
+import { getSessionTasks, listSessionTaskItems } from '../services/session-tasks'
 import { historySessionSource, isBuiltinEkkoAgent } from '../contracts/history-source'
 import {
   deleteHermesSessionForProfile,
@@ -1152,6 +1153,40 @@ function cleanSessionContextMessages(messages: any[]): Array<{
     })
 }
 
+export function listTasks(ctx: any) {
+  const { status, order = 'newest', search = '', offset = '0', limit = '50' } = ctx.query
+  if ((status !== undefined && status !== 'open' && status !== 'completed')
+    || (ctx.query.profile !== undefined && typeof ctx.query.profile !== 'string')
+    || (order !== 'newest' && order !== 'oldest') || typeof search !== 'string' || search.length > 200
+    || typeof offset !== 'string' || !/^\d+$/.test(offset) || !Number.isSafeInteger(Number(offset))
+    || typeof limit !== 'string' || !/^\d+$/.test(limit) || Number(limit) < 1 || Number(limit) > 100) {
+    ctx.status = 400
+    ctx.body = { error: 'Invalid task list filters or pagination' }
+    return
+  }
+  // A run credential remains bound even when a caller requests all profiles.
+  const runScoped = Boolean(ctx.get?.('x-studio-run-context'))
+  const profile = runScoped ? ctx.state.profile?.name : explicitProfileFilter(ctx)
+  const allowed = allowedProfileSet(ctx)
+  const profiles = listProfileNamesFromDisk().filter(name => (!runScoped || Boolean(profile))
+    && (!profile || profile === name) && (!allowed || allowed.has(name)))
+  ctx.body = listSessionTaskItems({ profiles, excludeSessionIds: [...getPendingDeletedSessionIds()],
+    search: search.trim(), status, order, offset: Number(offset), limit: Number(limit) })
+}
+
+/** Read the goal ledger without adding it to chat messages or run events. */
+export function getTasks(ctx: any) {
+  const session = localGetSession(ctx.params.id)
+  const profile = explicitProfileFilter(ctx)
+  if (!session || (profile && (session.profile || 'default') !== profile)) {
+    ctx.status = 404
+    ctx.body = { error: 'Session not found' }
+    return
+  }
+  if (denySessionAccess(ctx, session)) return
+  ctx.body = getSessionTasks(session.id)
+}
+
 export async function getContext(ctx: any) {
   const session = localGetSessionDetail(ctx.params.id)
   if (!session) {
@@ -1795,6 +1830,12 @@ export async function contextLength(ctx: any) {
 }
 
 export async function usageStats(ctx: any) {
+  const origin = ctx.query?.origin || 'internal'
+  if (origin !== 'internal' && origin !== 'external') {
+    ctx.status = 400
+    ctx.body = { error: 'origin must be internal or external.' }
+    return
+  }
   const rawDays = parseInt(String(ctx.query?.days ?? '30'), 10)
   const days = ctx.query?.period === 'today' ? 1 : Number.isFinite(rawDays) && rawDays > 0 ? Math.min(rawDays, 365) : 30
   const readFilter = (value: unknown) => typeof value === 'string' ? value.trim() || undefined : undefined
@@ -1807,7 +1848,7 @@ export async function usageStats(ctx: any) {
     ctx.body = { error: 'account must be a Studio user ID or unassigned.' }
     return
   }
-  const selection = { model, agent, account } as import('../contracts/runs/usage').UsageStatsFilters
+  const selection = { model, agent, account, origin } as import('../contracts/runs/usage').UsageStatsFilters
   if (ctx.query?.period === 'today') {
     const timeZone = readFilter(ctx.query?.time_zone) || Intl.DateTimeFormat().resolvedOptions().timeZone
     try {

@@ -110,6 +110,7 @@ interface OpenAIChatResponse {
     completion_tokens?: number
     total_tokens?: number
     prompt_tokens_details?: { cached_tokens?: number }
+    prompt_cache_hit_tokens?: number
     completion_tokens_details?: { reasoning_tokens?: number }
   } | null
   error?: {
@@ -170,6 +171,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     const toolCalls = new Map<number, { id: string; name: string; argumentsText: string }>()
+    let hasCompletedToolCalls = false
     let buffer = ''
     let finishReason: string | undefined
     let responseId: string | undefined
@@ -240,6 +242,9 @@ export class OpenAICompatibleModelClient implements ModelClient {
           }
 
           if (choice.finish_reason === 'tool_calls') {
+            // OpenRouter repeats this finish reason in a usage-only trailer.
+            // Only ignore an empty trailer after a valid tool call was emitted.
+            if (toolCalls.size === 0 && hasCompletedToolCalls) continue
             let validToolCalls = 0
             for (const toolCall of toolCalls.values()) {
               const normalized = normalizeToolCall(toolCall.id, toolCall.name, toolCall.argumentsText)
@@ -251,6 +256,7 @@ export class OpenAICompatibleModelClient implements ModelClient {
             if (validToolCalls === 0) {
               throw invalidOpenAIToolCallError(this.provider)
             }
+            hasCompletedToolCalls = true
           }
         }
       }
@@ -759,7 +765,7 @@ function normalizeContent(content: OpenAIMessageContent): string {
 }
 
 function normalizeUsage(usage: NonNullable<OpenAIChatResponse['usage']>): ModelUsage {
-  const cacheReadTokens = usage.prompt_tokens_details?.cached_tokens ?? 0
+  const cacheReadTokens = usage.prompt_tokens_details?.cached_tokens ?? usage.prompt_cache_hit_tokens ?? 0
   const inputTokens = usage.prompt_tokens ?? 0
   return {
     ...(typeof usage.cost === 'number' && Number.isFinite(usage.cost) && usage.cost >= 0 ? { costUsd: usage.cost } : {}),

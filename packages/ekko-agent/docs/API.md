@@ -324,6 +324,8 @@ API mode 固定映射：`chat_completions` → `openai-chat`，`codex_responses`
 
 记忆增强的具体行为、开关及降级规则见 [memory-jev.md](memory-jev.md)。每次 `runtime.run` 固定 JEV 配置快照；本轮工具和召回沿用此快照，下一轮才使用更新后的值。
 
+Computer Use 的独立可选评估使用 `jev.computerUseMatchEnabled` / `jev.computerUseVerifyEnabled`（默认关闭）。在 `computer_use` 的 `get_window_state` 调用中传顶层 `target` / `expectation`，可从新鲜窗口证据获得已有元素 token 推荐或结果判断；不会自动点击、重试或改变原生结果。候选上限、最低置信度、超时与 Studio 映射见 [computer-use.md](computer-use.md#optional-jev-assessments)。
+
 JEV 实现由 Ekko 自己提供，可以脱离 Studio 独立使用。配置按字段合并，优先级从低到高为：
 
 1. `DEFAULT_EKKO_JEV_CONFIG`：默认关闭，空密钥、`https://api.typesafe.ai`、`jev-latest`、10 秒超时。
@@ -438,7 +440,7 @@ Studio 的 `ekkoSkillsEnabled` 映射到此字段；共用参数为 `skillsCandi
 | `jev.skillsMinConfidence` | `number` | 补充匹配或跳过学习复盘的最低置信度，默认 0.8，范围 0.5–1。 |
 | `jev.skillsTimeoutMs` | `number` | 单次技能判断总预算，默认 3000，范围 100–30000 毫秒。 |
 | `jev.apiKey` | `string` | 独立运行时可保存的本地密钥，默认空；运行参数可临时覆盖。 |
-| `jev.baseUrl` | `string` | API 根地址，默认 `https://api.typesafe.ai`，不带 `/v1`。 |
+| `jev.baseUrl` | `string` | API 根地址，默认 `https://api.typesafe.ai`；也接受末尾带 `/v1` 或 `/v1/systemone` 的地址，自动规范化并保留网关前缀。 |
 | `jev.model` | `string` | 默认 `jev-latest`。 |
 | `jev.timeoutMs` | `number` | 默认 10000，范围 1000–120000 毫秒。 |
 | `model.providerCatalog` | `Record<string, EkkoModelProviderPreset>` | 可安装目录。 |
@@ -480,6 +482,8 @@ Studio 的 `ekkoSkillsEnabled` 映射到此字段；共用参数为 `skillsCandi
 | `prompt.instructions` | `string[]` | 注入 runtime 的全局指令。 |
 
 `EkkoModelProviderSettings` 字段：可选 `label`；必填 `type` 和 `defaultModel`；可选 `apiMode`、`requestStyle`、`openAIChatReasoningReplayFormat`、`baseUrl`、`endpointPath`、`models`、`authType`、`source`、`apiKey`、`headers`、`timeoutMs`、`capabilities`。`capabilities` 可覆盖 `streaming`、`tools`、`vision`、`jsonMode`、`systemPrompt`、`maxInputTokens`。
+
+Responses 客户端会为原生推理历史记录 `reasoning.native.replayScope`，按实际请求的 Provider、模型和接口地址绑定来源。只有来源相同时才重放这些原生项；切换目标或读取缺少来源的旧记录时，只跳过请求中的原生推理项，保留正文、工具调用和结果，且不改写已存历史。标记使用摘要，不保存接口地址或密钥，也不会发送给 Provider。Chat Completions 的 `reasoning_content`、Anthropic thinking 和 Coding Agent 代理保持各自原有处理。
 
 `EkkoMcpServerConfig` 支持两种传输：stdio 使用 `command`，可选 `args` 和字符串 `env`；远程服务使用 `type: "streamable_http"`、`url` 和可选字符串 `headers`。`enabled` 控制是否加载。两种传输均使用官方 MCP Client；新 runtime 自动读取所选 Profile 的配置，显式 run-level `toolContext.mcpServers` 仍可覆盖它。
 
@@ -1469,6 +1473,8 @@ export * from './tools/manager'
 
 export * from './tools/registry'
 
+export * from './tools/session-tasks'
+
 export * from './tools/recovery'
 
 export * from './tools/skills'
@@ -1549,6 +1555,13 @@ export interface EkkoJevConfig {
   memoryMinConfidence: number
   memoryFilterMinConfidence: number
   memoryTimeoutMs: number
+  computerUseMatchEnabled: boolean
+  computerUseMatchCandidateLimit: number
+  computerUseMatchMinConfidence: number
+  computerUseMatchTimeoutMs: number
+  computerUseVerifyEnabled: boolean
+  computerUseVerifyMinConfidence: number
+  computerUseVerifyTimeoutMs: number
   skillsEnabled: boolean
   skillsCandidateLimit: number
   skillsMinConfidence: number
@@ -1561,7 +1574,7 @@ export interface EkkoJevConfig {
 
 export type EkkoJevOverrides = Partial<EkkoJevConfig> | false
 
-export const DEFAULT_EKKO_JEV_CONFIG: Readonly<EkkoJevConfig> = Object.freeze({ enabled: false, memoryEnabled: false, memoryKindRoutingEnabled: false, memoryRelevanceFilterEnabled: false, memoryRerankEnabled: false, memoryWriteReviewEnabled: false, memoryCandidateLimit: 20, memoryRecallMinConfidence: 0.5, memoryMinConfidence: 0.8, memoryFilterMinConfidence: 0.8, memoryTimeoutMs: 3000, skillsEnabled: false, skillsCandidateLimit: 20, skillsMinConfidence: 0.8, skillsTimeoutMs: 3000, apiKey: '', baseUrl: 'https://api.typesafe.ai', model: 'jev-latest', timeoutMs: 10_000, })
+export const DEFAULT_EKKO_JEV_CONFIG: Readonly<EkkoJevConfig> = Object.freeze({ enabled: false, memoryEnabled: false, memoryKindRoutingEnabled: false, memoryRelevanceFilterEnabled: false, memoryRerankEnabled: false, memoryWriteReviewEnabled: false, memoryCandidateLimit: 20, memoryRecallMinConfidence: 0.5, memoryMinConfidence: 0.8, memoryFilterMinConfidence: 0.8, memoryTimeoutMs: 3000, computerUseMatchEnabled: false, computerUseMatchCandidateLimit: 20, computerUseMatchMinConfidence: 0.8, computerUseMatchTimeoutMs: 3000, computerUseVerifyEnabled: false, computerUseVerifyMinConfidence: 0.8, computerUseVerifyTimeoutMs: 3000, skillsEnabled: false, skillsCandidateLimit: 20, skillsMinConfidence: 0.8, skillsTimeoutMs: 3000, apiKey: '', baseUrl: 'https://api.typesafe.ai', model: 'jev-latest', timeoutMs: 10_000, })
 
 export function resolveEkkoJevConfig( ...layers: Array<EkkoJevOverrides | undefined> ): EkkoJevConfig
 ```
@@ -2592,7 +2605,7 @@ export class OpenAIResponsesModelClient implements ModelClient {
 
 export function toOpenAIResponsesPayload(config: ModelProviderConfig, request: ModelRequest): OpenAIResponsesPayload
 
-export function normalizeOpenAIResponsesResponse(response: OpenAIResponsesResponse): ModelResponse
+export function normalizeOpenAIResponsesResponse(response: OpenAIResponsesResponse, replayScope?: string): ModelResponse
 ```
 ### `src/model/providers/prompt-completion.ts`
 
@@ -2642,6 +2655,7 @@ export type AgentMessageRole = 'system' | 'user' | 'assistant' | 'tool'
 export type AgentReasoningFormat = | 'openai-reasoning-details' | 'openai-responses-items' | 'anthropic-thinking-blocks' | 'gemini-content-parts'
 
 export interface AgentReasoningNative {
+  replayScope?: string
   format: AgentReasoningFormat
   data: unknown
 }
@@ -2845,6 +2859,7 @@ export interface SystemPromptInput {
   userSystemMessages?: string[]
   memoryContext?: string
   planningEnabled?: boolean
+  sessionTasksEnabled?: boolean
   clarificationEnabled?: boolean
   skillDiscoveryEnabled?: boolean
   skillManagementEnabled?: boolean
@@ -3324,6 +3339,15 @@ export class ComputerUseTool implements AgentTool {
   async execute(input: Record<string, unknown>, context: AgentToolContext = {}): Promise<AgentToolResult>
 }
 ```
+### `src/tools/computer-use/jev.ts`
+
+```ts
+export type ComputerUseJevAssessment = Record<string, unknown>
+
+export function computerUseJevEnabled(feature: Feature): boolean
+
+export async function assessComputerUse( feature: Feature, intent: string, input: unknown, args: Record<string, unknown>, signal?: AbortSignal, ): Promise<ComputerUseJevAssessment>
+```
 ### `src/tools/computer-use/policy.ts`
 
 ```ts
@@ -3523,6 +3547,52 @@ export interface DefaultToolRegistryOptions {
 
 export function createDefaultToolRegistry(options: DefaultToolRegistryOptions = {}): AgentToolRegistry
 ```
+### `src/tools/session-tasks.ts`
+
+```ts
+export interface AgentSessionTask {
+  id: string
+  title: string
+  summary: string
+  status: 'open' | 'completed'
+}
+
+export interface AgentSessionTasksSnapshot {
+  session_id: string
+  revision: number
+  updated_at: number
+  tasks: AgentSessionTask[]
+}
+
+export interface AgentSessionTaskChange {
+  id?: string
+  title: string
+  summary: string
+  status: 'open' | 'completed'
+  completion_evidence?: string
+}
+
+export interface AgentSessionTasksUpdate {
+  revision: number
+  changes: AgentSessionTaskChange[]
+}
+
+export function parseSessionTasksUpdate(input: Record<string, unknown>): AgentSessionTasksUpdate
+
+export class ListSessionTasksTool implements AgentTool {
+  readonly concurrency = 'parallel' as const
+  readonly definition = { name: 'list_session_tasks', description: 'Read durable user goals for the current session at the beginning of every turn. Review past delivery and outstanding work, then create/update concrete goals with update_session_tasks before execution. Goals span turns; update_plan manages only execution steps for this run. The host binds the session. Follow the latest user request.', parameters: { type: 'object', properties: {}, required: [], additionalProperties: false }, }
+  async execute(input: Record<string, unknown>, context?: AgentToolContext): Promise<AgentToolResult>
+}
+
+export class UpdateSessionTasksTool implements AgentTool {
+  readonly concurrency = 'serial' as const
+  readonly definition = { name: 'update_session_tasks', description: 'Persist new/changed user goals for the current session. After reviewing history at turn start, create concrete tasks before executing them and reconcile prior statuses. Before the final response, save progress and verified completion with completion_evidence. Reuse existing ids; omit id only for a new goal. Omitted goals are retained. Use revision from the latest read/update; reread on conflict. open means unfinished, including blocked/interrupted work. Turn end or a finished update_plan never proves goal completion. This updates session goals, independently of run execution plans, without a page card.', parameters: { type: 'object', additionalProperties: false, required: ['revision', 'changes'], properties: { revision: { type: 'integer', minimum: 0 }, changes: { type: 'array', minItems: 1, maxItems: 30, items: { type: 'object', additionalProperties: false, required: ['title', 'summary', 'status'], properties: { id: { type: 'string', minLength: 1, maxLength: 100 }, title: { type: 'string', minLength: 1, maxLength: 200 }, summary: { type: 'string', minLength: 1, maxLength: 1000 }, status: { type: 'string', enum: ['open', 'completed'] }, completion_evidence: { type: 'string', maxLength: 1000, description: 'Required when newly completing a goal: concise evidence that its requested outcome was delivered and verified.' }, }, } }, }, }, }
+  async execute(input: Record<string, unknown>, context?: AgentToolContext): Promise<AgentToolResult>
+}
+
+export function createSessionTasksToolProvider(): AgentToolProvider
+```
 ### `src/tools/skills.ts`
 
 ```ts
@@ -3701,6 +3771,8 @@ export interface AgentToolAuthorizationDecision {
 export type AgentToolAuthorizer = ( toolName: string, input: Record<string, unknown>, context?: AgentToolContext, ) => Promise<AgentToolAuthorizationDecision>
 
 export interface AgentToolContext {
+  listSessionTasks?: () => import('./session-tasks').AgentSessionTasksSnapshot | Promise<import('./session-tasks').AgentSessionTasksSnapshot>
+  updateSessionTasks?: (update: import('./session-tasks').AgentSessionTasksUpdate) => import('./session-tasks').AgentSessionTasksSnapshot | Promise<import('./session-tasks').AgentSessionTasksSnapshot>
   updatePlan?: (update: import('./plan').AgentPlanUpdate) => import('./plan').AgentTaskPlan
   runId?: string
   cwd?: string

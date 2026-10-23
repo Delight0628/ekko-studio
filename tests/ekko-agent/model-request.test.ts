@@ -132,6 +132,22 @@ describe('ekko-agent model requests', () => {
     ]))
   })
 
+  it.each([false, true])('still rejects an empty tool-call termination when completed calls exist=%s', async completed => {
+    const frames = [
+      ...(completed ? [{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'valid', function: { name: 'weather', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] }] : []),
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'invalid', function: { name: '', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] },
+    ]
+    const client = createModelClient(providerConfig, { fetch: async () => new Response(frames.map(frame => `data: ${JSON.stringify(frame)}\n\n`).join('')) })
+    await expect(collectModelEvents(client.stream({ messages: [{ role: 'user', content: 'Check weather' }] })))
+      .rejects.toThrow('complete id and function name')
+  })
+
+  it('rejects a tool-call finish reason with no tool data', async () => {
+    const client = createModelClient(providerConfig, { fetch: async () => new Response('data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n') })
+    await expect(collectModelEvents(client.stream({ messages: [{ role: 'user', content: 'Check weather' }] })))
+      .rejects.toThrow('complete id and function name')
+  })
+
   it('filters invalid Chat tool history and its orphaned tool result', () => {
     const payload = toOpenAIChatPayload(providerConfig, {
       messages: [
@@ -1301,8 +1317,14 @@ describe('ekko-agent model requests', () => {
     ])
   })
 
-  it('replays encrypted OpenAI Responses reasoning items without flattening them', () => {
-    const response = normalizeOpenAIResponsesResponse({
+  it('replays encrypted OpenAI Responses reasoning items without flattening them', async () => {
+    const config: ModelProviderConfig = {
+      id: 'openai',
+      type: 'openai',
+      requestStyle: 'openai-responses',
+      defaultModel: 'gpt-5.4',
+    }
+    const nativeResponse = {
       id: 'resp_reasoning',
       model: 'gpt-5.4',
       status: 'completed',
@@ -1321,14 +1343,13 @@ describe('ekko-agent model requests', () => {
           arguments: '{"city":"Xiamen"}',
         },
       ],
+    }
+    const client = createModelClient(config, {
+      fetch: async () => new Response(JSON.stringify(nativeResponse)),
     })
+    const response = await client.create({ messages: [{ role: 'user', content: 'Weather?' }] })
     const message = modelResponseToAgentMessage(response)
-    const payload = toOpenAIResponsesPayload({
-      id: 'openai',
-      type: 'openai',
-      requestStyle: 'openai-responses',
-      defaultModel: 'gpt-5.4',
-    }, {
+    const payload = toOpenAIResponsesPayload(config, {
       messages: [message],
     })
 
@@ -1336,6 +1357,7 @@ describe('ekko-agent model requests', () => {
       text: 'Checked the weather.',
       native: {
         format: 'openai-responses-items',
+        replayScope: expect.any(String),
         data: [expect.objectContaining({
           id: 'rs_1',
           type: 'reasoning',
