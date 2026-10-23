@@ -68,7 +68,7 @@ onBeforeUnmount(() => { requestController?.abort() })
           <NButton
             class="api-relay-action"
             tag="a"
-            href="https://apikey.fan/register?aff=LIBAPI"
+            href="https://apikey.fan/register"
             target="_blank"
             rel="noopener noreferrer"
             size="small"

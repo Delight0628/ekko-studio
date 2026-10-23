@@ -43,3 +43,23 @@ the submission materials. Do not describe prebuilt binaries as built from source
 - [ ] Bind receipts to package version, source commit and final SHA-256.
 - [ ] Only then withdraw the held submission with explicit authorization and upload
       a new version, remark: “Rectified per review comments”.
+
+## 0.7.37 conditional approval — TOS-APP-CL-20261021-01
+
+The report dated2026-10-21 confirms App Center installation/startup and37/37
+package self-checks, but explicitly says CVE scanning was not run. No claim of
+CVE clearance is made.
+
+- C6: built-in `aff=LIBAPI` registration parameters removed; previous referral
+  behavior and optional third-party presets disclosed in PRIVACY.md. This is not
+  evidence of a first-launch granular consent UI or complete opt-out testing.
+- C8: relay request/usage endpoints, data categories and unverified destination /
+  retention are disclosed. Operator-confirmed entity, region and retention remain
+  missing: obtain and attach them before claiming this item closed.
+- V6: inventory now records purpose, declared source and explicit review status,
+  retaining `provenanceVerified:false`. This assists separate security review,
+  but does not prove any binary's origin. Final submitted Deb must be bound to
+  official Node checksums, npm package integrity and each binary's source/build
+  or vendor-release receipts. Those receipts remain required.
+
+This change is preparatory remediation, not platform resubmission or closure.

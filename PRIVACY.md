@@ -89,3 +89,34 @@ options on the EKKOLearnAI GitHub organization. General requests may be filed at
 https://github.com/EKKOLearnAI/ekko-studio/issues; **never post prompts, keys,
 personal data or other sensitive material in a public issue**. Maintainers cannot
 delete data on a self-hosted NAS they do not control; contact its administrator.
+
+## Third-party relay presets and referral links
+
+`apikey.fan` is an optional third-party relay, not the original model developer
+and not required to use Studio. Previous versions included registration links
+with `aff=LIBAPI`, a referral identifier that can attribute registrations and may
+provide a referral/commission benefit. This version removes that built-in
+parameter. Existing external links or user configuration are not rewritten.
+Studio does not require registration with that service: choose a different
+provider or your own endpoint and do not configure relay credentials to opt out.
+
+Relay-specific calls include `https://api.apikey.fan/v1` (OpenAI-compatible model
+requests), `https://api.apikey.fan` (Anthropic-compatible requests) and `/v1/usage`
+under configured apikey.fan API bases (account usage lookup). Model requests send
+the configured API credential and the input/history/attachments/tool outputs
+included in a turn. Usage lookups send the relay credential and network metadata,
+not the conversation body. Visiting `https://apikey.fan/register` exposes normal
+browser network metadata to that website. These are separate operations.
+
+The relay operator and any downstream model operators may receive and process
+requests. Their legal operating entity, processing country/region, retention,
+subprocessor list and deletion commitments have **not been independently verified**
+by Studio. Do not infer a region from the domain, and obtain those details from
+the operator before sending sensitive data. This disclosure is not a claim that
+those unknowns satisfy a platform's transfer requirements.
+
+Agent runtimes and MCP servers are separately selected/configured integrations;
+their actual URLs, credentials and accessible tools determine the recipients.
+A complete inventory of those user-managed endpoints cannot be established from
+a provider preset alone. Administrators must review their enabled definitions;
+this notice does not authorize arbitrary additional transfers.

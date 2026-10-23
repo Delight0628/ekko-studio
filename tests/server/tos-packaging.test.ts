@@ -242,6 +242,8 @@ describe.runIf(process.platform === 'linux' && process.arch === 'x64')('TOS Debi
     const inventory = JSON.parse(readFileSync(join(app, 'BINARY-INVENTORY.json'), 'utf8'))
     expect(inventory).toEqual(expect.arrayContaining([expect.objectContaining({
       path: 'depends/bin/node', package: 'node', provenanceVerified: false,
+      purpose: 'Run the headless Studio server and managed MCP entrypoints',
+      upstreamSource: 'https://github.com/nodejs/node', provenanceStatus: 'requires-security-review',
       sha256: createHash('sha256').update(readFileSync(join(app, 'depends/bin/node'))).digest('hex'),
     })]))
     const service = readFileSync(join(app, 'init.d/ekko-studio-tos.service'), 'utf8')
@@ -368,5 +370,18 @@ describe.runIf(process.platform === 'linux' && process.arch === 'x64')('TOS Debi
     const deb = join(root, 'desktop.deb')
     execFileSync('dpkg-deb', ['--build', join(root, 'stage'), deb])
     expect(() => verifyTosDeb(deb)).toThrow('config.ini')
+  })
+})
+
+
+describe('TOS conditional review disclosures', () => {
+  it('removes built-in affiliate parameters while documenting previous referral behavior', () => {
+    for (const file of ['packages/client/src/views/hermes/ApiRelayView.vue', 'packages/client/src/components/hermes/models/ProviderFormModal.vue']) {
+      expect(readFileSync(resolve(file), 'utf8')).not.toContain('aff=LIBAPI')
+    }
+    const policy = readFileSync(resolve('PRIVACY.md'), 'utf8')
+    expect(policy).toContain('aff=LIBAPI')
+    expect(policy).toContain('/v1/usage')
+    expect(policy).toContain('not been independently verified')
   })
 })

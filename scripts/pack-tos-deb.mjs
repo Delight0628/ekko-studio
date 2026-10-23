@@ -62,6 +62,25 @@ function* regularFiles(root) {
 }
 
 // Inventory the final bytes, including native addons nested below npm packages.
+function binaryReviewMetadata(metadata) {
+  const name = String(metadata.package || '')
+  const purposes = {
+    node: 'Run the headless Studio server and managed MCP entrypoints',
+    sharp: 'Decode and transform local images',
+    'node-pty': 'Provide terminal pseudo-terminal sessions',
+    'sherpa-onnx': 'Local speech inference',
+    'agent-browser': 'Administrator-selected browser automation',
+    'cua-driver': 'Administrator-selected computer-use automation',
+  }
+  const repository = typeof metadata.repository === 'string' ? metadata.repository : metadata.repository?.url
+  return {
+    purpose: purposes[name] || (name.includes('libvips') ? 'Native image-processing dependency used by Sharp' : 'Native dependency; maintainer review required'),
+    upstreamSource: repository || null,
+    provenanceStatus: 'requires-security-review',
+    evidenceNote: 'SHA256 identifies packaged bytes; package metadata is not binary build attestation. Verify release checksum/signature or source-build receipt separately.',
+  }
+}
+
 export function binaryInventory(root, nodeVersion) {
   const entries = []
   for (const path of regularFiles(root)) {
@@ -81,7 +100,7 @@ export function binaryInventory(root, nodeVersion) {
       metadata = { package: 'node', version: nodeVersion, license: 'SEE upstream LICENSE', repository: 'https://github.com/nodejs/node' }
     }
     entries.push({ path: relative(root, path), sha256: fileDigest(path, 'sha256'), ...metadata,
-      provenanceVerified: false })
+      provenanceVerified: false, ...binaryReviewMetadata(metadata) })
   }
   return entries
 }
