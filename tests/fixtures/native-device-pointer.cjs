@@ -29,23 +29,32 @@ public static class NativeDevicePointer {
  [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
  [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr handle, ref POINT point);
  [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr handle);
+ [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr handle);
+ [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
  [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
  [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
  [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
  public static void Click(long value, double x, double y) {
   SetThreadDpiAwarenessContext(new IntPtr(-4));
-  var handle = new IntPtr(value); var point = new POINT();ClientToScreen(handle, ref point);
+  var handle = new IntPtr(value);
+  SetForegroundWindow(handle);
+  System.Threading.Thread.Sleep(150);
+  if (GetForegroundWindow() != handle) throw new Exception("Native pointer target is not foreground");
+  var point = new POINT();ClientToScreen(handle, ref point);
   double scale = GetDpiForWindow(handle) / 96.0;
   point.X += (int)Math.Round(x * scale);point.Y += (int)Math.Round(y * scale);
   var hit = SendMessage(handle, 0x84, IntPtr.Zero, new IntPtr((point.Y << 16) | (point.X & 0xffff)));
   if (hit.ToInt64() == 2) throw new Exception("Device control is still a draggable caption");
-  SetCursorPos(point.X, point.Y);mouse_event(2,0,0,0,UIntPtr.Zero);
+  if (!SetCursorPos(point.X, point.Y)) throw new Exception("SetCursorPos failed");
+  Console.WriteLine("Native click: hwnd=" + value + " x=" + point.X + " y=" + point.Y + " dpi=" + GetDpiForWindow(handle) + " hit=" + hit);
+  System.Threading.Thread.Sleep(100);
+  mouse_event(2,0,0,0,UIntPtr.Zero);
   System.Threading.Thread.Sleep(50);mouse_event(4,0,0,0,UIntPtr.Zero);
  }
 }
 '@
 [NativeDevicePointer]::Click(${handle}, ${bounds.x + point.x}, ${bounds.y + point.y})
 `
-    await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 15000 })
+    await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 15000, windowsHide: true })
   } else throw new Error('OS pointer test supports macOS and Windows')
 }
