@@ -81,6 +81,7 @@ export interface DesktopBrowserSelection {
 }
 
 export interface DesktopBrowserBridge {
+  setColorScheme?: (scheme: 'light' | 'dark') => Promise<void>
   setRemoteControl?: (enable: boolean) => Promise<boolean>
   remoteRequest?: (body: Record<string, unknown>) => Promise<unknown>
   getState: () => Promise<DesktopBrowserState>

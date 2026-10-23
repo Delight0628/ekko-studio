@@ -1,3 +1,4 @@
+import { applyBrowserColorScheme, browserBackground, type BrowserColorScheme } from './browser-theme'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { basename, dirname, extname, join, resolve } from 'node:path'
@@ -91,6 +92,7 @@ function proxyConfig(profile: DesktopBrowserProfile): ProxyConfig {
 }
 
 export class BrowserManager {
+  private colorScheme: BrowserColorScheme = 'light'
   readonly automation = new BrowserAutomation()
   private readonly profileStore: BrowserProfileStore
   private readonly records = new Map<string, TabRecord>()
@@ -144,6 +146,11 @@ export class BrowserManager {
       visible: this.visible,
       maxTabs: MAX_BROWSER_TABS,
     }
+  }
+
+  async setColorScheme(scheme: BrowserColorScheme): Promise<void> {
+    this.colorScheme = scheme
+    await Promise.all([...this.records.values()].map(record => applyBrowserColorScheme(record.view, scheme)))
   }
 
   setViewport(bounds: BrowserBounds, visible: boolean): DesktopBrowserState {
@@ -800,7 +807,8 @@ export class BrowserManager {
         spellcheck: true,
       },
     })
-    view.setBackgroundColor('#ffffff')
+    view.setBackgroundColor(browserBackground(this.colorScheme))
+
     const tab: DesktopBrowserTab = {
       id,
       profileId: profile.id,
@@ -814,6 +822,11 @@ export class BrowserManager {
     }
     const record: TabRecord = { tab, view, console: [] }
     const contents = view.webContents
+    contents.on('dom-ready', () => {
+      void applyBrowserColorScheme(view, this.colorScheme).catch(error => {
+        console.warn('[desktop-browser] color scheme update failed', error)
+      })
+    })
     contents.setWindowOpenHandler(details => {
       if (!isAllowedBrowserRequest(details.url)) return { action: 'deny' }
       void this.openTab(details.url, true, false, undefined, id).catch(error => {

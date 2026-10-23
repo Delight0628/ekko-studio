@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useTheme } from '@/composables/useTheme'
 import { NSpin, NButton, NInput, NPopover, NSelect, useDialog, useMessage } from 'naive-ui'
 import { remoteBrowserOwnerState, remoteBrowserEnabled, startRemoteBrowserRelay, stopRemoteBrowserRelay } from '@/composables/useRemoteBrowserRelay'
 import { useProfilesStore } from '@/stores/hermes/profiles'
@@ -19,6 +20,13 @@ const { t } = useI18n()
 const message = useMessage()
 const dialog = useDialog()
 const bridge = desktopBridge()?.browser
+const { isDark } = useTheme()
+let themeSyncQueue: Promise<void> = Promise.resolve()
+watch(isDark, dark => {
+  if (!bridge?.setColorScheme) return
+  themeSyncQueue = themeSyncQueue.catch(() => undefined).then(() => bridge.setColorScheme!(dark ? 'dark' : 'light'))
+  void themeSyncQueue.catch(error => { console.warn('[desktop-browser] theme sync failed', error) })
+}, { immediate: true })
 const remoteControlAvailable = desktopBridge()?.remoteMode === true && !!bridge?.setRemoteControl
 const relayProfiles = useProfilesStore()
 const remoteControlPending = ref(false)
@@ -667,7 +675,7 @@ onUnmounted(() => {
 .annotation-item > button { flex-shrink: 0; width: 28px; height: 28px; border: 0; border-radius: var(--radius-component, 6px); color: inherit; background: transparent; cursor: pointer; font-size: calc(var(--font-size-base, 14px) * 18 / 14); }
 .annotation-item > button:hover { background: rgba(59,130,246,.15); }
 .annotation-item > button:disabled { cursor: default; opacity: .5; }
-.native-viewport { flex: 1; min-height: 100px; position: relative; display: grid; place-items: center; background: #fff; color: #777; }
+.native-viewport { flex: 1; min-height: 100px; position: relative; display: grid; place-items: center; background: var(--theme-content-bg, var(--bg-primary)); color: var(--text-muted); }
 .annotation-editor { flex: 1; min-height: 0; overflow: auto; padding: calc(12px * var(--spacing-scale, 1)); background: var(--card-color, #fff); }
 .annotation-preview { position: relative; width: 100%; margin-bottom: 168px; line-height: 0; }
 .annotation-preview > img { display: block; width: 100%; height: auto; border: var(--border-width, 1px) solid var(--border-color); border-radius: var(--radius-component, 8px); background: #fff; box-sizing: border-box; }

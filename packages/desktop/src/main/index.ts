@@ -1383,6 +1383,11 @@ ipcMain.handle('hermes-desktop:browser-remote-request', async (event, input: unk
   return result
 })
 
+ipcMain.handle('hermes-desktop:browser-set-color-scheme', async (event, scheme: unknown) => {
+  const manager = browserForEvent(event)
+  if (scheme !== 'light' && scheme !== 'dark') throw new Error('Invalid browser color scheme')
+  await manager.setColorScheme(scheme)
+})
 ipcMain.handle('hermes-desktop:browser-get-state', event => browserForEvent(event).state())
 ipcMain.handle('hermes-desktop:browser-set-viewport', (event, bounds?: unknown, visible?: unknown) => {
   const input = bounds && typeof bounds === 'object' ? bounds as Partial<BrowserBounds> : {}
