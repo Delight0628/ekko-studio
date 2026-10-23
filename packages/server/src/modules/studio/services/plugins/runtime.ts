@@ -16,6 +16,7 @@ import { PluginEventBus } from '../events/plugin-events'
 import { PluginHost } from './host'
 import { businessEvents } from '../webhooks/business-events'
 import { projectPluginBusinessEvent } from '../events/plugin-business-events'
+import { removeStudioSession } from '../sessions/removal'
 
 const logger: ScopedLogger = {
   info: (message, data) => applicationLogger.info(data || {}, message),
@@ -27,8 +28,9 @@ export function authorizePluginScope(scope: ExecutionScope, operation?: ContextO
   const user = findUserById(scope.principal.id)
   if (!user || user.status !== 'active') throw new StudioError('FORBIDDEN', 'Execution principal is unavailable')
   if (user.role !== 'super_admin' && !userCanAccessProfile(user.id, scope.profileId)) throw new StudioError('FORBIDDEN', 'Profile access denied')
-  const sessionId = operation === 'sessions.read' ? resourceId : undefined
+  const sessionId = operation === 'sessions.read' || operation === 'sessions.remove' ? resourceId : undefined
   if (sessionId) {
+    if (scope.sessionId && scope.sessionId !== sessionId) throw new StudioError('FORBIDDEN', 'Session is outside the execution scope')
     const session = getSessionMetadata(sessionId)
     if (session && ((session.profile || 'default') !== scope.profileId || (scope.sessionId && scope.sessionId !== session.id))) {
       throw new StudioError('FORBIDDEN', 'Session is outside the execution scope')
@@ -47,7 +49,10 @@ export function createStudioPluginRuntime(runnerPath: string) {
     authorize: async (current, operation, resourceId) => authorizePluginScope(current, operation, resourceId),
     agents: { list: async profileId => registry.list(profileId) },
     runs: { get: async (current, id) => coordinator.get(current, id), output: async (current, id, after) => coordinator.output(current, id, after) },
-    sessions: { get: async id => {
+    sessions: { remove: (current, id, signal) => removeStudioSession({ id, profileId: current.profileId }, {
+      signal, sessionId: current.sessionId,
+      authorize: () => authorizePluginScope(current, 'sessions.remove', id),
+    }), get: async id => {
       const session = getSessionMetadata(id)
       return session ? { id, profileId: session.profile || 'default', title: session.title,
         agentTypeId: session.agent, archived: !!session.is_archived } : null

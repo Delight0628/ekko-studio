@@ -44,7 +44,10 @@ function executionContext(scope: ExecutionScope, scopeHandle: string, signal: Ab
   }
   return {
     scope: Object.freeze({ ...scope, principal: Object.freeze({ ...scope.principal }) }), signal, logger,
-    sessions: { get: async id => await call('sessions.get', { id }) as unknown as Awaited<ReturnType<ExecutionContext['sessions']['get']>> },
+    sessions: {
+      get: async id => await call('sessions.get', { id }) as unknown as Awaited<ReturnType<ExecutionContext['sessions']['get']>>,
+      remove: async id => await call('sessions.remove', { id }) as unknown as Awaited<ReturnType<ExecutionContext['sessions']['remove']>>,
+    },
     agents: { list: async () => await call('agents.list', {}) as unknown as Awaited<ReturnType<ExecutionContext['agents']['list']>> },
     runs: {
       get: async id => await call('runs.get', { id }) as unknown as Awaited<ReturnType<ExecutionContext['runs']['get']>>,

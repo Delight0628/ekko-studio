@@ -143,6 +143,8 @@ interface AgentRunContext extends ExecutionContext {
 | `files.read(ref)` | 文件归属、真实路径校验、尺寸限制、远端文件提供者与取消 |
 | `models.stream(input)` | 授权模型选择、凭据代理、流、用量归属和取消 |
 
+当前 T02 已落地 `ctx.sessions.remove(id)`，要求 `sessions.remove` 授权，并与现有 HTTP 单删/批删共用领域服务。返回本地 `deleted` 与独立的 `native` 清理结果；profile 与主体由宿主绑定，不接收调用参数。首个副作用前响应取消，开始变更后返回实际结果。上表的活动 Run 策略 options、hook 和可靠投递仍为目标契约，不能据此假定已实现；详见[实施记录](studio-plugin-progress.md#t02-进展会话删除共用领域服务)。
+
 写操作接受 `idempotencyKey` 或领域 revision；是否可重试由方法契约明确。RPC 断线不能触发无条件重试付款、消息发送、文件写入或启动 Run。会话删除等跨运行时操作采用可恢复操作记录，不声称远程清理和 SQLite 可以组成一个原子事务。
 
 通用错误包含 `code`、安全 `message`、`retryable` 和可选 `details/operationId`。建议稳定错误码：`INVALID_ARGUMENT`、`FORBIDDEN`、`NOT_FOUND`、`REVISION_CONFLICT`、`CAPABILITY_UNSUPPORTED`、`PLUGIN_UNAVAILABLE`、`PLUGIN_VERSION_INCOMPATIBLE`、`SYSTEM_PLUGIN_PROTECTED`、`RUNTIME_UNAVAILABLE`、`CANCELLED`、`DEADLINE_EXCEEDED`。HTTP 状态码由传输适配，不向插件暴露内部堆栈和凭据。

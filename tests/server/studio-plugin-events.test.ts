@@ -14,6 +14,12 @@ it('does not turn unknown business events into a public plugin payload', () => {
   expect(projectPluginBusinessEvent({ schema_version: 1, id: 'event', type: 'internal.secret', occurred_at: '2026-10-23T00:00:00Z', profile: 'private', source: 'chat', subject: {}, payload: { token: 'secret' } }, 1)).toBeNull()
 })
 
+it('publishes deletion callbacks for deletion only, never for archive notifications', () => {
+  const event = { schema_version: 1 as const, id: 'event', type: 'chat.session.removed', occurred_at: '2026-10-23T00:00:00Z', profile: 'default', source: 'chat', subject: { session_id: 'session' }, payload: { reason: 'archived' } }
+  expect(projectPluginBusinessEvent(event, 1)).toBeNull()
+  expect(projectPluginBusinessEvent({ ...event, payload: { reason: 'deleted' } }, 1)).toMatchObject({ type: 'session.deleted', data: { sessionId: 'session' } })
+})
+
 it('persists public events once with partition sequence and profile isolation', () => {
   const db = new DatabaseSync(':memory:')
   try {

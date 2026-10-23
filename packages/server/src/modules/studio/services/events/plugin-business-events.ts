@@ -8,7 +8,7 @@ export function projectPluginBusinessEvent(event: BusinessEvent, sequence: numbe
   const runId = event.subject.run_id, sessionId = event.subject.session_id
   if (event.type === 'chat.run.completed' && runId) { type = 'run.completed'; data = { runId } }
   else if (event.type === 'chat.run.failed' && runId) { type = 'run.failed'; data = { runId } }
-  else if (event.type === 'chat.session.removed' && sessionId) { type = 'session.deleted'; data = { sessionId } }
+  else if (event.type === 'chat.session.removed' && event.payload.reason === 'deleted' && sessionId) { type = 'session.deleted'; data = { sessionId } }
   else return null
   const timestamp = Date.parse(event.occurred_at)
   if (!event.profile || !Number.isFinite(timestamp)) return null

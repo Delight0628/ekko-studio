@@ -172,9 +172,11 @@ export class PluginWorker {
     const params = value as JsonObject
     const ctx = this.scopes.get(String(params.scopeHandle))
     if (!ctx || ctx.signal.aborted) throw new StudioError('FORBIDDEN', 'Execution scope is unavailable')
-    if (params.method === 'sessions.get') {
-      this.authorize('sessions.read')
-      return jsonCopy(await ctx.sessions.get(String((params.args as JsonObject).id))) as unknown as JsonValue
+    if (params.method === 'sessions.get' || params.method === 'sessions.remove') {
+      this.authorize(params.method === 'sessions.get' ? 'sessions.read' : 'sessions.remove')
+      const args = params.args as JsonObject
+      if (!args || typeof args.id !== 'string' || Object.keys(args).some(key => key !== 'id')) throw new StudioError('INVALID_ARGUMENT', 'Only a session id is accepted')
+      return toJson(params.method === 'sessions.get' ? await ctx.sessions.get(args.id) : await ctx.sessions.remove(args.id))
     }
     if (params.method === 'agents.list') { this.authorize('agents.read'); return jsonCopy(await ctx.agents.list()) as unknown as JsonValue }
     if (params.method === 'runs.get' || params.method === 'runs.output') {

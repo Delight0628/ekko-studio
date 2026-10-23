@@ -43,9 +43,16 @@ export interface SessionSummary {
   archived: boolean
 }
 
+export interface SessionRemovalResult {
+  /** Whether a Studio record was removed; native-only history is reported separately. */
+  deleted: boolean
+  native: { attempted: boolean; deleted: boolean; profileId: string; error?: string }
+}
+
 export interface StudioDomainServices {
   readonly sessions: {
     get(id: string): Promise<SessionSummary | null>
+    remove(id: string): Promise<SessionRemovalResult>
   }
   readonly agents: {
     list(): Promise<AgentTypeSummary[]>
