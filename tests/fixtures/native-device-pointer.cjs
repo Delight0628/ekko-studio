@@ -29,6 +29,7 @@ public static class NativeDevicePointer {
  [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
  [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr handle, ref POINT point);
  [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr handle);
+ [DllImport("user32.dll")] static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr handle);
  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr handle, IntPtr process);
@@ -58,7 +59,12 @@ public static class NativeDevicePointer {
   var active = GetWindowThreadProcessId(foreground, IntPtr.Zero);
   bool targetAttached = current != target && AttachThreadInput(current, target, true);
   bool activeAttached = active != 0 && current != active && AttachThreadInput(current, active, true);
-  try { BringWindowToTop(handle); SetForegroundWindow(handle); }
+  try {
+    // A real Alt key transition releases Windows foreground-lock restrictions.
+    keybd_event(0x12, 0, 0, UIntPtr.Zero);
+    keybd_event(0x12, 0, 2, UIntPtr.Zero);
+    BringWindowToTop(handle); SetForegroundWindow(handle);
+  }
   finally {
     if (activeAttached) AttachThreadInput(current, active, false);
     if (targetAttached) AttachThreadInput(current, target, false);
