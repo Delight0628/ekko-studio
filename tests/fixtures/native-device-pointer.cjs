@@ -34,6 +34,8 @@ public static class NativeDevicePointer {
  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr handle, IntPtr process);
  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint from, uint to, bool attach);
+ [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr handle, System.Text.StringBuilder text, int length);
+ [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr handle, uint flags);
  [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr handle);
  [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
  [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
@@ -53,7 +55,9 @@ public static class NativeDevicePointer {
     if (targetAttached) AttachThreadInput(current, target, false);
   }
   System.Threading.Thread.Sleep(150);
-  if (GetForegroundWindow() != handle) throw new Exception("Native pointer target is not foreground: expected=" + value + " actual=" + GetForegroundWindow().ToInt64() + " initial=" + foreground.ToInt64());
+  var title = new System.Text.StringBuilder(512);GetWindowText(GetForegroundWindow(), title, 512);
+  Console.WriteLine("Foreground diagnostic: expected=" + value + " actual=" + GetForegroundWindow().ToInt64() + " root=" + GetAncestor(handle,2).ToInt64() + " title=" + title);
+  if (GetForegroundWindow() != handle && GetForegroundWindow() != GetAncestor(handle,2)) throw new Exception("Native pointer target is not foreground: " + title);
   var point = new POINT();ClientToScreen(handle, ref point);
   double scale = GetDpiForWindow(handle) / 96.0;
   point.X += (int)Math.Round(x * scale);point.Y += (int)Math.Round(y * scale);
