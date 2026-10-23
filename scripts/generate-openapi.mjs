@@ -44,6 +44,7 @@ const openapi = {
 // Tag mappings based on route directories
 const tagMappings = {
   'modules/studio/routes/desktop-browser.ts': { name: 'Desktop Browser', description: 'Authenticated remote Desktop browser relay with explicit Desktop consent' },
+  'modules/studio/routes/studio-plugins.ts': { name: 'Studio Plugins', description: 'Studio backend plugin installation, protected system plugins, profile activation and registered Agent types; separate from Hermes native plugins' },
   'modules/hermes/routes/profiles.ts': { name: 'Profiles', description: 'Hermes profile management' },
   'modules/hermes/routes/models.ts': { name: 'Models', description: 'Model configuration' },
   'modules/hermes/routes/providers.ts': { name: 'Providers', description: 'Model provider management' },
@@ -1939,6 +1940,53 @@ for (const action of ['list', 'update']) {
   }
   delete operation.responses['404']
 }
+
+// Studio backend plugins are distinct from Hermes-native plugin management.
+const studioPluginBody = schema => ({ required: true, content: { 'application/json': { schema } } })
+const studioPluginProfile = { name: 'profile', in: 'query', required: true, schema: { type: 'string', minLength: 1 }, description: 'Authorized Studio profile.' }
+for (const [path, methods] of Object.entries(openapi.paths)) {
+  if (!path.startsWith('/api/studio/plugins') && !path.startsWith('/api/studio/agent-')) continue
+  for (const operation of Object.values(methods)) {
+    operation.tags = ['Studio Plugins']
+    operation.security = [{ BearerAuth: [] }]
+    operation.description = path.startsWith('/api/studio/agent-')
+      ? 'Operates on registered Agent types and owner-bound instances/runs in the authorized profile. Plugin migration is in progress; existing native Agent execution remains separate until migration completes.'
+      : 'Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations.'
+    operation.responses = { '200': { description: 'Result wrapped as { ok: true, data }.' }, '400': { description: 'Invalid request or manifest.' },
+      '401': { $ref: '#/components/responses/Unauthorized' }, '403': { description: 'Access denied or SYSTEM_PLUGIN_PROTECTED; no deletion side effects.' },
+      '404': { description: 'Plugin not installed.' }, '409': { description: 'Revision conflict, registration conflict or active runtime leases.' },
+      '422': { description: 'Plugin requests unsupported capabilities.' }, '503': { description: 'Plugin host or runtime unavailable.' } }
+    if (path.endsWith('/profile') || path.startsWith('/api/studio/agent-')) {
+      operation.parameters = [...(operation.parameters || []).filter(parameter => parameter.name !== 'profile'), studioPluginProfile]
+    }
+  }
+}
+openapi.paths['/api/studio/plugins'].post.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, required: ['path'], properties: {
+  path: { type: 'string', minLength: 1, description: 'Local trusted plugin directory containing studio-plugin.json and compiled backend entry. Installation copies an immutable artifact without executing package scripts.' },
+} })
+openapi.paths['/api/studio/plugins/{id}/profile'].put.requestBody = studioPluginBody({ type: 'object', additionalProperties: false,
+  required: ['enabled', 'config', 'grants', 'revision'], properties: {
+    enabled: { type: 'boolean' }, config: { type: 'object', additionalProperties: true },
+    grants: { type: 'array', uniqueItems: true, items: { type: 'string' }, description: 'Explicit subset of the manifest capabilities; activation requires all declared capabilities.' },
+    revision: { type: 'integer', minimum: 0, description: 'Current profile configuration revision, or 0 for initial configuration.' },
+    profile: { type: 'string' },
+  },
+})
+openapi.paths['/api/studio/agent-instances'].post.requestBody = studioPluginBody({ type: 'object', additionalProperties: false,
+  required: ['agentTypeId', 'config', 'mode'], properties: {
+    agentTypeId: { type: 'string' }, config: { type: 'object', additionalProperties: true }, mode: { type: 'string', enum: ['scoped', 'global'] }, profile: { type: 'string' },
+  },
+})
+openapi.paths['/api/studio/agent-instances/{id}/runs'].post.requestBody = studioPluginBody({ type: 'object', additionalProperties: false,
+  required: ['input', 'idempotencyKey'], properties: {
+    idempotencyKey: { type: 'string', minLength: 1, maxLength: 128 }, profile: { type: 'string' },
+    input: { type: 'object', additionalProperties: false, required: ['content'], properties: {
+      content: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'object', additionalProperties: false, required: ['type', 'text'], properties: { type: { type: 'string', enum: ['text'] }, text: { type: 'string' } } } },
+      model: { type: 'string' }, timeoutMs: { type: 'integer', minimum: 100, maximum: 3600000 },
+    } },
+  },
+})
+openapi.paths['/api/studio/agent-runs/{id}/output'].get.parameters.push({ name: 'after', in: 'query', schema: { type: 'integer', minimum: -1, default: -1 }, description: 'Exclusive producer sequence cursor; returns up to 100 persisted output events.' })
 
 // Write output
 const outputPath = join(rootDir, 'docs/openapi.json')

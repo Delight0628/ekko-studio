@@ -16,6 +16,7 @@ import { setupTerminalWebSocket } from '../modules/hermes/sockets/terminal'
 import { setupKanbanEventsWebSocket } from '../modules/hermes/sockets/kanban-events'
 import { startVersionCheck } from './health'
 import { registerRoutes } from './routes'
+import { startStudioPlugins } from './plugins'
 import { dshPluginUi } from '../modules/coding-agents/services'
 import './chat-agent-runtime-adapter'
 import './skill-files-adapter'
@@ -479,6 +480,8 @@ export async function bootstrap() {
   // Initialize all web-ui SQLite tables
   const { initAllStores } = await import('../modules/studio/infrastructure/database/init')
   initAllStores()
+  const pluginRuntime = await startStudioPlugins()
+  additionalShutdownSteps.push({ name: 'Studio plugins', close: () => pluginRuntime.close() })
   // Refresh once on every startup; context and cost lookups can use the disk cache immediately.
   void refreshModelCatalog(true)
   const { interruptOrphanedTaskPlans } = await import('../modules/studio/repositories/task-plan-store')

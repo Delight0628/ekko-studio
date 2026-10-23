@@ -1,0 +1,452 @@
+# Studio 上下文与插件接口契约
+
+日期：2026-10-23
+
+状态：设计草案 v0.3，配套[架构总案](studio-plugin-architecture.md)与[实施计划](studio-plugin-execution.md)。类型片段用于约束完整接口形状；开发中的 SDK 实际能力见[实施记录](studio-plugin-progress.md)，尚未发布，未实现部分仍需在 T01、T02 等任务中补全。
+
+## 1 身份与版本
+
+| 标识 | 规则 |
+| --- | --- |
+| `PluginId` | publisher 命名空间，例如 `acme.research`；限制字符与长度，禁止路径分隔符 |
+| `AgentTypeId` | 新类型为 `acme.research/assistant`；已有内置 ID 保留，别名仅由核心兼容表声明 |
+| `AgentInstanceId` | 宿主生成，关联类型、owner、profile、配置 revision |
+| `RuntimeSessionId` | 宿主生成的原生会话租约 ID；厂商 session/thread ID 存在恢复引用中 |
+| `RunId` | 宿主生成，贯穿消息、交互、用量、产物和终态 |
+| `Generation` | 插件激活的不可变版本标识，固定工件摘要和配置版本；内置 Agent 不使用此标识 |
+| `ScopeId` | 宿主分配的调用/资源范围，不接受插件伪造 |
+
+`AgentFamily` 保留产品归属含义，原有 Hermes/Ekko/Coding 值用于兼容和展示。执行路由使用 type ID 和已解析的工厂。新增 Agent 可以带 category 标签。提供方区分 `builtin | plugin`；只有插件另有 `origin: bundled | installed`，随包 Coding Agent 插件仍属于 plugin。运行协调器不按 family、origin 或厂商 ID 编写业务执行分支。
+
+提供方引用由核心生成，不由调用者自报；Agent 目录、原生会话租约、Run 和交互使用同一判别联合：
+
+```ts
+type AgentProviderRef =
+  | {
+      kind: 'builtin'
+      module: 'hermes' | 'ekko'
+      implementationVersion: string
+    }
+  | {
+      kind: 'plugin'
+      pluginId: string
+      version: string
+      generation: string
+    }
+```
+
+Run 冻结提供方引用与实例配置 revision。内置实现版本需能定位 Studio 构建及对应引擎版本；运行时探测另记录实际原生版本。内置实现不创建虚拟 plugin ID、manifest、安装记录或 generation。基础设施按提供方选择已注册工厂或 RPC 代理；执行、事件、用量和权限语义相同。
+
+插件目录额外返回只读安装策略，独立于 Agent 执行契约：
+
+```ts
+type PluginInstallationPolicy =
+  | { kind: 'system'; removable: false }
+  | { kind: 'user'; removable: true }
+```
+
+现有 14 个 Coding Agent 作为系统插件随 Studio 默认安装，使用 `provider.kind = 'plugin'`、`origin = 'bundled'` 和 system 安装策略。第三方安装使用 user 策略，具体是否允许卸载还受当前权限、依赖与租约约束。系统身份由宿主受信任的分发清单决定，不能由插件 manifest 或请求字段自报；升级不改变该身份。Hermes/Ekko 为 builtin，不使用插件安装策略。
+
+SDK、worker RPC、manifest、公共事件分别有 schema 版本。宿主启动前验证 SDK semver 范围与 RPC major；不兼容工件保持 installed/blocked 状态，不调用入口。DTO 使用 JSON 可序列化值，时间统一毫秒或明确的 ISO 字符串；大内容使用带权限的 artifact 引用。
+
+## 2 上下文层次
+
+### 2.1 应用服务与插件上下文
+
+宿主内部持有 `StudioKernel`，由 bootstrap 注入数据库、认证、传输和领域服务实现。它不作为插件 API 导出。Hermes/Ekko 通过 bootstrap 获得所需的窄服务接口，运行时接收下述统一执行上下文；不需要创建 PluginContext 或经过插件 loader。共享 Agent 契约保持纯类型/schema，可由内置模块直接使用，也可由 SDK 导出给插件。
+
+```ts
+type Disposer = () => void | Promise<void>
+
+interface PluginContext {
+  readonly plugin: PluginIdentity
+  readonly config: Readonly<JsonObject>
+  readonly logger: PluginLogger
+  readonly agents: AgentContributions
+  readonly services: ServiceContributions
+  readonly http: HttpContributions
+  readonly scheduler: ScheduleContributions
+  readonly storage: PluginStorage
+  readonly secrets: PluginSecretReferences
+  readonly events: EventContributions
+  readonly hooks: HookContributions
+  readonly lifecycle: PluginLifecycle
+
+  on<K extends keyof StudioEventMap>(
+    type: K,
+    handler: EventHandler<K>,
+    options?: SubscriptionOptions,
+  ): Disposer
+  once<K extends keyof StudioEventMap>(
+    type: K,
+    handler: EventHandler<K>,
+    options?: SubscriptionOptions,
+  ): Disposer
+  emit(event: DeclaredPluginEvent): Promise<EventReceipt>
+}
+```
+
+PluginContext 绑定插件、generation 和启用 profile，管理贡献及资源。它不具有“当前登录用户”。激活期不能通过 `ctx.sessions` 读取任意用户会话；业务服务通过宿主派发的 ExecutionContext 使用。
+
+`register`、`on`、`provide`、路由和任务注册均返回幂等 Disposer，并自动进入当前插件资源栈。插件可以提前解除单项资源；宿主停用时逆序清理剩余资源。`lifecycle.onDispose(fn)` 用于补充清理，不能代替宿主对受管资源的登记。
+
+### 2.2 执行上下文
+
+```ts
+interface ExecutionScope {
+  readonly scopeId: string
+  readonly principal: PrincipalSummary
+  readonly profileId: string
+  readonly workspaceId?: string
+  readonly sessionId?: string
+  readonly runId?: string
+  readonly surface: 'chat' | 'group-chat' | 'workflow' | 'global-agent' | 'api' | 'job' | 'event'
+  readonly traceId: string
+}
+
+interface ExecutionContext extends StudioDomainServices {
+  readonly scope: ExecutionScope
+  readonly signal: AbortSignal
+  readonly logger: ScopedLogger
+}
+
+interface AgentRunContext extends ExecutionContext {
+  readonly scope: ExecutionScope & {
+    readonly runId: string
+    readonly runtimeSessionId: string
+  }
+}
+```
+
+`StudioDomainServices` 按总案能力表拆成独立接口。请求入口负责认证并调用内部 factory；插件不持有任意 `asUser`、修改 profile 或创建 root 上下文的接口。元数据只读，权限在每次领域服务调用时再校验，不能仅相信 TypeScript readonly 或插件发来的 scope 字段。
+
+事件上下文权限由订阅授权、插件能力授予、资源可见性共同限定，不继承事件发起者的管理员身份。计划任务保存经过授权的 owner/服务身份和 profile，执行时重新检查权限。新身份无法访问历史资源时明确拒绝，不静默升级权限。
+
+插件激活期的 storage 仅保存明确属于插件/profile 的公共配置或内部索引。用户私有业务数据通过执行上下文的 storage 访问，默认追加 owner 隔离。共享数据必须由服务契约明确声明可见范围，不能把“同一 profile”自动等同于“全部用户互相可读”。
+
+跨 Run 的原生进程使用 AgentRuntimeContext：包含 runtime lease、提供方引用、已解析实例配置、受管进程与恢复存储，不持有某个已结束 HTTP 请求的 user、signal 或可变 profile。单轮 signal 取消本轮工作；runtime signal 结束原生会话。插件运行时另外受 plugin signal 约束；内置运行时由应用与所属模块的生命周期管理。
+
+内置调用与插件调用使用相同领域服务、作用域和授权检查。插件额外受 manifest/授予范围约束，内置模块不需要插件授予记录，但不能因此绕过用户、profile、工作区和资源权限。核心目录、运行协调器和事件服务不依赖插件 worker 才能启动。
+
+### 2.3 领域服务方法规范
+
+方法接收业务 DTO 并返回 Promise/可管理的流，不接收 Koa Context、Socket、SQLite statement 或厂商 SDK 实例。流句柄由宿主管理关闭与取消。读方法与写方法分开，业务校验和访问检查属于领域服务，HTTP/Socket 只映射协议。
+
+示例语义：
+
+| 方法 | 必须包含的行为 |
+| --- | --- |
+| `sessions.remove(id, options)` | 授权、检查活动 Run、按删除策略取消/拒绝、原生清理、关联记录处理、提交事件 |
+| `sessions.archive(id)` | 当前规则、revision、归档持久化和通知 |
+| `runs.start(input)` | 能力/权限校验、hook、冻结配置、创建 Run、执行调度；返回句柄 |
+| `workflows.run(id, input)` | 图校验、节点能力、预算、快照与统一 Run 调度 |
+| `files.read(ref)` | 文件归属、真实路径校验、尺寸限制、远端文件提供者与取消 |
+| `models.stream(input)` | 授权模型选择、凭据代理、流、用量归属和取消 |
+
+写操作接受 `idempotencyKey` 或领域 revision；是否可重试由方法契约明确。RPC 断线不能触发无条件重试付款、消息发送、文件写入或启动 Run。会话删除等跨运行时操作采用可恢复操作记录，不声称远程清理和 SQLite 可以组成一个原子事务。
+
+通用错误包含 `code`、安全 `message`、`retryable` 和可选 `details/operationId`。建议稳定错误码：`INVALID_ARGUMENT`、`FORBIDDEN`、`NOT_FOUND`、`REVISION_CONFLICT`、`CAPABILITY_UNSUPPORTED`、`PLUGIN_UNAVAILABLE`、`PLUGIN_VERSION_INCOMPATIBLE`、`SYSTEM_PLUGIN_PROTECTED`、`RUNTIME_UNAVAILABLE`、`CANCELLED`、`DEADLINE_EXCEEDED`。HTTP 状态码由传输适配，不向插件暴露内部堆栈和凭据。
+
+## 3 Agent 注册与管理
+
+### 3.1 类型与工厂注册
+
+```ts
+interface AgentContributions {
+  register(definition: AgentTypeDefinition): Disposer
+}
+
+interface AgentTypeDefinition {
+  id: string
+  name: string
+  description?: string
+  configSchema: JsonSchema
+  capabilities: DeclaredAgentCapabilities
+  create(input: RuntimeCreateInput, ctx: AgentRuntimeContext): Promise<AgentRuntime>
+  management?: AgentManagementAdapter
+}
+
+interface AgentRuntime {
+  capabilities(): Promise<EffectiveAgentCapabilities>
+  run(input: AgentRunInput, ctx: AgentRunContext): Promise<AgentRunHandle>
+  checkpoint?(): Promise<OpaqueResumeReference>
+  compact?(input: CompactInput, ctx: ExecutionContext): Promise<CompactResult>
+  dispose(reason: RuntimeDisposeReason): Promise<void>
+}
+
+interface AgentRunHandle {
+  events: AsyncIterable<AgentOutputEvent>
+  result: Promise<AgentRunResult>
+  cancel(reason: string): Promise<CancelReceipt>
+  respond?(input: InteractionResponse): Promise<void>
+  steer?(input: SteeringInput): Promise<SteeringReceipt>
+}
+```
+
+`register` 验证 ID、manifest 声明、schema 和工厂接口。注册被暂存，激活成功时统一发布；重复 ID 和别名冲突失败。插件不能注册其他发布者或替换现有内置类型。清理只撤销本 generation 的贡献，不删除同名新版本的注册。
+
+现有 Coding Agent 的历史 ID 由核心兼容表绑定到系统插件 ID，允许该插件保留既有类型；第三方不能占用这些保留 ID 或覆盖系统安装。停用/故障清理撤销可执行贡献时保留系统类型的静态目录项及不可用原因；Disposer 不能删除系统安装定义。
+
+Hermes/Ekko 使用同一 `AgentTypeDefinition` 与 `AgentRuntime`，由 bootstrap 调用内部目录注册入口注入工厂，执行 schema、能力及 ID 冲突校验。该入口不要求 manifest，不暴露给插件，也不使用插件激活事务或 worker。插件启动失败不能阻止已初始化的内置类型发布；内置工厂随应用/模块关闭清理，不能通过插件卸载撤销。
+
+`RuntimeCreateInput` 包含宿主确定的 Agent 实例快照、配置 revision、模式、工作区引用及可选恢复引用。实例配置可定义 system prompt、模型选择或原生 preset；原生配置是否支持以能力为准。一个插件可贡献多个类型，一个类型可有多个持久化实例。
+
+`AgentRunInput` 包含内容块、已授权历史/上下文引用、模型选择、预算、超时和必要的来源信息。host 私有 token、数据库行和任意 sessionMap 均不进入参数。原生多轮会话使用 checkpoint 恢复；恢复失败应返回可判断错误，不能悄悄重放有副作用的工具调用。
+
+### 3.2 能力协商
+
+| 能力组 | 字段示例 | 缺失时 |
+| --- | --- | --- |
+| 输入与输出 | text、images、files、streaming、reasoning | 预检拒绝不支持的输入；单次文本结果仍可用 |
+| 原生状态 | persistentSession、resume、contextUsage、compact | 禁用对应操作，明确恢复语义 |
+| 交互 | approvals、clarifications、steering、queueInsertion | UI 不提供不存在的控制；不伪造批准或插入成功 |
+| 模型与模式 | scoped/global、模型目录、reasoning 参数 | 保持现有模式和原生配置优先级 |
+| 工具接入 | MCP、Skills、工具事件、后台任务 | 仅在有实现和配置的情况下启用 |
+| 管理 | detect、install、update、uninstall、login、config、terminal | 不支持时给出原因或明确手工操作方式 |
+
+静态声明是最大支持集合，运行时探测形成当前实例的有效集合；插件不能通过探测扩大 manifest 授权。内置 Agent 同样受静态声明、平台授权及实例范围约束。与 OS、CLI 版本或模型有关的结果包含 provenance 和 revision。用户不能在请求中自报 capabilities。
+
+`AgentManagementAdapter` 提供状态探测、安装/更新操作、配置文档、登录流程、模型列表、Skills/MCP 管理等可选能力。操作返回统一 operation/interaction 句柄和 DTO；原生 CLI 密钥、Home、配置覆盖规则由对应内置模块或插件处理。Studio 的共享 Skills 只读约定、global/scoped 边界以及人工安装策略必须保留。这里的原生管理操作不等于 Studio 插件包管理；Hermes/Ekko 继续提供原有引擎管理能力，不显示插件安装或卸载操作。
+
+### 3.3 一个最小插件
+
+以下示例展示入口关系，`createEchoRuntime` 等实现由样例包提供：
+
+```ts
+export function apply(ctx: PluginContext) {
+  ctx.agents.register({
+    id: 'acme.research/assistant',
+    name: '研究助手',
+    configSchema: researchConfigSchema,
+    capabilities: researchCapabilities,
+    create: createEchoRuntime,
+  })
+
+  ctx.on('run.completed', async (event, eventCtx) => {
+    eventCtx.logger.info({ runId: event.subject.runId }, '执行完成')
+  })
+
+  ctx.hooks.before('runs.start', async (input, hookCtx) => {
+    return { kind: 'continue' }
+  })
+}
+```
+
+实施样例必须独立于 server 源码编译，并补齐运行、取消、输入校验、事件、测试和 manifest；不以这段示意代码替代可安装样例。
+
+## 4 Run 状态与输出
+
+### 4.1 状态机
+
+```text
+accepted → queued → starting → running → finalizing → completed
+                              ↕ waiting_input
+accepted / queued / starting / running / waiting_input
+                              → cancelling → cancelled
+任意未终结状态 → finalizing → failed 或 interrupted
+```
+
+完成、失败、取消和中断只有一个最终结果。协调器以持久化 revision/CAS 仲裁同时到达的完成和取消。未完成取消时不能报告 cancelled；强杀后记录中断原因和外部副作用可能已发生的事实。
+
+进入 finalizing 时原子领取结束权。已领取完成权的 Run 收到取消请求时返回 `RUN_FINALIZING` 及当前状态；若取消先取得结束权，随后正常返回的运行结果不能覆盖它。完成权领取后持久化失败必须可恢复或转为失败，不能永久停留在无法查询原因的中间状态。
+
+同一原生会话默认只有一个活动 Run，后续输入进入队列。只有运行时声明且实现 steering/queueInsertion 时才采用对应路径。最终状态提交后，失效 runtime lease、旧 Run 或不匹配提供方快照的迟到事件被拒绝或作为诊断处理，不写入下一轮；插件快照还须匹配 generation。
+
+### 4.2 事件与完成屏障
+
+运行时可输出的事件类别：`message.delta`、`message.snapshot`、`reasoning.delta`、`tool.started`、`tool.progress`、`tool.completed`、`tool.failed`、`interaction.requested`、`usage.reported`、`artifact.created`、`context.updated`、`checkpoint.updated`、`diagnostic`。
+
+每个事件带运行时本轮递增 `producerSequence`，消息、工具调用、模型请求分别有稳定关联 ID。宿主补充真实的 provider 引用、runtime lease、scope 和 run 身份；只有插件提供方携带 plugin ID 和 generation。拒绝越界 ID、超长数据和未知 schema。delta 与 snapshot 必须声明替换/追加语义，禁止把同一最终文本再追加一次。
+
+完成须同时满足：
+
+1. `result` 成功返回，输出流正常排空；任一失败则进入失败流程。
+2. 所有已接收事件通过校验并持久化，未完成交互和工具有确定结局。
+3. 已接收用量按模型请求 ID 归并，工作区差异/产物按约定提交。
+4. 原生恢复引用保存，Run 终态和事务事件在同一事务中提交。
+5. 提交后向 Socket、Webhook、App 和插件消费者发送同一业务事实。
+
+`result` 已返回但流不关闭时设置 finalization deadline，超时中断；不能因为 worker 进程退出就推断执行成功。usage 以后才校正时发布独立修正事件，不重发 run.completed。
+
+### 4.3 用量与计费
+
+`usage.reported` 必须包含 `modelCallId`、provider/model、计数单位、`delta | cumulative | final` 模式和 revision。宿主按 `(runId, modelCallId, metric, revision)` 去重并规范化，累计快照不能反复相加。
+
+Agent 运行时报告数据，核心负责计价和账户归属。若通过 `ctx.models` 调用，模型服务已经记录该请求的权威用量；运行时对同一请求的回报只能关联或校验，不能二次记账。父 Run、子 Run 和后台工作使用关联 ID，聚合统计避免再次累计同一模型调用。未知用量以 unknown 表示，不写成零来宣称已完整计量。
+
+### 4.4 交互与取消
+
+交互请求持久化为 interaction ID，绑定 run、provider 引用、runtime lease、资源和可选项。用户响应经原有身份与授权检查，再传给 handle.respond。重复响应幂等，过期响应返回明确错误，不能恢复到另一个原生会话。该契约同时适用于内置和插件 Agent。
+
+取消先阻止新输入和下游调用，再请求原生停止，等待输出收尾；超过期限关闭 runtime 并清理受管进程树。取消 RPC、调用方断线、HTTP 超时和永久终止原生会话是不同操作，必须分别实现。客户端断线默认不结束已经接受的持久化任务，用户显式取消和任务 deadline 才触发对应策略。
+
+## 5 事件订阅与可靠消费
+
+### 5.1 公共事件
+
+```ts
+interface EventEnvelope<T> {
+  schemaVersion: 1
+  id: string
+  type: string
+  occurredAt: number
+  partitionKey: string
+  sequence: number
+  subject: EventSubject
+  data: T
+  causationId?: string
+  correlationId: string
+}
+```
+
+事件 map 使用判别联合，使 `ctx.on('run.completed', ...)` 得到对应 payload 类型；边界同时执行运行时 schema 校验。公共投影移除 token、原生 auth 文件、内部路径策略、`push_target_id` 和不属于授权范围的内容。事件回调拿到的是受限 EventContext，不能借事件中的 actor 字段模拟该用户。
+
+| 事件族 | 首批事件 |
+| --- | --- |
+| 插件与目录 | `plugin.ready`、`plugin.failed`、`plugin.disabled`、`agent.available`、`agent.unavailable` |
+| 会话 | `session.created`、`session.updated`、`session.archived`、`session.deleted` |
+| 执行 | `run.accepted`、`run.started`、`run.waiting_input`、`run.completed`、`run.failed`、`run.cancelled`、`run.interrupted` |
+| 交互与任务 | `interaction.requested`、`interaction.resolved`、`task.updated`、`plan.updated` |
+| 群聊与工作流 | `group.message.created`、`workflow.run.started`、`workflow.run.completed`、`workflow.run.failed` |
+| 数据修正 | `usage.corrected`、`artifact.created` |
+
+Run 文本 delta 是高频流，不默认写成可靠业务通知；需要它的消费者显式订阅 `runs.watch`。现有 `chat.run.completed` 等外部命名通过兼容投影生成，不能因更改内部名而破坏 Webhook/App 协议。
+
+内置 Agent 和插件 Agent 的执行都产生上述公共 Run 事件。核心订阅与投递服务独立于插件宿主；`ctx.on/once/events` 是插件接入该服务的入口。插件停用只移除它的订阅和贡献，不停用内置 Agent 的事件生成、Webhook 或 App 投影。
+
+### 5.2 三种投递方式
+
+| API | 投递和顺序 | 失败行为 |
+| --- | --- | --- |
+| `ctx.on(type, handler)` | 激活期订阅；每订阅按 partition 串行，不承诺跨 partition 总顺序；无重启补发 | 异步回调超时/异常记录诊断，不回滚原事务，不自动重试 |
+| `ctx.once(type, handler)` | 第一个获准且匹配的事件在入队前原子占用一次名额 | 解除后回调失败也不重试；重启不保留一次性消费状态 |
+| `ctx.events.consume(name, spec, handler)` | 持久化游标、至少一次投递、同 partition 顺序；消费者名稳定 | 成功后确认；失败有界退避重试，进入 dead letter 后暂停该 partition 并允许管理操作 |
+
+普通订阅使用有界队列。超过上限时暂停/解除该订阅并报告可观测故障，不阻塞主 Run，也不静默无限积压。可靠消费者使用数据库队列和配额，不能转成内存无限缓存。
+
+可靠投递的生产端采用事务事件表：业务事务内写事件，提交后分发器读取。消费者必须用 `event.id` 或自己的领域幂等键处理重复；外部 HTTP 副作用无法保证严格 exactly once。注销消费者、卸载插件时保留游标和死信，重新启用是否续消费由显式策略决定。权限在每次重放时重新检查，过滤掉的敏感内容不在错误日志中泄露。
+
+第一版默认通知回调超时为 5 秒，可靠消费单次超时 30 秒、最多 5 次尝试；具体值进入宿主配置，并以压力验收调整。可靠事件默认保留 7 天，游标早于保留水位时返回 `EVENT_CURSOR_EXPIRED`，要求明确选择跳到当前或从业务快照重建。暂停不意味着无限保留。
+
+### 5.3 扩展事件
+
+manifest 中声明 `acme.research:report.created` 一类命名空间及 schema。`ctx.emit` 只允许发布声明且获准的插件事件，返回持久化接收凭据；不能伪造核心 `run.completed`。
+
+激活期事件仅有插件自身作用域。含用户资源的事件只能由 ExecutionContext 下的事件服务发布，并由宿主绑定 subject、profile 和可见性。事件触发新 Run 或新事件时继承 causation/trace，设置深度和速率预算，避免完成回调无限启动自己。
+
+## 6 可改变流程的钩子
+
+```ts
+ctx.hooks.before('runs.start', handler, { priority: 0 })
+ctx.hooks.before('sessions.remove', handler, { priority: 0 })
+```
+
+首批仅开放两个明确节点。hook 按 priority 降序、plugin ID、声明 key 排序，串行执行，顺序进入运行快照。输入是只读快照；返回值为 `continue`、`reject` 或该节点允许的 `patch`。
+
+`runs.start` 只允许修改经 schema 限定的输入内容和在原授权范围内收紧预算；不能替换 Agent、actor、profile、凭据、provider 引用或提升模型权限。`sessions.remove` 第一版仅允许继续或拒绝，不允许把目标换成另一个会话。
+
+hook context 只提供只读领域查询和日志。处理器不能经 SDK 启动 Run、删除数据或发送外部消息。worker 本身是受信任代码，不能据此承诺约束其所有 OS 副作用。
+
+每个 hook 默认 2 秒，总链 5 秒；超时或异常使当前操作明确失败。自动重试仅在尚未发生业务副作用且调用方使用幂等键时允许。系统授权、校验和预算规则始终执行，插件 hook 不能代替或绕过它们。
+
+hook 可按授权作用于内置 Agent 的 Run。插件停用或故障清理时撤销其 hook；已在执行的 hook 失败按上述规则结束当前请求，后续请求使用更新后的 hook 快照。核心授权规则不依赖插件 hook，不能因插件故障失效。
+
+## 7 服务贡献与其他扩展入口
+
+| API | 合约 |
+| --- | --- |
+| `ctx.services.provide(token, implementation)` | token 包含发布者、服务名、major 和方法 schema；激活时检查冲突 |
+| `ctx.services.use(token)` | 返回 RPC 代理，版本必须满足 manifest 依赖；不能获取服务内部实例 |
+| `ctx.http.route(definition, handler)` | 方法、相对路径、输入输出 schema、访问范围、限额；提供 ExecutionContext |
+| `ctx.scheduler.register(definition, handler)` | 持久化计划、执行身份、时区、重叠策略和幂等任务 ID |
+| `ctx.storage` | 插件命名空间内的事务 KV/文档接口；区分 profile 和插件公共数据 |
+| `ctx.secrets` | 只列引用/状态；声明的秘密按使用策略传给受管调用，不列出平台所有密钥 |
+| `ctx.lifecycle.onDispose(fn)` | 正常结束时执行；宿主独立持有资源清单应对 worker 已崩溃的情况 |
+
+服务依赖在激活前形成 DAG，缺依赖或版本冲突时 blocked，循环依赖直接拒绝。可选依赖通过显式可用状态与服务变更通知处理，不能启动后无限等待注入。跨服务 RPC 传递收窄后的调用上下文、trace、deadline 和取消，禁止凭 service token 增权。核心服务名不可覆盖。
+
+插件路由统一位于 `/api/studio/plugins/{pluginId}/...`，由宿主先认证再路由；插件只能提交相对路径。公开 Webhook 等入口需要单独声明及宿主验证策略，不能自行移除认证。请求体、流长度和并发受限，禁止把 Koa 实例交给插件。路由 schema 汇入 OpenAPI 与 MCP 发现；未声明的插件方法不自动全部暴露给模型。
+
+管理接口拟采用 `/api/studio/plugins` 和 `/api/studio/agent-types`、`/api/studio/agent-instances`；接口定义由 schema 生成，后续实施按现有 OpenAPI 流程维护。已有 `/api/coding-agents/*` 继续作为协议适配，调用同一管理服务。
+
+插件管理 DTO 返回 `installationPolicy` 及各操作的可用状态/原因。卸载与删除在统一管理服务内先校验安装策略；系统插件返回 `SYSTEM_PLUGIN_PROTECTED`、`retryable: false`，不先停用、清理资源或修改记录。HTTP、MCP、SDK、批量与 force 路径使用相同校验，不能仅靠前端隐藏按钮。配置重置或数据清理也不能删除系统安装和保留的类型定义；原生 CLI 管理仍按自身能力处理。
+
+## 8 Manifest 与包生命周期
+
+本节及第 9 节仅约束 Coding Agent 插件和第三方插件。Hermes/Ekko 的内置注册、应用启停和原生引擎管理不进入以下状态机；插件管理 API 不接受对它们执行安装、升级或卸载。
+
+### 8.1 工件描述
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "acme.research",
+  "version": "1.0.0",
+  "engines": { "studioSdk": "^1.0.0", "rpc": 1 },
+  "backend": "dist/index.js",
+  "activation": "profile",
+  "contributes": {
+    "agents": ["acme.research/assistant"],
+    "events": [],
+    "services": []
+  },
+  "requires": {
+    "capabilities": ["agents.register", "events.subscribe:run.completed", "hooks.before:runs.start"],
+    "services": []
+  },
+  "configSchema": "schemas/config.json",
+  "dataSchemaVersion": 1
+}
+```
+
+每个实例的 profile 由启用配置决定。工件路径必须位于工件根目录中；拒绝绝对入口、路径穿越、逃逸 symlink、重复解压路径和超限归档。SDK/RPC 版本是拟议首版标识，真实发布时与实现同步确定。配置中的秘密只保存 secret reference，展示与导出时不返回明文。
+
+### 8.2 状态
+
+```text
+discovered → staged → installed → activating → active
+                ↘ failed             ↘ failed
+installed ↔ disabled                 active → draining → disabled
+installed/disabled → uninstalling → removed
+任意未激活版本 → blocked（版本、依赖、权限或平台不满足）
+```
+
+`uninstalling → removed` 仅适用于 user 安装；system 安装禁止进入卸载状态。首次启动和升级迁移根据受信任随包清单幂等登记全部 14 个系统插件，校验工件并保留已有配置、实例、授权和 profile 启停选择。缺少原生 CLI 或登录仅影响运行就绪状态，不能使插件安装记录消失；随包工件损坏则保留目录并报告诊断及修复路径，不降级成可删除的用户插件。
+
+安装状态与各 profile 的启用状态分别持久化。安装前只读 manifest，不导入代码探测元数据；校验来源、摘要、依赖和平台后写入不可变 generation。生产依赖在 staging 中准备，默认不执行未知生命周期脚本；需要构建/原生依赖的工件必须有明确的安装策略和日志，不能隐式使用实时 `latest`。
+
+激活时建立 worker、握手、加载入口、暂存所有贡献、验证依赖和能力，再原子发布目录 revision。任一步失败回滚该代注册并清理资源，不撤销其他健康插件。没有部分 Agent 已发布而其服务未就绪的状态。
+
+### 8.3 升级和卸载
+
+升级产生新 generation。新启动的 RuntimeSession 使用新版本；已有会话租约和活动 Run 固定旧 generation。下一轮切换必须验证 checkpoint schema、native session 兼容和配置迁移；不能把旧进程直接换成新工件。
+
+旧 generation 在租约归零后回收。用户可选择排空后切换，或显式取消其所有关联 Run 和 runtime 后切换。新版本激活失败保持旧版本可用；旧版本数据 schema 已发生不可逆改变时禁止自动回滚。
+
+数据迁移作用于版本化快照/独立命名空间。发布前确保旧代仍在运行时不会同时写不兼容数据；不支持并行读写的迁移必须先排空。持有原生会话的外部文件兼容性也纳入判断，不能只回滚插件目录。
+
+停用先撤销新调用入口，再排空或取消已有执行、停止计划触发、清理订阅与服务、关闭 worker 和受管子进程。系统插件也可按 profile 停用，但保留安装工件和静态目录。用户插件卸载检查权限、安装策略、依赖和租约，默认保留插件配置/数据、历史 Run 和消费游标；“清除插件数据”是单独操作，不影响 Studio 会话历史和用户原生 Home，也不能删除系统插件安装定义。
+
+系统插件默认版本随 Studio 发布清单更新，替换工件必须通过受信任的系统更新/修复路径；普通同 ID 安装不能覆盖它。更新与回滚沿用上述租约和数据兼容规则，保护策略始终保留。垃圾回收只清理无租约且不再承担当前版本/回滚保留职责的旧 generation，不能清掉当前系统插件或将其标记 removed。
+
+## 9 Worker RPC 与运行环境
+
+宿主与 worker 使用独立控制通道，stdout/stderr 只作日志。callback 和 factory 不直接 JSON 序列化，由 SDK 注册 handler ID，通过 RPC 分发。握手校验协议 major、工件摘要、generation、profile 和声明能力。
+
+RPC envelope 包含 request ID、method、scope handle、deadline 和关联 trace。scope handle 由宿主发放并在连接/generation/生命周期内绑定，worker 不能通过修改 payload 伪造主体。AbortSignal 和流通过 ID 映射控制消息，不传递进程内对象。
+
+文本流采用有界窗口和确认序号，支持批量发送；流发送者必须遵守 backpressure。超过窗口、帧大小或持续不确认时中断对应调用并给出诊断。文件与图片使用受控 artifact 引用，不在控制通道反复传大块 base64。
+
+worker 崩溃使租约失效，当前 Run 标记 interrupted，未确认 RPC 明确失败。只自动重建无副作用的 worker 基础设施；不能自动重跑已经接受的 Agent 输入。历史 Run 通过宿主持久化日志恢复观察，只有运行时声明并验证原生恢复能力时才允许继续。
+
+插件使用标准 Node/Electron Node-mode runner。新托管 MCP 启动必须显式设置 `ELECTRON_RUN_AS_NODE=1`，不能污染桌面 GUI 的环境。跨平台命令使用参数数组，Windows shim、PTY、Unicode 路径和进程树退出纳入验证。
+
+协议驱动依赖 SDK 的 ProcessHandle、字节流和取消接口。宿主的原始 ChildProcess/PTY 对象不跨 RPC；stdout、stdin、resize、exit 等映射为句柄操作。厂商必须写入原生 auth 配置时，插件提交受控配置模板与 secret reference，由获准的宿主执行环境注入；确需明文秘密的插件能力单独授予，不能借运行准备读取整个平台凭据。
+
+## 10 配置和权限
+
+权限至少区分安装管理、类型贡献、领域读写、事件订阅、hook、路由、模型调用、文件、受管进程、网络和秘密引用。授予范围包含 plugin、generation 策略、profile、owner/用户范围和必要的资源约束；新版本增加能力时需重新满足授予条件。
+
+每次调用以宿主实际身份解析，不以插件传入的 actor/profile 为准。配置更新使用 revision，保存后对新 Run 生效；当前 Run 的配置和权限快照可审计，但权限撤销仍应立即阻止后续敏感调用。
+
+对本地受信任插件，原生代码的 OS 权限与 Studio API 权限分开说明。没有容器/系统沙箱时，不能宣传“未授予 files 就无法读磁盘”。隔离策略的升级应保留现有 SDK，不要求插件再次改写业务接口。

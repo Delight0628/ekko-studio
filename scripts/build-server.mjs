@@ -28,6 +28,8 @@ await esbuild.build({
   logLevel: 'info',
 })
 
+await import('./build-plugin-runtime.mjs')
+
 const bridgeOutDir = resolve(serverOutDir, 'agent-bridge', 'python')
 const bridgeSrcDir = resolve(rootDir, 'packages/server/src/modules/hermes/services/bridge/python')
 mkdirSync(bridgeOutDir, { recursive: true })
