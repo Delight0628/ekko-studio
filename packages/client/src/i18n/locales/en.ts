@@ -3953,6 +3953,17 @@ export default {
 
   // Changelog
   changelog: {
+    new_0_7_39_1: "Added persistent session tasks so agents can follow user goals across turns and record evidence of completion (#3499)",
+    new_0_7_39_2: "Added a session task drawer with links to related chat turns; improved mobile lists, task details and session names, and reduced trivial task records (#3501, #3509, #3510)",
+    new_0_7_39_3: "Remote Studio agents can use the local built-in browser after explicit desktop authorization, with sharing that can be stopped at any time (#3478)",
+    new_0_7_39_4: "Added follow-system mode to the account theme shortcut; standardized drawer header spacing, themed backgrounds and square corners (#3496, #3475)",
+    new_0_7_39_5: "The group chat empty state now shows all agents and adapts to different window widths (#3471)",
+    new_0_7_39_6: "Ekko reasoning effort now defaults to none, with consistent agent labels across chats, group chats and workflows (#3488)",
+    new_0_7_39_7: "Fixed the thinking indicator remaining after stopping and tool-result truncation corrupting Chinese text or emoji and causing request failures (#3473, #3457, #3460)",
+    new_0_7_39_8: "Provider import links now support automatic API mode; JEV accepts versioned and complete endpoint URLs and distinguishes missing endpoints from model errors (#3494, #3493, #3491)",
+    new_0_7_39_9: "Desktop screenshots can open system settings directly when screen recording permission is missing, avoiding a blocking dialog (#3492)",
+    new_0_7_39_10: "Fixed dependency and terminal compatibility issues when building the native Windows ARM64 Hermes runtime (#3429)",
+    new_0_7_39_11: "Discontinued dedicated TerraMaster TOS packages and automated builds (#3503)",
     new_0_7_38_1: "Added automatic API mode matching for known connections and models, including provider-prefixed model names; new connections still default to Chat Completions (#3469)",
     new_0_7_38_2: "Added desktop switching between local and remote devices and device management, replacing the old LAN pairing entry (#3464)",
     new_0_7_38_3: "Added cloud Model API access, per-key model restrictions and lifetime USD budgets; restored Agent usage breakdowns and fixed panel width (#3440, #3450)",
@@ -3974,14 +3985,5 @@ export default {
     new_0_7_37_9: "Clearing Claude OAuth login now removes all profile-managed credentials to prevent stale login state (#3442)",
     new_0_7_37_10: "Added Windows ARM64 desktop installer build support (#3428)",
     new_0_7_37_11: "Fixed TOS 7 clean installation, portal paths and service restart policies, reducing reliance on the host environment and pre-created users (#3413, #3431)",
-    new_0_7_36_1: 'Added live theme customization for backgrounds, opacity, blur, corners, borders, and shadows across interface regions (#3394)',
-    new_0_7_36_2: 'Added named theme presets with creation, duplication, switching, import, export, and per-account persistence (#3394)',
-    new_0_7_36_3: 'Model visibility settings now apply consistently to model selectors, with performance notices for large catalogs (#3392)',
-    new_0_7_36_4: 'Added search to visible model management (#3393)',
-    new_0_7_36_5: 'Moved new-chat category selection into the composer toolbar (#3389)',
-    new_0_7_36_6: 'Fixed workflow run drawers not filling their width or showing a background on small screens (#3398)',
-    new_0_7_36_7: 'Fixed group-chat AI message theme synchronization and duplicate backgrounds and blur in message bubbles and tables (#3398)',
-    new_0_7_36_8: 'Added release-triggered builds and validation for TOS 7 x86_64 test packages (#3397)',
-    new_0_7_36_9: 'Improved GIF, animated WebP and APNG wallpapers up to 30 MB, preserving animation through saving, caching and theme import/export',
   },
 }
