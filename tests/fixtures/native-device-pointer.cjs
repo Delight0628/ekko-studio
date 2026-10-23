@@ -31,15 +31,29 @@ public static class NativeDevicePointer {
  [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr handle);
  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr handle);
  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+ [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr handle, IntPtr process);
+ [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+ [DllImport("user32.dll")] static extern bool AttachThreadInput(uint from, uint to, bool attach);
+ [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr handle);
  [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
  [DllImport("user32.dll")] static extern void mouse_event(uint flags, uint x, uint y, uint data, UIntPtr extra);
  [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
  public static void Click(long value, double x, double y) {
   SetThreadDpiAwarenessContext(new IntPtr(-4));
   var handle = new IntPtr(value);
-  SetForegroundWindow(handle);
+  var foreground = GetForegroundWindow();
+  var current = GetCurrentThreadId();
+  var target = GetWindowThreadProcessId(handle, IntPtr.Zero);
+  var active = GetWindowThreadProcessId(foreground, IntPtr.Zero);
+  bool targetAttached = current != target && AttachThreadInput(current, target, true);
+  bool activeAttached = active != 0 && current != active && AttachThreadInput(current, active, true);
+  try { BringWindowToTop(handle); SetForegroundWindow(handle); }
+  finally {
+    if (activeAttached) AttachThreadInput(current, active, false);
+    if (targetAttached) AttachThreadInput(current, target, false);
+  }
   System.Threading.Thread.Sleep(150);
-  if (GetForegroundWindow() != handle) throw new Exception("Native pointer target is not foreground");
+  if (GetForegroundWindow() != handle) throw new Exception("Native pointer target is not foreground: expected=" + value + " actual=" + GetForegroundWindow().ToInt64() + " initial=" + foreground.ToInt64());
   var point = new POINT();ClientToScreen(handle, ref point);
   double scale = GetDpiForWindow(handle) / 96.0;
   point.X += (int)Math.Round(x * scale);point.Y += (int)Math.Round(y * scale);
