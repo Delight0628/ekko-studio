@@ -63,7 +63,7 @@ export class ListSessionTasksTool implements AgentTool {
   readonly concurrency = 'parallel' as const
   readonly definition = {
     name: 'list_session_tasks',
-    description: 'Read durable user goals for the current session at the beginning of every turn. Review past delivery and outstanding work, then create/update concrete goals with update_session_tasks before execution. Goals span turns; update_plan manages only execution steps for this run. The host binds the session. Follow the latest user request.',
+    description: 'Read durable user goals for the current session at the beginning of every turn. Review past delivery and outstanding work. Record only independent deliverables, ongoing follow-up or user-requested tracking; skip simple questions, one-off lookups and trivial edits without lasting tracking value. Reuse one goal per user outcome. Reading does not require a write. Goals span turns; update_plan manages execution steps for this run. The host binds the session. Follow the latest user request.',
     parameters: { type: 'object', properties: {}, required: [], additionalProperties: false },
   }
 
@@ -85,7 +85,7 @@ export class UpdateSessionTasksTool implements AgentTool {
   readonly concurrency = 'serial' as const
   readonly definition = {
     name: 'update_session_tasks',
-    description: 'Persist new/changed user goals for the current session. After reviewing history at turn start, create concrete tasks before executing them and reconcile prior statuses. Before the final response, save progress and verified completion with completion_evidence. Reuse existing ids; omit id only for a new goal. Omitted goals are retained. Use revision from the latest read/update; reread on conflict. open means unfinished, including blocked/interrupted work. Turn end or a finished update_plan never proves goal completion. This updates session goals, independently of run execution plans, without a page card.',
+    description: 'Persist changed/new goals worth tracking: independent deliverables, ongoing follow-up or explicit user-requested tracking. Skip simple questions, one-off lookups and trivial edits without lasting tracking value. Keep one goal per user outcome: reuse its id for follow-ups, refinements, corrections, constraints and reopening. Create distinct goals before execution; save changed progress and verified completion before the final response. Use concise outcome titles and one or two short summary sentences about results and remaining blockers; keep implementation and test logs in the conversation, verification in completion_evidence. Omitted goals remain; unchanged ledgers need no write. Use the latest revision; reread on conflict. open includes blocked/interrupted work. Turn end or a finished update_plan never proves goal completion. Independent of run plans; no page card.',
     parameters: {
       type: 'object', additionalProperties: false, required: ['revision', 'changes'],
       properties: {
@@ -93,8 +93,8 @@ export class UpdateSessionTasksTool implements AgentTool {
         changes: { type: 'array', minItems: 1, maxItems: 30, items: {
           type: 'object', additionalProperties: false, required: ['title', 'summary', 'status'], properties: {
             id: { type: 'string', minLength: 1, maxLength: 100 },
-            title: { type: 'string', minLength: 1, maxLength: 200 },
-            summary: { type: 'string', minLength: 1, maxLength: 1000 },
+            title: { type: 'string', minLength: 1, maxLength: 200, description: 'Concise user outcome; reuse the existing goal for refinements and corrections.' },
+            summary: { type: 'string', minLength: 1, maxLength: 1000, description: 'One or two short sentences about results and remaining blockers. Keep implementation and test logs in the conversation.' },
             status: { type: 'string', enum: ['open', 'completed'] },
             completion_evidence: { type: 'string', maxLength: 1000, description: 'Required when newly completing a goal: concise evidence that its requested outcome was delivered and verified.' },
           },

@@ -19838,7 +19838,7 @@
               "type": "string",
               "maxLength": 200
             },
-            "description": "Literal substring in task title, summary or session title."
+            "description": "Literal substring in task title, summary or session name, including its first-message fallback."
           },
           {
             "name": "status",
@@ -20077,12 +20077,14 @@
                         "title": {
                           "type": "string",
                           "minLength": 1,
-                          "maxLength": 200
+                          "maxLength": 200,
+                          "description": "Concise user outcome; reuse the existing goal for refinements and corrections."
                         },
                         "summary": {
                           "type": "string",
                           "minLength": 1,
-                          "maxLength": 1000
+                          "maxLength": 1000,
+                          "description": "One or two short sentences about results and remaining blockers. Keep implementation and test logs in the conversation."
                         },
                         "status": {
                           "type": "string",
@@ -22026,7 +22028,7 @@
           "Sessions"
         ],
         "summary": "Read durable session goals",
-        "description": "Returns persisted goals for an accessible Studio session. The current conversation agent reviews them at turn start, creates new tasks before execution and updates results before its final response. Goals span turns and are separate from run plans. Reading goals does not create a per-turn task-plan card.",
+        "description": "Returns persisted goals for an accessible Studio session. The current conversation agent reviews them at turn start and records only independent deliverables, ongoing follow-up or explicitly requested tracking. Simple questions, one-off lookups and trivial edits without lasting tracking value are skipped; refinements and corrections reuse the same goal. Eligible goals are created before execution; changed results are saved before the final response. Summaries contain one or two short sentences about results and remaining blockers. Goals span turns and are separate from run plans. Reading goals does not require a write or create a per-turn task-plan card.",
         "operationId": "getSessionTasks",
         "security": [
           {
@@ -27666,7 +27668,8 @@
               },
               "session_title": {
                 "type": "string",
-                "nullable": true
+                "nullable": true,
+                "description": "Conversation display name, using the same first-user-message fallback as the session list when no title is set."
               },
               "profile": {
                 "type": "string"

@@ -123,6 +123,36 @@ describe('conversation-maintained session goals', () => {
 describe('task list pages', () => {
   const query = (overrides = {}) => ({ profiles: ['research'], order: 'newest' as const, offset: 0, limit: 50, ...overrides })
 
+  it('uses the same first-message session name as the conversation list without persisting a title', () => {
+    message('assistant', 'An assistant greeting is not the session name')
+    const firstMessage = '首条用户消息\n用于展示会话名称，保留与会话列表相同的截断规则。'.repeat(3)
+    message('user', firstMessage)
+    message('user', 'This later request must not become the name')
+    write([goal()])
+    const task = service.listSessionTaskItems(query()).tasks[0]
+    const session = sessions.listSessions('research')[0]
+    expect(task.session_title).toBe(session.title)
+    expect(task.session_title).toBe(firstMessage.replace(/\n/g, ' ').slice(0, 40) + '...')
+    expect(task).not.toHaveProperty('session_preview')
+    expect(db.prepare('SELECT title FROM sessions WHERE id = ?').get('s1')).toMatchObject({ title: null })
+    expect(service.listSessionTaskItems(query({ search: '首条用户消息' })).total).toBe(1)
+    expect(service.listSessionTaskItems(query({ search: 'later request' })).total).toBe(0)
+  })
+
+  it('prefers a custom session title, then the stored preview, and keeps genuinely unnamed sessions empty', () => {
+    message('user', '首条消息')
+    write([goal()])
+    sessions.updateSession('s1', { preview: '缓存的首条会话消息' })
+    expect(service.listSessionTaskItems(query()).tasks[0].session_title).toBe(sessions.listSessions('research')[0].title)
+    expect(service.listSessionTaskItems(query()).tasks[0].session_title).toBe('缓存的首条会话消息')
+    sessions.renameSession('s1', '自定义会话标题')
+    expect(service.listSessionTaskItems(query()).tasks[0].session_title).toBe('自定义会话标题')
+    sessions.renameSession('s1', '')
+    sessions.updateSession('s1', { preview: '' })
+    db.prepare('DELETE FROM messages WHERE session_id = ?').run('s1')
+    expect(service.listSessionTaskItems(query()).tasks[0].session_title).toBeNull()
+  })
+
   it('caps the accessible list at 100 across pages without deleting stored goals', () => {
     const id = message('user', 'Many tasks')
     const insert = db.prepare('INSERT INTO session_tasks (id, session_id, title, summary, status, source_message_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')

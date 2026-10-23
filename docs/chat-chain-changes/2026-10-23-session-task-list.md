@@ -42,6 +42,12 @@ account. SQL applies that scope and pending-deletion exclusions before counting
 or paging. Run credentials remain profile-bound. The list includes archived
 single-chat sessions; group/workflow/global-agent sessions are excluded.
 
+The returned `session_title` uses the conversation list's display-name rules:
+prefer an explicit title, then the stored preview or first user message, with
+the same newline handling and 40-character truncation. Studio and App task rows
+therefore show the same name for untitled sessions without per-row session
+requests or persisted renames. Search also matches this first-message fallback.
+
 Each task title and trailing action link to `/hermes/session/:id?profile=...&message=...`. An open task
 uses its recorded request anchor; a completed task uses its completion anchor.
 Hidden tool anchors are resolved to the preceding visible user message so the

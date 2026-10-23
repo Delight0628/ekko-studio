@@ -3,6 +3,7 @@ import { getDb, isSqliteAvailable } from '../infrastructure/database'
 import { MESSAGES_TABLE, SESSIONS_TABLE, SESSION_TASKS_TABLE } from '../infrastructure/database/schemas'
 import type { SessionTask, SessionTasksSnapshot, SessionTaskChange } from '../contracts/session-task'
 import type { SessionTaskListPage, SessionTaskListQuery } from '../contracts/session-task'
+import { SESSION_PREVIEW_SQL, sessionDisplayTitle } from './session-display'
 
 /** Profile filtering happens in SQL, before counting or paginating. */
 export function listSessionTaskItems(query: SessionTaskListQuery): SessionTaskListPage {
@@ -21,20 +22,23 @@ export function listSessionTaskItems(query: SessionTaskListQuery): SessionTaskLi
   if (query.status) { where.push('t.status = ?'); args.push(query.status) }
   if (query.search) {
     // instr treats %, _ and backslashes as literal search text.
-    where.push(`(instr(lower(t.title), lower(?)) > 0 OR instr(lower(t.summary), lower(?)) > 0 OR instr(lower(COALESCE(s.title, '')), lower(?)) > 0)`)
+    where.push(`(instr(lower(t.title), lower(?)) > 0 OR instr(lower(t.summary), lower(?)) > 0 OR instr(lower(COALESCE(NULLIF(s.title, ''), ${SESSION_PREVIEW_SQL})), lower(?)) > 0)`)
     args.push(query.search, query.search, query.search)
   }
   const from = `FROM ${SESSION_TASKS_TABLE} t JOIN ${SESSIONS_TABLE} s ON s.id = t.session_id WHERE ${where.join(' AND ')}`
   const total = Number((db.prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 ${from} LIMIT 100)`).get(...args) as { n: number }).n)
   if (query.offset >= total) return { ...empty, total }
-  const tasks = db.prepare(`SELECT t.*, s.title AS session_title, s.profile, s.source, s.agent,
+  const rows = db.prepare(`SELECT t.*, s.title AS session_title, ${SESSION_PREVIEW_SQL} AS session_preview, s.profile, s.source, s.agent,
     (SELECT m.id FROM ${MESSAGES_TABLE} m WHERE m.session_id = t.session_id
       AND m.role = 'user' AND COALESCE(m.display_role, m.role) = 'user' AND m.content NOT LIKE '/%'
       AND m.id <= CASE WHEN t.status = 'completed' THEN COALESCE(t.evidence_message_id, t.source_message_id) ELSE t.source_message_id END
       ORDER BY m.id DESC LIMIT 1) AS message_id
     ${from} ORDER BY CASE t.status WHEN 'open' THEN 0 ELSE 1 END,
       t.updated_at ${query.order === 'oldest' ? 'ASC' : 'DESC'}, t.id ASC LIMIT ? OFFSET ?`)
-    .all(...args, Math.min(query.limit, total - query.offset), query.offset) as unknown as SessionTaskListPage['tasks']
+    .all(...args, Math.min(query.limit, total - query.offset), query.offset) as unknown as Array<SessionTaskListPage['tasks'][number] & { session_preview: string }>
+  const tasks = rows.map(({ session_preview, ...task }) => ({
+    ...task, session_title: sessionDisplayTitle(task.session_title, session_preview),
+  }))
   return { tasks, total, has_more: query.offset + tasks.length < total }
 }
 

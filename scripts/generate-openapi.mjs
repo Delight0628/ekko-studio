@@ -1859,7 +1859,7 @@ openapi.components.schemas.SessionTask = {
 const sessionTasksOperation = openapi.paths['/api/studio/sessions/{id}/tasks'].get
 sessionTasksOperation.operationId = 'getSessionTasks'
 sessionTasksOperation.summary = 'Read durable session goals'
-sessionTasksOperation.description = 'Returns persisted goals for an accessible Studio session. The current conversation agent reviews them at turn start, creates new tasks before execution and updates results before its final response. Goals span turns and are separate from run plans. Reading goals does not create a per-turn task-plan card.'
+sessionTasksOperation.description = 'Returns persisted goals for an accessible Studio session. The current conversation agent reviews them at turn start and records only independent deliverables, ongoing follow-up or explicitly requested tracking. Simple questions, one-off lookups and trivial edits without lasting tracking value are skipped; refinements and corrections reuse the same goal. Eligible goals are created before execution; changed results are saved before the final response. Summaries contain one or two short sentences about results and remaining blockers. Goals span turns and are separate from run plans. Reading goals does not require a write or create a per-turn task-plan card.'
 sessionTasksOperation.parameters = [
   { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
   { name: 'profile', in: 'query', required: false, schema: { type: 'string' }, description: 'Optional exact session profile filter.' },
@@ -1880,7 +1880,7 @@ sessionTasksOperation.responses = {
 openapi.components.schemas.SessionTaskListItem = {
   allOf: [{ $ref: '#/components/schemas/SessionTask' }, {
     type: 'object', required: ['session_id', 'session_title', 'profile', 'source', 'agent', 'message_id'], properties: {
-      session_id: { type: 'string' }, session_title: { type: 'string', nullable: true }, profile: { type: 'string' },
+      session_id: { type: 'string' }, session_title: { type: 'string', nullable: true, description: 'Conversation display name, using the same first-user-message fallback as the session list when no title is set.' }, profile: { type: 'string' },
       source: { type: 'string' }, agent: { type: 'string' }, message_id: { type: 'integer', nullable: true,
         description: 'Visible user message beginning the request turn for open tasks or the completion turn for completed tasks. Use with the session/profile to navigate chat.' },
     },
@@ -1892,7 +1892,7 @@ taskListOperation.summary = 'List conversation tasks across accessible profiles'
 taskListOperation.description = 'Lists persisted single-chat tasks, including archived sessions, with stable pagination. Profile access and pending deletions are applied before counting. Group, workflow and global-agent tasks are excluded. Open tasks precede completed tasks; update time and id determine stable order within each status. Does not invoke a model or modify task status.'
 taskListOperation.parameters = [
   { name: 'profile', in: 'query', schema: { type: 'string' }, description: 'Optional exact profile filter. Empty selects all accessible, existing profiles; run credentials remain bound to their profile.' },
-  { name: 'search', in: 'query', schema: { type: 'string', maxLength: 200 }, description: 'Literal substring in task title, summary or session title.' },
+  { name: 'search', in: 'query', schema: { type: 'string', maxLength: 200 }, description: 'Literal substring in task title, summary or session name, including its first-message fallback.' },
   { name: 'status', in: 'query', schema: { type: 'string', enum: ['open', 'completed'] } },
   { name: 'order', in: 'query', schema: { type: 'string', enum: ['newest', 'oldest'], default: 'newest' } },
   { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0, default: 0 } },
@@ -1913,8 +1913,8 @@ taskListOperation.responses = {
 const sessionTaskChangeSchema = {
   type: 'object', additionalProperties: false, required: ['title', 'summary', 'status'], properties: {
     id: { type: 'string', minLength: 1, maxLength: 100 },
-    title: { type: 'string', minLength: 1, maxLength: 200 },
-    summary: { type: 'string', minLength: 1, maxLength: 1000 },
+    title: { type: 'string', minLength: 1, maxLength: 200, description: 'Concise user outcome; reuse the existing goal for refinements and corrections.' },
+    summary: { type: 'string', minLength: 1, maxLength: 1000, description: 'One or two short sentences about results and remaining blockers. Keep implementation and test logs in the conversation.' },
     status: { type: 'string', enum: ['open', 'completed'] },
     completion_evidence: { type: 'string', maxLength: 1000, description: 'Required for newly completed goals: evidence of verified delivery.' },
   },
