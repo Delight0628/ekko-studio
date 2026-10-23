@@ -18,6 +18,9 @@ import { PluginHost } from './host'
 import { businessEvents } from '../webhooks/business-events'
 import { projectPluginBusinessEvent } from '../events/plugin-business-events'
 import { removeStudioSession } from '../sessions/removal'
+import { PluginChatRunStore } from '../../repositories/plugin-chat-run-store'
+import { PluginChatRuns, authorizeOwnedChatSession } from '../chat-run/plugin'
+import { getChatRunServer } from '../chat-run/server-registry'
 
 const logger: ScopedLogger = {
   info: (message, data) => applicationLogger.info(data || {}, message),
@@ -26,6 +29,7 @@ const logger: ScopedLogger = {
 }
 
 export function authorizePluginScope(scope: ExecutionScope, operation?: ContextOperation, resourceId?: string): void {
+  if (scope.principal.kind !== 'user') throw new StudioError('FORBIDDEN', 'Plugin execution requires a user principal')
   const user = findUserById(scope.principal.id)
   if (!user || user.status !== 'active') throw new StudioError('FORBIDDEN', 'Execution principal is unavailable')
   if (user.role !== 'super_admin' && !userCanAccessProfile(user.id, scope.profileId)) throw new StudioError('FORBIDDEN', 'Profile access denied')
@@ -46,9 +50,17 @@ export function createStudioPluginRuntime(runnerPath: string) {
   const eventStore = new PluginEventStore(db)
   const registry = new AgentRegistry()
   const events = new PluginEventBus({ onError: () => logger.warn('Plugin event callback failed') })
+  const chatStore = new PluginChatRunStore(db)
+  chatStore.recover()
+  const chat = new PluginChatRuns({ store: chatStore, server: getChatRunServer, authorize: authorizeOwnedChatSession })
   const context = (scope: ExecutionScope, signal: AbortSignal): ExecutionContext => createExecutionContext(scope, signal, logger, {
     authorize: async (current, operation, resourceId) => authorizePluginScope(current, operation, resourceId),
     agents: { list: async profileId => registry.list(profileId) },
+    chat: {
+      start: async (current, input, signal) => chat.start(current, input, signal),
+      get: async (current, id) => chat.get(current, id),
+      cancel: (current, id) => chat.cancel(current, id),
+    },
     runs: {
       start: async (current, input, signal) => startStudioAgentRun(current, input, signal, coordinator),
       get: async (current, id) => coordinator.get(current, id),
@@ -87,7 +99,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
     if (projected) for (const accepted of eventStore.append([projected])) events.publish(accepted)
   })
   return { host, store, eventStore, executionStore, coordinator, registry, events, context,
-    async close() { unsubscribe(); await coordinator.close(); await host.close(); events.close() } }
+    async close() { unsubscribe(); chat.close(); await coordinator.close(); await host.close(); events.close() } }
 }
 
 export type StudioPluginRuntime = ReturnType<typeof createStudioPluginRuntime>

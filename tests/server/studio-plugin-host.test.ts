@@ -15,6 +15,9 @@ import { PluginEventBus } from '../../packages/server/src/modules/studio/service
 import { createExecutionContext, type ContextServices } from '../../packages/server/src/modules/studio/services/context/execution'
 import { SYSTEM_CODING_PLUGINS } from '../../packages/server/src/modules/studio/contracts/system-plugins'
 import { workerEnvironment } from '../../packages/server/src/modules/studio/services/plugins/worker'
+import { PluginChatRunStore } from '../../packages/server/src/modules/studio/repositories/plugin-chat-run-store'
+import { PluginChatRuns } from '../../packages/server/src/modules/studio/services/chat-run/plugin'
+import type { DirectChatRunOptions } from '../../packages/server/src/modules/studio/services/chat-run/direct'
 import type { AgentRunContext, ExecutionContext, ExecutionScope, PluginManifest } from '../../packages/studio-plugin-sdk/src'
 
 let root: string, runner: string
@@ -27,12 +30,13 @@ beforeAll(async () => {
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close() })
 afterAll(async () => { await rm(root, { recursive: true, force: true }) })
 
-function setup(sessions: ContextServices['sessions'] = { get: async () => null }) {
+function setup(sessions: ContextServices['sessions'] = { get: async () => null }, chatFactory?: (db: DatabaseSync) => ContextServices['chat']) {
   const db = new DatabaseSync(':memory:')
+  const chat = chatFactory?.(db)
   const store = new PluginStore(db), registry = new AgentRegistry(), events = new PluginEventBus(), eventStore = new PluginEventStore(db)
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
   const context = (scope: ExecutionScope, signal: AbortSignal): ExecutionContext => createExecutionContext(scope, signal, logger, {
-    authorize: async () => {}, sessions, agents: { list: async profile => registry.list(profile) },
+    authorize: async () => {}, sessions, chat, agents: { list: async profile => registry.list(profile) },
     runs: {
       start: async (scope, input, signal) => startStudioAgentRun(scope, input, signal, coordinator),
       get: async (scope, id) => coordinator.get(scope, id), output: async (scope, id, after) => coordinator.output(scope, id, after),
@@ -52,6 +56,79 @@ function setup(sessions: ContextServices['sessions'] = { get: async () => null }
 }
 
 describe('plugin worker integration', () => {
+  it.each([true, false])('starts, queries and cancels chat through real worker RPC (granted: %s)', async granted => {
+    let chat!: PluginChatRuns
+    let options!: DirectChatRunOptions
+    const start = vi.fn((_input, entry: DirectChatRunOptions) => {
+      options = entry
+      entry.onEvent('run.queued', {})
+      return { dispose: vi.fn(), dropQueued: vi.fn(), cancel: async () => entry.onEvent('abort.completed', { synced: true }) }
+    })
+    const { host, store, events, logger } = setup(undefined, db => {
+      chat = new PluginChatRuns({ store: new PluginChatRunStore(db), server: () => ({ startDirectRun: start }),
+        authorize: (scope, id) => {
+          if (scope.principal.id !== '1' || scope.profileId !== 'default' || id !== 'session') throw new Error('Invalid host scope')
+          return { user: { id: 1, username: 'owner', role: 'user' }, session: {
+            id, profile: 'default', studio_user_id: '1', source: 'coding_agent', agent: 'codex', model: 'model', provider: 'provider',
+            workspace: null, api_mode: 'responses', reasoning_effort: 'high', agent_mode: 'scoped',
+          } as any }
+        } })
+      return { start: async (s, r, signal) => chat.start(s, r, signal), get: async (s, id) => chat.get(s, id), cancel: (s, id) => chat.cancel(s, id) }
+    })
+    cleanup.push(async () => chat.close())
+    const directory = await mkdtemp(join(root, 'chat-'))
+    const manifest = { schemaVersion: 1, id: 'test.chat', version: '1.0.0', engines: { studioSdk: '^0.1.0', rpc: 1 }, backend: 'index.cjs', activation: 'profile',
+      contributes: { agents: [] }, requires: { capabilities: ['events.subscribe:plugin.ready', ...(granted ? ['chat.start', 'chat.read', 'chat.cancel'] : [])] } }
+    await writeFile(join(directory, 'studio-plugin.json'), JSON.stringify(manifest))
+    await writeFile(join(directory, 'index.cjs'), `module.exports = { apply(plugin) {
+      let id;
+      plugin.on('plugin.ready', async (_event, ctx) => {
+        const request = { sessionId: 'session', input: 'hello', idempotencyKey: 'worker-chat' };
+        const results = [];
+        const attempt = async fn => { try { results.push(await fn()) } catch (error) { results.push(error.code) } };
+        await attempt(async () => (await ctx.chat.start({ ...request, principal: { id: 'other' } })).status);
+        await attempt(async () => { const run = await ctx.chat.start(request); id = run.id; return run.status });
+        await attempt(async () => (await ctx.chat.start(request)).id === id);
+        await attempt(async () => (await ctx.chat.get(id || 'unavailable')).status);
+        if (_event.data.generation !== 'finish') {
+          ctx.logger.info('chat-results', { results }); return;
+        }
+        await attempt(async () => (await ctx.chat.cancel(id)).status);
+        ctx.logger.info('chat-results', { results });
+      });
+    } }`)
+    await host.install(directory)
+    await host.configure({ pluginId: manifest.id, profileId: 'default', ownerId: '1', enabled: true, config: {}, grants: manifest.requires.capabilities }, 0)
+    const output = () => logger.info.mock.calls.filter(call => call[0] === 'Plugin stdout')
+      .flatMap(call => String((call[1] as { text: string }).text).trim().split('\n')).map(line => JSON.parse(line))
+      .filter(line => line.message === 'chat-results').map(line => line.data.results)
+    await events.idle()
+    await vi.waitFor(() => expect(output()).toHaveLength(1))
+    if (!granted) {
+      expect(output()[0]).toEqual(['FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN'])
+      expect(start).not.toHaveBeenCalled()
+      return
+    }
+    expect(output()[0]).toEqual(['INVALID_ARGUMENT', 'queued', true, 'queued'])
+    // The first event callback has ended and its worker scope has been released.
+    expect(options.context!.signal.aborted).toBe(false)
+    await options.reauthorize!()
+    const publish = (id: string) => events.publish({ schemaVersion: 1, id, type: 'plugin.ready', occurredAt: Date.now(), partitionKey: 'plugin', sequence: 2,
+      subject: { profileId: 'default', pluginId: manifest.id }, data: { pluginId: manifest.id, generation: 'finish' }, correlationId: 'trace' })
+    publish('cancel')
+    await events.idle()
+    await vi.waitFor(() => expect(output()).toHaveLength(2))
+    expect(output()[1]).toEqual(['INVALID_ARGUMENT', 'queued', true, 'queued', 'cancelled'])
+    expect(start).toHaveBeenCalledOnce()
+    const current = store.profile(manifest.id, 'default')!
+    store.saveProfile({ ...current, grants: ['events.subscribe:plugin.ready'] }, current.revision)
+    publish('revoked')
+    await events.idle()
+    await vi.waitFor(() => expect(output()).toHaveLength(3))
+    expect(output()[2]).toEqual(['FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN'])
+    expect(start).toHaveBeenCalledOnce()
+  }, 20_000)
+
   it.each([true, false])('starts an independent run through real event-context RPC (granted: %s)', async granted => {
     const { host, store, coordinator, registry, events, logger } = setup()
     const factory = vi.fn(async () => ({ run: async () => ({

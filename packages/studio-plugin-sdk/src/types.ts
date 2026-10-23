@@ -50,6 +50,11 @@ export interface SessionRemovalResult {
 }
 
 export interface StudioDomainServices {
+  readonly chat: {
+    start(input: ChatRunStartInput): Promise<ChatRunReceipt>
+    get(id: string): Promise<ChatRunRecord>
+    cancel(id: string): Promise<ChatRunReceipt>
+  }
   readonly sessions: {
     get(id: string): Promise<SessionSummary | null>
     remove(id: string): Promise<SessionRemovalResult>
@@ -63,6 +68,32 @@ export interface StudioDomainServices {
     output(id: string, after?: number): Promise<AgentOutputEvent[]>
   }
 }
+
+/** Continue an owned chat using its stored Agent/model configuration. */
+export interface ChatRunStartInput {
+  sessionId: string
+  input: string
+  idempotencyKey: string
+}
+
+/** Host receipt, distinct from the underlying runtime's run id. */
+export interface ChatRunRecord {
+  id: string
+  sessionId: string
+  profileId: string
+  ownerId: string
+  status: AgentRunStatus | 'queued' | 'waiting_input'
+  output: string
+  reasoning: string
+  truncated: boolean
+  revision: number
+  createdAt: number
+  updatedAt: number
+  errorCode: string | null
+}
+
+/** Mutation receipts contain no text; reading output always requires chat.read. */
+export type ChatRunReceipt = Omit<ChatRunRecord, 'output' | 'reasoning' | 'truncated'>
 
 export interface ExecutionContext extends StudioDomainServices {
   readonly scope: ExecutionScope

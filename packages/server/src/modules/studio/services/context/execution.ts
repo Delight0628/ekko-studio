@@ -1,11 +1,17 @@
 import { StudioError, type ExecutionContext, type ExecutionScope, type ScopedLogger, type StudioDomainServices } from '../../contracts/plugins'
 import { jsonCopy } from '../plugins/validation'
 import { parseAgentRunStart } from '../agents/start'
+import { parseChatRunStart } from '../chat-run/input'
 
-export type ContextOperation = 'sessions.read' | 'sessions.remove' | 'agents.read' | 'runs.read' | 'runs.start'
+export type ContextOperation = 'sessions.read' | 'sessions.remove' | 'agents.read' | 'runs.read' | 'runs.start' | 'chat.start' | 'chat.read' | 'chat.cancel'
 
 export interface ContextServices {
   authorize(scope: ExecutionScope, operation: ContextOperation, resourceId?: string): Promise<void>
+  chat?: {
+    start(scope: ExecutionScope, input: Parameters<StudioDomainServices['chat']['start']>[0], signal: AbortSignal): ReturnType<StudioDomainServices['chat']['start']>
+    get(scope: ExecutionScope, id: string): ReturnType<StudioDomainServices['chat']['get']>
+    cancel(scope: ExecutionScope, id: string): ReturnType<StudioDomainServices['chat']['cancel']>
+  }
   sessions: {
     get: StudioDomainServices['sessions']['get']
     remove?(scope: ExecutionScope, id: string, signal: AbortSignal): ReturnType<StudioDomainServices['sessions']['remove']>
@@ -44,6 +50,22 @@ export function createExecutionContext(
   }
   return Object.freeze({
     scope, signal, logger,
+    chat: Object.freeze({
+      start: async (input: Parameters<StudioDomainServices['chat']['start']>[0]) => {
+        const request = parseChatRunStart(input)
+        sessionId(request.sessionId)
+        if (!services.chat) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Chat services are unavailable')
+        return call('chat.start', request.sessionId, () => services.chat!.start(scope, request, signal), true)
+      },
+      get: async (id: string) => {
+        if (!services.chat) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Chat services are unavailable')
+        return call('chat.read', id, () => services.chat!.get(scope, id))
+      },
+      cancel: async (id: string) => {
+        if (!services.chat) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Chat services are unavailable')
+        return call('chat.cancel', id, () => services.chat!.cancel(scope, id), true)
+      },
+    }),
     sessions: Object.freeze({
       get: async (id: string) => { sessionId(id); return call('sessions.read', id, () => services.sessions.get(id)) },
       remove: async (id: string) => {

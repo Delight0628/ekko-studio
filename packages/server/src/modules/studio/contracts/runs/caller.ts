@@ -14,6 +14,9 @@ export interface ChatRunCaller {
     platform?: 'ios' | 'android' | 'unknown'
   }
   readonly groupRunIsCurrent?: () => boolean
+  /** Host-only guards for invocation cancellation; absent on existing Socket callers. */
+  assertCanStart?(): void
+  beginExecution?(): void
   isActive(): boolean
   observeSession(sessionId: string): void
   reply(event: string, payload: any): void

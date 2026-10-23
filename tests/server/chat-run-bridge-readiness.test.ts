@@ -20,6 +20,8 @@ vi.mock('../../packages/server/src/modules/studio/repositories/task-plan-store',
 }))
 
 const handleBridgeRunMock = vi.hoisted(() => vi.fn(async () => {}))
+const handleAbortMock = vi.hoisted(() => vi.fn(async (..._args: any[]) => {}))
+vi.mock('../../packages/server/src/modules/studio/services/chat-run/abort', () => ({ handleAbort: handleAbortMock }))
 const resumeBridgeRunMock = vi.hoisted(() => vi.fn(async () => {}))
 const handleEkkoAgentRunMock = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('../../packages/server/src/modules/studio/services/chat-run/handle-ekko-agent-run', () => ({
@@ -1392,6 +1394,73 @@ describe('direct chat admission and delivery', () => {
   })
   const tick = () => new Promise(resolve => setImmediate(resolve))
   const options = (onEvent = vi.fn()) => ({ profile: 'default', user: { id: 42, username: 'owner', role: 'super_admin' as const }, pushActor: vi.fn(async () => null), onEvent })
+
+  it('cancels before admission without queuing, binding or starting', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io } = makeServerHarness(), server = new ChatRunSocket(io as any), opts = options()
+    const handle = server.startDirectRun({ input: 'hello', session_id: 'session-1' }, opts)
+    await handle.cancel!()
+    await tick()
+    expect(opts.onEvent).toHaveBeenCalledWith('abort.completed', expect.objectContaining({ synced: true }))
+    expect(opts.pushActor).not.toHaveBeenCalled()
+    expect(handleBridgeRunMock).not.toHaveBeenCalled()
+    expect(handleAbortMock).not.toHaveBeenCalled()
+    handle.dispose(); await server.close()
+  })
+
+  it('cancels only its own queued input and guards a dequeued authorization race', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io } = makeServerHarness(), server = new ChatRunSocket(io as any)
+    const state = { isWorking: true, messages: [], queue: [] as any[], events: [] }
+    ;(server as any).sessionMap.set('session-1', state)
+    const first = server.startDirectRun({ input: 'first', session_id: 'session-1' }, options())
+    const second = server.startDirectRun({ input: 'second', session_id: 'session-1' }, options())
+    await tick()
+    const queued = state.queue[0]
+    await first.cancel!()
+    expect(state.queue.map(item => item.input)).toEqual(['second'])
+    await expect(queued.authorize()).rejects.toThrow('cancelled')
+    expect(state.isWorking).toBe(true)
+    expect(handleAbortMock).not.toHaveBeenCalled()
+    first.dispose(); second.dispose(); await server.close()
+  })
+
+  it('defers cancellation during setup until its runtime starts and never aborts the next run', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io } = makeServerHarness(), server = new ChatRunSocket(io as any), opts = options()
+    let notify!: (event: string, payload: unknown) => void
+    handleCodingAgentRunMock.mockImplementationOnce(async (...args: any[]) => {
+      args[1].observeSession('session-1')
+      notify = args[1].reply
+    })
+    const handle = server.startDirectRun({ input: 'hello', session_id: 'session-1', source: 'coding_agent', coding_agent_id: 'codex' }, opts)
+    await tick()
+    await handle.cancel!()
+    expect(handleAbortMock).not.toHaveBeenCalled()
+    notify('run.started', { run_id: 'own-run' })
+    await tick()
+    expect(handleAbortMock).toHaveBeenCalledOnce()
+    expect(handleAbortMock.mock.calls[0][1]).toMatchObject({ kind: 'direct', executionScope: { sessionId: 'session-1' } })
+    notify('run.completed', { output: 'completion won' })
+    await handle.cancel!()
+    expect(handleAbortMock).toHaveBeenCalledOnce()
+    handle.dispose(); await server.close()
+  })
+
+  it('does not run a pending native abort after completion arrives in the same turn', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io } = makeServerHarness(), server = new ChatRunSocket(io as any), opts = options()
+    let notify!: (event: string, payload: unknown) => void
+    handleCodingAgentRunMock.mockImplementationOnce(async (...args: any[]) => { notify = args[1].reply })
+    const handle = server.startDirectRun({ input: 'hello', session_id: 'session-1', source: 'coding_agent', coding_agent_id: 'codex' }, opts)
+    await tick()
+    await handle.cancel!()
+    notify('run.started', { run_id: 'own-run' })
+    notify('run.completed', { output: 'done' })
+    await tick()
+    expect(handleAbortMock).not.toHaveBeenCalled()
+    handle.dispose(); await server.close()
+  })
 
   it.each(['cli', 'builtin_agent'])('delivers %s callbacks without a Socket object even with Web observers', async source => {
     const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')

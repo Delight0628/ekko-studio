@@ -12,6 +12,8 @@ export interface DirectChatRunOptions extends Pick<ChatRunStartScope, 'profile' 
 }
 
 export interface DirectChatRunHandle {
+  /** Cancel only this invocation. Completion is reported through its event observer. */
+  cancel?(): Promise<void>
   /** Stop observing; accepted work continues, including queued input. */
   dispose(): void
   /** Revoke queued input belonging to this caller without cancelling another run. */

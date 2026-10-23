@@ -1,5 +1,6 @@
 import { chatRunCaller, isDirectChatRunCaller, type ChatRunCaller, type ChatRunCallerTarget } from '../services/chat-run/caller'
 import type { DirectChatRunOptions, DirectChatRunHandle } from '../services/chat-run/direct'
+import { StudioError } from '../contracts/plugins'
 import { createChatRunInvocation } from '../services/chat-run/invocation'
 import { startChatRun, requireChatRunSessionAccess, type ChatRunStartRequest, type ChatRunStartScope, type ChatRunStartPorts } from '../services/chat-run/start'
 import { isBridgeRunSource, isProviderAgentExecution, isEkkoAgentExecution, webhookAgentForRun } from '../services/chat-run/run-routing'
@@ -1291,14 +1292,37 @@ export class ChatRunSocket {
     if (this.closing) throw new Error('Chat run service is unavailable')
     const { data, options, scope } = createChatRunInvocation(request, entry)
     let active = true
+    let dispatched = false
+    let started = false
+    let terminal = false
+    let cancelRequested = false
+    let aborting = false
+    const assertCanStart = () => {
+      if (cancelRequested) throw new Error('Chat invocation was cancelled')
+    }
+    const abortOwnRun = () => {
+      if (!started || terminal || aborting) return
+      aborting = true
+      // This caller observes only its execution. A terminal event prevents a delayed
+      // cancel from stopping the next item dequeued for the same session.
+      void handleAbort(this.nsp, caller, data.session_id!, this.sessionMap, this.bridge,
+        this.runQueuedItem.bind(this)).catch(() => deliver('run.failed', {
+          event: 'run.failed', session_id: data.session_id, error: 'Chat cancellation failed',
+        }))
+    }
     const observed = new Set<string>()
     const deliver = (event: string, payload: any) => {
+      if (event === 'run.started') started = true
+      if (['run.completed', 'run.failed', 'abort.completed'].includes(event)) terminal = true
       if (active) options.onEvent(event, buildOutboundRunEvent(event, payload))
+      if (cancelRequested && started && !terminal) queueMicrotask(abortOwnRun)
     }
     const caller: ChatRunCaller = {
       kind: 'direct', originId: `http-run-${randomUUID()}`,
       user: options.user, mobileDeviceTarget: options.mobileDeviceTarget,
       executionScope: scope,
+      assertCanStart,
+      beginExecution: () => { assertCanStart(); dispatched = true },
       isActive: () => active,
       reply: deliver,
       observeSession: sessionId => {
@@ -1345,13 +1369,24 @@ export class ChatRunSocket {
       if (this.closing) return
       return this.startRun(caller, data, {
         profile: options.profile, user: options.user, shared: options.shared,
-        originId: caller.originId, directCaller: caller, reauthorize: options.reauthorize,
+        originId: caller.originId, directCaller: caller, reauthorize: async () => {
+          assertCanStart()
+          await options.reauthorize()
+          assertCanStart()
+        },
       }, options.pushActor)
     }).catch(error => deliver('run.failed', {
       event: 'run.failed', session_id: data.session_id,
       error: error instanceof Error ? error.message : String(error),
     }))
-    return { dispose, dropQueued }
+    return { dispose, dropQueued, cancel: async () => {
+      if (terminal) return
+      cancelRequested = true
+      dropQueued()
+      if (!dispatched) {
+        deliver('abort.completed', { event: 'abort.completed', session_id: data.session_id, synced: true })
+      } else abortOwnRun()
+    } }
   }
 
   // --- Run dispatcher ---
@@ -1413,6 +1448,7 @@ export class ChatRunSocket {
     backgroundContinuationContext?: BackgroundContinuationContext,
     pushTargetId?: string,
   ) {
+    chatRunCaller(socket).beginExecution?.()
     normalizeEkkoRunData(data, data.session_id ? getSession(data.session_id) : undefined)
     const source = resolveRunSource(data.source, data.session_id)
     const surface = data.session_source || source
@@ -2348,10 +2384,11 @@ export class ChatRunSocket {
     socket = next.directCaller || socket
     if (next.authorize) {
       const authorize = next.authorize
-      void authorize().then(() => this.runQueuedItem(socket, sessionId, { ...next, authorize: undefined }, fallbackProfile)).catch(() => {
+      void authorize().then(() => this.runQueuedItem(socket, sessionId, { ...next, authorize: undefined }, fallbackProfile)).catch(error => {
         const state = this.sessionMap.get(sessionId)
         if (state) state.isWorking = false
-        this.emitToSession(socket, sessionId, 'run.failed', { event: 'run.failed', session_id: sessionId, queue_id: next.queue_id, error: 'share_access_denied' })
+        this.emitToSession(socket, sessionId, 'run.failed', { event: 'run.failed', session_id: sessionId, queue_id: next.queue_id, error: 'share_access_denied',
+          ...(error instanceof StudioError ? { error_code: error.code } : {}) })
         this.dequeueNextQueuedRun(socket, sessionId, fallbackProfile)
       })
       return

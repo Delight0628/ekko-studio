@@ -147,9 +147,13 @@ interface AgentRunContext extends ExecutionContext {
 
 当前 `ctx.runs.start({ instanceId, input, idempotencyKey })` 与新 Agent 实例 HTTP 启动共用领域服务，返回持久化的 `AgentRunRecord` 回执；随后通过 `runs.get/output` 查询。`input` 沿用当前文本 `AgentRunInput`，不接受主体、profile、provider 或 scope 字段。插件必须声明并获授 `runs.start`，实例须属于当前主体及 profile。带 session/workspace/Run 绑定的 scope 暂返回 `CAPABILITY_UNSUPPORTED`，不通过清除绑定启动独立执行。
 
-启动在授权等待前复制输入；接收前取消不产生 Run。接收后的独立 Run 由协调器管理，回调结束或请求断开不隐式取消它。相同 owner/profile、幂等键、实例和输入返回原记录，输入冲突返回 `REVISION_CONFLICT`；重试也重新授权。现有 HTTP 取消入口继续可用，SDK 取消、旧聊天启动、父子 Run、hook 和多轮运行仍未实现；不能将当前回执等同于上表完整的可管理流句柄。详见[启动实施记录](studio-plugin-progress.md#t02-进展agent-实例启动共用领域服务)。
+启动在授权等待前复制输入；接收前取消不产生 Run。接收后的独立 Run 由协调器管理，回调结束或请求断开不隐式取消它。相同 owner/profile、幂等键、实例和输入返回原记录，输入冲突返回 `REVISION_CONFLICT`；重试也重新授权。现有 HTTP 取消入口继续可用，实例 SDK 取消、父子 Run、hook 和多轮运行仍未实现；不能将当前回执等同于上表完整的可管理流句柄。详见[启动实施记录](studio-plugin-progress.md#t02-进展agent-实例启动共用领域服务)。
 
-旧聊天准入现已迁为内部应用服务，但它仍依赖入口完成认证/分享输入限制，且通过端口注入旧执行器。它不是 `ctx.runs.start` 的新增请求形状；HTTP 已通过内部调用者/事件端口直调，不创建本机连接或假 Socket；旧宿主和执行器仍保留。直调入口现已复制输入和身份、绑定宿主 ExecutionScope，并检查准入前取消；准入后作用域结束不撤销排队任务，排队授权仍重新检查。这不改变原入口的会话访问策略，不代表插件 session owner 校验、持久化接收或结果句柄已完成；这些契约和真实 worker 验证完成前，不向插件暴露内部 DTO 或 `ChatRunCallerTarget`。详见[作用域实施记录](studio-plugin-progress.md#t02-进展直调入口的宿主作用域与输入快照)。
+旧聊天现通过 `ctx.chat.start({ sessionId, input, idempotencyKey })` 接入；它不改变 `ctx.runs.start` 的实例请求形状。SDK 只接受已有自有直接聊天的文本输入，配置由宿主会话派生，不接受身份、profile、凭据、Agent/provider/workspace 覆盖或斜杠管理命令。要求分别声明并获授 `chat.start`、`chat.read`、`chat.cancel`；当前 user/profile/session owner 在启动、读取、取消和延迟派发时重新检查。管理员权限不绕过 owner；无明确 Studio owner 的导入会话拒绝执行。有 session 绑定时只能操作该会话，Run/workspace 绑定仍不支持。
+
+启动返回 `ChatRunReceipt`，其 `id` 为持久化请求回执 ID；使用 `ctx.chat.get(id)` 获取包含状态及输出/推理快照的 `ChatRunRecord`，`ctx.chat.cancel(id)` 请求定向取消。状态包含 `accepted`、`queued`、`running`、`waiting_input`、`cancelling` 及四种终态；取消未确认时不报告 `cancelled`，原生停止未同步为 `interrupted`。启动重试和取消回执不含输出/推理，读取正文始终需要 `chat.read`。输出和推理各最多 65,536 字符，截断时 `truncated=true`。同 owner/profile 的幂等键与完整公共输入绑定；重复调用可取回原回执，不同输入拒绝。接收后回调或 worker 结束不撤销执行；宿主重启只标记中断，不重放输入。
+
+HTTP 与 SDK 共用内部直调端口和旧执行器，SDK 不暴露 `ChatRunCallerTarget`，不产生第二套消息/usage/业务事件。新回执表不代表旧队列已持久化或 T06 统一协调已完成。新建会话、附件、管理命令、交互回复和其他运行入口仍在后续范围，详见[SDK 接入实施记录](studio-plugin-progress.md#t02-进展旧聊天-sdk-接入)。
 
 写操作接受 `idempotencyKey` 或领域 revision；是否可重试由方法契约明确。RPC 断线不能触发无条件重试付款、消息发送、文件写入或启动 Run。会话删除等跨运行时操作采用可恢复操作记录，不声称远程清理和 SQLite 可以组成一个原子事务。
 

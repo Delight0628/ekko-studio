@@ -1,4 +1,5 @@
 import type { ChatRunCaller } from '../../contracts/runs/caller'
+import { StudioError } from '../../contracts/plugins'
 import { randomUUID } from 'node:crypto'
 import { normalizeEkkoRunData } from '../../contracts/history-source'
 import type { AuthenticatedUser } from '../../public/auth'
@@ -156,6 +157,7 @@ export async function startChatRun(request: ChatRunStartRequest, scope: ChatRunS
       session_id: data.session_id,
       queue_id: data.queue_id,
       error: err instanceof Error ? err.message : String(err),
+      ...(err instanceof StudioError ? { error_code: err.code } : {}),
     }
     ports.emit('run.failed', payload)
     return
@@ -204,6 +206,7 @@ export async function startChatRun(request: ChatRunStartRequest, scope: ChatRunS
     }
     try {
       const actor = scope.shared ? null : await ports.pushActor()
+      scope.directCaller?.assertCanStart?.()
       if (actor) {
         const target = bindRunPushTarget({ kind: 'chat', profile: runProfile, runId: randomUUID() }, data.session_id, actor, {
           ciphertext: prepareRunPushSnapshot(actor, pushSnapshot),

@@ -9,14 +9,14 @@
 | 范围 | 当前实现 |
 | --- | --- |
 | 公共 SDK | 独立 TypeScript 包、JSON DTO、manifest、Agent 工厂、作用域、输出事件、错误码、注册/通知回调/清理入口；SDK/RPC 版本检查 |
-| 上下文 | 宿主签发不可变身份与 profile；当前有 `sessions.get/remove`、`agents.list`、`runs.start/get/output`，每次调用重新授权并校验取消状态；RPC 使用宿主句柄。启动目前仅支持未绑定 session/workspace/Run 的独立实例执行 |
+| 上下文 | 宿主签发不可变身份与 profile；当前有 `sessions.get/remove`、`agents.list`、`runs.start/get/output` 和 `chat.start/get/cancel`；每次调用重新授权并校验取消状态，RPC 使用宿主句柄。实例启动仍要求无资源绑定；聊天支持绑定自身会话 |
 | 注册 | profile 隔离、内置/插件提供方联合类型、激活阶段暂存、完整声明及冲突校验、事务发布、generation 资源释放 |
 | 插件宿主 | 本地目录校验、摘要工件、独立子进程、有限 RPC 并发、请求超时、输出背压、进程树清理、配置 revision、运行时租约 |
 | 安装策略 | 14 个系统插件 ID 已保留；用户安装不能覆盖，删除在接触工件/worker 前返回 `SYSTEM_PLUGIN_PROTECTED`；profile 选择不会被重复系统登记覆盖 |
 | 事件 | `ctx.on` / `ctx.once`、profile/owner 授权、每分区有序通知、队列及超时上限；仅把明确允许的旧业务事件字段投影到公共事件表 |
 | Agent API 执行 | 实例、接受请求、幂等、启动、流输出、完成屏障、取消、终态与事件事务落库；崩溃恢复标记 interrupted，不自动重放输入 |
 | 协议抽取 | 标准 ACP 连接及事件转换移入独立 `studio-agent-drivers`；旧调用通过兼容入口复用，原有协议测试继续通过 |
-| 旧聊天启动 | 准入已迁为共用服务，HTTP 直接调用；直调入口已绑定宿主 ExecutionScope、复制输入与身份并区分准入前取消和准入后排队；SDK 旧聊天启动仍待迁移 |
+| 旧聊天启动 | 准入已迁为共用服务，HTTP 直接调用；直调入口已绑定宿主 ExecutionScope、复制输入与身份并区分准入前取消和准入后排队；SDK 已通过 `chat.start/get/cancel` 接入已有会话文本运行 |
 | 工程接入 | bootstrap、鉴权 API、生成式 OpenAPI、runner 构建、插件私有导入边界检查、独立 Echo 样例 |
 
 安装策略测试中的 14 条 fixture 只验证保护和幂等规则。**当前没有把这 14 个 Agent 注册成已安装系统插件**，也没有用空壳包代替厂商迁移。旧 Coding Agent 仍使用原执行和管理路径。Hermes/Ekko 仍是原内置模块。
@@ -48,7 +48,7 @@
 | --- | --- |
 | T00 | 已完成源码清单及部分原测试基线；真实 CLI/平台矩阵、协议录制、数据副本和性能基线尚未齐全 |
 | T01 | SDK 和边界检查已有实现；仍需与完整契约对齐，包括交互、管理、可靠消费等 |
-| T02 | 会话单删/批删和 Agent 实例启动已分别与 SDK 共用领域服务；已覆盖作用域、幂等与真实 worker RPC。旧聊天准入与 HTTP 直调已完成本阶段迁出；旧聊天 SDK 接入、工作流及其余领域仍未完成 |
+| T02 | 会话单删/批删和 Agent 实例启动已分别与 SDK 共用领域服务；已覆盖作用域、幂等与真实 worker RPC。旧聊天准入与 HTTP 直调已完成本阶段迁出；旧聊天 SDK 文本启动/查询/取消已接入；工作流及其余领域仍未完成 |
 | T03 | 进程、RPC、注册回滚和资源回收已有实现；服务依赖图及完整诊断尚未完成 |
 | T04 | 通知与持久化事件已有实现；可靠消费者、重试/死信、保留期、hooks 和旧投影的事务统一未完成 |
 | T05 | ACP 驱动已抽取；受管进程/MCP/模型、其他协议驱动仍需迁移 |
@@ -177,6 +177,34 @@ Node 24.22.1 下验证：
 
 下一项仍是 SDK 旧聊天启动：定义公共输入/结果句柄、校验当前用户及 session owner、处理已接收运行生命周期，再做真实 worker RPC 的权限和取消验收。工作流、完整运行协调器和厂商插件迁移继续保持未完成。
 
+## T02 进展：旧聊天 SDK 接入
+
+本增量开放 `ctx.chat.start/get/cancel`，由 `services/chat-run/plugin.ts` 调用 HTTP 已使用的 `DirectChatRunPort`。仍由旧引擎负责消息、usage 和业务通知；没有本机回连、假 Socket 或第二个聊天消息写入者。T02/T06 整体继续保持未完成。
+
+- [x] 公共输入为 `{ sessionId, input: string, idempotencyKey }`。只接受已有、归属当前主体的直接聊天；Agent、模型、provider、workspace 和 reasoning 配置取自宿主存储。拒绝身份、凭据、配置覆盖、非文本输入和斜杠管理命令。
+- [x] `chat.start`、`chat.read`、`chat.cancel` 各自须经过 manifest 声明、当前 profile grant 与宿主上下文授权。每次操作检查活动 user、profile 和 session owner；管理员不能跨 owner，导入历史的 gateway `user_id` 不冒充 Studio owner。会话绑定不得扩大，已有 Run/workspace 绑定返回不支持。
+- [x] 请求在首次异步授权前复制。延迟准入与排队派发重新检查 user/profile/owner 和会话配置；配置变化拒绝派发。首次接收在宿主持久化回执，同 owner/profile 的同幂等键和输入只派发一次，不同输入返回 `REVISION_CONFLICT`。
+- [x] `chat.get` 返回请求自身的状态、输出和推理快照，不暴露原始内部事件。每种文本最多保留 65,536 个字符并标记 `truncated`；完整历史仍由原聊天存储负责。启动重试和取消回执不含正文，不能绕过 `chat.read`。确认/澄清期间保持 `waiting_input`，不会将其误报为完成。
+- [x] 接收前 scope 取消不派发；接收后插件回调结束或 worker 退出不撤销宿主请求。取消未派发/排队请求只针对该调用者；启动准备期间先记录取消，待实际运行开始后调用原停止端口。已完成请求不会误停下一轮；原生停止未同步标记 `interrupted`，不报告取消成功。
+- [x] 回执保存在新增 `studio_plugin_chat_runs` 表；终态只写入一次。宿主重启将未结束回执标为 `interrupted`，不自动重放。关闭时释放观察者和排队引用。bootstrap 在直调端口就绪后恢复插件，允许 `plugin.ready` 回调调用聊天。
+
+| 公共方法 | 能力 | 结果 |
+| --- | --- | --- |
+| `ctx.chat.start({ sessionId, input, idempotencyKey })` | `chat.start` | `ChatRunReceipt`，其 `id` 是宿主请求回执 ID，不是旧引擎 Run ID；不含输出正文 |
+| `ctx.chat.get(id)` | `chat.read` | 当前状态、revision、输出、推理、截断标记和公共错误码 |
+| `ctx.chat.cancel(id)` | `chat.cancel` | 不含正文的实际最新回执；尚未确认停止时为 `cancelling` |
+
+范围限制：本项不创建会话、不认领无 owner 的导入历史、不支持附件或会话管理命令，也不接入工作流/群聊/全局任务。交互回复、多轮/父子租约、可靠事件、自动恢复与统一协调器继续由后续任务实现；持久化的是请求回执，旧执行队列仍在内存。真实 worker 测试使用独立临时插件包和真实子进程 RPC，执行端为确定性 fixture，不等于真实厂商 CLI 验收。
+
+完整官方 Node 24.22.1 下验证：
+
+- 真实 worker RPC 和 SDK 结果权限专项：2 个文件、49 项通过；涵盖声明/grant 撤销、幂等重取、回调结束后的结果生命周期和定向取消。直调准入、排队/取消竞态、HTTP/分享权限及原停止端口回归也纳入全量。
+- 最终 `npm run test:coverage -- --maxWorkers=2`：890 个文件通过、12 个跳过；9,093 项通过、32 项跳过，262.57 秒。保留仓库默认测试时限。
+- 认证、流式聊天、多标签会话与协议文本浏览器回归：5 个文件、32 项首轮全部通过（约 1.2 分钟）。完整浏览器/平台矩阵由本次推送后的 CI 验证，不将本地专项冒充全矩阵。
+- 最终生产构建、harness、规划文档文件链接和 `git diff --check`：通过。
+
+首轮全量因临时 npm 分发的 Node 可执行文件旁缺少 npm，导致既有 Node/npm 探测用例 4 项失败；换用完整官方发行包后，相关用例及启动/关闭专项 31 项全部通过。未改这些业务实现、原测试或时限；其后全量先通过 9,092 项，再补充正文权限回归并完成上述最终 9,093 项复验。
+
 ## CI 修复：JEV harness 重复解析
 
 `272794bb9` 的 GitHub Build 在 coverage 阶段失败：`jev-harness.test.ts` 的 runtime 注册用例超过默认 5 秒，生产构建尚未开始。检查器在一次扫描中重复解析相同源码、runtime 配置和语言文件；现按**单次检查**复用 AST 和 usage 分析，不跨检查缓存，因此源码/manifest 变更和缺失文件仍立即可见。
@@ -212,6 +240,7 @@ npm run build:plugins
 npx vitest run tests/server/studio-plugin-*.test.ts tests/server/studio-agent-coordinator.test.ts tests/server/native-acp-turn.test.ts
 npx vitest run tests/server/studio-session-removal.test.ts tests/server/sessions-controller.test.ts tests/server/session-share-access.test.ts
 npx vitest run tests/server/studio-agent-run-start.test.ts tests/server/studio-plugin-host.test.ts tests/server/studio-agent-coordinator.test.ts
+npx vitest run tests/server/studio-plugin-chat-run.test.ts tests/server/studio-plugin-host.test.ts tests/server/chat-run-bridge-readiness.test.ts
 npm run harness:check
 ```
 

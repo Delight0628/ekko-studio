@@ -172,6 +172,16 @@ export class PluginWorker {
     const params = value as JsonObject
     const ctx = this.scopes.get(String(params.scopeHandle))
     if (!ctx || ctx.signal.aborted) throw new StudioError('FORBIDDEN', 'Execution scope is unavailable')
+    if (params.method === 'chat.start') {
+      this.authorize('chat.start')
+      return toJson(await ctx.chat.start(params.args as unknown as Parameters<ExecutionContext['chat']['start']>[0]))
+    }
+    if (params.method === 'chat.get' || params.method === 'chat.cancel') {
+      this.authorize(params.method === 'chat.get' ? 'chat.read' : 'chat.cancel')
+      const args = params.args as JsonObject
+      if (!args || typeof args.id !== 'string' || Object.keys(args).some(key => key !== 'id')) throw new StudioError('INVALID_ARGUMENT', 'Only a chat receipt id is accepted')
+      return toJson(params.method === 'chat.get' ? await ctx.chat.get(args.id) : await ctx.chat.cancel(args.id))
+    }
     if (params.method === 'sessions.get' || params.method === 'sessions.remove') {
       this.authorize(params.method === 'sessions.get' ? 'sessions.read' : 'sessions.remove')
       const args = params.args as JsonObject
