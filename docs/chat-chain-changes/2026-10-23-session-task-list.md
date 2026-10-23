@@ -14,9 +14,11 @@ edge with the same 20px content inset.
 Search, status filtering and update-time sorting live in the table header. Each
 summary is a native details/summary disclosure: it defaults to one line and
 expands in place without navigating. The task title and trailing SVG arrow open
-the associated chat turn. Status, disclosure, sort and navigation icons are SVG,
-not character substitutes. Mobile places the source conversation below the
-summary and update time below status.
+the associated chat turn. Expanded summaries use the title's full text width;
+the collapse icon sits on the following line without reserving a side column.
+Status, disclosure, sort and navigation icons are SVG,
+not character substitutes. Below the summary, mobile pairs a 34px agent logo
+with a two-line source block: conversation name above the status and update time.
 
 The drawer uses the overlay theme surface once; its table and wrappers remain
 transparent. The shared drawer, dropdown and input adapters handle custom colors,
@@ -29,6 +31,10 @@ reopens the same filtered drawer. The former `/hermes/tasks` URL redirects to th
 chat drawer and translates its old filters. The drawer refreshes on focus and
 every 30 seconds while visible; closed drawers do not fetch or intercept search
 shortcuts. Reading tasks never changes their status.
+Each filtered list is capped at 100 tasks across pagination. Both clients clamp
+older server responses too; repository counts and page bounds enforce the same
+window without deleting stored goals. Existing session deletion/history clearing
+removes task rows in its transaction, with direct database cleanup regressions.
 
 `GET /api/studio/session-tasks` returns tasks, total and has_more. The controller
 validates filters/pagination and resolves existing profiles permitted to the
@@ -57,3 +63,12 @@ changes are introduced. The companion App uses the same list endpoint through it
 authenticated relay and passes message_id into its existing matched-message
 navigation. Task lists expose only the session goals already maintained by the
 primary conversational model.
+
+Live Coding Agent user turns now retain the ID returned by database persistence,
+instead of their array position. Task links use those durable IDs; previously a
+short live resume could contain the requested turn under a different ID and
+report it missing without another history page to load. The companion App also
+repairs existing live resumes by matching one persisted user turn by role,
+timestamp and displayed content and retaining its local row as an alias. It does
+not replace streaming content or accept an ambiguous match. App task buttons
+omit press highlights and navigation spinners while still guarding duplicate opens.

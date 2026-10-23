@@ -4,6 +4,26 @@ import { authenticate, mockChatSocket, mockHermesApi } from './fixtures'
 const task = { id: 'one', session_id: 'task-chat', session_title: 'Studio 会话任务', profile: 'research', source: 'coding_agent', agent: 'codex',
   title: '设计任务展示页面', summary: '接入会话任务，完善桌面与手机列表', status: 'open', updated_at: Date.now(), message_id: 1 }
 
+test('limits the task list to two pages even if an older server reports more than 100', async ({ page }) => {
+  await authenticate(page)
+  await mockHermesApi(page)
+  await mockChatSocket(page)
+  const offsets: number[] = []
+  await page.route('**/api/studio/session-tasks?**', route => {
+    const offset = Number(new URL(route.request().url()).searchParams.get('offset'))
+    offsets.push(offset)
+    return route.fulfill({ json: { tasks: Array.from({ length: 50 }, (_, i) => ({ ...task, id: `t${offset+i}`, title: `Task ${offset+i}` })), total: 125, has_more: true } })
+  })
+  await page.goto('/#/hermes/tasks')
+  await expect(page.locator('.task-row')).toHaveCount(50)
+  await expect(page.locator('.n-pagination-item').filter({ hasText: /^3$/ })).toHaveCount(0)
+  await page.locator('.n-pagination-item').filter({ hasText: /^2$/ }).click()
+  await expect(page.locator('.task-title').first()).toHaveText('Task 50')
+  await expect(page.locator('.task-row')).toHaveCount(50)
+  await expect(page.locator('.n-pagination-item').filter({ hasText: /^3$/ })).toHaveCount(0)
+  expect(offsets).toEqual([0, 50])
+})
+
 test('paginates with stable filters and ignores an older search response', async ({ page }) => {
   await authenticate(page)
   await mockHermesApi(page)
@@ -48,7 +68,7 @@ test('refreshes completion on focus and renders the approved list at desktop and
   await expect(page.locator('.task-row')).toHaveCount(3)
   await page.screenshot({ path: '/tmp/ekko-task-page-desktop.png' })
   await page.setViewportSize({ width: 390, height: 844 })
-  expect(await page.locator('.task-status').first().evaluate(el => el.getBoundingClientRect().height)).toBeLessThan(28)
+  expect(await page.locator('.task-status:visible').first().evaluate(el => el.getBoundingClientRect().height)).toBeLessThan(28)
   expect(await page.locator('.mobile-time').first().evaluate(el => el.getBoundingClientRect().height - parseFloat(getComputedStyle(el).paddingTop))).toBeLessThanOrEqual(18)
   await page.screenshot({ path: '/tmp/ekko-task-page-mobile.png' })
   completed = true

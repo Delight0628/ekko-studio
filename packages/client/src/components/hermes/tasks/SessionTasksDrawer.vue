@@ -158,10 +158,16 @@ onUnmounted(() => {
               <td class="task-cell">
                 <a class="task-title" :href="taskHref(task)" :aria-label="t('sessionTasks.openTask', { title: task.title })">{{ task.title }}</a>
                 <details class="task-description"><summary><span class="description-text">{{ task.summary }}</span><SessionTaskIcon name="chevron-down" :size="13" /></summary></details>
-                <div class="mobile-source"><img :src="taskAvatar(task).src" alt="" /><span>{{ task.session_title || t('sessionTasks.untitled') }}</span></div>
+                <div class="mobile-source">
+                  <img :src="taskAvatar(task).src" alt="" />
+                  <div class="mobile-source-info">
+                    <span class="mobile-session-name">{{ task.session_title || t('sessionTasks.untitled') }}</span>
+                    <div class="mobile-meta"><span class="task-status"><SessionTaskIcon :name="task.status === 'completed' ? 'completed' : 'circle'" :size="13" />{{ t(`sessionTasks.${task.status}`) }}</span><time class="mobile-time" :datetime="new Date(task.updated_at).toISOString()">{{ formatTime(task.updated_at) }}</time></div>
+                  </div>
+                </div>
               </td>
               <td class="source-column"><div class="source-session"><img :src="taskAvatar(task).src" alt="" /><div><span>{{ task.session_title || t('sessionTasks.untitled') }}</span><small>{{ taskAvatar(task).label }}<span class="source-divider" aria-hidden="true" />{{ task.profile }}</small></div></div></td>
-              <td class="status-cell"><span class="task-status"><SessionTaskIcon :name="task.status === 'completed' ? 'completed' : 'circle'" :size="13" />{{ t(`sessionTasks.${task.status}`) }}</span><time class="mobile-time" :datetime="new Date(task.updated_at).toISOString()">{{ formatTime(task.updated_at, true) }}</time></td>
+              <td class="status-cell"><span class="task-status"><SessionTaskIcon :name="task.status === 'completed' ? 'completed' : 'circle'" :size="13" />{{ t(`sessionTasks.${task.status}`) }}</span></td>
               <td class="time-column"><time :datetime="new Date(task.updated_at).toISOString()">{{ formatTime(task.updated_at) }}</time></td>
               <td class="action-cell"><a class="task-open" :href="taskHref(task)" :aria-label="t('sessionTasks.openChat')"><SessionTaskIcon name="open" :size="17" /></a></td>
             </tr></tbody>
@@ -204,8 +210,9 @@ summary { display: flex; align-items: flex-start; gap: 8px; min-width: 0; list-s
 summary::-webkit-details-marker { display: none; }
 summary svg { flex-shrink: 0; margin-top: 5px; color: $text-muted; transition: transform 160ms ease; }
 .description-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-details[open] .description-text { white-space: pre-wrap; overflow: visible; overflow-wrap: anywhere; }
-details[open] summary svg { transform: rotate(180deg); }
+details[open] summary { display: block; }
+details[open] .description-text { display: block; width: 100%; min-width: 0; white-space: pre-wrap; overflow: visible; overflow-wrap: anywhere; }
+details[open] summary svg { display: block; margin: 2px 0 0 auto; transform: rotate(180deg); }
 .source-session { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding-top: 3px; color: $text-secondary; font-size: calc(var(--font-size-base, 14px) * 12 / 14); }
 .source-session img { width: 20px; height: 20px; margin-top: 2px; object-fit: contain; }
 .source-session img, .mobile-source img { border-radius: 22%; }
@@ -229,7 +236,7 @@ time { display: block; padding-top: 7px; color: $text-muted; font-size: calc(var
 @media (max-width: 768px) {
   table, thead, tbody { display: block; }
   colgroup { display: none; }
-  tr { display: grid; grid-template-columns: minmax(0, 1fr) 108px 32px; }
+  tr { display: grid; grid-template-columns: minmax(0, 1fr) 32px; }
   th, td { display: block; min-width: 0; }
   .task-list--empty { display: flex; flex-direction: column; }
   .task-list--empty tbody { flex: 1; min-height: 0; }
@@ -239,8 +246,9 @@ time { display: block; padding-top: 7px; color: $text-muted; font-size: calc(var
   .status-col { width: 108px; }
   .time-col { display: none; }
   .action-col { width: 32px; }
-  .source-column, .time-column { display: none; }
-  .status-heading { grid-column: 2 / -1; display: flex; justify-content: flex-end; padding-inline-end: 20px; }
+  .source-column, .time-column, .status-cell { display: none; }
+  .status-heading { grid-column: 1 / -1; grid-row: 1; justify-self: end; display: flex; justify-content: flex-end; padding-inline-end: 20px; }
+  thead th:first-child { grid-column: 1 / -1; grid-row: 1; padding-inline-end: 116px; }
   .action-heading { display: none; }
   th, td { padding: 18px 8px; }
   th:first-child, td:first-child { padding-inline-start: 20px; }
@@ -248,13 +256,14 @@ time { display: block; padding-top: 7px; color: $text-muted; font-size: calc(var
   .task-title { font-size: var(--font-size-base, 14px); }
   .task-description { font-size: calc(var(--font-size-base, 14px) * 12 / 14); }
   .task-description summary { gap: 4px; }
-  .mobile-source { display: flex; align-items: center; gap: 6px; margin-top: 10px; color: $text-muted; font-size: calc(var(--font-size-base, 14px) * 11 / 14); }
-  .mobile-source img { width: 14px; height: 14px; object-fit: contain; flex-shrink: 0; }
-  .mobile-source span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mobile-time { display: block; padding-top: 8px; font-size: calc(var(--font-size-base, 14px) * 10 / 14); }
-  .task-status { padding-inline: 6px; gap: 4px; }
+  .mobile-source { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .mobile-source img { width: 34px; height: 34px; object-fit: contain; flex-shrink: 0; }
+  .mobile-source-info { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; }
+  .mobile-session-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: $text-secondary; font-size: calc(var(--font-size-base, 14px) * 12 / 14); }
+  .mobile-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .mobile-time { display: block; padding-top: 0; font-size: calc(var(--font-size-base, 14px) * 10 / 14); }
+  .task-status { padding: 1px 5px; gap: 4px; font-size: calc(var(--font-size-base, 14px) * 10 / 14); }
   .task-open { width: 24px; height: 28px; }
-  .status-cell { vertical-align: top; }
 }
 @media (prefers-reduced-motion: reduce) { summary svg { transition: none; } }
 </style>
