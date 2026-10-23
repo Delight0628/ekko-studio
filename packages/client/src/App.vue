@@ -209,10 +209,11 @@ const showMobileMenuButton = computed(
       usesCodingAgentConfigSidebar.value),
 );
 
-const nodeVersionLow = computed(() => {
-  const v = appStore.nodeVersion;
-  const major = parseInt(v.split(".")[0], 10);
-  return !isNaN(major) && major < 23;
+const requiredNodeVersion = "24.22.1";
+const nodeVersionMismatch = computed(() => {
+  const version = appStore.nodeVersion;
+  // Desktop's backend uses Electron's own Node runtime, including browser clients.
+  return appStore.nodeRuntime !== "electron" && !!version && version !== requiredNodeVersion;
 });
 
 const isDesktopShell = computed(() => desktopBridge()?.isDesktop === true);
@@ -365,12 +366,13 @@ useKeyboard();
             </div>
             <div class="app-box">
               <div
-                v-if="nodeVersionLow && !isStandaloneChatPage"
+                v-if="nodeVersionMismatch && !isStandaloneChatPage"
                 class="node-warning-bar"
               >
                 {{
                   t("sidebar.nodeVersionWarning", {
                     version: appStore.nodeVersion,
+                    requiredVersion: requiredNodeVersion,
                   })
                 }}
               </div>

@@ -710,7 +710,7 @@ export default {
     updateSuccess: 'Actualizacion completada. Actualiza la pagina en breve. Si no se inicia despues de un tiempo, inicialo manualmente.',
     updateFailed: 'Error al actualizar',
     logout: 'Cerrar sesion',
-    nodeVersionWarning: 'Se detecto Node.js v{version}. Actualiza a la version 23 o posterior.',
+    nodeVersionWarning: 'Se detectó Node.js v{version}. Usa la versión {requiredVersion}.',
     changelog: 'Registro de cambios',
     noChangelog: 'No hay registro de cambios',
     versionManagement: 'Gestión de versiones',

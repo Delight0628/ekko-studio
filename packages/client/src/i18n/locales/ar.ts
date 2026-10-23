@@ -708,7 +708,7 @@ export default {
     updateSuccess: 'تم التحديث بنجاح. الرجاء تحديث الصفحة بعد قليل. وإذا لم يبدأ بعد فترة، فابدأه يدويًا.',
     updateFailed: 'فشل التحديث',
     logout: 'تسجيل الخروج',
-    nodeVersionWarning: 'تم اكتشاف Node.js v{version}. الرجاء الترقية إلى الإصدار 23 أو أحدث.',
+    nodeVersionWarning: 'تم اكتشاف Node.js v{version}. يرجى استخدام الإصدار {requiredVersion}.',
     changelog: 'سجل التغييرات',
     noChangelog: 'لا يوجد سجل تغييرات',
     versionManagement: 'إدارة الإصدارات',

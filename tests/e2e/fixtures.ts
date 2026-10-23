@@ -236,7 +236,7 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
     }
 
     if (pathname === '/health') {
-      await route.fulfill(jsonResponse({ status: 'ok', webui_version: '0.5.23', node_version: '23.0.0' }))
+      await route.fulfill(jsonResponse({ status: 'ok', webui_version: '0.5.23', node_version: '24.22.1', node_runtime: 'node' }))
       return
     }
 

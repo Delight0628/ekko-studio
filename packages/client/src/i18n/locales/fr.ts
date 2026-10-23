@@ -710,7 +710,7 @@ export default {
     updateSuccess: 'Mise a jour terminee. Veuillez actualiser la page sous peu. Si le service ne demarre pas apres un moment, demarrez-le manuellement.',
     updateFailed: 'Echec de la mise a jour',
     logout: 'Deconnexion',
-    nodeVersionWarning: 'Node.js v{version} detecte. Veuillez passer a la version 23 ou ulterieure.',
+    nodeVersionWarning: 'Node.js v{version} détecté. Veuillez utiliser la version {requiredVersion}.',
     changelog: 'Journal des modifications',
     noChangelog: 'Aucun journal disponible',
     versionManagement: 'Gestion des versions',

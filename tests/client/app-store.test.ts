@@ -256,6 +256,21 @@ describe('App Store', () => {
     expect(store.updateAvailable).toBe(false)
   })
 
+  it('tracks the server runtime and clears Electron state when the server changes', async () => {
+    const store = useAppStore()
+    mockStudioSystemApi.checkHealth.mockResolvedValue({
+      status: 'ok', node_version: '24.19.0', node_runtime: 'electron',
+    })
+    await store.checkConnection()
+    expect(store.nodeRuntime).toBe('electron')
+    expect(store.nodeVersion).toBe('24.19.0')
+
+    mockStudioSystemApi.checkHealth.mockResolvedValue({ status: 'ok', node_version: '24.22.1' })
+    await store.checkConnection()
+    expect(store.nodeRuntime).toBe('node')
+    expect(store.nodeVersion).toBe('24.22.1')
+  })
+
   it('clears the updating state and reports failure when self-update request fails', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     mockStudioSystemApi.triggerUpdate.mockRejectedValue(new Error('install failed'))

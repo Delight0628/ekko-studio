@@ -710,7 +710,7 @@ export default {
     updateSuccess: 'Aktualisierung erfolgreich. Bitte aktualisieren Sie die Seite in Kurze. Wenn der Dienst langere Zeit nicht startet, starten Sie ihn manuell.',
     updateFailed: 'Aktualisierung fehlgeschlagen',
     logout: 'Abmelden',
-    nodeVersionWarning: 'Node.js v{version} erkannt. Bitte aktualisieren Sie auf Version 23 oder neuer.',
+    nodeVersionWarning: 'Node.js v{version} erkannt. Bitte verwenden Sie Version {requiredVersion}.',
     changelog: 'Anderungsprotokoll',
     noChangelog: 'Kein Anderungsprotokoll verfugbar',
     versionManagement: 'Versionsverwaltung',

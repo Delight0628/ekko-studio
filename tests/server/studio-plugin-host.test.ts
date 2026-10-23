@@ -21,7 +21,7 @@ const cleanup: Array<() => Promise<void>> = []
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'studio-plugin-tests-'))
   runner = join(root, 'runner.cjs')
-  await build({ entryPoints: ['packages/studio-plugin-runner/src/main.ts'], bundle: true, platform: 'node', target: 'node23', format: 'cjs', outfile: runner, logLevel: 'silent' })
+  await build({ entryPoints: ['packages/studio-plugin-runner/src/main.ts'], bundle: true, platform: 'node', target: 'node24.22.1', format: 'cjs', outfile: runner, logLevel: 'silent' })
 })
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close() })
 afterAll(async () => { await rm(root, { recursive: true, force: true }) })

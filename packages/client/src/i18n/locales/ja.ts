@@ -710,7 +710,7 @@ export default {
     updateSuccess: '更新が完了しました。しばらくしてからページを再読み込みしてください。長時間起動しない場合は手動で起動してください。',
     updateFailed: '更新に失敗しました',
     logout: 'ログアウト',
-    nodeVersionWarning: 'Node.js v{version} が検出されました。バージョン23以降にアップグレードしてください。',
+    nodeVersionWarning: 'Node.js v{version} が検出されました。バージョン {requiredVersion} を使用してください。',
     changelog: '更新履歴',
     noChangelog: '更新履歴はありません',
     versionManagement: 'バージョン管理',

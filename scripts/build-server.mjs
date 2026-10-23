@@ -15,7 +15,7 @@ await esbuild.build({
   entryPoints: [resolve(rootDir, 'packages/server/src/index.ts')],
   bundle: true,
   platform: 'node',
-  target: 'node23',
+  target: 'node24.22.1',
   format: 'cjs',
   outfile: resolve(serverOutDir, 'index.js'),
   external: ['node-pty', 'node:sqlite', 'sharp', 'socket.io'],
