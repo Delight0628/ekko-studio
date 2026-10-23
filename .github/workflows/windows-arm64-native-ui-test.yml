@@ -1,5 +1,9 @@
 name: Test Windows ARM64 Native UI
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/windows-arm64-native-ui-test.yml'
+      - 'tests/fixtures/native-device-pointer.cjs'
   workflow_dispatch:
 permissions:
   contents: read
