@@ -8,6 +8,7 @@ import { normalizeMessageContentForStorageRole } from './message-content'
 import { copyCompressionSnapshot } from './compression-snapshot'
 import { recordSkillUsageMessage } from './skill-usage-store'
 import { getRecordedSessionTokensBatch } from './usage-store'
+import { SESSION_PREVIEW_SQL, sessionDisplayTitle } from './session-display'
 import { agentFamilyForRuntime, isAgentRuntime } from '../contracts/agents/runtime'
 import { BUILTIN_EKKO_AGENT_IDS, BUILTIN_HISTORY_SOURCES, isBuiltinEkkoAgent, normalizeSessionIdentity } from '../contracts/history-source'
 import { studioSessionAccount } from '../contracts/runs/usage'
@@ -139,7 +140,7 @@ function mapSessionRows(rows: Record<string, unknown>[]): HermesSessionRow[] {
 function mapStoredSessionRow(row: Record<string, unknown>): HermesSessionRow {
   const rawTitle = row.title != null ? String(row.title) : null
   const preview = String(row.preview || '')
-  const title = rawTitle || (preview ? (preview.length > 40 ? preview.slice(0, 40) + '...' : preview) : null)
+  const title = sessionDisplayTitle(rawTitle, preview)
   return {
     id: String(row.id || ''),
     profile: String(row.profile || 'default'),
@@ -592,17 +593,7 @@ export function listSessions(
   const sql = `
     SELECT
       s.*,
-      COALESCE(
-        NULLIF(s.preview, ''),
-        (
-          SELECT SUBSTR(REPLACE(REPLACE(m.content, CHAR(10), ' '), CHAR(13), ' '), 1, 63)
-          FROM ${MESSAGES_TABLE} m
-          WHERE m.session_id = s.id AND m.role = 'user' AND m.content IS NOT NULL
-          ORDER BY m.timestamp, m.id
-          LIMIT 1
-        ),
-        ''
-      ) AS preview,
+      ${SESSION_PREVIEW_SQL} AS preview,
       p.title AS parent_title,
       (
         SELECT REPLACE(REPLACE(m.content, CHAR(10), ' '), CHAR(13), ' ')

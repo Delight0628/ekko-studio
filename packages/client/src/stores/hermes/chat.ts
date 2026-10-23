@@ -438,7 +438,6 @@ export interface PendingApproval {
   description: string
   choices: Array<'once' | 'session' | 'always' | 'deny'>
   allowPermanent: boolean
-  permissionRule?: string
   isMemoryWrite: boolean
   requestedAt: number
   countdownDeadline: number
@@ -1801,7 +1800,7 @@ export const useChatStore = defineStore('chat', () => {
     return mapped
   }
 
-  async function loadSessions(profile?: string | null, preferredSessionId?: string | null) {
+  async function loadSessions(profile?: string | null, preferredSessionId?: string | null, preferredFocusId?: string | null) {
     const requestSequence = ++loadSessionsRequestSequence
     const selectionSequence = activeSelectionSequence
     isLoadingSessions.value = true
@@ -1870,7 +1869,8 @@ export const useChatStore = defineStore('chat', () => {
             ? storedId
             : sessions.value[0]?.id
       if (targetId) {
-        await switchSession(targetId, targetId === currentId ? focusMessageId.value : null)
+        await switchSession(targetId, targetId === preferredSessionId && preferredFocusId
+          ? preferredFocusId : targetId === currentId ? focusMessageId.value : null)
       } else {
         clearActiveSession()
       }
@@ -3402,9 +3402,6 @@ export const useChatStore = defineStore('chat', () => {
       description,
       choices: isMemoryWrite ? ['once', 'deny'] : choices.length ? choices : ['once', 'session', 'deny'],
       allowPermanent: Boolean((evt as any).allow_permanent),
-      permissionRule: Array.isArray((evt as any).execpolicy_amendment)
-        && (evt as any).execpolicy_amendment.every((part: unknown) => typeof part === 'string')
-        ? JSON.stringify((evt as any).execpolicy_amendment) : undefined,
       isMemoryWrite,
       requestedAt: Date.now(),
       countdownDeadline: pendingInteractionDeadline(

@@ -14,7 +14,9 @@ beforeEach(async () => {
   service = await import('../../packages/server/src/modules/studio/services/session-tasks')
   sessions.createSession({ id: 's1', profile: 'research', source: 'coding_agent' })
 })
-afterEach(() => {
+afterEach(async () => {
+  const { stopChatWebhookDispatcher } = await import('../../packages/server/src/modules/studio/services/webhooks/dispatcher')
+  stopChatWebhookDispatcher()
   db.close()
   vi.doUnmock('../../packages/server/src/modules/studio/infrastructure/database/index')
 })
@@ -102,6 +104,7 @@ describe('conversation-maintained session goals', () => {
     write([goal()])
     sessions[method]('s1')
     expect(service.getSessionTasks('s1').tasks).toEqual([])
+    expect(db.prepare('SELECT COUNT(*) AS n FROM session_tasks WHERE session_id = ?').get('s1')).toMatchObject({ n: 0 })
     expect(() => write([goal()], 1)).toThrow()
   })
 
@@ -116,5 +119,116 @@ describe('conversation-maintained session goals', () => {
     message('user', 'Do work')
     expect(() => service.updateSessionTasks('s1', 'research', input)).toThrow()
     expect(service.getSessionTasks('s1').tasks).toEqual([])
+  })
+})
+
+describe('task list pages', () => {
+  const query = (overrides = {}) => ({ profiles: ['research'], order: 'newest' as const, offset: 0, limit: 50, ...overrides })
+
+  it('uses the same first-message session name as the conversation list without persisting a title', () => {
+    message('assistant', 'An assistant greeting is not the session name')
+    const firstMessage = '首条用户消息\n用于展示会话名称，保留与会话列表相同的截断规则。'.repeat(3)
+    message('user', firstMessage)
+    message('user', 'This later request must not become the name')
+    write([goal()])
+    const task = service.listSessionTaskItems(query()).tasks[0]
+    const session = sessions.listSessions('research')[0]
+    expect(task.session_title).toBe(session.title)
+    expect(task.session_title).toBe(firstMessage.replace(/\n/g, ' ').slice(0, 40) + '...')
+    expect(task).not.toHaveProperty('session_preview')
+    expect(db.prepare('SELECT title FROM sessions WHERE id = ?').get('s1')).toMatchObject({ title: null })
+    expect(service.listSessionTaskItems(query({ search: '首条用户消息' })).total).toBe(1)
+    expect(service.listSessionTaskItems(query({ search: 'later request' })).total).toBe(0)
+  })
+
+  it('prefers a custom session title, then the stored preview, and keeps genuinely unnamed sessions empty', () => {
+    message('user', '首条消息')
+    write([goal()])
+    sessions.updateSession('s1', { preview: '缓存的首条会话消息' })
+    expect(service.listSessionTaskItems(query()).tasks[0].session_title).toBe(sessions.listSessions('research')[0].title)
+    expect(service.listSessionTaskItems(query()).tasks[0].session_title).toBe('缓存的首条会话消息')
+    sessions.renameSession('s1', '自定义会话标题')
+    expect(service.listSessionTaskItems(query()).tasks[0].session_title).toBe('自定义会话标题')
+    sessions.renameSession('s1', '')
+    sessions.updateSession('s1', { preview: '' })
+    db.prepare('DELETE FROM messages WHERE session_id = ?').run('s1')
+    expect(service.listSessionTaskItems(query()).tasks[0].session_title).toBeNull()
+  })
+
+  it('caps the accessible list at 100 across pages without deleting stored goals', () => {
+    const id = message('user', 'Many tasks')
+    const insert = db.prepare('INSERT INTO session_tasks (id, session_id, title, summary, status, source_message_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    for (let i = 1; i <= 125; i++) insert.run(`task-${i}`, 's1', `Task ${i}`, '', 'open', id, i, i)
+    const first = service.listSessionTaskItems(query())
+    const second = service.listSessionTaskItems(query({ offset: 50 }))
+    expect(first).toMatchObject({ total: 100, has_more: true })
+    expect(second).toMatchObject({ total: 100, has_more: false })
+    expect(new Set([...first.tasks, ...second.tasks].map(task => task.id)).size).toBe(100)
+    expect(first.tasks[0].title).toBe('Task 125')
+    expect(second.tasks.at(-1)?.title).toBe('Task 26')
+    expect(service.listSessionTaskItems(query({ offset: 95, limit: 100 })).tasks).toHaveLength(5)
+    expect(service.listSessionTaskItems(query({ offset: 100 }))).toEqual({ tasks: [], total: 100, has_more: false })
+    expect(service.listSessionTaskItems(query({ offset: 150 }))).toEqual({ tasks: [], total: 100, has_more: false })
+    expect(service.listSessionTaskItems(query({ search: 'Task 1' })).total).toBe(37)
+    expect(service.getSessionTasks('s1').tasks).toHaveLength(125)
+  })
+
+  it('deleting multiple sessions removes their task rows while retaining other sessions', () => {
+    for (const id of ['s1', 's2', 'kept']) {
+      if (id !== 's1') sessions.createSession({ id, profile: 'research', source: 'coding_agent' })
+      message('user', 'Task request', id)
+      service.updateSessionTasks(id, 'research', { revision: 0, changes: [goal({ title: id })] })
+    }
+    for (const id of ['s1', 's2']) expect(sessions.deleteSession(id)).toBe(true)
+    expect(db.prepare('SELECT session_id FROM session_tasks').all()).toEqual([{ session_id: 'kept' }])
+    expect(service.listSessionTaskItems(query()).tasks.map(task => task.session_id)).toEqual(['kept'])
+  })
+
+  it('resolves visible request and completion turns rather than hidden tool messages', () => {
+    const source = message('user', 'Add export')
+    const first = write([goal()])
+    expect(service.listSessionTaskItems(query()).tasks[0]).toMatchObject({ message_id: source, source_message_id: source, profile: 'research', session_id: 's1' })
+    message('assistant', 'Initial implementation')
+    const completionTurn = message('user', 'Finish and test export')
+    const tool = message('tool', 'All tests passed')
+    write([goal({ id: first.tasks[0].id, status: 'completed', completion_evidence: 'Tests passed' })])
+    expect(service.listSessionTaskItems(query()).tasks[0]).toMatchObject({ message_id: completionTurn, evidence_message_id: tool })
+  })
+
+  it('filters profiles before counts and pagination, hides pending deletions and unsupported surfaces', () => {
+    message('user', 'Research goal')
+    write([goal()])
+    for (const [id, profile, source] of [['other', 'other', 'cli'], ['group', 'research', 'group_chat'], ['workflow', 'research', 'workflow'], ['global', 'research', 'global_agent']]) {
+      sessions.createSession({ id, profile, source })
+      db.prepare('INSERT INTO session_tasks (id, session_id, title, summary, status, source_message_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(`task-${id}`, id, id, '', 'open', 1, 1, 1)
+    }
+    expect(service.listSessionTaskItems(query())).toMatchObject({ total: 1, has_more: false, tasks: [expect.objectContaining({ session_id: 's1' })] })
+    expect(service.listSessionTaskItems(query({ profiles: [] }))).toEqual({ tasks: [], total: 0, has_more: false })
+    expect(service.listSessionTaskItems(query({ excludeSessionIds: ['s1'] })).total).toBe(0)
+    expect(service.listSessionTaskItems(query({ profiles: ['other'] })).tasks[0].session_id).toBe('other')
+  })
+
+  it('searches task and session text literally, sorts stably and paginates all tasks', () => {
+    message('user', 'Several goals')
+    write([goal({ title: 'Export 100%' }), goal({ title: 'Fix login' }), goal({ title: 'Deploy' })])
+    const tasks = service.getSessionTasks('s1').tasks
+    for (const [i, task] of tasks.entries()) db.prepare('UPDATE session_tasks SET updated_at = ? WHERE id = ?').run(i + 1, task.id)
+    const first = service.listSessionTaskItems(query({ limit: 2 }))
+    const second = service.listSessionTaskItems(query({ limit: 2, offset: 2 }))
+    expect(first.total).toBe(3)
+    expect(first.has_more).toBe(true)
+    expect(second.has_more).toBe(false)
+    expect(new Set([...first.tasks, ...second.tasks].map(t => t.id)).size).toBe(3)
+    expect(service.listSessionTaskItems(query({ order: 'oldest' })).tasks.map(t => t.id)).toEqual(service.listSessionTaskItems(query()).tasks.map(t => t.id).reverse())
+    expect(service.listSessionTaskItems(query({ search: '%' })).tasks.map(t => t.title)).toEqual(['Export 100%'])
+    expect(service.listSessionTaskItems(query({ search: '_' })).total).toBe(0)
+    sessions.renameSession('s1', 'Release checklist')
+    expect(service.listSessionTaskItems(query({ search: 'checklist' })).total).toBe(3)
+    expect(service.listSessionTaskItems(query({ status: 'completed' })).total).toBe(0)
+    write([goal({ id: tasks[0].id, title: tasks[0].title, status: 'completed', completion_evidence: 'Delivered and checked' })])
+    const page = service.listSessionTaskItems(query())
+    expect(page.tasks.at(-1)?.status).toBe('completed')
+    expect(service.listSessionTaskItems(query({ status: 'completed' })).total).toBe(1)
   })
 })

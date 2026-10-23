@@ -34,7 +34,7 @@ describe('shared MCP task plans', () => {
   it('injects session goal review at turn start only for eligible primary conversations', () => {
     const text = taskPlanTurnInstruction('fresh-context', true)
     expect(text).toContain('At the beginning of every turn')
-    expect(text).toContain('before executing them')
+    expect(text).toContain('Keep one goal per user outcome')
     expect(text).toContain('Before the final response')
     expect(text).toContain('ekko_studio_list_session_tasks')
     expect(text).toContain('ekko_studio_update_session_tasks')

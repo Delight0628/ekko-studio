@@ -46,6 +46,7 @@ const loggerWarnMock = vi.fn()
 const getCompressionSnapshotMock = vi.fn()
 const buildDbExportHistoryMock = vi.fn()
 const listUserProfilesMock = vi.fn()
+const listSessionTaskItemsMock = vi.fn(() => ({ tasks: [], total: 0, has_more: false }))
 const readConfigYamlForProfileMock = vi.fn()
 const bridgeSwitchSessionModelMock = vi.fn()
 const bridgeGetRuntimeStateMock = vi.fn()
@@ -262,6 +263,7 @@ vi.mock('../../packages/server/src/modules/studio/services/task-plans', () => ({
 }))
 vi.mock('../../packages/server/src/modules/studio/services/session-tasks', () => ({
   getSessionTasks: (sessionId: string) => ({ session_id: sessionId, revision: 0, updated_at: 0, tasks: [] }),
+  listSessionTaskItems: listSessionTaskItemsMock,
 }))
 
 vi.mock('../../packages/server/src/modules/studio/public/agent-status-registry', () => ({
@@ -269,6 +271,33 @@ vi.mock('../../packages/server/src/modules/studio/public/agent-status-registry',
 }))
 
 describe('session conversations controller', () => {
+  it('restricts task pages to existing account profiles before pagination, including explicit filters', async () => {
+    const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
+    listUserProfilesMock.mockReturnValue([{ profile_name: 'travel' }, { profile_name: 'deleted-profile' }])
+    const ctx = { query: { profile: '', status: 'open', search: ' export ', offset: '50', limit: '50' }, state: { user: { id: 3, role: 'user' } } } as any
+    mod.listTasks(ctx)
+    expect(listSessionTaskItemsMock).toHaveBeenLastCalledWith(expect.objectContaining({ profiles: ['travel'],
+      status: 'open', search: 'export', offset: 50, limit: 50, order: 'newest' }))
+    expect(ctx.body).toEqual({ tasks: [], total: 0, has_more: false })
+    ctx.query.profile = 'default'
+    mod.listTasks(ctx)
+    expect(listSessionTaskItemsMock).toHaveBeenLastCalledWith(expect.objectContaining({ profiles: [] }))
+    ctx.state.user.role = 'super_admin'
+    ctx.query.profile = ''
+    mod.listTasks(ctx)
+    expect(listSessionTaskItemsMock).toHaveBeenLastCalledWith(expect.objectContaining({ profiles: ['default', 'travel'] }))
+    ctx.get = (name: string) => name === 'x-studio-run-context' ? 'turn' : ''
+    ctx.state.profile = { name: 'travel' }
+    mod.listTasks(ctx)
+    expect(listSessionTaskItemsMock).toHaveBeenLastCalledWith(expect.objectContaining({ profiles: ['travel'] }))
+  })
+
+  it.each([{ profile: ['default', 'travel'] }, { status: 'pending' }, { order: 'anything' }, { limit: '101' }, { offset: '-1' }, { offset: '9007199254740992' }, { search: ['a', 'b'] }])('rejects malformed task list queries: %j', async query => {
+    const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
+    const ctx = { query, state: {} } as any
+    mod.listTasks(ctx)
+    expect(ctx.status).toBe(400)
+  })
   it('reads the durable goal ledger only for an existing accessible session', async () => {
     const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
     getSessionMock.mockReturnValue({ id: 's1', profile: 'research' })

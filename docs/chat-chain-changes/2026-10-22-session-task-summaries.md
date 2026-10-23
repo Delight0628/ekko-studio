@@ -11,9 +11,21 @@ At the start of each primary single-chat turn, the current model reads the
 session goals and reviews the past conversation: which requested outcomes were
 delivered, which remain open, and which completed tasks need reopening after a
 correction. It then identifies concrete tasks in the latest request and records
-new goals before executing them. One message may create multiple independent
-goals. Casual discussion, hypothetical suggestions and execution steps do not
+new goals before executing them when they have independent delivery value, need
+ongoing follow-up, or the user explicitly asks to track them. Simple questions,
+one-off lookups and trivial one-turn edits without lasting tracking value do not
+create records. Tracking value, rather than step count, determines eligibility.
+One user outcome keeps one goal: follow-ups, refinements, corrections and
+implementation constraints update its existing id. Distinct outcomes worth
+tracking may create separate goals. Reading an unchanged ledger requires no
+write. Casual discussion, hypothetical suggestions and execution steps do not
 become goals. Existing authorization still controls what work is performed.
+
+Titles name the user outcome concisely. Summaries use one or two short sentences
+about results and remaining blockers. Implementation symbols, pixel values,
+file counts, commands and test logs remain in the conversation; verification
+belongs in completion evidence. The turn instructions, native Ekko tools and MCP
+instructions follow the same policy. Existing historical goals are retained.
 
 Before the final response, the same model saves progress and verified outcomes.
 `open` covers unfinished, blocked and interrupted work; `completed` requires a

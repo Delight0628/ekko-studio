@@ -9,7 +9,7 @@ import { ensureBusinessConsumers } from '../services/webhooks/business-consumers
 import { authorizeSessionShare, authorizeShareFile } from '../services/session-shares/access'
 import { sessionShareService } from '../services/session-shares/service'
 import { getSessionTaskPlans } from '../services/task-plans'
-import { getSessionTasks } from '../services/session-tasks'
+import { getSessionTasks, listSessionTaskItems } from '../services/session-tasks'
 import { historySessionSource, isBuiltinEkkoAgent } from '../contracts/history-source'
 import {
   deleteHermesSessionForProfile,
@@ -1153,7 +1153,28 @@ function cleanSessionContextMessages(messages: any[]): Array<{
     })
 }
 
-/** Read the background goal ledger without adding it to chat messages or run events. */
+export function listTasks(ctx: any) {
+  const { status, order = 'newest', search = '', offset = '0', limit = '50' } = ctx.query
+  if ((status !== undefined && status !== 'open' && status !== 'completed')
+    || (ctx.query.profile !== undefined && typeof ctx.query.profile !== 'string')
+    || (order !== 'newest' && order !== 'oldest') || typeof search !== 'string' || search.length > 200
+    || typeof offset !== 'string' || !/^\d+$/.test(offset) || !Number.isSafeInteger(Number(offset))
+    || typeof limit !== 'string' || !/^\d+$/.test(limit) || Number(limit) < 1 || Number(limit) > 100) {
+    ctx.status = 400
+    ctx.body = { error: 'Invalid task list filters or pagination' }
+    return
+  }
+  // A run credential remains bound even when a caller requests all profiles.
+  const runScoped = Boolean(ctx.get?.('x-studio-run-context'))
+  const profile = runScoped ? ctx.state.profile?.name : explicitProfileFilter(ctx)
+  const allowed = allowedProfileSet(ctx)
+  const profiles = listProfileNamesFromDisk().filter(name => (!runScoped || Boolean(profile))
+    && (!profile || profile === name) && (!allowed || allowed.has(name)))
+  ctx.body = listSessionTaskItems({ profiles, excludeSessionIds: [...getPendingDeletedSessionIds()],
+    search: search.trim(), status, order, offset: Number(offset), limit: Number(limit) })
+}
+
+/** Read the goal ledger without adding it to chat messages or run events. */
 export function getTasks(ctx: any) {
   const session = localGetSession(ctx.params.id)
   const profile = explicitProfileFilter(ctx)
