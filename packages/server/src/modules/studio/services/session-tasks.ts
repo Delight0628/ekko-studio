@@ -1,6 +1,7 @@
 import { getSessionTasks as readSessionTasks } from '../repositories/session-task-store'
 import { commitSessionTasks, getSessionTasksState } from '../repositories/session-task-store'
 import type { SessionTasksUpdate } from '../contracts/session-task'
+import { publishSessionTaskEvents } from './webhooks'
 export { listSessionTaskItems } from '../repositories/session-task-store'
 
 export class SessionTasksError extends Error {
@@ -42,8 +43,10 @@ export function updateSessionTasks(sessionId: string, profile: string, input: Re
     throw new SessionTasksError('Session goals or history changed; read list_session_tasks again before updating', 409)
   }
   try {
+    const previous = readSessionTasks(sessionId).tasks
     const snapshot = commitSessionTasks(state, update.changes)
     if (!snapshot) throw new SessionTasksError('Session goals changed; read list_session_tasks again before updating', 409)
+    publishSessionTaskEvents({ profile: state.profile, source: state.source, previous, snapshot })
     return snapshot
   } catch (error) {
     if (error instanceof SessionTasksError) throw error

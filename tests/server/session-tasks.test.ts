@@ -14,7 +14,9 @@ beforeEach(async () => {
   service = await import('../../packages/server/src/modules/studio/services/session-tasks')
   sessions.createSession({ id: 's1', profile: 'research', source: 'coding_agent' })
 })
-afterEach(() => {
+afterEach(async () => {
+  const { stopChatWebhookDispatcher } = await import('../../packages/server/src/modules/studio/services/webhooks/dispatcher')
+  stopChatWebhookDispatcher()
   db.close()
   vi.doUnmock('../../packages/server/src/modules/studio/infrastructure/database/index')
 })
