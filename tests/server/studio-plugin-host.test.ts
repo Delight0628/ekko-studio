@@ -8,13 +8,14 @@ import { PluginStore } from '../../packages/server/src/modules/studio/repositori
 import { PluginHost } from '../../packages/server/src/modules/studio/services/plugins/host'
 import { AgentRegistry } from '../../packages/server/src/modules/studio/services/agents/registry'
 import { AgentCoordinator } from '../../packages/server/src/modules/studio/services/agents/coordinator'
+import { startStudioAgentRun } from '../../packages/server/src/modules/studio/services/agents/start'
 import { AgentExecutionStore } from '../../packages/server/src/modules/studio/repositories/agent-execution-store'
 import { PluginEventStore } from '../../packages/server/src/modules/studio/repositories/plugin-event-store'
 import { PluginEventBus } from '../../packages/server/src/modules/studio/services/events/plugin-events'
 import { createExecutionContext, type ContextServices } from '../../packages/server/src/modules/studio/services/context/execution'
 import { SYSTEM_CODING_PLUGINS } from '../../packages/server/src/modules/studio/contracts/system-plugins'
 import { workerEnvironment } from '../../packages/server/src/modules/studio/services/plugins/worker'
-import type { AgentRunContext, PluginManifest } from '../../packages/studio-plugin-sdk/src'
+import type { AgentRunContext, ExecutionContext, ExecutionScope, PluginManifest } from '../../packages/studio-plugin-sdk/src'
 
 let root: string, runner: string
 const cleanup: Array<() => Promise<void>> = []
@@ -30,19 +31,81 @@ function setup(sessions: ContextServices['sessions'] = { get: async () => null }
   const db = new DatabaseSync(':memory:')
   const store = new PluginStore(db), registry = new AgentRegistry(), events = new PluginEventBus(), eventStore = new PluginEventStore(db)
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+  const context = (scope: ExecutionScope, signal: AbortSignal): ExecutionContext => createExecutionContext(scope, signal, logger, {
+    authorize: async () => {}, sessions, agents: { list: async profile => registry.list(profile) },
+    runs: {
+      start: async (scope, input, signal) => startStudioAgentRun(scope, input, signal, coordinator),
+      get: async (scope, id) => coordinator.get(scope, id), output: async (scope, id, after) => coordinator.output(scope, id, after),
+    },
+  })
   const ctx = (signal: AbortSignal) => createExecutionContext({
     scopeId: 'scope', principal: { id: '1', kind: 'user' }, profileId: 'default', surface: 'api', traceId: 'trace', runId: 'run',
   }, signal, logger, { authorize: async () => {}, sessions, agents: { list: async profile => registry.list(profile) } })
   const host = new PluginHost({ store, registry, events, runnerPath: runner, artifactsRoot: join(root, 'artifacts'), logger,
-    eventContext: async (_state, _event, signal) => ctx(signal), acceptEvents: async batch => { for (const event of eventStore.append(batch)) events.publish(event) } })
-  const coordinator = new AgentCoordinator({ store: new AgentExecutionStore(db), registry, events, logger, authorize: () => {},
-    context: (scope, signal) => createExecutionContext(scope, signal, logger, { authorize: async () => {}, sessions, agents: { list: async profile => registry.list(profile) },
-      runs: { get: async (scope, id) => coordinator.get(scope, id), output: async (scope, id, after) => coordinator.output(scope, id, after) } }) })
+    eventContext: async (state, event, signal) => context({
+      scopeId: 'event', principal: { kind: 'user', id: state.ownerId }, profileId: state.profileId, surface: 'event', traceId: event.correlationId,
+      ...(event.subject.runId ? { runId: event.subject.runId } : {}), ...(event.subject.sessionId ? { sessionId: event.subject.sessionId } : {}),
+    }, signal), acceptEvents: async batch => { for (const event of eventStore.append(batch)) events.publish(event) } })
+  const coordinator: AgentCoordinator = new AgentCoordinator({ store: new AgentExecutionStore(db), registry, events, logger, authorize: () => {}, context })
   cleanup.push(async () => { await coordinator.close(); await host.close(); events.close(); db.close() })
   return { db, store, registry, events, logger, host, ctx, coordinator, eventStore }
 }
 
 describe('plugin worker integration', () => {
+  it.each([true, false])('starts an independent run through real event-context RPC (granted: %s)', async granted => {
+    const { host, store, coordinator, registry, events, logger } = setup()
+    const factory = vi.fn(async () => ({ run: async () => ({
+      events: (async function* () { yield { type: 'message.delta' as const, producerSequence: 1, messageId: 'answer', text: 'started' } })(),
+      result: Promise.resolve({ status: 'completed' as const }), cancel: async () => {},
+    }), dispose: async () => {} }))
+    const registration = registry.stage('*', { kind: 'builtin', module: 'ekko', implementationVersion: 'fixture' }, ['ekko'])
+    registration.register({ id: 'ekko', name: 'Fixture', configSchema: {}, capabilities: { text: true, modes: ['scoped'] }, create: factory })
+    registration.commit()
+    const scope: ExecutionScope = { scopeId: 'api', principal: { kind: 'user', id: '1' }, profileId: 'default', surface: 'api', traceId: 'trace' }
+    const instance = coordinator.createInstance(scope, { agentTypeId: 'ekko', config: {}, mode: 'scoped' })
+    const directory = await mkdtemp(join(root, 'start-'))
+    const manifest = { schemaVersion: 1, id: 'test.start', version: '1.0.0', engines: { studioSdk: '^0.1.0', rpc: 1 }, backend: 'index.cjs', activation: 'profile',
+      contributes: { agents: [] }, configSchema: { type: 'object' }, requires: { capabilities: ['events.subscribe:plugin.ready', ...(granted ? ['runs.start'] : [])] } }
+    await writeFile(join(directory, 'studio-plugin.json'), JSON.stringify(manifest))
+    await writeFile(join(directory, 'index.cjs'), `module.exports = { apply(plugin) {
+      plugin.on('plugin.ready', async (_event, ctx) => {
+        const request = { instanceId: plugin.config.instanceId, input: { content: [{ type: 'text', text: 'go' }] }, idempotencyKey: 'worker-request' };
+        const results = [];
+        for (const input of [{ ...request, principal: { id: 'other' } }, { ...request, instanceId: 'foreign' }, request, request]) {
+          try { results.push((await ctx.runs.start(input)).id) } catch (error) { results.push(error.code) }
+        }
+        ctx.logger.info('start-results', { results });
+      });
+    } }`)
+    await host.install(directory)
+    await host.configure({ pluginId: manifest.id, profileId: 'default', ownerId: '1', enabled: true, config: { instanceId: instance.id }, grants: manifest.requires.capabilities }, 0)
+    await events.idle()
+    const output = () => logger.info.mock.calls.filter(call => call[0] === 'Plugin stdout')
+      .flatMap(call => String((call[1] as { text: string }).text).trim().split('\n')).map(line => JSON.parse(line))
+      .filter(line => line.message === 'start-results')
+    await vi.waitFor(() => expect(output()).toHaveLength(1))
+    const results = output()[0].data.results
+    if (granted) {
+      expect(results.slice(0, 2)).toEqual(['INVALID_ARGUMENT', 'NOT_FOUND'])
+      expect(results[2]).toBe(results[3])
+      await coordinator.wait(results[2])
+      expect(coordinator.get(scope, results[2]).status).toBe('completed')
+      expect(coordinator.output(scope, results[2], -1)).toMatchObject([{ text: 'started' }])
+      expect(factory).toHaveBeenCalledOnce()
+      const current = store.profile(manifest.id, 'default')!
+      store.saveProfile({ ...current, grants: ['events.subscribe:plugin.ready'] }, current.revision)
+      events.publish({ schemaVersion: 1, id: 'again', type: 'plugin.ready', occurredAt: Date.now(), partitionKey: 'plugin', sequence: 1,
+        subject: { profileId: 'default', pluginId: manifest.id }, data: { pluginId: manifest.id }, correlationId: 'trace' })
+      await events.idle()
+      await vi.waitFor(() => expect(output()).toHaveLength(2))
+      expect(output().at(-1).data.results).toEqual(['FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN'])
+      expect(factory).toHaveBeenCalledOnce()
+    } else {
+      expect(results).toEqual(['FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN'])
+      expect(factory).not.toHaveBeenCalled()
+    }
+  }, 20_000)
+
   it.each([true, false])('gates session removal through real worker RPC (granted: %s)', async granted => {
     const remove = vi.fn(async () => ({ deleted: true, native: { attempted: false, deleted: false, profileId: 'default' } }))
     const { host, registry, logger } = setup({ get: async () => null, remove })

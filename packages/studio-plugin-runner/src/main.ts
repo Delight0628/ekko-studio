@@ -50,6 +50,7 @@ function executionContext(scope: ExecutionScope, scopeHandle: string, signal: Ab
     },
     agents: { list: async () => await call('agents.list', {}) as unknown as Awaited<ReturnType<ExecutionContext['agents']['list']>> },
     runs: {
+      start: async input => await call('runs.start', json(input)) as unknown as Awaited<ReturnType<ExecutionContext['runs']['start']>>,
       get: async id => await call('runs.get', { id }) as unknown as Awaited<ReturnType<ExecutionContext['runs']['get']>>,
       output: async (id, after = -1) => await call('runs.output', { id, after }) as unknown as Awaited<ReturnType<ExecutionContext['runs']['output']>>,
     },

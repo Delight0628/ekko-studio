@@ -9,7 +9,7 @@
 | 范围 | 当前实现 |
 | --- | --- |
 | 公共 SDK | 独立 TypeScript 包、JSON DTO、manifest、Agent 工厂、作用域、输出事件、错误码、注册/通知回调/清理入口；SDK/RPC 版本检查 |
-| 上下文 | 宿主签发不可变身份与 profile；当前有 `sessions.get/remove`、`agents.list`、`runs.get/output`，每次调用重新授权并校验取消状态；RPC 使用宿主句柄 |
+| 上下文 | 宿主签发不可变身份与 profile；当前有 `sessions.get/remove`、`agents.list`、`runs.start/get/output`，每次调用重新授权并校验取消状态；RPC 使用宿主句柄。启动目前仅支持未绑定 session/workspace/Run 的独立实例执行 |
 | 注册 | profile 隔离、内置/插件提供方联合类型、激活阶段暂存、完整声明及冲突校验、事务发布、generation 资源释放 |
 | 插件宿主 | 本地目录校验、摘要工件、独立子进程、有限 RPC 并发、请求超时、输出背压、进程树清理、配置 revision、运行时租约 |
 | 安装策略 | 14 个系统插件 ID 已保留；用户安装不能覆盖，删除在接触工件/worker 前返回 `SYSTEM_PLUGIN_PROTECTED`；profile 选择不会被重复系统登记覆盖 |
@@ -47,7 +47,7 @@
 | --- | --- |
 | T00 | 已完成源码清单及部分原测试基线；真实 CLI/平台矩阵、协议录制、数据副本和性能基线尚未齐全 |
 | T01 | SDK 和边界检查已有实现；仍需与完整契约对齐，包括交互、管理、可靠消费等 |
-| T02 | 已有会话、目录和 Run 读取门面；会话单删/批删与 `ctx.sessions.remove` 已共用领域服务并通过专项验证。启动 Run、工作流及其余领域迁出仍未完成 |
+| T02 | 会话单删/批删和 Agent 实例启动已分别与 SDK 共用领域服务；已覆盖作用域、幂等与真实 worker RPC。旧聊天启动、工作流及其余领域迁出仍未完成 |
 | T03 | 进程、RPC、注册回滚和资源回收已有实现；服务依赖图及完整诊断尚未完成 |
 | T04 | 通知与持久化事件已有实现；可靠消费者、重试/死信、保留期、hooks 和旧投影的事务统一未完成 |
 | T05 | ACP 驱动已抽取；受管进程/MCP/模型、其他协议驱动仍需迁移 |
@@ -80,6 +80,34 @@
 
 本次专项：9 个文件、196 项通过（包含删除/事务、原 controller、分享会话权限、真实 worker、内核、事件、压缩记录与任务回归）；`npm run build`、`npm run harness:check` 和 `git diff --check` 均通过。该增量未重跑全量 coverage/浏览器矩阵，下文保留基础实现的历史验证结果。
 
+## T02 进展：Agent 实例启动共用领域服务
+
+本项实现新 Agent API 的启动端口和 `ctx.runs.start`。这不是旧聊天启动迁出完成，也不代表 T02 或 T06 整体完成。
+
+- [x] `POST /api/studio/agent-instances/:id/runs` 和 `ctx.runs.start({ instanceId, input, idempotencyKey })` 共用执行上下文和 `services/agents/start.ts`；没有本地 HTTP/Socket 回连或假 Koa/Socket 对象。
+- [x] SDK/runner/宿主完整支持 `runs.start`；manifest 声明且当前 profile 授予此能力后，真实 worker 才能调用。身份和 profile 来自宿主句柄，输入不能携带 owner、principal、provider 或 scope。
+- [x] 授权等待前复制请求；协调器在接收前重新检查主体、profile 和实例 owner。暂不支持已有 session/workspace/Run 绑定的上下文启动新 Run，明确返回 `CAPABILITY_UNSUPPORTED`，不会丢弃绑定后扩大范围。
+- [x] 相同 owner/profile 下的幂等键关联实例及完整输入；HTTP/SDK 并发重试只创建一次。不同输入返回 `REVISION_CONFLICT`；已接收请求在提供方移除后仍可查询，权限撤销后不能靠重试读取结果。
+- [x] 接收前取消不落库、不执行；接收落库后返回实际 Run 回执，调用方上下文结束不撤销已接受的独立执行。后续通过现有 Run 读取/输出/取消 HTTP 入口管理；SDK 取消方法尚未实现。
+
+| 边界 | 当前行为 |
+| --- | --- |
+| 身份与资源 | HTTP 使用认证中间件创建的 scope；事件上下文使用订阅 owner；两者都只能启动相同 owner/profile 的已创建实例 |
+| 校验与提交 | JSON/字段/长度校验与请求快照 → 当前授权和取消检查 → 实例归属、输入和能力校验 → 持久化 accepted → 协调器执行 |
+| 持久化与通知 | 复用现有 Run 唯一键、输出存储及终态/事件事务；启动服务不增加第二个输出或完成事件生产者 |
+| 失败与恢复 | 不自动重试 RPC 写入；响应丢失可使用相同幂等键取回已有记录。重启仍将未结束 Run 标记 interrupted，不重放输入 |
+
+专项覆盖 HTTP/SDK 一致性、并发幂等、owner/profile 隔离、伪造字段、取消与撤权、输入快照，以及真实事件回调 worker 的启动、重复调用和能力撤销。Node 24.22.1 下的本增量验证结果：
+
+- 插件、启动、协调器与会话删除专项：9 个文件、78 项通过。
+- `npm run test:coverage -- --maxWorkers=2 --testTimeout=20000 --hookTimeout=20000`：885 个文件通过、12 个跳过；8,986 项通过、32 项跳过。仅本地命令使用 20 秒时限，未改仓库默认配置。
+- `npm run test:e2e -- --workers=2 --reporter=line`：1,024 项首轮全部通过。
+- `NODE_ENV=production npm run build`、`npm run harness:check` 和 `git diff --check`：通过。
+
+上述检查验证本增量及既有功能回归，不替代真实厂商 CLI、系统插件迁移或发布工件验收。
+
+下一步继续 T02 的**旧聊天启动领域迁出**：将现有 `chat-run` 的认证后 profile/session 解析、命令/排队规则、附件和推送绑定及启动调度拆入 transport 无关的服务端口，让现有 HTTP/Socket 与统一上下文共用。保留原有行为对照测试；不能把旧 `runAndWait` 的假 Socket 当作公共 SDK 实现。之后推进工作流执行用例。多轮/父子 Run 租约、hook、usage、checkpoint 和可靠事件仍按 T04/T06 处理。
+
 ## 已有验证证据
 
 - 新内核、真实 worker、注册失败回滚、profile/owner 隔离、删除保护、运行协调、HTTP 和依赖边界有专项自动测试。
@@ -108,6 +136,7 @@
 npm run build:plugins
 npx vitest run tests/server/studio-plugin-*.test.ts tests/server/studio-agent-coordinator.test.ts tests/server/native-acp-turn.test.ts
 npx vitest run tests/server/studio-session-removal.test.ts tests/server/sessions-controller.test.ts tests/server/session-share-access.test.ts
+npx vitest run tests/server/studio-agent-run-start.test.ts tests/server/studio-plugin-host.test.ts tests/server/studio-agent-coordinator.test.ts
 npm run harness:check
 ```
 

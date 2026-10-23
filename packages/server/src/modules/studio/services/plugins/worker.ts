@@ -179,6 +179,10 @@ export class PluginWorker {
       return toJson(params.method === 'sessions.get' ? await ctx.sessions.get(args.id) : await ctx.sessions.remove(args.id))
     }
     if (params.method === 'agents.list') { this.authorize('agents.read'); return jsonCopy(await ctx.agents.list()) as unknown as JsonValue }
+    if (params.method === 'runs.start') {
+      this.authorize('runs.start')
+      return toJson(await ctx.runs.start(params.args as unknown as Parameters<ExecutionContext['runs']['start']>[0]))
+    }
     if (params.method === 'runs.get' || params.method === 'runs.output') {
       this.authorize('runs.read')
       const args = params.args as JsonObject

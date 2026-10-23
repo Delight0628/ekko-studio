@@ -1,7 +1,8 @@
 import { StudioError, type ExecutionContext, type ExecutionScope, type ScopedLogger, type StudioDomainServices } from '../../contracts/plugins'
 import { jsonCopy } from '../plugins/validation'
+import { parseAgentRunStart } from '../agents/start'
 
-export type ContextOperation = 'sessions.read' | 'sessions.remove' | 'agents.read' | 'runs.read'
+export type ContextOperation = 'sessions.read' | 'sessions.remove' | 'agents.read' | 'runs.read' | 'runs.start'
 
 export interface ContextServices {
   authorize(scope: ExecutionScope, operation: ContextOperation, resourceId?: string): Promise<void>
@@ -11,6 +12,7 @@ export interface ContextServices {
   }
   agents: { list(profileId: string): ReturnType<StudioDomainServices['agents']['list']> }
   runs?: {
+    start?(scope: ExecutionScope, input: Parameters<StudioDomainServices['runs']['start']>[0], signal: AbortSignal): ReturnType<StudioDomainServices['runs']['start']>
     get(scope: ExecutionScope, id: string): ReturnType<StudioDomainServices['runs']['get']>
     output(scope: ExecutionScope, id: string, after: number): ReturnType<StudioDomainServices['runs']['output']>
   }
@@ -52,6 +54,11 @@ export function createExecutionContext(
     }),
     agents: Object.freeze({ list: () => call('agents.read', undefined, () => services.agents.list(scope.profileId)) }),
     runs: Object.freeze({
+      start: async (input: Parameters<StudioDomainServices['runs']['start']>[0]) => {
+        const request = parseAgentRunStart(input)
+        if (!services.runs?.start) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Run start is unavailable in this host')
+        return call('runs.start', request.instanceId, () => services.runs!.start!(scope, request, signal), true)
+      },
       get: async (id: string) => { runId(id); return call('runs.read', id, () => services.runs!.get(scope, id)) },
       output: async (id: string, after = -1) => {
         runId(id)

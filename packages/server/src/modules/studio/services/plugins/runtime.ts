@@ -11,6 +11,7 @@ import { AgentExecutionStore } from '../../repositories/agent-execution-store'
 import { StudioError, type ExecutionScope, type ExecutionContext, type EventEnvelope, type ScopedLogger } from '../../contracts/plugins'
 import { AgentRegistry } from '../agents/registry'
 import { AgentCoordinator } from '../agents/coordinator'
+import { startStudioAgentRun } from '../agents/start'
 import { createExecutionContext, type ContextOperation } from '../context/execution'
 import { PluginEventBus } from '../events/plugin-events'
 import { PluginHost } from './host'
@@ -48,7 +49,11 @@ export function createStudioPluginRuntime(runnerPath: string) {
   const context = (scope: ExecutionScope, signal: AbortSignal): ExecutionContext => createExecutionContext(scope, signal, logger, {
     authorize: async (current, operation, resourceId) => authorizePluginScope(current, operation, resourceId),
     agents: { list: async profileId => registry.list(profileId) },
-    runs: { get: async (current, id) => coordinator.get(current, id), output: async (current, id, after) => coordinator.output(current, id, after) },
+    runs: {
+      start: async (current, input, signal) => startStudioAgentRun(current, input, signal, coordinator),
+      get: async (current, id) => coordinator.get(current, id),
+      output: async (current, id, after) => coordinator.output(current, id, after),
+    },
     sessions: { remove: (current, id, signal) => removeStudioSession({ id, profileId: current.profileId }, {
       signal, sessionId: current.sessionId,
       authorize: () => authorizePluginScope(current, 'sessions.remove', id),

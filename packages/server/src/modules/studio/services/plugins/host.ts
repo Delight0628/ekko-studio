@@ -29,7 +29,7 @@ const CORE_EVENTS: Array<keyof StudioEventMap> = [
   'run.completed', 'run.failed', 'run.cancelled', 'session.deleted',
 ]
 const SUPPORTED_CAPABILITIES = new Set([
-  'agents.register', 'agents.read', 'sessions.read', 'sessions.remove', 'runs.read',
+  'agents.register', 'agents.read', 'sessions.read', 'sessions.remove', 'runs.read', 'runs.start',
   ...CORE_EVENTS.map(name => `events.subscribe:${name}`),
 ])
 

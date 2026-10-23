@@ -58,6 +58,7 @@ export interface StudioDomainServices {
     list(): Promise<AgentTypeSummary[]>
   }
   readonly runs: {
+    start(input: AgentRunStartInput): Promise<AgentRunRecord>
     get(id: string): Promise<AgentRunRecord>
     output(id: string, after?: number): Promise<AgentOutputEvent[]>
   }
@@ -121,6 +122,13 @@ export interface AgentRunInput {
   content: ContentBlock[]
   model?: string
   timeoutMs?: number
+}
+
+/** Start an independent instance run. Identity and execution scope are supplied by the host. */
+export interface AgentRunStartInput {
+  instanceId: string
+  input: AgentRunInput
+  idempotencyKey: string
 }
 
 export type AgentOutputEvent =

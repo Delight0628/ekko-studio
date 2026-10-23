@@ -1,6 +1,6 @@
 import type { Context } from 'koa'
 import { randomUUID } from 'node:crypto'
-import { StudioError, type JsonObject, type AgentRunInput, type ExecutionScope } from '../contracts/plugins'
+import { StudioError, type JsonObject, type AgentRunStartInput, type ExecutionScope } from '../contracts/plugins'
 import { getStudioPluginRuntime, authorizePluginScope } from '../services/plugins/runtime'
 import { jsonCopy } from '../services/plugins/validation'
 
@@ -80,9 +80,8 @@ export const createAgentInstance = (ctx: Context) => respond(ctx, () => {
 })
 export const startAgentExecution = (ctx: Context) => respond(ctx, () => {
   const input = body(ctx, ['input', 'idempotencyKey', 'profile'])
-  if (!input.input || typeof input.input !== 'object' || Array.isArray(input.input) || typeof input.idempotencyKey !== 'string') throw new StudioError('INVALID_ARGUMENT', 'Run input and idempotency key are required')
-  if (Object.keys(input.input).some(key => !['content', 'model', 'timeoutMs'].includes(key))) throw new StudioError('INVALID_ARGUMENT', 'Unknown run input property')
-  return getStudioPluginRuntime().coordinator.start(executionScope(ctx), ctx.params.id, input.input as unknown as AgentRunInput, input.idempotencyKey)
+  const context = getStudioPluginRuntime().context(executionScope(ctx), new AbortController().signal)
+  return context.runs.start({ instanceId: ctx.params.id, input: input.input, idempotencyKey: input.idempotencyKey } as unknown as AgentRunStartInput)
 })
 export const getAgentExecution = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().coordinator.get(executionScope(ctx), ctx.params.id))
 export const getAgentExecutionOutput = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().coordinator.output(executionScope(ctx), ctx.params.id, Number(ctx.query.after ?? -1)))
