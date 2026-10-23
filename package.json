@@ -75,8 +75,6 @@
     "claude": "claude --dangerously-skip-permissions",
     "test:workflow-live": "vite-node scripts/workflow-live-acceptance.ts",
     "pack:npm": "node scripts/pack-npm-releases.mjs",
-    "pack:tos": "node scripts/pack-tos-deb.mjs",
-    "verify:tos": "node scripts/pack-tos-deb.mjs --verify",
     "publish:npm": "node scripts/publish-npm-releases.mjs"
   },
   "files": [
