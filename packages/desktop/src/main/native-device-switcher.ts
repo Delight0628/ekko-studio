@@ -111,9 +111,10 @@ export class NativeDeviceSwitcher {
       this.authorize(event)
       this.requestOperation('switch', id)
     })
-    ipcMain.handle(channel('confirm'), (event, token: unknown) => {
+    ipcMain.handle(channel('confirm'), (event, token: unknown, mode: unknown) => {
       this.authorizeAction(event, token)
-      return this.confirmOperation()
+      if (mode !== undefined && mode !== 'current' && mode !== 'new') throw new Error('Invalid device open mode')
+      return this.confirmOperation(mode === 'new')
     })
     ipcMain.handle(channel('cancel'), (event, token: unknown) => {
       this.authorizeAction(event, token)
@@ -256,7 +257,7 @@ export class NativeDeviceSwitcher {
     this.refresh()
   }
 
-  private async confirmOperation() {
+  private async confirmOperation(newInstance = false) {
     if (this.busy) throw new Error('REMOTE_DEVICE_BUSY')
     const operation = this.operation!
     if (!['confirm', 'error'].includes(operation.stage)) throw new Error('REMOTE_DEVICE_BUSY')
@@ -270,6 +271,12 @@ export class NativeDeviceSwitcher {
     this.window.setProgressBar(2)
     this.refresh()
     try {
+      if (newInstance) {
+        await this.devices().openInNewInstance(operation.target.id)
+        this.busy = false;this.window.setProgressBar(-1)
+        this.actionWindow?.close()
+        return
+      }
       await this.devices().switchTo(operation.target.id)
       if (this.disposed) return
       operation.stage = 'restarting'

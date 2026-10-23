@@ -26,6 +26,7 @@ interface Options {
   env: NodeJS.ProcessEnv
   checkReady: (url: string) => Promise<void>
   restart: () => boolean
+  openInstance?: (serverUrl: string | null, devices: DesktopRemoteDevice[]) => Promise<void>
 }
 
 function fail(code: string): never {
@@ -122,6 +123,20 @@ export class DesktopRemoteDevices {
     const devices = this.settings.devices.filter(row => row !== device)
     this.persist({ devices, serverUrl: this.settings.serverUrl === device.serverUrl ? null : this.settings.serverUrl })
     return this.state()
+  }
+
+  async openInNewInstance(id: unknown): Promise<void> {
+    if (this.switching) return fail('BUSY')
+    const device = id === null ? null : this.settings.devices.find(row => row.id === id)
+    if (device === undefined) return fail('NOT_FOUND')
+    if (!this.options.openInstance) return fail('RESTART_FAILED')
+    const url = device?.serverUrl ?? null
+    if (url) {
+      requireRemoteServerRootUrl(url)
+      try { await this.options.checkReady(url) } catch { return fail('UNREACHABLE') }
+    }
+    try { await this.options.openInstance(url, this.state().devices) }
+    catch { return fail('RESTART_FAILED') }
   }
 
   async switchTo(id: unknown): Promise<void> {

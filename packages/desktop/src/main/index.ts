@@ -1,3 +1,6 @@
+import { spawn } from 'node:child_process'
+import { createServer } from 'node:net'
+import { deviceInstanceLaunch, prepareDeviceInstance, DEVICE_INSTANCE_ENV } from './device-instance'
 import { revokesRemoteBrowserGrant } from './browser-remote-navigation'
 import {
   app,
@@ -66,6 +69,9 @@ import { getOpenAtLogin as readOpenAtLogin, setOpenAtLogin as writeOpenAtLogin, 
 import { PROVIDER_IMPORT_SCHEME, providerImportPayload, providerImportFromArgs, providerImportTarget } from './provider-import'
 
 configureDesktopIdentity(app)
+if (process.env[DEVICE_INSTANCE_ENV] && process.env.EKKO_STUDIO_INSTANCE_USER_DATA) {
+  app.setPath('userData', process.env.EKKO_STUDIO_INSTANCE_USER_DATA)
+}
 
 const PORT = Number(process.env.HERMES_DESKTOP_PORT) || 8748
 const START_HIDDEN = process.argv.includes('--hidden')
@@ -207,6 +213,25 @@ function desktopRemoteDevices(): DesktopRemoteDevices {
     env: process.env,
     checkReady: url => waitForRemoteServerReady(url, remoteReadyTimeoutMs()),
     restart: () => scheduleAppRestart(250),
+    openInstance: async (serverUrl, devices) => {
+      const launch = deviceInstanceLaunch({ home: webUiHome(), userData: app.getPath('userData'),
+        serverUrl, devices, env: process.env, argv: process.argv, packaged: app.isPackaged })
+      // A local child needs its own server port even while the original stays alive.
+      const port = await new Promise<number>((resolve, reject) => {
+        const probe = createServer();probe.once('error', reject)
+        probe.listen(0, '127.0.0.1', () => {
+          const address = probe.address()
+          if (!address || typeof address === 'string') { probe.close();reject(new Error('No instance port'));return }
+          probe.close(error => error ? reject(error) : resolve(address.port))
+        })
+      })
+      launch.env.HERMES_DESKTOP_PORT = String(port)
+      prepareDeviceInstance(launch)
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(process.execPath, launch.args, { env: launch.env, detached: true, stdio: 'ignore' })
+        child.once('error', reject);child.once('spawn', () => { child.unref();resolve() })
+      })
+    },
   })
 }
 

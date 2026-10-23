@@ -132,3 +132,17 @@ describe('switching desktop devices', () => {
     expect(options.restart).not.toHaveBeenCalled()
   })
 })
+
+it('opens a separate instance without rewriting parent selection or restarting it', async () => {
+  const { options, manager, file } = setup('https://current.test')
+  const state = manager.add({ name: 'Other', serverUrl: 'https://other.test' })
+  const target = state.devices.find(d => d.serverUrl === 'https://other.test')!
+  const before = readFileSync(file, 'utf8')
+  const openInstance = vi.fn(async () => {})
+  const withLauncher = new DesktopRemoteDevices({ ...options, openInstance })
+  await withLauncher.openInNewInstance(target.id)
+  expect(openInstance).toHaveBeenCalledWith('https://other.test', expect.any(Array))
+  expect(options.checkReady).toHaveBeenCalledWith('https://other.test')
+  expect(options.restart).not.toHaveBeenCalled()
+  expect(readFileSync(file, 'utf8')).toBe(before)
+})
