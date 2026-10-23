@@ -35,6 +35,7 @@ public static class NativeDevicePointer {
  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint from, uint to, bool attach);
  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr handle, System.Text.StringBuilder text, int length);
+ [DllImport("user32.dll")] static extern bool PostMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
  [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr handle, uint flags);
  [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr handle);
  [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
@@ -44,6 +45,14 @@ public static class NativeDevicePointer {
   SetThreadDpiAwarenessContext(new IntPtr(-4));
   var handle = new IntPtr(value);
   var foreground = GetForegroundWindow();
+  var foregroundTitle = new System.Text.StringBuilder(512);GetWindowText(foreground, foregroundTitle, 512);
+  // Fresh hosted Windows ARM runners can show an unrelated account welcome
+  // window above every app. Close only this known runner popup, never a Studio dialog.
+  if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true" && foregroundTitle.ToString() == "Microsoft account") {
+    PostMessage(foreground, 0x10, IntPtr.Zero, IntPtr.Zero);
+    System.Threading.Thread.Sleep(500);
+    foreground = GetForegroundWindow();
+  }
   var current = GetCurrentThreadId();
   var target = GetWindowThreadProcessId(handle, IntPtr.Zero);
   var active = GetWindowThreadProcessId(foreground, IntPtr.Zero);
