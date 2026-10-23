@@ -149,6 +149,8 @@ interface AgentRunContext extends ExecutionContext {
 
 启动在授权等待前复制输入；接收前取消不产生 Run。接收后的独立 Run 由协调器管理，回调结束或请求断开不隐式取消它。相同 owner/profile、幂等键、实例和输入返回原记录，输入冲突返回 `REVISION_CONFLICT`；重试也重新授权。现有 HTTP 取消入口继续可用，SDK 取消、旧聊天启动、父子 Run、hook 和多轮运行仍未实现；不能将当前回执等同于上表完整的可管理流句柄。详见[启动实施记录](studio-plugin-progress.md#t02-进展agent-实例启动共用领域服务)。
 
+旧聊天准入现已迁为内部应用服务，但它仍依赖入口完成认证/分享输入限制，且通过端口注入旧执行器。它不是 `ctx.runs.start` 的新增请求形状；HTTP 直调和宿主作用域绑定完成前，不向插件暴露。详见[准入实施记录](studio-plugin-progress.md#t02-进展旧聊天启动准入服务)。
+
 写操作接受 `idempotencyKey` 或领域 revision；是否可重试由方法契约明确。RPC 断线不能触发无条件重试付款、消息发送、文件写入或启动 Run。会话删除等跨运行时操作采用可恢复操作记录，不声称远程清理和 SQLite 可以组成一个原子事务。
 
 通用错误包含 `code`、安全 `message`、`retryable` 和可选 `details/operationId`。建议稳定错误码：`INVALID_ARGUMENT`、`FORBIDDEN`、`NOT_FOUND`、`REVISION_CONFLICT`、`CAPABILITY_UNSUPPORTED`、`PLUGIN_UNAVAILABLE`、`PLUGIN_VERSION_INCOMPATIBLE`、`SYSTEM_PLUGIN_PROTECTED`、`RUNTIME_UNAVAILABLE`、`CANCELLED`、`DEADLINE_EXCEEDED`。HTTP 状态码由传输适配，不向插件暴露内部堆栈和凭据。
