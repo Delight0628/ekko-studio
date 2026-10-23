@@ -14,7 +14,9 @@ edge with the same 20px content inset.
 Search, status filtering and update-time sorting live in the table header. Each
 summary is a native details/summary disclosure: it defaults to one line and
 expands in place without navigating. The task title and trailing SVG arrow open
-the associated chat turn. Status, disclosure, sort and navigation icons are SVG,
+the associated chat turn. Expanded summaries use the title's full text width;
+the collapse icon sits on the following line without reserving a side column.
+Status, disclosure, sort and navigation icons are SVG,
 not character substitutes. Below the summary, mobile pairs a 34px agent logo
 with a two-line source block: conversation name above the status and update time.
 

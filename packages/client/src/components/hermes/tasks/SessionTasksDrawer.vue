@@ -210,8 +210,9 @@ summary { display: flex; align-items: flex-start; gap: 8px; min-width: 0; list-s
 summary::-webkit-details-marker { display: none; }
 summary svg { flex-shrink: 0; margin-top: 5px; color: $text-muted; transition: transform 160ms ease; }
 .description-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-details[open] .description-text { white-space: pre-wrap; overflow: visible; overflow-wrap: anywhere; }
-details[open] summary svg { transform: rotate(180deg); }
+details[open] summary { display: block; }
+details[open] .description-text { display: block; width: 100%; min-width: 0; white-space: pre-wrap; overflow: visible; overflow-wrap: anywhere; }
+details[open] summary svg { display: block; margin: 2px 0 0 auto; transform: rotate(180deg); }
 .source-session { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding-top: 3px; color: $text-secondary; font-size: calc(var(--font-size-base, 14px) * 12 / 14); }
 .source-session img { width: 20px; height: 20px; margin-top: 2px; object-fit: contain; }
 .source-session img, .mobile-source img { border-radius: 22%; }
