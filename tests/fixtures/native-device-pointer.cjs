@@ -98,6 +98,18 @@ public static class NativeDevicePointer {
     if (targetAttached) AttachThreadInput(current, target, false);
   }
   System.Threading.Thread.Sleep(150);
+  // Search can appear only after the initial activation; handle that bounded race.
+  for (int attempt = 0; attempt < 3 && GetForegroundWindow() != handle; attempt++) {
+    var overlay = GetForegroundWindow();
+    var overlayTitle = new System.Text.StringBuilder(512);GetWindowText(overlay, overlayTitle, 512);
+    if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") != "true" || overlayTitle.ToString() != "Search") break;
+    uint overlayPid;GetWindowThreadProcessIdOut(overlay, out overlayPid);
+    var overlayProcess = System.Diagnostics.Process.GetProcessById((int)overlayPid);
+    Console.WriteLine("Late overlay=" + overlayProcess.ProcessName);
+    if (overlayProcess.ProcessName != "SearchHost" && overlayProcess.ProcessName != "SearchApp") break;
+    overlayProcess.Kill();overlayProcess.WaitForExit(3000);
+    System.Threading.Thread.Sleep(300);SetForegroundWindow(handle);System.Threading.Thread.Sleep(150);
+  }
   var title = new System.Text.StringBuilder(512);GetWindowText(GetForegroundWindow(), title, 512);
   Console.WriteLine("Foreground diagnostic: expected=" + value + " actual=" + GetForegroundWindow().ToInt64() + " root=" + GetAncestor(handle,2).ToInt64() + " title=" + title);
   if (GetForegroundWindow() != handle && GetForegroundWindow() != GetAncestor(handle,2)) throw new Exception("Native pointer target is not foreground: " + title);
