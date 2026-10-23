@@ -41,6 +41,7 @@ public static class NativeDevicePointer {
  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint from, uint to, bool attach);
  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr handle, System.Text.StringBuilder text, int length);
+ [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr handle, int command);
  [DllImport("user32.dll")] static extern bool PostMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
  [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr handle, uint flags);
  [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr handle);
@@ -67,6 +68,12 @@ public static class NativeDevicePointer {
   if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true" && foregroundTitle.ToString() == "Microsoft account") {
     PostMessage(foreground, 0x10, IntPtr.Zero, IntPtr.Zero);
     System.Threading.Thread.Sleep(500);
+    foreground = GetForegroundWindow();
+  }
+  var shellTitle = new System.Text.StringBuilder(512); GetWindowText(foreground, shellTitle, 512);
+  if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true" && shellTitle.ToString() == "Search") {
+    ShowWindow(foreground, 0);
+    System.Threading.Thread.Sleep(300);
     foreground = GetForegroundWindow();
   }
   var current = GetCurrentThreadId();
