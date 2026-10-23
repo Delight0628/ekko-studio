@@ -81,6 +81,7 @@ export interface DesktopBrowserSelection {
 }
 
 export interface DesktopBrowserBridge {
+  onRemoteControlState?: (callback: (enabled: boolean) => void) => (() => void)
   setRemoteControl?: (enable: boolean) => Promise<boolean>
   remoteRequest?: (body: Record<string, unknown>) => Promise<unknown>
   getState: () => Promise<DesktopBrowserState>

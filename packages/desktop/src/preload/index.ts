@@ -101,6 +101,11 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
     return () => ipcRenderer.removeListener('hermes-desktop:pet-window-refresh', listener)
   },
   ...(desktopWindowKind() === 'main' ? { browser: {
+    onRemoteControlState: (callback: (enabled: boolean) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, enabled: boolean) => callback(enabled === true)
+      ipcRenderer.on('hermes-desktop:browser-remote-control-state', listener)
+      return () => ipcRenderer.removeListener('hermes-desktop:browser-remote-control-state', listener)
+    },
     setRemoteControl: (enable: boolean): Promise<boolean> => ipcRenderer.invoke('hermes-desktop:browser-remote-control', enable),
     remoteRequest: (body: Record<string, unknown>): Promise<unknown> => ipcRenderer.invoke('hermes-desktop:browser-remote-request', body),
     getState: (): Promise<DesktopBrowserState> => ipcRenderer.invoke('hermes-desktop:browser-get-state'),

@@ -1,3 +1,4 @@
+import { revokesRemoteBrowserGrant } from './browser-remote-navigation'
 import {
   app,
   BrowserWindow,
@@ -1338,25 +1339,36 @@ function browserForEvent(event: IpcMainInvokeEvent): BrowserManager {
 }
 
 // Remote renderer gets an explicit capability, never the local broker's secrets.
+let remoteBrowserGrantCleanup: (() => void) | null = null
 let remoteBrowserGrantGeneration = 0
 let remoteBrowserGrant: { clientId: string; token: string; endpoint: string } | null = null
-function revokeRemoteBrowserGrant(): void {
+function revokeRemoteBrowserGrant(notify = true): void {
+  remoteBrowserGrantCleanup?.(); remoteBrowserGrantCleanup = null
   remoteBrowserGrantGeneration++
   if (remoteBrowserGrant) browserBroker?.revokeClient(remoteBrowserGrant.clientId)
   remoteBrowserGrant = null
+  if (notify && mainWindow && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send('hermes-desktop:browser-remote-control-state', false)
 }
 ipcMain.handle('hermes-desktop:browser-remote-control', async (event, enable: unknown) => {
   browserForEvent(event)
   if (enable !== true) { revokeRemoteBrowserGrant(); return false }
   if (!activeRemoteServerUrl || !browserBroker || !mainWindow) throw new Error('Remote device browser is unavailable')
-  revokeRemoteBrowserGrant()
+  revokeRemoteBrowserGrant(false)
   const generation = remoteBrowserGrantGeneration
   const owner = mainWindow.webContents
   const remoteUrl = activeRemoteServerUrl
   // Clicking the browser-panel switch is the explicit grant. Do not prompt twice.
   if (owner.isDestroyed()) return false
-  owner.once('did-start-navigation', revokeRemoteBrowserGrant)
-  owner.once('render-process-gone', revokeRemoteBrowserGrant)
+  // Hash/router changes and subframe navigation do not replace the trusted
+  // Studio document. Revoke only when its top-level document is replaced.
+  const navigation = (_event: unknown, _url: string, inPlace: boolean, mainFrame: boolean) => {
+    if (revokesRemoteBrowserGrant(inPlace, mainFrame)) revokeRemoteBrowserGrant()
+  }
+  owner.on('did-start-navigation', navigation)
+  const gone = () => revokeRemoteBrowserGrant()
+  owner.once('render-process-gone', gone)
+  owner.once('destroyed', gone)
+  remoteBrowserGrantCleanup = () => { owner.removeListener('did-start-navigation', navigation); owner.removeListener('render-process-gone', gone); owner.removeListener('destroyed', gone) }
   const descriptor = await browserBroker.start()
   const url = new URL(descriptor.endpoint); url.pathname = '/v1/session'
   const registration = await fetch(url, {
