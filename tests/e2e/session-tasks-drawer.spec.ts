@@ -40,6 +40,17 @@ for (const width of [1440, 390]) {
     if (width === 390) {
       const filter = await drawer.getByRole('button', { name: '筛选任务状态' }).boundingBox()
       expect(Math.round(width - filter!.x - filter!.width)).toBe(20)
+      const row=drawer.locator('.task-row').first()
+      const avatar=(await row.locator('.mobile-source img').boundingBox())!
+      const name=(await row.locator('.mobile-session-name').boundingBox())!
+      const meta=(await row.locator('.mobile-meta').boundingBox())!
+      expect(avatar.width).toBe(34)
+      expect(name.x).toBeGreaterThanOrEqual(avatar.x+avatar.width)
+      expect(meta.x).toBe(name.x)
+      expect(meta.y).toBeGreaterThanOrEqual(name.y+name.height)
+      await expect(row.locator('.status-cell')).toBeHidden()
+      await expect(row.locator('.mobile-meta .task-status')).toBeVisible()
+      await expect(row.locator('.mobile-meta .mobile-time')).toBeVisible()
     }
     const bounds = await drawer.locator('.task-list').boundingBox()
     expect(bounds?.width).toBe(width === 1440 ? 1200 : 390)

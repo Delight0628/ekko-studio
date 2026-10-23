@@ -48,7 +48,7 @@ test('refreshes completion on focus and renders the approved list at desktop and
   await expect(page.locator('.task-row')).toHaveCount(3)
   await page.screenshot({ path: '/tmp/ekko-task-page-desktop.png' })
   await page.setViewportSize({ width: 390, height: 844 })
-  expect(await page.locator('.task-status').first().evaluate(el => el.getBoundingClientRect().height)).toBeLessThan(28)
+  expect(await page.locator('.task-status:visible').first().evaluate(el => el.getBoundingClientRect().height)).toBeLessThan(28)
   expect(await page.locator('.mobile-time').first().evaluate(el => el.getBoundingClientRect().height - parseFloat(getComputedStyle(el).paddingTop))).toBeLessThanOrEqual(18)
   await page.screenshot({ path: '/tmp/ekko-task-page-mobile.png' })
   completed = true
