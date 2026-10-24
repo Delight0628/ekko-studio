@@ -6,7 +6,7 @@ import { join } from 'node:path'
 
 export function deviceWindowEndpoint(root: string, url: string | null): string {
   const key = createHash('sha256').update(JSON.stringify([root, url])).digest('hex').slice(0, 40)
-  return process.platform === 'win32' ? `\\\\.\\pipe\\ekko-device-${key}` : join(tmpdir(), `ekko-device-${key}.sock`)
+  return process.platform === 'win32' ? `\\\\.\\pipe\\ekko-device-${key}` : join(process.platform === 'darwin' ? '/tmp' : tmpdir(), `ekko-device-${key}.sock`)
 }
 export async function focusDeviceWindow(endpoint: string): Promise<boolean> {
   return new Promise(resolve => {
