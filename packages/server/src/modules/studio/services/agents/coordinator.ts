@@ -9,6 +9,7 @@ import { PluginEventBus } from '../events/plugin-events'
 import { compileSchema, jsonCopy, parseAgentOutput } from '../plugins/validation'
 import { ManagedMcpScope } from '../mcp/managed'
 import { ManagedProcessScope } from '../processes/managed'
+import { agentStateDirectory } from './state-directory'
 import { AgentManagement } from './management'
 
 interface ActiveRun {
@@ -49,6 +50,7 @@ export class AgentCoordinator {
     store: AgentExecutionStore; registry: AgentRegistry; events: PluginEventBus; logger: ScopedLogger
     authorize(scope: ExecutionScope): void
     context(scope: ExecutionScope, signal: AbortSignal): ExecutionContext
+    stateRoot?: string
     settleRun?(runId: string): Promise<void>
   }) {}
 
@@ -352,11 +354,12 @@ export class AgentCoordinator {
         const mcp = new ManagedMcpScope(controller.signal, () => { assertDispatch() })
         // Install the lease before invoking user code, including factories that
         // start a process and then throw synchronously.
-        const creating = Promise.resolve().then(() => {
+        const creating = Promise.resolve().then(async () => {
+          const stateDirectory = instance.mode === 'scoped' && this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, run.provider) : undefined
           assertDispatch()
           return resolved.definition.create({ instanceId: instance.id, config: instance.config, configRevision: instance.revision, mode: instance.mode,
             ...(resume === undefined ? {} : { resume }) }, {
-            provider: run.provider, runtimeSessionId: id, profileId: scope.profileId, ownerId: scope.principal.id, signal: controller.signal, logger: this.options.logger, processes: processes.api, mcp: mcp.api,
+            ...(stateDirectory ? { stateDirectory } : {}), provider: run.provider, runtimeSessionId: id, profileId: scope.profileId, ownerId: scope.principal.id, signal: controller.signal, logger: this.options.logger, processes: processes.api, mcp: mcp.api,
           })
         })
         lease = { id, provider: run.provider, revision: run.configRevision, controller, runtime: creating, creating: true, processes, mcp }

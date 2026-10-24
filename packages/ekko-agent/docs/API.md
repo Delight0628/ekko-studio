@@ -115,6 +115,8 @@ JavaScript 运行时也会为不与根字段冲突的 Profile 安装直接属性
 | `createRuntime(options?)` | `CreateEkkoRuntimeOptions` | `AgentRuntime` | 兼容的安装级 runtime 工厂。 |
 | `close()` | 无 | `void` | 幂等关闭监听、memory 与数据库；Profile Agent 不单独关闭共享资源。 |
 
+原生 Responses 与 Anthropic 适配器另实现可选的 `ModelClient.nativeRequest(body, request)`，供宿主代理同协议 CLI 请求。它保留原生工具、推理与图片字段，但用可信 `request.model`（或适配器默认模型）覆盖 body.model；认证头、端点与超时仍由适配器配置决定，HTTP 重定向被拒绝。返回原始 `Response`，调用方必须处理有界读取、取消、原生终态、错误脱敏和用量记录。这个底层端口不包含 Studio 身份校验或记账；不能直接向插件暴露，也不代表所有模型客户端或 OAuth 装饰器都支持原生透传。
+
 持久数据库修复并通过自检后，当前 Setup 仍保持临时内存库直到本轮结束，避免在一次 run 中混用新旧连接。Ekko Studio 会在所有活动 run 与后台任务结束后自动关闭该 Setup，下一次 run 自动重建并连接已修复的持久数据库；故障期间写入临时库的数据不迁移。独立宿主需要在同一边界自行重建 Setup。`restartRequired` 表示“当前 Setup 需要被宿主重载”，在 Studio 中不要求用户手动重启应用。
 
 根容器还保留配置/模型兼容转发方法：`readConfig`、`updateConfig`、`replaceConfig`、`resetConfig`；`list/get/set/update/deleteModelProviderPreset`、`installModelProviderPreset`；`list/get/set/update/deleteModelProvider`、`setDefaultModel`；`list/get/set/update/deleteModelAuthorization`、`modelAuthorizationNeedsRefresh`、`refreshModelAuthorization`、`resolveModelAuthorization`。参数和返回值与下文对应的 `config`、`model`、`authorization` 方法相同。
@@ -2548,6 +2550,7 @@ export class AnthropicMessagesModelClient implements ModelClient {
   readonly capabilities: ModelCapabilities
   constructor(config: ModelProviderConfig, options: ModelClientOptions = {})
   requestTarget(): string
+  nativeRequest(body: Record<string, unknown>, request: ModelRequest): Promise<Response>
   async create(request: ModelRequest): Promise<ModelResponse>
   async stream(request: ModelRequest): AsyncIterable<ModelEvent>
 }
@@ -2612,6 +2615,7 @@ export class OpenAIResponsesModelClient implements ModelClient {
   readonly capabilities: ModelCapabilities
   constructor(config: ModelProviderConfig, options: ModelClientOptions = {})
   requestTarget(): string
+  nativeRequest(body: Record<string, unknown>, request: ModelRequest): Promise<Response>
   async create(request: ModelRequest): Promise<ModelResponse>
   async stream(request: ModelRequest): AsyncIterable<ModelEvent>
 }
@@ -2779,6 +2783,7 @@ export interface ModelClient {
   requestStyle: ModelRequestStyle
   capabilities: ModelCapabilities
   requestTarget?(request: ModelRequest): string
+  nativeRequest?(body: Record<string, unknown>, request: ModelRequest): Promise<Response>
   create(request: ModelRequest): Promise<ModelResponse>
   stream(request: ModelRequest): AsyncIterable<ModelEvent>
 }

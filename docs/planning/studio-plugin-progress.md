@@ -17,12 +17,13 @@
 | Agent API 执行 | 实例、接受请求、幂等、启动、流输出、完成屏障、取消、终态与事件事务落库；崩溃恢复标记 interrupted，不自动重放输入 |
 | 原生管理检查 | 通用 `management.inspect`、目录能力发现、独立短期资源和所有者/profile 鉴权；Codex 脱敏账号状态及模型分页，Qwen ACP 信息/认证方式；登录、配置文件等完整管理仍未迁移 |
 | 受管进程 | runtime 租约持有管道进程，宿主签发句柄、用户/profile/runtime 隔离、有界字节读取与写入背压、环境白名单、退出确认和进程树终止；worker 不持有宿主 ChildProcess |
+| 原生模型网关 | Run 绑定 loopback 租约、宿主凭据闭包、Responses/Anthropic 同协议直通、逐调用计量及取消清理；Qwen/Codex scoped 原生目录隔离，跨协议转换仍待完成 |
 | MCP 工具 SDK | `runtime.mcp.connect` 支持显式 stdio/HTTP 配置、工具发现/调用、文本/图片/JSON 结果、跨成功轮次连接复用、撤权回收及可等待清理；原生配置注入、统一交互凭据和 resources/prompts 仍未完成 |
 | 协议抽取 | 标准 ACP 连接及事件转换移入独立 `studio-agent-drivers`；旧调用通过兼容入口复用，原有协议测试继续通过 |
 | 旧聊天启动 | 准入已迁为共用服务，HTTP 直接调用；直调入口已绑定宿主 ExecutionScope、复制输入与身份并区分准入前取消和准入后排队；SDK 已通过 `chat.start/get/cancel` 接入已有会话文本运行 |
 | 工程接入 | bootstrap、鉴权 API、生成式 OpenAPI、runner 构建、插件私有导入边界检查、独立 Echo 样例 |
 
-安装策略测试中的 14 条 fixture 只验证保护和幂等规则。**当前没有把这 14 个 Agent 注册成已安装系统插件**，也没有用空壳包代替厂商迁移。已有 Qwen 与 Codex 独立包的 global 文本运行增量，尚未默认安装或替换旧入口，不能计为完整迁移。旧 Coding Agent 仍使用原执行和管理路径。Hermes/Ekko 仍是原内置模块。
+安装策略测试中的 14 条 fixture 只验证保护和幂等规则。**当前没有把这 14 个 Agent 注册成已安装系统插件**，也没有用空壳包代替厂商迁移。已有 Qwen 与 Codex 独立包的 global/scoped 文本运行增量（scoped 目前要求原生协议一致），尚未默认安装或替换旧入口，不能计为完整迁移。旧 Coding Agent 仍使用原执行和管理路径。Hermes/Ekko 仍是原内置模块。
 
 ## 当前开发接口
 
@@ -507,6 +508,23 @@ MCP SDK 已以 `93cc9e9ff` 提交并推送至现有草稿 PR。随后在该提�
 验证：最终管理/配置/原生插件/HTTP/worker/生命周期/ACP 专项 8 文件、138 项通过；全量 coverage 915 文件、9,414 项通过，12 文件/33 项跳过，563.45 秒（Node 24.22.1、两 worker、默认时限，同机同时执行浏览器回归）。生产构建、插件及服务端类型检查、生成式 OpenAPI、harness 和差异检查通过。
 
 完整浏览器回归首轮 934 项通过、1 项失败（11.2 分钟，无自动重试）：既有 `unified-page-loading` 的 TTS 页在虚拟时钟推进后没有找到加载遮罩。保留首次失败诊断，原断言、默认时限和生产前端代码均未修改；仅该用例带 trace 单独复测 1 项通过（8.1 秒）。不将本次浏览器全量称为首轮全绿；前一提交 `c7ddd48e9` 的构建、runtime、全部浏览器分片与三平台进程 CI 均已通过，新提交仍由 PR CI 继续验证。
+
+## T05/T06/T08 进展：Run 绑定原生模型网关与 scoped 配置
+
+新增公共 `ctx.models.gateway({ model, protocol })`，由宿主监听 loopback 并签发逐 Run 临时凭据。Qwen/Codex 独立包已接入 scoped 模式，原生 Home/配置/历史放在宿主按 owner、profile、实例、提供方版本和配置 revision 划分的目录，不复用用户全局账号目录。
+
+- 授权必须声明并获授 `models.gateway`。租约只接受已有 Run，不能从请求覆盖 owner/profile/session/Run；每次请求重新解析所选宿主模型，原生请求的 model 不能改变上游目标。提供方凭据与授权 fetch 留在宿主闭包，插件只获得短期 loopback token。
+- 当前只开放 Responses→Responses 和 Anthropic Messages→Anthropic Messages 的同协议原生路径；完整保留 custom tool、推理签名/密文、工具历史和图片字段，不以通用文本接口裁剪原生请求。模型协议不匹配明确拒绝，尚无 Chat Completions 转换、原生 compact 或 WebSocket 路径。
+- 每个 HTTP 调用分配宿主 modelCallId，固定父 Run 和计量所有权；成功帧须等待用量及 Run 投影提交，累计原生线程计数不伪装成逐调用账单。缺失 counters 保持 unknown，EOF/错误/记账失败不输出成功帧。记账或清理失败保留未确认状态并阻止成功完成。
+- 受限额约束：64 个租约/在途请求、每租约 4 请求，16 MiB 输入、32 MiB 输出、1 MiB SSE 帧、120 秒请求期限、10 分钟租约期限。取消、请求断连、权限撤销、Run 收尾、worker/宿主退出撤销准入并回收在途工作；旧 token 不能重绑下一轮。
+- Qwen 使用隔离的 Anthropic 配置；Codex scoped 每轮启动独立 app-server，再以原生 thread checkpoint 续聊，global 保留原进程复用。临时 token 仅进入受管子进程环境，原生配置文件不持久化 token。scoped 检查接口暂明确不支持，避免误读全局账号。
+- stateDirectory 不是操作系统沙箱。CLI 原生登录/完整管理、跨协议网关、host MCP/Skills 注入、图片 artifact 接入、全局原生用量对账、旧目录回收/升级迁移与聊天 UI 仍未完成。T08/T09 及七大交付块继续保持未完成。
+
+验证中：最终专项 6 文件、111 项通过，覆盖真实 worker 的 scoped 续聊、取消、启动阶段中止、目录隔离、网关授权/撤销和记账失败屏障。本机 Codex 0.163.0、Qwen Code 0.25.0 真实工件各完成 global/scoped 两轮，均保持同一原生会话；14 次本地 fixture 模型请求通过，scoped 逐调用宿主计量通过。未进行真实账号登录或真实供应商推理。纯 token 解析从记账服务抽出，保留原导出与语义，避免独立验收误加载服务器日志轮转定时器；该调整后用量/模型专项 6 文件、158 项通过，真实 CLI 验收进程正常退出。
+
+完整 coverage 首轮 916 文件、9,444 项通过，既有 Windows Pi 撤销用例 1 项超时，12 文件/33 项跳过（780.94 秒，与浏览器回归并行）；原失败用例保持默认 5 秒时限，单独复测 1 项通过。完整 coverage 独立重跑全部通过：917 文件、9,445 项通过，12 文件/33 项跳过，305.08 秒（Node 24.22.1、两 worker、默认时限）。最后补充的“解析尚未完成时取消 RPC、仍等待宿主收尾”由网关/桥接 2 文件、25 项专项通过验证。最终完整生产构建、SDK/driver/runner/插件类型检查、生成式 OpenAPI、harness/API 文档和差异检查通过；最终插件工件的真实 CLI 验收再次通过并正常退出。
+
+浏览器首轮 933 项通过、2 项失败（12.6 分钟，无自动重试）：既有动态 GIF 壁纸与 TTS 页面加载遮罩用例。保留首次失败诊断，前端代码、原断言和默认时限均未修改；这两个原用例带 trace 单独复测全部通过（11.6 秒）。不称为浏览器首轮全绿。上一提交 `40fc22e08` 的全部 CI 已通过；当前增量继续由 PR CI 验证。
 
 ## CI 修复：JEV harness 重复解析
 

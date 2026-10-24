@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { AcpConnection, AgentEventQueue, ManagedProcessTransport, acpMcpServers } from '@ekko-studio/agent-drivers'
 import { StudioError, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
+import { scopedQwen } from './scoped'
 import { management } from './management'
 
 const schema = {
@@ -23,12 +24,11 @@ const plugin: StudioPlugin = {
     plugin.agents.register({
       id: 'qwen', name: 'Qwen Code', configSchema: schema as unknown as JsonObject,
       management,
-      // Scoped provider setup and artifact-based images need host integration
-      // before these capabilities can be advertised through the instance API.
-      capabilities: { text: true, streaming: true, reasoning: true, approvals: true, resume: true, persistentSession: true, modes: ['global'] },
+      capabilities: { text: true, streaming: true, reasoning: true, approvals: true, resume: true, persistentSession: true, modes: ['scoped', 'global'] },
       async create(input, runtime) {
         const config = input.config
-        const cwd = String(config.cwd)
+        const cwd = String(config.cwd), scoped = input.mode === 'scoped'
+        if (scoped && !runtime.stateDirectory) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Scoped Qwen requires host-managed storage')
         if (!isAbsolute(cwd)) throw new StudioError('INVALID_ARGUMENT', 'Qwen working directory must be absolute')
         let nativeSessionId: string | undefined
         if (input.resume !== undefined) {
@@ -48,6 +48,7 @@ const plugin: StudioPlugin = {
             if (input.content.some(block => block.type !== 'text')) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Qwen instance runs currently accept text')
             const events = new AgentEventQueue<AgentOutputEvent>()
             let sequence = 0, cancelled = ctx.signal.aborted, transport: ManagedProcessTransport | undefined, connection: AcpConnection | undefined
+            let gateway: import('@ekko-studio/plugin-sdk').ModelGatewayHandle | undefined
             let cleanupFailure: unknown
             const tools = new Map<string, string>()
             const finishedTools = new Set<string>()
@@ -65,8 +66,13 @@ const plugin: StudioPlugin = {
             const result = (async (): Promise<AgentRunResult> => {
               try {
                 if (cancelled) return { status: 'cancelled' }
+                const model = input.model || config.model as string | undefined
+                if (scoped && !model) throw new StudioError('INVALID_ARGUMENT', 'Scoped Qwen requires a Studio model')
+                gateway = scoped ? await ctx.models.gateway({ model: model!, protocol: 'anthropic' }) : undefined
+                const isolated = gateway ? await scopedQwen(runtime, gateway) : undefined
+                if (cancelled) return { status: 'cancelled' }
                 const process = await runtime.processes.spawn({ command: String(config.command || 'qwen'),
-                  args: [...(config.args as string[] || []), '--acp'], cwd, env: config.env as Record<string, string> | undefined })
+                  args: [...(config.args as string[] || []), ...(isolated?.args || []), '--acp'], cwd, env: { ...config.env as Record<string, string>, ...isolated?.env } })
                 transport = new ManagedProcessTransport(process)
                 if (cancelled) return { status: 'cancelled' }
                 connection = new AcpConnection(transport, {
@@ -134,7 +140,7 @@ const plugin: StudioPlugin = {
               } finally {
                 connection?.dispose()
                 ctx.signal.removeEventListener('abort', aborted)
-                try { await transport?.dispose() }
+                try { try { await transport?.dispose() } finally { if (!ctx.signal.aborted) await gateway?.dispose() } }
                 catch (error) { cleanupFailure = error; throw error }
                 finally { events.end(); active = undefined }
               }

@@ -5,11 +5,12 @@ import { parseChatRunStart } from '../chat-run/input'
 import { parseInteractionResponse } from '../agents/coordinator'
 import { parseWorkflowRunStart } from '../workflow/input'
 
-export type ContextOperation = 'models.read' | 'models.stream' | 'sessions.read' | 'sessions.remove' | 'agents.read' | 'runs.read' | 'runs.start' | 'runs.cancel' | 'runs.respond' | 'chat.start' | 'chat.read' | 'chat.cancel' | 'workflows.run' | 'workflows.read' | 'workflows.cancel'
+export type ContextOperation = 'models.read' | 'models.stream' | 'models.gateway' | 'sessions.read' | 'sessions.remove' | 'agents.read' | 'runs.read' | 'runs.start' | 'runs.cancel' | 'runs.respond' | 'chat.start' | 'chat.read' | 'chat.cancel' | 'workflows.run' | 'workflows.read' | 'workflows.cancel'
 
 export interface ContextServices {
   authorize(scope: ExecutionScope, operation: ContextOperation, resourceId?: string): Promise<void>
   models?: {
+    gateway?(scope: ExecutionScope, input: Parameters<StudioDomainServices['models']['gateway']>[0], signal: AbortSignal): ReturnType<StudioDomainServices['models']['gateway']>
     list(scope: ExecutionScope): ReturnType<StudioDomainServices['models']['list']>
     get(scope: ExecutionScope, id: string): ReturnType<StudioDomainServices['models']['get']>
     stream(scope: ExecutionScope, input: Parameters<StudioDomainServices['models']['stream']>[0], signal: AbortSignal): ReturnType<StudioDomainServices['models']['stream']>
@@ -67,6 +68,14 @@ export function createExecutionContext(
   return Object.freeze({
     scope, signal, logger,
     models: Object.freeze({
+      gateway: async (input: Parameters<StudioDomainServices['models']['gateway']>[0]) => {
+        if (signal.aborted) throw new StudioError('CANCELLED', 'Execution scope has ended')
+        const snapshot = jsonCopy(input)
+        await services.authorize(scope, 'models.gateway')
+        if (!services.models?.gateway) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Native model gateways are unavailable')
+        if (signal.aborted) throw new StudioError('CANCELLED', 'Execution scope has ended')
+        return services.models.gateway(scope, snapshot, signal)
+      },
       list: () => call('models.read', undefined, () => {
         if (!services.models) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Model services are unavailable')
         return services.models.list(scope)

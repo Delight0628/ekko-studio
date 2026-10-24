@@ -3,7 +3,8 @@ import { AcpConnection, ManagedProcessTransport } from '@ekko-studio/agent-drive
 import { StudioError, type AgentManagementAdapter } from '@ekko-studio/plugin-sdk'
 
 export const management: AgentManagementAdapter = {
-  async inspect({ config }, context) {
+  async inspect({ config, mode }, context) {
+    if (mode === 'scoped') throw new StudioError('CAPABILITY_UNSUPPORTED', 'Scoped inspection requires a model-bound management context')
     const cwd = String(config.cwd)
     if (!isAbsolute(cwd)) throw new StudioError('INVALID_ARGUMENT', 'Qwen working directory must be absolute')
     const process = await context.processes.spawn({ command: String(config.command || 'qwen'), args: [...(config.args as string[] || []), '--acp'],

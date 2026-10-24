@@ -5,6 +5,7 @@ import type { prepareModelResponse, listApiModels } from '../model-api/service'
 import { AsyncChannel } from '../plugins/channel'
 import { jsonCopy } from '../plugins/validation'
 import { modelResponseBody, parseModelStreamInput } from './plugin-input'
+import { PluginModelGateways, type ModelGatewayPorts } from './gateway'
 import { ModelApiError } from '../model-api/errors'
 
 interface ActiveCall { runId?: string; cancel(): Promise<void>; done: Promise<void> }
@@ -14,6 +15,7 @@ interface ModelPorts {
   authorize(scope: ExecutionScope): void
   authorizeStart?(scope: ExecutionScope): void
   list: typeof listApiModels
+  native?: ModelGatewayPorts['resolve']
   prepare: typeof prepareModelResponse
 }
 
@@ -21,7 +23,15 @@ interface ModelPorts {
 export class PluginModels {
   private readonly active = new Map<string, ActiveCall>()
   private closed = false
-  constructor(private readonly ports: ModelPorts) {}
+  private readonly gateways?: PluginModelGateways
+  constructor(private readonly ports: ModelPorts) {
+    if (ports.native) this.gateways = new PluginModelGateways({ ...ports, resolve: ports.native })
+  }
+  gateway(scope: ExecutionScope, input: import('../../contracts/plugins').ModelGatewayInput, signal: AbortSignal) {
+    if (this.closed) throw new StudioError('CANCELLED', 'Model services closed')
+    if (!this.gateways) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Native model gateways are unavailable')
+    return this.gateways.open(scope, input, signal)
+  }
 
   async list(scope: ExecutionScope): Promise<ModelSummary[]> {
     this.ports.authorize(scope)
@@ -148,13 +158,13 @@ export class PluginModels {
     } })
   }
   async settleRun(runId: string): Promise<void> {
-    const results = await Promise.allSettled([...this.active.values()].filter(call => call.runId === runId).map(call => call.cancel()))
+    const results = await Promise.allSettled([this.gateways?.settleRun(runId), ...[...this.active.values()].filter(call => call.runId === runId).map(call => call.cancel())])
     const failed = results.find(result => result.status === 'rejected')
     if (failed?.status === 'rejected') throw failed.reason
   }
   async close(): Promise<void> {
     this.closed = true
-    const results = await Promise.allSettled([...this.active.values()].map(call => call.cancel()))
+    const results = await Promise.allSettled([this.gateways?.close(), ...[...this.active.values()].map(call => call.cancel())])
     const failed = results.find(result => result.status === 'rejected')
     if (failed?.status === 'rejected') throw failed.reason
   }

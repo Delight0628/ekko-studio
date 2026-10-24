@@ -28,6 +28,7 @@ afterAll(async () => { await rm(root, { recursive: true, force: true }) })
 
 const fixture = `const fs = require('node:fs');
 fs.writeFileSync(process.env.PID_FILE, String(process.pid));
+fs.writeFileSync(process.env.PID_FILE + '.home', JSON.stringify({ home: process.env.HOME, codex: process.env.CODEX_HOME, qwen: process.env.QWEN_HOME }));
 const send = data => process.stdout.write(JSON.stringify(data) + '\\n');
 let turnId, index = 0;
 const notify = (method, params) => send({ method, params: { threadId: 'native-thread', turnId, ...params } });
@@ -39,7 +40,7 @@ const finish = () => {
 require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
   const r = JSON.parse(line);
   fs.appendFileSync(process.env.TRACE_FILE, JSON.stringify(r) + '\\n');
-  if (r.method === 'initialize') send({ id: r.id, result: {} });
+  if (r.method === 'initialize') { if (process.env.STARTUP_PHASE === 'initialize') return; send({ id: r.id, result: {} }); }
   else if (r.method === 'account/read') {
     if (process.env.INSPECT_MODE === 'hang') return;
     send({ id: r.id, result: { requiresOpenaiAuth: true, account: { type: 'chatgpt', email: 'private@example.test', planType: 'team', accessToken: 'native-secret' } } });
@@ -47,7 +48,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
     const model = id => ({ id: 'internal-' + id, model: id, displayName: 'Model ' + id, hidden: false, isDefault: id === 'first', supportedReasoningEfforts: [{ reasoningEffort: 'high', description: 'details' }], privateField: 'native-secret' });
     send({ id: r.id, result: { data: [model(r.params.cursor ? 'second' : 'first')], nextCursor: process.env.INSPECT_MODE === 'loop' || !r.params.cursor ? 'next' : null } });
   }
-  else if (r.method === 'thread/start' || r.method === 'thread/resume') send({ id: r.id, result: { thread: { id: 'native-thread' } } });
+  else if (r.method === 'thread/start' || r.method === 'thread/resume') { if (process.env.STARTUP_PHASE === 'thread') return; send({ id: r.id, result: { thread: { id: 'native-thread' } } }); }
   else if (r.method === 'turn/start') {
     turnId = 'turn-' + (++index);
     const text = r.params.input[0].text;
@@ -98,23 +99,31 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
   }
 });`
 
-async function setup(env: Record<string, string> = {}) {
+async function setup(env: Record<string, string> = {}, mode: 'global' | 'scoped' = 'global') {
   const directory = await mkdtemp(join(root, 'run-')), cli = join(directory, 'codex.cjs')
   const pidFile = join(directory, 'pid'), traceFile = join(directory, 'trace'), controlFile = join(directory, 'control')
   await writeFile(cli, fixture)
   const db = new DatabaseSync(':memory:'), store = new PluginStore(db), registry = new AgentRegistry(), events = new PluginEventBus()
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+  const issued: Array<{ runId: string; model: string; protocol: string; dispose: ReturnType<typeof vi.fn> }> = []
+  const gateway = vi.fn(async (scope: ExecutionScope, input: { model: string; protocol: 'responses' | 'anthropic' }, signal: AbortSignal) => {
+    const dispose = vi.fn(async () => {})
+    issued.push({ runId: scope.runId!, ...input, dispose })
+    signal.addEventListener('abort', () => { if (!dispose.mock.calls.length) void dispose() }, { once: true })
+    return { baseUrl: `http://127.0.0.1:1/${scope.runId}/v1`, token: `ephemeral-${scope.runId}`, ...input, dispose }
+  })
   const context = (scope: ExecutionScope, signal: AbortSignal) => createExecutionContext(scope, signal, logger, {
+    models: { gateway, list: async () => [], get: async () => { throw new Error('unused') }, stream: async () => { throw new Error('unused') } },
     authorize: async () => {}, agents: { list: async () => [] }, sessions: { get: async () => null },
   })
   const executionStore = new AgentExecutionStore(db)
-  const coordinator = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, context })
+  const coordinator = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, context, stateRoot: join(directory, 'state') })
   const host = new PluginHost({ store, registry, events, context, logger, runnerPath: runner, artifactsRoot: join(root, 'installed'),
     eventContext: async (_state, _event, signal) => context(scope, signal), acceptEvents: async batch => { for (const event of batch) events.publish(event) } })
   cleanups.push(async () => { await coordinator.close(); await host.close(); events.close(); db.close() })
   await host.registerSystemArtifact(join(root, 'plugins/codex'))
-  await host.configure({ pluginId: 'studio.agent-codex', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'processes.spawn'] }, 0)
-  const instance = coordinator.createInstance(scope, { agentTypeId: 'codex', mode: 'global', config: {
+  await host.configure({ pluginId: 'studio.agent-codex', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'processes.spawn', 'models.gateway'] }, 0)
+  const instance = coordinator.createInstance(scope, { agentTypeId: 'codex', mode, config: { ...(mode === 'scoped' ? { model: 'fixture/model' } : {}),
     cwd: directory, command: process.execPath, args: [cli], env: { PID_FILE: pidFile, TRACE_FILE: traceFile, CONTROL_FILE: controlFile, ...env },
   } })
   const start = (text: string) => coordinator.start(scope, instance.id, { content: [{ type: 'text', text }] }, text)
@@ -123,11 +132,11 @@ async function setup(env: Record<string, string> = {}) {
   const pid = async () => Number(await readFile(pidFile, 'utf8'))
   const reopen = async () => {
     await coordinator.close()
-    const next = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, context })
+    const next = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, context, stateRoot: join(directory, 'state') })
     cleanups.push(() => next.close())
     return next
   }
-  return { coordinator, host, store, registry, executionStore, instance, start, run, trace, pid, reopen, controlFile }
+  return { gateway, issued, directory, coordinator, host, store, registry, executionStore, instance, start, run, trace, pid, reopen, controlFile }
 }
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
 
@@ -226,7 +235,7 @@ it('restores the committed native thread after releasing its runtime lease', asy
 
 it('releases a real worker runtime before changing config and starts a fresh native thread', async () => {
   const f = await setup(), before = await f.run('before'), pid = await f.pid()
-  await expect(f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, config: f.instance.config, mode: 'scoped' })).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
+  await expect(f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, config: f.instance.config, mode: 'unsupported' as any })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
   expect(alive(pid)).toBe(true)
   await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, config: { ...f.instance.config, model: 'configured-model' }, mode: 'global' })
   expect(alive(pid)).toBe(false)
@@ -316,4 +325,52 @@ it.each(['crash', 'broken', 'unresolved'])('fails an incomplete native run and l
   expect(alive(await f.pid())).toBe(false)
   expect(await f.run('fresh')).toMatchObject({ status: 'completed' })
   expect((await f.trace()).filter(r => r.method === 'thread/start')).toHaveLength(2)
+})
+
+
+it('runs scoped Codex with fresh per-turn credentials and a stable isolated native home through worker RPC', async () => {
+  const f = await setup({}, 'scoped')
+  expect(await f.run('first')).toMatchObject({ status: 'completed' })
+  const firstPid = await f.pid(), firstHome = JSON.parse(await readFile(join(f.directory, 'pid.home'), 'utf8'))
+  expect(alive(firstPid)).toBe(false)
+  expect(firstHome.codex).toContain(join(f.directory, 'state'))
+  expect(await f.run('second')).toMatchObject({ status: 'completed' })
+  expect(await f.pid()).not.toBe(firstPid)
+  expect(JSON.parse(await readFile(join(f.directory, 'pid.home'), 'utf8'))).toEqual(firstHome)
+  const trace = await f.trace()
+  expect(trace.filter(frame => frame.method === 'thread/start')).toHaveLength(1)
+  expect(trace.filter(frame => frame.method === 'thread/resume')).toHaveLength(1)
+  expect(f.issued).toHaveLength(2)
+  expect(f.issued[0].runId).not.toBe(f.issued[1].runId)
+  for (const gateway of f.issued) { expect(gateway).toMatchObject({ model: 'fixture/model', protocol: 'responses' }); expect(gateway.dispose).toHaveBeenCalled() }
+  expect(await readFile(join(firstHome.codex, 'config.toml'), 'utf8')).not.toContain('ephemeral-')
+})
+
+it('cancels scoped Codex approvals, revokes the model lease and confirms native exit', async () => {
+  const f = await setup({}, 'scoped'), run = f.start('approval')
+  await vi.waitFor(() => expect(f.coordinator.get(scope, run.id).status).toBe('waiting_input'))
+  const pid = await f.pid()
+  f.coordinator.cancel(scope, run.id)
+  await f.coordinator.wait(run.id)
+  expect(alive(pid)).toBe(false)
+  expect(f.issued[0].dispose).toHaveBeenCalled()
+  expect(f.coordinator.get(scope, run.id).status).toBe('cancelled')
+})
+
+it('does not inspect the global account for a scoped Codex instance', async () => {
+  const f = await setup({}, 'scoped')
+  await expect(f.coordinator.inspectInstance(scope, f.instance.id)).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
+  await expect(f.pid()).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+
+it.each(['initialize', 'thread'])('cancels scoped Codex during native %s admission without retaining a subprocess', async phase => {
+  const f = await setup({ STARTUP_PHASE: phase }, 'scoped'), run = f.start('pending-start')
+  await vi.waitFor(async () => expect((await f.trace()).some(frame => frame.method === (phase === 'thread' ? 'thread/start' : 'initialize'))).toBe(true))
+  const pid = await f.pid()
+  f.coordinator.cancel(scope, run.id)
+  await f.coordinator.wait(run.id)
+  expect(alive(pid)).toBe(false)
+  expect(f.issued[0].dispose).toHaveBeenCalled()
+  expect(f.coordinator.get(scope, run.id).status).toBe('cancelled')
 })

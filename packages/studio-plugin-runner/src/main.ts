@@ -216,7 +216,7 @@ peer.handle('runtime.create', async value => {
   const controller = new AbortController()
   const provider: AgentProviderRef = { kind: 'plugin', pluginId: identity.id, generation: identity.generation, version: identity.version }
   const runtimeHandle = string(params.runtimeHandle)
-  const ctx: AgentRuntimeContext = { provider, profileId: identity.profileId, ownerId: string(params.ownerId), runtimeSessionId: id, logger, signal: controller.signal,
+  const ctx: AgentRuntimeContext = { ...(typeof params.stateDirectory === 'string' ? { stateDirectory: params.stateDirectory } : {}), provider, profileId: identity.profileId, ownerId: string(params.ownerId), runtimeSessionId: id, logger, signal: controller.signal,
     processes: remoteProcesses(peer, runtimeHandle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation),
     mcp: remoteMcp(peer, runtimeHandle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation) }
   const runtime = await runtimeScope.run(runtimeHandle, () => definition.create(object(params.input) as unknown as RuntimeCreateInput, ctx))

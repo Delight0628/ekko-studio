@@ -25,6 +25,7 @@ vi.mock('../../packages/server/src/modules/studio/services/model-api/keys', () =
 import { prepareModelResponse, listApiModels } from '../../packages/server/src/modules/studio/services/model-api/service'
 import { reasoningCodec } from '../../packages/server/src/modules/studio/services/model-api/reasoning'
 import { modelApiErrorBody } from '../../packages/server/src/modules/studio/services/model-api/errors'
+import { resolveNativeModel } from '../../packages/server/src/modules/studio/services/models/hosted-provider'
 
 const dir = mkdtempSync(join(tmpdir(), 'studio-model-api-'))
 mocks.config.appHome = dir
@@ -41,6 +42,35 @@ beforeEach(() => {
   mocks.runtime.mockImplementation(async input => ({ provider: input.provider, apiKey: 'upstream-secret', baseUrl: 'https://api.deepseek.com/v1', apiMode: input.apiMode }))
   mocks.createClient.mockImplementation(createModelClient)
   mocks.fetch.mockImplementation(() => Promise.resolve(response()))
+})
+
+describe('host native model transport', () => {
+  it.each([['responses', 'codex_responses'], ['anthropic', 'anthropic_messages']] as const)('keeps credentials in the host and preserves %s wire tools and history', async (protocol, apiMode) => {
+    mocks.groups.mockResolvedValue([{ provider: 'fixture', models: ['native'], api_mode: apiMode }])
+    const authorize = vi.fn(), target = await resolveNativeModel('private-profile', 'fixture/native', protocol, authorize)
+    const input = { model: 'forged', stream: true, tools: [{ type: 'custom', name: 'patch', format: { type: 'text' } }],
+      input: [{ type: 'reasoning', encrypted_content: 'signature' }], parallel_tool_calls: false, max_output_tokens: 900 }
+    const response = await target.request(input, new AbortController().signal, 'host-session')
+    expect(response).toBeInstanceOf(Response)
+    const [url, request] = mocks.fetch.mock.calls[0]
+    expect(url).toBe(`https://api.deepseek.com/v1/${protocol === 'responses' ? 'responses' : 'messages'}`)
+    expect(JSON.parse(request.body)).toEqual({ ...input, model: 'native' })
+    expect(request.redirect).toBe('error')
+    expect(new Headers(request.headers).get(protocol === 'responses' ? 'authorization' : 'x-api-key')).toBe(protocol === 'responses' ? 'Bearer upstream-secret' : 'upstream-secret')
+    expect(Object.keys(target).sort()).toEqual(['record', 'request'])
+    expect(JSON.stringify(target)).not.toContain('secret')
+    authorize.mockImplementation(() => { throw new Error('revoked') })
+    expect(() => target.request({}, new AbortController().signal, 'host-session')).toThrow('revoked')
+    expect(mocks.fetch).toHaveBeenCalledOnce()
+  })
+
+  it('rejects incompatible, disabled and missing model selections before native requests', async () => {
+    await expect(resolveNativeModel('default', 'deepseek/deepseek-reasoner', 'responses', () => {})).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
+    mocks.groups.mockResolvedValue([{ provider: 'fixture', models: ['native'], api_mode: 'codex_responses', model_meta: { native: { disabled: true } } }])
+    await expect(resolveNativeModel('default', 'fixture/native', 'responses', () => {})).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    await expect(resolveNativeModel('other', 'missing/model', 'responses', () => {})).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
 })
 
 describe('public Responses model API', () => {

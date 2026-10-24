@@ -145,6 +145,12 @@ interface AgentRunContext extends ExecutionContext {
 
 当前 SDK 模型调用提供 `models.list()`、`models.stream(ModelStreamInput)` 和 `models.get(id)`。流返回 `ModelStreamHandle`，通过 `for await (const event of handle.events)` 读取，提前结束迭代或 `await handle.cancel()` 会等待宿主取消；完整回执含输出与可为 null 的用量。`idempotencyKey` 是必填项，终态重试只返回持久回执，活动重试返回冲突而不重复执行。宿主固定 owner/profile/session/Run 归属，插件请求不能覆盖。支持范围、权限、限额与尚未完成的旧入口迁移见[模型调用实施记录](studio-plugin-progress.md#t05t06-进展sdk-受管模型调用)。
 
+当前 SDK 另提供 `ctx.models.gateway({ model, protocol })`，要求 `models.gateway` 授权与已有 Run 绑定。`protocol` 为 `responses` 或 `anthropic`；仅接受原生协议一致的宿主模型，不静默转换或删除工具字段。返回 `{ baseUrl, token, model, protocol, dispose }`，其中 token 是本机网关临时凭据，上游密钥不离开宿主。每次 HTTP 请求重新解析模型配置；用户、profile、session、Run 归属均由宿主固定。请求中的 model 不能覆盖实际目标。
+
+网关只监听 loopback，租约最长 10 分钟；每请求 120 秒，16 MiB 输入、32 MiB 输出、1 MiB SSE 帧；最多 64 个租约/请求、每租约 4 个请求。只支持前台完整历史请求，不支持服务端历史引用、后台任务、压缩端点和 WebSocket。HTTP 重试视为新模型调用，不承诺推理副作用幂等。原生成功帧在权威用量写入后交付；缺失计量保留 unknown。`dispose()` 撤销准入并等待请求和记账；Run 取消、worker 退出、授权撤销、超时和宿主关闭也自动回收。清理/记账不确定时不得当作成功屏障。
+
+`AgentRuntimeContext.stateDirectory` 为可选宿主能力：scoped 实例获得按提供方版本、owner、profile、实例和配置 revision 隔离的持久目录。路径不可由执行参数覆盖，worker 重启保持稳定。插件在其中管理自己的原生配置/历史；目录隔离不是操作系统沙箱。新 revision 不复用旧目录，历史清理和升级迁移仍未完成。
+
 当前 T02 已落地 `ctx.sessions.remove(id)`，要求 `sessions.remove` 授权，并与现有 HTTP 单删/批删共用领域服务。返回本地 `deleted` 与独立的 `native` 清理结果；profile 与主体由宿主绑定，不接收调用参数。首个副作用前响应取消，开始变更后返回实际结果。上表的活动 Run 策略 options、hook 和可靠投递仍为目标契约，不能据此假定已实现；详见[实施记录](studio-plugin-progress.md#t02-进展会话删除共用领域服务)。
 
 当前 `ctx.runs.start({ instanceId, input, idempotencyKey })` 与新 Agent 实例 HTTP 启动共用领域服务，返回持久化的 `AgentRunRecord` 回执；随后通过 `runs.get/output` 查询。`input` 沿用当前文本 `AgentRunInput`，不接受主体、profile、provider 或 scope 字段。插件必须声明并获授 `runs.start`，实例须属于当前主体及 profile。带 session/workspace/Run 绑定的 scope 暂返回 `CAPABILITY_UNSUPPORTED`，不通过清除绑定启动独立执行。

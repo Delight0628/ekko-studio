@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
+import { DatabaseSync } from "node:sqlite";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -12,7 +13,12 @@ async function main() {
   const root = await mkdtemp(join(tmpdir(), "studio-real-plugin-turns-"));
   const managedModule = join(root, "managed.cjs");
   await build({
-    stdin: { contents: "export { ManagedProcessScope } from './packages/server/src/modules/studio/services/processes/managed'", resolveDir: project, loader: "ts" },
+    stdin: { contents: `export { ManagedProcessScope } from './packages/server/src/modules/studio/services/processes/managed';
+export { PluginModelGateways } from './packages/server/src/modules/studio/services/models/gateway';
+export { PluginModelCallStore } from './packages/server/src/modules/studio/repositories/plugin-model-call-store';
+export { AgentRunStateStore } from './packages/server/src/modules/studio/repositories/agent-run-state-store';
+export { OpenAIResponsesModelClient } from './packages/ekko-agent/src/model/providers/openai-responses';
+export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/providers/anthropic';`, resolveDir: project, loader: "ts" },
     bundle: true,
     platform: "node",
     target: "node24.22.1",
@@ -20,7 +26,7 @@ async function main() {
     outfile: managedModule,
     logLevel: "silent"
   });
-  const { ManagedProcessScope } = createRequire(import.meta.url)(managedModule);
+  const { ManagedProcessScope, PluginModelGateways, PluginModelCallStore, AgentRunStateStore, OpenAIResponsesModelClient, AnthropicMessagesModelClient } = createRequire(import.meta.url)(managedModule);
   let calls = 0;
   const server = createServer(async (req, res) => {
     const chunks = [];
@@ -60,9 +66,16 @@ data: ${JSON.stringify({ type, ...data })}
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${server.address().port}`;
+  const db = new DatabaseSync(':memory:'), modelStore = new PluginModelCallStore(db), state = new AgentRunStateStore(db);
+  const gateways = new PluginModelGateways({ store: modelStore, state, authorize() {}, resolve: async (_profile, _model, protocol) => {
+    const Client = protocol === 'responses' ? OpenAIResponsesModelClient : AnthropicMessagesModelClient;
+    const client = new Client({ id: 'fixture', type: 'custom', defaultModel: 'fixture-model', baseUrl: `${base}/v1`, apiKey: 'host-only-fixture-key' });
+    return { request: (body, signal) => client.nativeRequest(body, { model: 'fixture-model', messages: [], signal }),
+      record: input => input.onRecorded?.({ ...input.usage, isEstimated: input.isEstimated }) };
+  } });
   try {
-    for (const vendor of ["codex", "qwen-code"]) {
-      const home = join(root, vendor);
+    for (const mode of ['global', 'scoped']) for (const vendor of ["codex", "qwen-code"]) {
+      const home = join(root, `${vendor}-${mode}`);
       await mkdir(home);
       const controller = new AbortController(), scope = new ManagedProcessScope(controller.signal, () => {
       });
@@ -93,29 +106,39 @@ requires_openai_auth = false
         plugin.apply({ agents: { register(value) {
           definition = value;
         } } });
-        const inspectionTimer = setTimeout(() => controller.abort(), 25000);
-        try {
-          const inspection = await definition.management.inspect({ instanceId: "acceptance", mode: "global", configRevision: 1, config }, { signal: controller.signal, processes: scope.api });
-          if (vendor === "codex" && (inspection.authentication.state !== "not_required" || inspection.models.status !== "available")) throw new Error("Unexpected Codex inspection");
-          if (vendor === "qwen-code" && (inspection.authentication.state !== "unknown" || inspection.models.status !== "unsupported" || !inspection.authentication.methods.length)) throw new Error("Unexpected Qwen inspection");
-          console.log(JSON.stringify({ vendor, inspection: true, authentication: inspection.authentication.state, modelCatalog: inspection.models.status, models: inspection.models.items.length }));
-        } finally { clearTimeout(inspectionTimer); }
-        runtime = await definition.create({ instanceId: "acceptance", mode: "global", configRevision: 1, config }, { signal: controller.signal, processes: scope.api });
+        if (mode === 'scoped') { config.args = []; config.model = 'fixture/model'; }
+        if (mode === 'global') {
+          const inspectionTimer = setTimeout(() => controller.abort(), 25000);
+          try {
+            const inspection = await definition.management.inspect({ instanceId: "acceptance", mode: "global", configRevision: 1, config }, { signal: controller.signal, processes: scope.api });
+            if (vendor === "codex" && (inspection.authentication.state !== "not_required" || inspection.models.status !== "available")) throw new Error("Unexpected Codex inspection");
+            if (vendor === "qwen-code" && (inspection.authentication.state !== "unknown" || inspection.models.status !== "unsupported" || !inspection.authentication.methods.length)) throw new Error("Unexpected Qwen inspection");
+            console.log(JSON.stringify({ vendor, inspection: true, authentication: inspection.authentication.state, modelCatalog: inspection.models.status, models: inspection.models.items.length }));
+          } finally { clearTimeout(inspectionTimer); }
+        }
+        runtime = await definition.create({ instanceId: "acceptance", mode, configRevision: 1, config }, { signal: controller.signal, processes: scope.api, stateDirectory: join(home, "state") });
         let checkpoint;
         for (let turn = 0; turn < 2; turn++) {
           const run = new AbortController(), timer = setTimeout(() => run.abort(), 2e4);
           try {
-            const handle = await runtime.run({ content: [{ type: "text", text: `Respond with a brief greeting. Turn ${turn}.` }] }, { signal: run.signal });
+            const runScope = { scopeId: 'acceptance', principal: { kind: 'user', id: 'fixture-owner' }, profileId: 'fixture-profile', runId: `${vendor}-${mode}-${turn}`, surface: 'api', traceId: 'fixture' };
+            const handle = await runtime.run({ content: [{ type: "text", text: `Respond with a brief greeting. Turn ${turn}.` }] }, { signal: run.signal, models: { gateway: input => gateways.open(runScope, input, run.signal) } });
             const output = [];
             const [result] = await Promise.all([handle.result, (async () => {
               for await (const event of handle.events) output.push(event);
             })()]);
             if (turn && JSON.stringify(result.checkpoint) !== JSON.stringify(checkpoint)) throw new Error(vendor + " changed native session between turns");
             checkpoint = result.checkpoint;
-            console.log(JSON.stringify({ vendor, turn: turn + 1, status: result.status, events: output.length, sameNativeSession: turn ? true : void 0 }));
+            if (mode === 'scoped') {
+              const usage = state.usage(runScope.runId);
+              if (!usage.length || usage.some(call => !call.final || call.source !== 'host' || call.inputTokens !== 12 || call.outputTokens !== 5)) throw new Error('Native host accounting failed');
+              const records = db.prepare('SELECT record_json FROM studio_plugin_model_calls').all().map(row => JSON.parse(row.record_json));
+              if (records.filter(call => call.runId === runScope.runId).some(call => call.status !== 'completed')) throw new Error('Native model call did not complete');
+            }
+            console.log(JSON.stringify({ vendor, mode, turn: turn + 1, status: result.status, events: output.length, sameNativeSession: turn ? true : void 0 }));
             if (result.status !== "completed" || !output.some((event) => ["message.delta", "message.snapshot"].includes(event.type) && event.text.includes("Native fixture answer"))) throw new Error(`${vendor} real turn did not complete`);
           } finally {
-            clearTimeout(timer);
+            clearTimeout(timer); run.abort();
           }
         }
       } finally {
@@ -124,12 +147,13 @@ requires_openai_auth = false
         await scope.close();
       }
     }
-    console.log(JSON.stringify({ passed: true, localModelRequests: calls, remoteProvider: false, accountLogin: false }));
   } finally {
+    await gateways.close(); db.close();
     server.closeAllConnections();
     await new Promise((resolve) => server.close(() => resolve()));
     await rm(root, { recursive: true, force: true });
   }
+  console.log(JSON.stringify({ passed: true, localModelRequests: calls, remoteProvider: false, accountLogin: false }));
 }
 main().catch((error) => {
   console.error(error);

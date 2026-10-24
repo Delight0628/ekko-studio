@@ -204,7 +204,7 @@ export class PluginWorker {
           if (failed?.status === 'rejected') throw failed.reason
         }
         this.runtimes.add(id)
-        try { await this.peer.request('runtime.create', toJson({ agentTypeId: meta.id, runtimeSessionId: id, runtimeHandle: processScope.handle, ownerId: context.ownerId, input })) }
+        try { await this.peer.request('runtime.create', toJson({ agentTypeId: meta.id, runtimeSessionId: id, runtimeHandle: processScope.handle, ownerId: context.ownerId, ...(context.stateDirectory ? { stateDirectory: context.stateDirectory } : {}), input })) }
         catch (error) {
           this.runtimes.delete(id)
           try { await releaseResources() } finally { await this.close() }
@@ -360,7 +360,7 @@ export class PluginWorker {
     if (params.origin !== params.scopeHandle) throw new StudioError('FORBIDDEN', 'Context belongs to a different execution callback')
     const authority = this.authorities.get(String(params.scopeHandle))
     const authorize = (capability: string) => { this.authorize(capability); authority?.(capability) }
-    if (['models.open', 'models.next', 'models.close'].includes(String(params.method))) return this.models.call(String(params.scopeHandle), String(params.method), params.args)
+    if (['models.open', 'models.next', 'models.close', 'models.gateway', 'models.gateway.close'].includes(String(params.method))) return this.models.call(String(params.scopeHandle), String(params.method), params.args)
     if (params.method === 'models.list') { authorize('models.read'); const result = await ctx.models.list(); authorize('models.read'); return toJson(result) }
     if (params.method === 'models.get') {
       authorize('models.read')

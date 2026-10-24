@@ -54,6 +54,8 @@ export interface StudioDomainServices {
     list(): Promise<ModelSummary[]>
     stream(input: ModelStreamInput): Promise<ModelStreamHandle>
     get(id: string): Promise<ModelCallRecord>
+    /** Run-bound loopback access to a matching native provider protocol. */
+    gateway(input: ModelGatewayInput): Promise<ModelGatewayHandle>
   }
   readonly workflows: {
     run(input: WorkflowRunStartInput): Promise<WorkflowRunReceipt>
@@ -81,6 +83,17 @@ export interface StudioDomainServices {
     respond(id: string, input: AgentInteractionResponse): Promise<AgentInteractionReceipt>
     usage(id: string): Promise<AgentUsage[]>
   }
+}
+
+export interface ModelGatewayInput { model: string; protocol: 'responses' | 'anthropic' }
+export interface ModelGatewayHandle {
+  readonly baseUrl: string
+  /** Ephemeral gateway credential, never an upstream provider key. */
+  readonly token: string
+  readonly model: string
+  readonly protocol: ModelGatewayInput['protocol']
+  /** Revoke admission, abort active requests, and await authoritative accounting. */
+  dispose(): Promise<void>
 }
 
 export interface ModelSummary { id: string; provider: string; callable: boolean }
@@ -227,6 +240,8 @@ export interface AgentManagementAdapter {
 }
 
 export interface AgentRuntimeContext {
+  /** Host-owned persistent directory, isolated by provider, owner, profile, instance and config revision. */
+  readonly stateDirectory?: string
   readonly provider: AgentProviderRef
   readonly runtimeSessionId: string
   readonly profileId: string

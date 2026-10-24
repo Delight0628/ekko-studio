@@ -8,6 +8,41 @@ function handle(next = vi.fn(async (): Promise<IteratorResult<ModelStreamEvent>>
 }
 function context(stream: () => Promise<ModelStreamHandle>) { return { models: { stream } } as unknown as ExecutionContext }
 
+it('binds gateway cleanup to the issuing scope and revokes access after a grant is removed', async () => {
+  let allowed = true
+  const dispose = vi.fn(async () => {}), gateway = vi.fn(async () => ({ baseUrl: 'http://127.0.0.1', token: 'ephemeral', model: 'p/m', protocol: 'responses', dispose }))
+  const bridge = new PluginModelBridge((_scope, capability) => {
+    expect(capability).toBe('models.gateway')
+    if (!allowed) throw new StudioError('FORBIDDEN', 'revoked')
+    return { models: { gateway } } as unknown as ExecutionContext
+  })
+  const opened = await bridge.call('one', 'models.gateway', { model: 'p/m', protocol: 'responses' }) as { handle: string }
+  await expect(bridge.call('two', 'models.gateway.close', { handle: opened.handle })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  expect(dispose).not.toHaveBeenCalled()
+  allowed = false
+  await vi.waitFor(() => expect(dispose).toHaveBeenCalled())
+  await bridge.closeScope('one'); await bridge.close()
+})
+
+it('waits for a late gateway lease and its cleanup before releasing a callback scope', async () => {
+  const opening = deferred<any>(), cleanup = deferred<void>(), dispose = vi.fn(() => cleanup.promise)
+  let live = true
+  const bridge = new PluginModelBridge(() => {
+    if (!live) throw new StudioError('FORBIDDEN', 'ended')
+    return { models: { gateway: () => opening.promise } } as unknown as ExecutionContext
+  })
+  const pending = bridge.call('one', 'models.gateway', { model: 'p/m', protocol: 'responses' }); void pending.catch(() => {})
+  live = false
+  let released = false
+  const closing = bridge.closeScope('one').then(() => { released = true })
+  opening.resolve({ dispose })
+  await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce())
+  expect(released).toBe(false)
+  cleanup.resolve(); await closing
+  await expect(pending).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  await bridge.close()
+})
+
 it('keeps opaque handles in their issuing scope and cancels them on scope release', async () => {
   const stream = handle(), bridge = new PluginModelBridge(() => context(async () => stream))
   const opened = await bridge.call('one', 'models.open', {}) as { handle: string }

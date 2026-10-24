@@ -29,6 +29,7 @@ import { studioSessionAccount } from '../../contracts/runs/usage'
 import { PluginHookRegistry } from '../events/plugin-hooks'
 import { configureSessionRemovalHook } from '../sessions/removal-hook'
 import { PluginModelCallStore } from '../../repositories/plugin-model-call-store'
+import { resolveNativeModel } from '../models/hosted-provider'
 import { PluginModels } from '../models/plugin'
 import { listApiModels, prepareModelResponse } from '../model-api/service'
 
@@ -71,6 +72,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
     authorize: async (current, operation, resourceId) => authorizePluginScope(current, operation, resourceId),
     agents: { list: async profileId => registry.list(profileId) },
     models: {
+      gateway: (current, input, signal) => models.gateway(current, input, signal),
       list: current => models.list(current),
       get: async (current, id) => models.get(current, id),
       stream: (current, input, signal) => models.stream(current, input, signal),
@@ -107,7 +109,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
   const executionStore = new AgentExecutionStore(db)
   executionStore.recover()
   modelStore.recover(record => executionStore.state.recordHostModelUsage(record))
-  const models = new PluginModels({ store: modelStore, state: executionStore.state, list: listApiModels, prepare: prepareModelResponse,
+  const models = new PluginModels({ store: modelStore, state: executionStore.state, list: listApiModels, prepare: prepareModelResponse, native: resolveNativeModel,
     authorizeStart: current => {
       if (current.runId && !['running', 'waiting_input'].includes(executionStore.get(current.runId)?.status || '')) throw new StudioError('RUN_FINALIZING', 'Parent run no longer accepts model work')
     },
@@ -121,7 +123,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
     },
   })
   const coordinator: AgentCoordinator = new AgentCoordinator({ store: executionStore, registry, events, logger,
-    authorize: authorizePluginScope, context, settleRun: id => models.settleRun(id) })
+    stateRoot: resolve(config.appHome, 'plugins', 'state'), authorize: authorizePluginScope, context, settleRun: id => models.settleRun(id) })
   const admission = new AgentRunAdmission(coordinator, hooks, context)
   const removeHook = configureSessionRemovalHook(async ({ scope, profileId, sessionId, signal }) => {
     if (!hooks.has(profileId, 'sessions.remove')) return

@@ -28,6 +28,7 @@ afterAll(async () => { await rm(root, { recursive: true, force: true }) })
 
 const fixture = `const fs = require('node:fs');
 fs.writeFileSync(process.env.PID_FILE, String(process.pid));
+fs.writeFileSync(process.env.PID_FILE + '.home', JSON.stringify({ home: process.env.HOME, codex: process.env.CODEX_HOME, qwen: process.env.QWEN_HOME }));
 const send = data => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...data }) + '\\n');
 let prompt;
 const update = value => send({ method: 'session/update', params: { sessionId: 'qwen-native', update: value } });
@@ -62,30 +63,38 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
   else if (r.method === 'session/cancel') process.exit(0);
 });`
 
-async function setup() {
+async function setup(mode: 'global' | 'scoped' = 'global') {
   const directory = await mkdtemp(join(root, 'run-')), cli = join(directory, 'qwen.cjs')
   const pidFile = join(directory, 'pid'), traceFile = join(directory, 'trace')
   await writeFile(cli, fixture)
   const db = new DatabaseSync(':memory:'), store = new PluginStore(db), registry = new AgentRegistry(), events = new PluginEventBus()
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+  const issued: Array<{ runId: string; model: string; protocol: string; dispose: ReturnType<typeof vi.fn> }> = []
+  const gateway = vi.fn(async (scope: ExecutionScope, input: { model: string; protocol: 'responses' | 'anthropic' }, signal: AbortSignal) => {
+    const dispose = vi.fn(async () => {})
+    issued.push({ runId: scope.runId!, ...input, dispose })
+    signal.addEventListener('abort', () => { if (!dispose.mock.calls.length) void dispose() }, { once: true })
+    return { baseUrl: `http://127.0.0.1:1/${scope.runId}/v1`, token: `ephemeral-${scope.runId}`, ...input, dispose }
+  })
   const context = (scope: ExecutionScope, signal: AbortSignal) => createExecutionContext(scope, signal, logger, {
+    models: { gateway, list: async () => [], get: async () => { throw new Error('unused') }, stream: async () => { throw new Error('unused') } },
     authorize: async () => {}, agents: { list: async () => [] }, sessions: { get: async () => null },
   })
   const executionStore = new AgentExecutionStore(db)
-  const coordinator = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, context })
+  const coordinator = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, context, stateRoot: join(directory, 'state') })
   const host = new PluginHost({ store, registry, events, context, logger, runnerPath: runner, artifactsRoot: join(root, 'installed'),
     eventContext: async (_state, _event, signal) => context(scope, signal), acceptEvents: async batch => { for (const event of batch) events.publish(event) } })
   cleanups.push(async () => { await coordinator.close(); await host.close(); events.close(); db.close() })
   await host.registerSystemArtifact(join(root, 'plugins/qwen-code'))
-  await host.configure({ pluginId: 'studio.agent-qwen', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'processes.spawn'] }, 0)
-  const instance = coordinator.createInstance(scope, { agentTypeId: 'qwen', mode: 'global', config: {
+  await host.configure({ pluginId: 'studio.agent-qwen', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'processes.spawn', 'models.gateway'] }, 0)
+  const instance = coordinator.createInstance(scope, { agentTypeId: 'qwen', mode, config: { ...(mode === 'scoped' ? { model: 'fixture/model' } : {}),
     cwd: directory, command: process.execPath, args: [cli], env: { PID_FILE: pidFile, TRACE_FILE: traceFile },
   } })
   const start = (text: string) => coordinator.start(scope, instance.id, { content: [{ type: 'text', text }] }, text)
   const run = async (text: string) => { const r = start(text); await coordinator.wait(r.id); return coordinator.get(scope, r.id) }
   const trace = async () => (await readFile(traceFile, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
   const pid = async () => Number(await readFile(pidFile, 'utf8'))
-  return { coordinator, host, executionStore, instance, start, run, trace, pid }
+  return { gateway, issued, directory, coordinator, host, executionStore, instance, start, run, trace, pid }
 }
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
 
@@ -159,4 +168,40 @@ it('rejects a relative working directory before launching a CLI', async () => {
   const run = f.coordinator.start(scope, instance.id, { content: [{ type: 'text', text: 'hello' }] }, 'invalid')
   await f.coordinator.wait(run.id)
   expect(f.coordinator.get(scope, run.id)).toMatchObject({ status: 'failed', errorCode: 'INVALID_ARGUMENT' })
+})
+
+
+it('runs scoped Qwen through a worker with isolated persistent history and per-turn gateway credentials', async () => {
+  const f = await setup('scoped')
+  expect(await f.run('first')).toMatchObject({ status: 'completed' })
+  const firstPid = await f.pid(), firstHome = JSON.parse(await readFile(join(f.directory, 'pid.home'), 'utf8'))
+  expect(firstHome.qwen).toContain(join(f.directory, 'state'))
+  expect(alive(firstPid)).toBe(false)
+  expect(await f.run('second')).toMatchObject({ status: 'completed' })
+  expect(await f.pid()).not.toBe(firstPid)
+  expect(JSON.parse(await readFile(join(f.directory, 'pid.home'), 'utf8'))).toEqual(firstHome)
+  const trace = await f.trace()
+  expect(trace.filter(frame => frame.method === 'session/new')).toHaveLength(1)
+  expect(trace.filter(frame => frame.method === 'session/load')).toHaveLength(1)
+  expect(f.issued).toHaveLength(2)
+  expect(f.issued[0].runId).not.toBe(f.issued[1].runId)
+  for (const gateway of f.issued) { expect(gateway).toMatchObject({ model: 'fixture/model', protocol: 'anthropic' }); expect(gateway.dispose).toHaveBeenCalled() }
+  expect(await readFile(join(firstHome.qwen, 'settings.json'), 'utf8')).not.toContain('ephemeral-')
+})
+
+it('cancels scoped Qwen approvals and releases its model gateway', async () => {
+  const f = await setup('scoped'), run = f.start('approval')
+  await vi.waitFor(() => expect(f.coordinator.get(scope, run.id).status).toBe('waiting_input'))
+  const pid = await f.pid()
+  f.coordinator.cancel(scope, run.id)
+  await f.coordinator.wait(run.id)
+  expect(alive(pid)).toBe(false)
+  expect(f.issued[0].dispose).toHaveBeenCalled()
+  expect(f.coordinator.get(scope, run.id).status).toBe('cancelled')
+})
+
+it('does not inspect the global account for a scoped Qwen instance', async () => {
+  const f = await setup('scoped')
+  await expect(f.coordinator.inspectInstance(scope, f.instance.id)).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
+  await expect(f.pid()).rejects.toMatchObject({ code: 'ENOENT' })
 })

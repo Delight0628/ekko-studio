@@ -6,6 +6,6 @@
   "backend": "dist/index.cjs",
   "activation": "profile",
   "contributes": { "agents": ["qwen"] },
-  "requires": { "capabilities": ["agents.register", "processes.spawn"] },
+  "requires": { "capabilities": ["agents.register", "processes.spawn", "models.gateway"] },
   "configSchema": { "type": "object", "additionalProperties": false }
 }

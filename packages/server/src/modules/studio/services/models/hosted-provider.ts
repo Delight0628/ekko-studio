@@ -1,3 +1,5 @@
+import { StudioError } from '../../contracts/plugins'
+import { recordSessionUsage, type RecordSessionUsageInput } from '../usage/usage-recorder'
 import type { ModelClient } from '../../../../../../ekko-agent/src/model/types'
 import { getSessionAvailableModelGroups } from '../../public/session-agent-runtime'
 import { resolveProviderCatalogApiMode } from '../../contracts/providers'
@@ -79,4 +81,25 @@ export async function resolveHostedModel(entry: HostedModelEntry, authorize: () 
     return fetch(input, init)
   } })
   return { client, baseUrl: providerConfig.baseUrl, accountingBaseUrl: runtime.baseUrl, requestStyle: providerConfig.requestStyle }
+}
+
+/** Resolve a native protocol without exporting provider configuration or credentials. */
+export async function resolveNativeModel(profileId: string, modelId: string, protocol: 'responses' | 'anthropic', authorize: () => void) {
+  authorize()
+  const entry = (await hostedModelCatalog([profileId])).get(modelId)
+  authorize()
+  if (!entry || !hostedModelCallable(entry)) throw new StudioError('NOT_FOUND', 'Model is unavailable')
+  const resolved = await resolveHostedModel(entry, authorize)
+  authorize()
+  if (!resolved.client.nativeRequest || resolved.requestStyle !== (protocol === 'responses' ? 'openai-responses' : 'anthropic-messages')) {
+    throw new StudioError('CAPABILITY_UNSUPPORTED', 'Model does not support the requested native protocol')
+  }
+  return {
+    request: (body: Record<string, unknown>, signal: AbortSignal, sessionId: string) => {
+      authorize()
+      return resolved.client.nativeRequest!(body, { model: entry.model, messages: [], signal, metadata: { session_id: sessionId } })
+    },
+    record: (input: Omit<RecordSessionUsageInput, 'profile' | 'provider' | 'model' | 'baseUrl'>) => recordSessionUsage({ ...input,
+      profile: entry.profile, provider: entry.group.provider, model: entry.model, baseUrl: resolved.accountingBaseUrl }),
+  }
 }
