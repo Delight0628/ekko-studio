@@ -19,6 +19,8 @@ export { PluginModelGateways } from './packages/server/src/modules/studio/servic
 export { PluginModelCallStore } from './packages/server/src/modules/studio/repositories/plugin-model-call-store';
 export { AgentRunStateStore } from './packages/server/src/modules/studio/repositories/agent-run-state-store';
 export { OpenAIResponsesModelClient } from './packages/ekko-agent/src/model/providers/openai-responses';
+export { OpenAICompatibleModelClient } from './packages/ekko-agent/src/model/providers/openai-compatible';
+export { translatedNativeRequest } from './packages/server/src/modules/studio/services/models/native-adapter';
 export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/providers/anthropic';`, resolveDir: project, loader: "ts" },
     bundle: true,
     platform: "node",
@@ -27,16 +29,17 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
     outfile: managedModule,
     logLevel: "silent"
   });
-  const { ManagedProcessScope, PluginModelGateways, PluginModelCallStore, AgentRunStateStore, OpenAIResponsesModelClient, AnthropicMessagesModelClient } = createRequire(import.meta.url)(managedModule);
+  const { ManagedProcessScope, PluginModelGateways, PluginModelCallStore, AgentRunStateStore, OpenAIResponsesModelClient, AnthropicMessagesModelClient, OpenAICompatibleModelClient, translatedNativeRequest } = createRequire(import.meta.url)(managedModule);
   let calls = 0;
+  let activeTarget = 'native';
   const requests = [];
   const imageData = (await sharp({ create: { width: 32, height: 32, channels: 3, background: 'red' } }).png().toBuffer()).toString('base64');
-  const hasImage = value => value && typeof value === 'object' && (['input_image', 'image'].includes(value.type) || Object.values(value).some(hasImage));
+  const hasImage = value => value && typeof value === 'object' && (['input_image', 'image', 'image_url'].includes(value.type) || Object.values(value).some(hasImage));
   const server = createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
-    if (!req.url?.includes("responses") && !req.url?.includes("messages")) {
+    if (!req.url?.includes("responses") && !req.url?.includes("messages") && !req.url?.includes('chat/completions')) {
       res.writeHead(404);
       res.end("{}");
       return;
@@ -57,6 +60,10 @@ data: ${JSON.stringify({ type, ...data })}
       send("response.output_text.done", { item_id: messageId, output_index: 0, content_index: 0, text });
       send("response.output_item.done", { output_index: 0, item });
       send("response.completed", { response: { id, object: "response", status: "completed", output: [item], usage: { input_tokens: 12, output_tokens: 5, total_tokens: 17, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } } } });
+    } else if (req.url.includes('chat/completions')) {
+      res.write(`data: ${JSON.stringify({ id, choices: [{ delta: { content: text } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ id, choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 12, completion_tokens: 5 } })}\n\n`);
+      res.write('data: [DONE]\n\n');
     } else {
       send("message_start", { message: { id: messageId, type: "message", role: "assistant", model: body.model, content: [], stop_reason: null, usage: { input_tokens: 12, output_tokens: 0 } } });
       send("content_block_start", { index: 0, content_block: { type: "text", text: "" } });
@@ -72,14 +79,18 @@ data: ${JSON.stringify({ type, ...data })}
   const base = `http://127.0.0.1:${server.address().port}`;
   const db = new DatabaseSync(':memory:'), modelStore = new PluginModelCallStore(db), state = new AgentRunStateStore(db);
   const gateways = new PluginModelGateways({ store: modelStore, state, authorize() {}, resolve: async (_profile, _model, protocol) => {
-    const Client = protocol === 'responses' ? OpenAIResponsesModelClient : AnthropicMessagesModelClient;
+    const Client = activeTarget === 'chat' ? OpenAICompatibleModelClient
+      : (activeTarget === 'other' ? protocol !== 'responses' : protocol === 'responses') ? OpenAIResponsesModelClient : AnthropicMessagesModelClient;
     const client = new Client({ id: 'fixture', type: 'custom', defaultModel: 'fixture-model', baseUrl: `${base}/v1`, apiKey: 'host-only-fixture-key' });
-    return { images: true, request: (body, signal) => client.nativeRequest(body, { model: 'fixture-model', messages: [], signal }),
+    return { images: true, transport: activeTarget === 'native' ? 'native' : 'translated',
+      request: (body, signal, sessionId) => activeTarget === 'native' ? client.nativeRequest(body, { model: 'fixture-model', messages: [], signal })
+        : translatedNativeRequest({ client, protocol, model: 'fixture-model', publicModel: 'fixture/model', body, signal, sessionId, authorize() {} }),
       record: input => input.onRecorded?.({ ...input.usage, isEstimated: input.isEstimated }) };
   } });
   try {
-    for (const mode of ['global', 'scoped']) for (const vendor of ["codex", "qwen-code"]) {
-      const home = join(root, `${vendor}-${mode}`);
+    for (const [mode, target] of [['global', 'native'], ['scoped', 'native'], ['scoped', 'chat'], ['scoped', 'other']]) for (const vendor of ["codex", "qwen-code"]) {
+      activeTarget = target;
+      const home = join(root, `${vendor}-${mode}-${target}`);
       await mkdir(home);
       const controller = new AbortController(), scope = new ManagedProcessScope(controller.signal, () => {
       });
@@ -125,7 +136,7 @@ requires_openai_auth = false
         for (let turn = 0; turn < 2; turn++) {
           const run = new AbortController(), timer = setTimeout(() => run.abort(), 2e4);
           try {
-            const runScope = { scopeId: 'acceptance', principal: { kind: 'user', id: 'fixture-owner' }, profileId: 'fixture-profile', runId: `${vendor}-${mode}-${turn}`, surface: 'api', traceId: 'fixture' };
+            const runScope = { scopeId: 'acceptance', principal: { kind: 'user', id: 'fixture-owner' }, profileId: 'fixture-profile', runId: `${vendor}-${mode}-${target}-${turn}`, surface: 'api', traceId: 'fixture' };
             const requestOffset = requests.length;
             const content = [{ type: "text", text: `Respond with a brief greeting. Turn ${turn}.` },
               ...(turn ? [{ type: 'image', artifactId: 'native-fixture-image', mediaType: 'image/png' }] : [])];
@@ -147,7 +158,7 @@ requires_openai_auth = false
               const records = db.prepare('SELECT record_json FROM studio_plugin_model_calls').all().map(row => JSON.parse(row.record_json));
               if (records.filter(call => call.runId === runScope.runId).some(call => call.status !== 'completed')) throw new Error('Native model call did not complete');
             }
-            console.log(JSON.stringify({ vendor, mode, turn: turn + 1, status: result.status, events: output.length, sameNativeSession: turn ? true : void 0, imageForwarded: turn ? true : void 0 }));
+            console.log(JSON.stringify({ vendor, mode, target, turn: turn + 1, status: result.status, events: output.length, sameNativeSession: turn ? true : void 0, imageForwarded: turn ? true : void 0 }));
             if (result.status !== "completed" || !output.some((event) => ["message.delta", "message.snapshot"].includes(event.type) && event.text.includes("Native fixture answer"))) throw new Error(`${vendor} real turn did not complete`);
           } finally {
             clearTimeout(timer); run.abort();

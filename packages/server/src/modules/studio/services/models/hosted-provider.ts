@@ -5,6 +5,7 @@ import type { ModelClient } from '../../../../../../ekko-agent/src/model/types'
 import { getSessionAvailableModelGroups } from '../../public/session-agent-runtime'
 import { resolveProviderCatalogApiMode } from '../../contracts/providers'
 import { findModelApiKey } from '../model-api/keys'
+import { canTranslateNative, translatedNativeRequest } from './native-adapter'
 import {
   createChatEkkoAuthorizedProviderFetch, createChatEkkoModelClient,
   resolveChatEkkoModelProviderConfigs, resolveChatEkkoProviderRuntimeConfig,
@@ -84,22 +85,31 @@ export async function resolveHostedModel(entry: HostedModelEntry, authorize: () 
   return { client, baseUrl: providerConfig.baseUrl, accountingBaseUrl: runtime.baseUrl, requestStyle: providerConfig.requestStyle }
 }
 
-/** Resolve a native protocol without exporting provider configuration or credentials. */
-export async function resolveNativeModel(profileId: string, modelId: string, protocol: 'responses' | 'anthropic', authorize: () => void) {
+export interface NativeModelTarget {
+  transport?: 'native' | 'translated'
+  images?: boolean
+  request(body: Record<string, unknown>, signal: AbortSignal, sessionId: string): Promise<Response>
+  record(input: Omit<RecordSessionUsageInput, 'profile' | 'provider' | 'model' | 'baseUrl'>): void
+}
+
+/** Resolve the CLI-facing protocol without exporting provider configuration or credentials. */
+export async function resolveNativeModel(profileId: string, modelId: string, protocol: 'responses' | 'anthropic', authorize: () => void): Promise<NativeModelTarget> {
   authorize()
   const entry = (await hostedModelCatalog([profileId])).get(modelId)
   authorize()
   if (!entry || !hostedModelCallable(entry)) throw new StudioError('NOT_FOUND', 'Model is unavailable')
   const resolved = await resolveHostedModel(entry, authorize)
   authorize()
-  if (!resolved.client.nativeRequest || resolved.requestStyle !== (protocol === 'responses' ? 'openai-responses' : 'anthropic-messages')) {
-    throw new StudioError('CAPABILITY_UNSUPPORTED', 'Model does not support the requested native protocol')
-  }
+  const native = resolved.client.nativeRequest && resolved.requestStyle === (protocol === 'responses' ? 'openai-responses' : 'anthropic-messages')
+  const images = resolved.client.capabilities.vision && getModelRuntimeCapabilities({ profile: entry.profile, provider: entry.group.provider, model: entry.model })?.input?.includes('image') === true
+  if (!native && !canTranslateNative(resolved.client, protocol)) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Model does not support this protocol conversion')
+  authorize()
   return {
-    images: resolved.client.capabilities.vision && getModelRuntimeCapabilities({ profile: entry.profile, provider: entry.group.provider, model: entry.model })?.input?.includes('image') === true,
+    transport: native ? 'native' : 'translated', images,
     request: (body: Record<string, unknown>, signal: AbortSignal, sessionId: string) => {
       authorize()
-      return resolved.client.nativeRequest!(body, { model: entry.model, messages: [], signal, metadata: { session_id: sessionId } })
+      return native ? resolved.client.nativeRequest!(body, { model: entry.model, messages: [], signal, metadata: { session_id: sessionId } })
+        : translatedNativeRequest({ client: resolved.client, protocol, model: entry.model, publicModel: modelId, body, baseUrl: resolved.baseUrl, signal, sessionId, authorize, images })
     },
     record: (input: Omit<RecordSessionUsageInput, 'profile' | 'provider' | 'model' | 'baseUrl'>) => recordSessionUsage({ ...input,
       profile: entry.profile, provider: entry.group.provider, model: entry.model, baseUrl: resolved.accountingBaseUrl }),

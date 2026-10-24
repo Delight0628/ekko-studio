@@ -17,7 +17,7 @@
 | Agent API 执行 | 实例、接受请求、幂等、启动、流输出、完成屏障、取消、终态与事件事务落库；崩溃恢复标记 interrupted，不自动重放输入 |
 | 原生管理检查 | 通用 `management.inspect`、目录能力发现、独立短期资源和所有者/profile 鉴权；Codex 脱敏账号状态及模型分页，Qwen ACP 信息/认证方式；登录、配置文件等完整管理仍未迁移 |
 | 受管进程 | runtime 租约持有管道进程，宿主签发句柄、用户/profile/runtime 隔离、有界字节读取与写入背压、环境白名单、退出确认和进程树终止；worker 不持有宿主 ChildProcess |
-| 原生模型网关 | Run 绑定 loopback 租约、宿主凭据闭包、Responses/Anthropic 同协议直通、模型图片能力透传、逐调用计量及取消清理；Qwen/Codex scoped 原生目录隔离，跨协议转换仍待完成 |
+| 原生模型网关 | Run 绑定 loopback 租约、宿主凭据闭包、Responses/Anthropic 同协议直通、模型图片能力透传、逐调用计量及取消清理；Qwen/Codex scoped 原生目录隔离；已复用旧 proxy 适配器支持三种协议的四个转换方向，其他协议及厂商完整验收待完成 |
 | 图片附件 | 宿主上传/像素校验与配额、owner/profile 隔离、Run 输入绑定、SDK 分块读取、Qwen/Codex 原生图片转发；尚未接入旧聊天 UI，历史附件回收待完成 |
 | MCP 工具 SDK | `runtime.mcp.connect` 支持显式 stdio/HTTP 配置、工具发现/调用、文本/图片/JSON 结果、跨成功轮次连接复用、撤权回收及可等待清理；原生配置注入、统一交互凭据和 resources/prompts 仍未完成 |
 | 协议抽取 | 标准 ACP 连接及事件转换移入独立 `studio-agent-drivers`；旧调用通过兼容入口复用，原有协议测试继续通过 |
@@ -561,6 +561,28 @@ MCP SDK 已以 `93cc9e9ff` 提交并推送至现有草稿 PR。随后在该提�
 `272794bb9` 的 GitHub Build 在 coverage 阶段失败：`jev-harness.test.ts` 的 runtime 注册用例超过默认 5 秒，生产构建尚未开始。检查器在一次扫描中重复解析相同源码、runtime 配置和语言文件；现按**单次检查**复用 AST 和 usage 分析，不跨检查缓存，因此源码/manifest 变更和缺失文件仍立即可见。
 
 36 项 JEV 专项在默认时限下全部通过；本地同一 Node 下专项测试耗时从约 14.9 秒降到 6.4 秒，原失败用例约 0.6 秒。未跳过检查，未增加测试时限。`f38f2fcec` 的 [GitHub Build](https://github.com/EKKOLearnAI/ekko-studio/actions/runs/39999727673) 已通过：888 个文件、9,040 项测试通过，14 个文件/36 项跳过，随后生产构建通过；原超时用例在 CI 为约 1.2 秒。
+
+## T05/T08 进展：复用旧网关的协议转换
+
+旧 Coding Agent proxy 的 Responses、Anthropic、Chat Completions、图片及 SSE 转换代码已整体移到 `studio/services/models/protocol`，旧调用方经 `studio/public/model-protocol` 访问。适配器内容保持一致，原代理路由继续服务旧聊天；插件网关不调用旧 Run manager，也不增加一次到旧 HTTP proxy 的转发。
+
+```text
+旧聊天 CLI → 旧 proxy → 共享协议适配器 → 模型服务
+插件 CLI   → Run 网关 → 同一份共享适配器 → 模型服务
+```
+
+- 新入口支持 Responses→Chat Completions、Responses→Anthropic Messages、Anthropic Messages→Chat Completions、Anthropic Messages→Responses；同协议继续原生直通。上游配置、认证 fetch、可信 model、重定向限制及请求取消由宿主管理。
+- `ctx.models.gateway` 返回 `transport: native | translated`，桥接与 worker 保留该字段；同一 Run 内改变传输类型会拒绝请求。Codex 转换模式关闭厂商 web search，普通函数工具与命名空间使用稳定、不冲突的名字映射并在返回时恢复。
+- 新入口在转换前观察上游原始 SSE/JSON，保留输入、输出、缓存读写和 reasoning 用量；不把旧适配器合成的零或 EOF 当作已测量用量或成功终态。帧/总输出限额、取消、撤权、错误脱敏和计量后交付成功帧的屏障继续生效。
+- 转换路径仅承诺文本、图片与普通函数工具。厂商托管工具、custom grammar、严格 schema、强制工具选择、无法表达的内容块明确拒绝；厂商私有推理签名不承诺跨协议重放。Gemini 等其他协议、真实账号和厂商推理仍待逐项验收。
+- 删除此前未提交的另一套 Responses/Anthropic 消息转换试验，保留共享适配器外必要的权限、用量、结束状态及工具身份检查。未将协议转换增量算作 Qwen/Codex 完整迁移，七大交付块继续保持未完成。
+
+验证（Node 24.22.1，默认测试时限）：
+
+- 最终新旧网关、插件 worker、模型 API、图片和协议专项：12 文件、338 项通过。新增覆盖四方向的 JSON/SSE、工具命名空间续轮、图片、缓存/推理计量、缺失用量、截断、错误、取消与撤权。
+- 生产构建、SDK/driver/runner/插件类型检查、生成式 OpenAPI、harness 与 Ekko 公共 API 文档检查通过。
+- 实际 Codex 0.163.0 / Qwen Code 0.25.0 CLI 在 global 原生、scoped 原生、scoped Chat Completions 与 scoped 另一原生协议下各完成两轮，文本→图片及原生会话保持通过，共 28 次本地模型请求；scoped 逐调用计量通过。修正测试图片检测遗漏 Chat Completions 的 `image_url`，并根据真实 Codex 解码失败补齐 Responses `total_tokens` 后复验；没有真实账号登录或远程推理。
+- 认证、聊天流、协议文本及多标签浏览器专项 31 项通过（单 worker，无自动重试）；本轮没有修改前端。完整 coverage 首轮 919 文件、9,494 项通过，12 文件/33 项按既有条件跳过，315.42 秒；两 worker，未改变超时或断言。
 
 ## 已有验证证据
 

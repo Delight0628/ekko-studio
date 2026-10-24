@@ -96,6 +96,8 @@ export interface ModelGatewayHandle {
   readonly token: string
   readonly model: string
   readonly protocol: ModelGatewayInput['protocol']
+  /** Translation supports portable function tools; provider-hosted tools remain native-only. */
+  readonly transport?: 'native' | 'translated'
   /** Host-resolved model capability; absent means unknown. */
   readonly images?: boolean
   /** Revoke admission, abort active requests, and await authoritative accounting. */

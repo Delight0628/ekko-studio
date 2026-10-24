@@ -59,7 +59,8 @@ describe('host native model transport', () => {
     expect(JSON.parse(request.body)).toEqual({ ...input, model: 'native' })
     expect(request.redirect).toBe('error')
     expect(new Headers(request.headers).get(protocol === 'responses' ? 'authorization' : 'x-api-key')).toBe(protocol === 'responses' ? 'Bearer upstream-secret' : 'upstream-secret')
-    expect(Object.keys(target).sort()).toEqual(['images', 'record', 'request'])
+    expect(Object.keys(target).sort()).toEqual(['images', 'record', 'request', 'transport'])
+    expect(target.transport).toBe('native')
     expect(JSON.stringify(target)).not.toContain('secret')
     authorize.mockImplementation(() => { throw new Error('revoked') })
     expect(() => target.request({}, new AbortController().signal, 'host-session')).toThrow('revoked')
@@ -75,8 +76,17 @@ describe('host native model transport', () => {
     expect(mocks.capabilities).toHaveBeenLastCalledWith({ profile: 'one', provider: 'fixture', model: 'native' })
   })
 
-  it('rejects incompatible, disabled and missing model selections before native requests', async () => {
-    await expect(resolveNativeModel('default', 'deepseek/deepseek-reasoner', 'responses', () => {})).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
+  it.each(['responses', 'anthropic'] as const)('translates %s through the authorized model client without duplicate accounting', async protocol => {
+    const target = await resolveNativeModel('default', 'deepseek/deepseek-reasoner', protocol, () => {})
+    expect(target.transport).toBe('translated')
+    const input = protocol === 'responses' ? { input: 'hello' } : { messages: [{ role: 'user', content: 'hello' }], max_tokens: 100 }
+    const output = await (await target.request({ ...input, model: 'forged' }, new AbortController().signal, 'session')).json()
+    expect(output.model).toBe('deepseek/deepseek-reasoner')
+    expect(JSON.parse(mocks.fetch.mock.calls[0][1].body)).toMatchObject({ model: 'deepseek-reasoner', messages: [{ role: 'user', content: 'hello' }] })
+    expect(mocks.record).not.toHaveBeenCalled() // Gateway remains the sole accounting writer.
+  })
+
+  it('rejects disabled and missing model selections before requests', async () => {
     mocks.groups.mockResolvedValue([{ provider: 'fixture', models: ['native'], api_mode: 'codex_responses', model_meta: { native: { disabled: true } } }])
     await expect(resolveNativeModel('default', 'fixture/native', 'responses', () => {})).rejects.toMatchObject({ code: 'NOT_FOUND' })
     await expect(resolveNativeModel('other', 'missing/model', 'responses', () => {})).rejects.toMatchObject({ code: 'NOT_FOUND' })

@@ -8,6 +8,7 @@ export async function scopedCodex(runtime: AgentRuntimeContext, gateway: ModelGa
   await mkdir(home, { recursive: true, mode: 0o700 })
   await mkdir(root, { recursive: true, mode: 0o700 })
   const configuration = `model = ${JSON.stringify(gateway.model)}\nmodel_provider = "studio"\n` +
+    (gateway.transport === 'translated' ? 'web_search = "disabled"\n' : '') +
     `disable_response_storage = true\n[model_providers.studio]\nname = "Studio"\nbase_url = ${JSON.stringify(gateway.baseUrl)}\n` +
     'wire_api = "responses"\nrequires_openai_auth = false\nenv_key = "STUDIO_NATIVE_MODEL_TOKEN"\n'
   await writeFile(join(root, 'config.toml.tmp'), configuration, { mode: 0o600 })
