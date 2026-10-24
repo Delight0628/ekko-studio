@@ -69,6 +69,7 @@ jobs:
           npm run test --
           tests/server/studio-managed-processes.test.ts
           tests/server/studio-managed-acp.test.ts
+          tests/server/studio-managed-mcp.test.ts
           tests/server/native-acp-turn.test.ts
           tests/server/studio-plugin-processes.test.ts
           tests/server/studio-plugin-process-bridge.test.ts

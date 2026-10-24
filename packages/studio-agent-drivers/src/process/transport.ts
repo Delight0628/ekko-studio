@@ -54,8 +54,9 @@ export class ManagedProcessTransport extends EventEmitter implements AgentProces
         for (const chunk of result.chunks) this[chunk.stream].emit('data', Buffer.from(chunk.data))
         if (result.exit && result.chunks.length === 0) {
           this.ended = true; this.stdin.writable = false
-          this.resolveExit(result.exit); this.emit('close', result.exit.code, result.exit.signal)
-          void this.dispose().catch(() => {})
+          this.resolveExit(result.exit)
+          try { this.emit('close', result.exit.code, result.exit.signal) } catch { /* Client observers cannot retain a process. */ }
+          finally { void this.dispose().catch(() => {}) }
         }
       }
     } catch (error) { this.fail(error) }
@@ -86,10 +87,10 @@ export class ManagedProcessTransport extends EventEmitter implements AgentProces
     this.ended = true; this.stdin.writable = false
     const error = value instanceof Error ? value : new Error('Managed process transport failed')
     this.rejectExit(error)
-    try {
-      if (this.listenerCount('error')) this.emit('error', error)
-      if (this.stdin.listenerCount('error')) this.stdin.emit('error', error)
-    } finally { void this.dispose().catch(() => {}) }
+    for (const emitter of [this, this.stdin]) {
+      try { if (emitter.listenerCount('error')) emitter.emit('error', error) } catch { /* Notify the other observer and continue cleanup. */ }
+    }
+    void this.dispose().catch(() => {})
   }
 
   dispose(): Promise<void> {
@@ -98,7 +99,10 @@ export class ManagedProcessTransport extends EventEmitter implements AgentProces
       this.ended = true; this.stdin.writable = false
       try { await this.process.dispose() }
       finally {
-        if (!wasEnded) { this.rejectExit(new Error('Managed process transport disposed')); this.emit('close', null, null) }
+        if (!wasEnded) {
+          this.rejectExit(new Error('Managed process transport disposed'))
+          try { this.emit('close', null, null) } catch { /* Preserve the actual disposal result. */ }
+        }
       }
     })()
   }

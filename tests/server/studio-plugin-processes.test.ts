@@ -26,7 +26,7 @@ afterAll(async () => { await rm(root, { recursive: true, force: true }) })
 const scope: ExecutionScope = { scopeId: 'scope', principal: { kind: 'user', id: 'caller' }, profileId: 'one', surface: 'api', traceId: 'trace' }
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
 
-async function setup(options: { granted?: boolean; crash?: boolean; shared?: boolean; hook?: boolean; acp?: boolean } = {}) {
+async function setup(options: { granted?: boolean; crash?: boolean; shared?: boolean; hook?: boolean; acp?: boolean; mcp?: boolean } = {}) {
   const directory = await mkdtemp(join(root, 'artifact-')), pidPath = join(directory, 'pid')
   const db = new DatabaseSync(':memory:'), store = new PluginStore(db), registry = new AgentRegistry(), events = new PluginEventBus(), hooks = new PluginHookRegistry()
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -83,6 +83,27 @@ async function setup(options: { granted?: boolean; crash?: boolean; shared?: boo
               } catch (error) { reject(error); throw error }
             })() };
           }, dispose: async () => { await transport?.dispose() }
+        } } }); } }`)
+  }
+  if (options.mcp) {
+    await build({ stdin: { contents: `export { ManagedJsonRpcTransport } from './packages/studio-agent-drivers/src'; export { Client, parseJSONRPCMessage } from '@modelcontextprotocol/client';`, resolveDir: process.cwd() },
+      bundle: true, platform: 'node', target: 'node24.22.1', format: 'cjs', outfile: join(directory, 'driver.cjs'), logLevel: 'silent' })
+    await writeFile(join(directory, 'cli.cjs'), await readFile('tests/fixtures/fake-mcp-server.cjs'))
+    await writeFile(join(directory, 'index.cjs'), `const { Client, parseJSONRPCMessage, ManagedJsonRpcTransport } = require('./driver.cjs');
+      module.exports = { apply(plugin) { plugin.agents.register({ id: 'test.process/agent', name: 'MCP over SDK', configSchema: {}, capabilities: { text: true, modes: ['scoped'] },
+        create: async (_input, runtime) => { let transport; return {
+          run: async input => { let resolve, reject; const result = new Promise((yes, no) => { resolve = yes; reject = no });
+            return { result, cancel: async () => { await transport?.close(); resolve({ status: 'cancelled' }) }, events: (async function* () {
+              try { const child = await runtime.processes.spawn({ command: ${JSON.stringify(process.execPath)}, args: [require('node:path').join(__dirname, 'cli.cjs')], cwd: __dirname });
+                transport = new ManagedJsonRpcTransport(child, parseJSONRPCMessage);
+                const client = new Client({ name: 'plugin-fixture', version: '1' }); await client.connect(transport); await client.listTools();
+                const reply = await client.callTool({ name: 'fake_echo', arguments: { text: input.content[0].text } });
+                const pid = await client.callTool({ name: 'fake_pid' }); await client.close();
+                yield { type: 'message.delta', producerSequence: 1, messageId: 'answer', text: JSON.stringify({ text: reply.content[0].text, pid: Number(pid.content[0].text) }) };
+                resolve({ status: 'completed' });
+              } catch (error) { reject(error); throw error }
+            })() };
+          }, dispose: async () => { await transport?.close() }
         } } }); } }`)
   }
   await host.install(directory)
@@ -151,4 +172,15 @@ it('runs the independent ACP driver in a real plugin worker through bounded SDK 
   await f.coordinator.wait(run.id)
   expect(f.coordinator.get(scope, run.id).status).toBe('completed')
   expect(f.coordinator.output(scope, run.id, -1)).toEqual([expect.objectContaining({ type: 'message.delta', text })])
+})
+
+it('runs the official MCP client in a real plugin worker and confirms child exit through process RPC', async () => {
+  const f = await setup({ mcp: true }), text = '中文😀 & "$HOME" '.repeat(8_000), instance = f.instance()
+  const run = f.coordinator.start(scope, instance.id, { content: [{ type: 'text', text }] }, 'mcp')
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(scope, run.id).status).toBe('completed')
+  const output = f.coordinator.output(scope, run.id, -1)[0] as { text: string }
+  const result = JSON.parse(output.text)
+  expect(result.text).toBe(`mcp:${text}`)
+  expect(alive(result.pid)).toBe(false)
 })

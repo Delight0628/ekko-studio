@@ -91,3 +91,23 @@ it.each(['truncated', 'exit', 'write-error'] as const)('rejects a pending ACP re
   await transport.dispose()
   expect(port.dispose).toHaveBeenCalledTimes(1)
 })
+
+it('still disposes a naturally exited process when a close observer throws', async () => {
+  const { port, transport, release } = fakePort()
+  transport.on('close', () => { throw new Error('observer failed') })
+  await vi.waitFor(() => expect(port.read).toHaveBeenCalledOnce())
+  release({ chunks: [], truncated: false, exit: { code: 0, signal: null } })
+  await expect(transport.exited).resolves.toEqual({ code: 0, signal: null })
+  await vi.waitFor(() => expect(port.dispose).toHaveBeenCalledOnce())
+})
+
+it('does not leave an unhandled write rejection when an error observer throws', async () => {
+  const { port, transport } = fakePort(), notified = vi.fn()
+  transport.on('error', () => { throw new Error('observer failed') })
+  transport.stdin.on('error', notified)
+  port.write = async () => { throw new Error('pipe failed') }
+  transport.stdin.write('request')
+  await expect(transport.exited).rejects.toThrow('pipe failed')
+  await vi.waitFor(() => expect(port.dispose).toHaveBeenCalledOnce())
+  expect(notified).toHaveBeenCalledOnce()
+})
