@@ -84,7 +84,14 @@ it('validates terminal options without accepting caller-selected ownership or ex
 it('pauses terminal output for a slow reader and drains it through bounded byte windows', async () => {
   const f = await setup(`process.stdout.write('BEGIN\\n' + 'x'.repeat(524288) + '\\nEND\\n'); setInterval(() => {}, 1000)`)
   await new Promise(resolve => setTimeout(resolve, 40))
-  const output = await until(f.handle, 'END')
+  let output = ''
+  await vi.waitFor(async () => {
+    const batch = await f.handle.read()
+    expect(batch.truncated).toBe(false)
+    expect(batch.chunks.length).toBeLessThanOrEqual(4)
+    for (const chunk of batch.chunks) { expect(chunk.data.length).toBeLessThanOrEqual(16_384); output += Buffer.from(chunk.data).toString('utf8') }
+    expect(output).toContain('END')
+  }, { interval: 10, timeout: 2000 })
   expect(output.split('x').length - 1).toBe(524288)
 })
 

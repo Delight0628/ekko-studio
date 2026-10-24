@@ -57,7 +57,9 @@ export class ManagedPtyProcess {
         this.chunks.push({ stream: 'stdout', data: chunk }); this.bytes += chunk.length
       }
       if (length < data.length) this.truncated = true
-      if (this.bytes >= BUFFER_BYTES) this.terminal.pause()
+      // Pause with headroom for the current native read. Waiting until the hard
+      // cap clips a partial chunk on platforms whose read sizes differ.
+      if (this.bytes >= BUFFER_BYTES / 2) this.terminal.pause()
       this.wake?.()
     }))
   }
@@ -88,7 +90,7 @@ export class ManagedPtyProcess {
       this.check()
       const chunks = this.chunks.splice(0, 4)
       this.bytes -= chunks.reduce((sum, chunk) => sum + chunk.data.length, 0)
-      if (this.bytes < BUFFER_BYTES / 2 && !this.exit) this.terminal.resume()
+      if (this.bytes < BUFFER_BYTES / 4 && !this.exit) this.terminal.resume()
       return { chunks, truncated: this.truncated, exit: this.exit && { ...this.exit } }
     } finally { this.reading = false }
   }
