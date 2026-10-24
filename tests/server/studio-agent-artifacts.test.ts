@@ -27,7 +27,10 @@ function setup() {
   return { db, runs, artifacts, createRun, revoke: () => { allowed = false } }
 }
 it('detects image type and reads bounded chunks only from the current accepted Run', async () => {
-  const f = setup(), data = await sharp(randomBytes(512 * 512 * 3), { raw: { width: 512, height: 512, channels: 3 } }).png().toBuffer()
+  // Encoding is fixture preparation. An uncompressed PNG keeps the same
+  // multi-chunk payload without spending the CI deadline on compression.
+  const f = setup(), data = await sharp(randomBytes(512 * 512 * 3), { raw: { width: 512, height: 512, channels: 3 } }).png({ compressionLevel: 0 }).toBuffer()
+  expect(data.length).toBeGreaterThan(3 * 192 * 1024)
   const image = await f.artifacts.create(scope, data, new AbortController().signal)
   expect(image).toMatchObject({ mediaType: 'image/png', byteLength: data.length })
   const runScope = f.createRun(image.id), chunks: Buffer[] = []
@@ -38,7 +41,9 @@ it('detects image type and reads bounded chunks only from the current accepted R
     chunks.push(Buffer.from(chunk.data, 'base64')); offset = chunk.nextOffset
     expect(chunk.done).toBe(offset === data.length)
   } while (offset < data.length)
-  expect(Buffer.concat(chunks)).toEqual(data)
+  // Native byte comparison preserves exact equality without traversing
+  // hundreds of thousands of typed-array properties in the assertion library.
+  expect(Buffer.concat(chunks).equals(data)).toBe(true)
   expect(() => f.artifacts.read(runScope, image.id, offset)).toThrow(/offset/)
   expect(() => f.artifacts.remove(scope, image.id)).toThrow(/retained/)
   f.runs.finish(runScope.runId, 'completed', null)
