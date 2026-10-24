@@ -5,11 +5,12 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest'
 import type { Server } from 'node:http'
 import { StudioError } from '../../packages/studio-plugin-sdk/src'
 
-const state = vi.hoisted(() => ({ remove: vi.fn(), configure: vi.fn(), install: vi.fn(), list: vi.fn(() => []), role: 'super_admin' }))
+const state = vi.hoisted(() => ({ remove: vi.fn(), configure: vi.fn(), install: vi.fn(), list: vi.fn(() => []),
+  respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), role: 'super_admin' }))
 vi.mock('../../packages/server/src/modules/studio/services/plugins/runtime', () => ({
   authorizePluginScope: vi.fn(),
   getStudioPluginRuntime: () => ({ host: { uninstall: state.remove, configure: state.configure, install: state.install, list: state.list },
-    registry: { list: () => [], getRevision: () => 1 } }),
+    registry: { list: () => [], getRevision: () => 1 }, coordinator: { respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel } }),
 }))
 import { studioPluginRoutes } from '../../packages/server/src/modules/studio/routes/studio-plugins'
 
@@ -52,4 +53,33 @@ it('rejects caller-selected identity and requires an authorized profile', async 
   expect((await fetch(`${base}/api/studio/plugins/example.echo/profile`, request)).status).toBe(400)
   expect((await fetch(`${base}/api/studio/plugins/example.echo/profile?profile=default`, request)).status).toBe(400)
   expect(state.configure).not.toHaveBeenCalled()
+})
+
+
+it('routes lifecycle calls with host identity and rejects forged response fields', async () => {
+  state.respond.mockResolvedValue({ id: 'interaction', runId: 'run', status: 'resolved' })
+  const request = { interactionId: 'interaction', idempotencyKey: 'answer', choiceId: 'yes' }
+  const response = await fetch(`${base}/api/studio/agent-runs/run/respond?profile=default`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
+  })
+  expect(response.status).toBe(200)
+  expect(state.respond).toHaveBeenCalledWith(expect.objectContaining({ principal: { id: '7', kind: 'user' }, profileId: 'default' }), 'run', request)
+  expect(await response.json()).toEqual({ ok: true, data: { id: 'interaction', runId: 'run', status: 'resolved' } })
+  state.respond.mockClear()
+  const forged = await fetch(`${base}/api/studio/agent-runs/run/respond?profile=default`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...request, ownerId: 'other' }),
+  })
+  expect(forged.status).toBe(400)
+  expect(state.respond).not.toHaveBeenCalled()
+  for (const method of ['interactions', 'usage'] as const) {
+    expect((await fetch(`${base}/api/studio/agent-runs/run/${method}?profile=default`)).status).toBe(200)
+    expect(state[method]).toHaveBeenCalledWith(expect.objectContaining({ principal: { id: '7', kind: 'user' }, profileId: 'default' }), 'run')
+  }
+})
+
+it('returns a finalization conflict without reporting cancellation', async () => {
+  state.cancel.mockRejectedValue(new StudioError('RUN_FINALIZING', 'Run is committing its final result'))
+  const response = await fetch(`${base}/api/studio/agent-runs/run/cancel?profile=default`, { method: 'POST' })
+  expect(response.status).toBe(409)
+  expect(await response.json()).toMatchObject({ ok: false, error: { code: 'RUN_FINALIZING' } })
 })

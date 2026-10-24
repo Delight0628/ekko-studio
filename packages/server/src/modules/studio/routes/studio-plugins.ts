@@ -15,3 +15,6 @@ studioPluginRoutes.post('/api/studio/agent-instances/:id/runs', requireUserProfi
 studioPluginRoutes.get('/api/studio/agent-runs/:id', requireUserProfile, controller.getAgentExecution)
 studioPluginRoutes.get('/api/studio/agent-runs/:id/output', requireUserProfile, controller.getAgentExecutionOutput)
 studioPluginRoutes.post('/api/studio/agent-runs/:id/cancel', requireUserProfile, controller.cancelAgentExecution)
+studioPluginRoutes.get('/api/studio/agent-runs/:id/interactions', requireUserProfile, controller.getAgentExecutionInteractions)
+studioPluginRoutes.get('/api/studio/agent-runs/:id/usage', requireUserProfile, controller.getAgentExecutionUsage)
+studioPluginRoutes.post('/api/studio/agent-runs/:id/respond', requireUserProfile, controller.respondAgentExecution)

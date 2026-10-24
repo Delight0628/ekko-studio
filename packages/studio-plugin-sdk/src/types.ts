@@ -66,6 +66,10 @@ export interface StudioDomainServices {
     start(input: AgentRunStartInput): Promise<AgentRunRecord>
     get(id: string): Promise<AgentRunRecord>
     output(id: string, after?: number): Promise<AgentOutputEvent[]>
+    cancel(id: string): Promise<AgentRunRecord>
+    interactions(id: string): Promise<AgentInteraction[]>
+    respond(id: string, input: AgentInteractionResponse): Promise<AgentInteractionReceipt>
+    usage(id: string): Promise<AgentUsage[]>
   }
 }
 
@@ -108,6 +112,7 @@ export interface AgentCapabilities {
   streaming?: boolean
   reasoning?: boolean
   resume?: boolean
+  persistentSession?: boolean
   compact?: boolean
   approvals?: boolean
   clarifications?: boolean
@@ -169,11 +174,43 @@ export type AgentOutputEvent =
   | { type: 'tool.started' | 'tool.completed' | 'tool.failed'; producerSequence: number; callId: string; name: string; data: JsonValue }
   | { type: 'usage.reported'; producerSequence: number; modelCallId: string; model: string; mode: 'delta' | 'cumulative' | 'final'; revision: number; inputTokens: number; outputTokens: number }
   | { type: 'checkpoint.updated'; producerSequence: number; value: JsonValue }
+  | { type: 'interaction.requested'; producerSequence: number; requestId: string; kind: 'approval' | 'clarification'; prompt: string; choices: Array<{ id: string; label: string }>; expiresAt?: number }
   | { type: 'diagnostic'; producerSequence: number; message: string }
+
+export interface AgentInteraction {
+  id: string
+  runId: string
+  requestId: string
+  kind: 'approval' | 'clarification'
+  prompt: string
+  choices: Array<{ id: string; label: string }>
+  expiresAt: number | null
+  status: 'pending' | 'responding' | 'resolved' | 'expired' | 'interrupted'
+}
+
+export interface AgentInteractionResponse {
+  interactionId: string
+  idempotencyKey: string
+  choiceId?: string
+  text?: string
+}
+
+/** Responding does not grant permission to read the interaction's private content. */
+export type AgentInteractionReceipt = Pick<AgentInteraction, 'id' | 'runId' | 'status'>
+
+/** A missing model call is unknown usage, never a measured zero. */
+export interface AgentUsage {
+  modelCallId: string
+  model: string
+  revision: number
+  inputTokens: number
+  outputTokens: number
+  final: boolean
+}
 
 export interface AgentRunResult { status: 'completed' | 'cancelled'; checkpoint?: JsonValue }
 
-export type AgentRunStatus = 'accepted' | 'starting' | 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed' | 'interrupted'
+export type AgentRunStatus = 'accepted' | 'queued' | 'starting' | 'running' | 'waiting_input' | 'finalizing' | 'cancelling' | 'completed' | 'cancelled' | 'failed' | 'interrupted'
 export interface AgentRunRecord {
   id: string
   instanceId: string
@@ -192,6 +229,7 @@ export interface AgentRunHandle {
   readonly events: AsyncIterable<AgentOutputEvent>
   readonly result: Promise<AgentRunResult>
   cancel(reason: string): Promise<void>
+  respond?(input: { requestId: string; choiceId?: string; text?: string }): Promise<void>
 }
 
 export interface AgentRuntime {

@@ -2,8 +2,9 @@ import { StudioError, type ExecutionContext, type ExecutionScope, type ScopedLog
 import { jsonCopy } from '../plugins/validation'
 import { parseAgentRunStart } from '../agents/start'
 import { parseChatRunStart } from '../chat-run/input'
+import { parseInteractionResponse } from '../agents/coordinator'
 
-export type ContextOperation = 'sessions.read' | 'sessions.remove' | 'agents.read' | 'runs.read' | 'runs.start' | 'chat.start' | 'chat.read' | 'chat.cancel'
+export type ContextOperation = 'sessions.read' | 'sessions.remove' | 'agents.read' | 'runs.read' | 'runs.start' | 'runs.cancel' | 'runs.respond' | 'chat.start' | 'chat.read' | 'chat.cancel'
 
 export interface ContextServices {
   authorize(scope: ExecutionScope, operation: ContextOperation, resourceId?: string): Promise<void>
@@ -21,6 +22,10 @@ export interface ContextServices {
     start?(scope: ExecutionScope, input: Parameters<StudioDomainServices['runs']['start']>[0], signal: AbortSignal): ReturnType<StudioDomainServices['runs']['start']>
     get(scope: ExecutionScope, id: string): ReturnType<StudioDomainServices['runs']['get']>
     output(scope: ExecutionScope, id: string, after: number): ReturnType<StudioDomainServices['runs']['output']>
+    cancel?(scope: ExecutionScope, id: string): ReturnType<StudioDomainServices['runs']['cancel']>
+    interactions?(scope: ExecutionScope, id: string): ReturnType<StudioDomainServices['runs']['interactions']>
+    respond?(scope: ExecutionScope, id: string, input: Parameters<StudioDomainServices['runs']['respond']>[1]): ReturnType<StudioDomainServices['runs']['respond']>
+    usage?(scope: ExecutionScope, id: string): ReturnType<StudioDomainServices['runs']['usage']>
   }
 }
 
@@ -82,6 +87,27 @@ export function createExecutionContext(
         return call('runs.start', request.instanceId, () => services.runs!.start!(scope, request, signal), true)
       },
       get: async (id: string) => { runId(id); return call('runs.read', id, () => services.runs!.get(scope, id)) },
+      cancel: async (id: string) => {
+        runId(id)
+        if (!services.runs?.cancel) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Run cancellation is unavailable')
+        return call('runs.cancel', id, () => services.runs!.cancel!(scope, id), true)
+      },
+      interactions: async (id: string) => {
+        runId(id)
+        if (!services.runs?.interactions) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Run interactions are unavailable')
+        return call('runs.read', id, () => services.runs!.interactions!(scope, id))
+      },
+      respond: async (id: string, input: Parameters<StudioDomainServices['runs']['respond']>[1]) => {
+        runId(id)
+        const request = parseInteractionResponse(input)
+        if (!services.runs?.respond) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Run responses are unavailable')
+        return call('runs.respond', id, () => services.runs!.respond!(scope, id, request), true)
+      },
+      usage: async (id: string) => {
+        runId(id)
+        if (!services.runs?.usage) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Run usage is unavailable')
+        return call('runs.read', id, () => services.runs!.usage!(scope, id))
+      },
       output: async (id: string, after = -1) => {
         runId(id)
         if (!Number.isSafeInteger(after) || after < -1) throw new StudioError('INVALID_ARGUMENT', 'Invalid output cursor')

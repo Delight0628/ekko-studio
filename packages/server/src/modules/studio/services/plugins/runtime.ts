@@ -65,6 +65,10 @@ export function createStudioPluginRuntime(runnerPath: string) {
       start: async (current, input, signal) => startStudioAgentRun(current, input, signal, coordinator),
       get: async (current, id) => coordinator.get(current, id),
       output: async (current, id, after) => coordinator.output(current, id, after),
+      cancel: (current, id) => coordinator.cancel(current, id),
+      interactions: async (current, id) => coordinator.interactions(current, id),
+      respond: (current, id, input) => coordinator.respond(current, id, input),
+      usage: async (current, id) => coordinator.usage(current, id),
     },
     sessions: { remove: (current, id, signal) => removeStudioSession({ id, profileId: current.profileId }, {
       signal, sessionId: current.sessionId,

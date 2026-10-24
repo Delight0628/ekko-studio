@@ -9,7 +9,7 @@
 | 范围 | 当前实现 |
 | --- | --- |
 | 公共 SDK | 独立 TypeScript 包、JSON DTO、manifest、Agent 工厂、作用域、输出事件、错误码、注册/通知回调/清理入口；SDK/RPC 版本检查 |
-| 上下文 | 宿主签发不可变身份与 profile；当前有 `sessions.get/remove`、`agents.list`、`runs.start/get/output` 和 `chat.start/get/cancel`；每次调用重新授权并校验取消状态，RPC 使用宿主句柄。实例启动仍要求无资源绑定；聊天支持绑定自身会话 |
+| 上下文 | 宿主签发不可变身份与 profile；当前有 `sessions.get/remove`、`agents.list`、`runs.start/get/output/cancel/interactions/respond/usage` 和 `chat.start/get/cancel`；每次调用重新授权并校验取消状态，RPC 使用宿主句柄。实例启动仍要求无资源绑定；聊天支持绑定自身会话 |
 | 注册 | profile 隔离、内置/插件提供方联合类型、激活阶段暂存、完整声明及冲突校验、事务发布、generation 资源释放 |
 | 插件宿主 | 本地目录校验、摘要工件、独立子进程、有限 RPC 并发、请求超时、输出背压、进程树清理、配置 revision、运行时租约 |
 | 安装策略 | 14 个系统插件 ID 已保留；用户安装不能覆盖，删除在接触工件/worker 前返回 `SYSTEM_PLUGIN_PROTECTED`；profile 选择不会被重复系统登记覆盖 |
@@ -52,7 +52,7 @@
 | T03 | 进程、RPC、注册回滚和资源回收已有实现；服务依赖图及完整诊断尚未完成 |
 | T04 | 通知与持久化事件已有实现；可靠消费者、重试/死信、保留期、hooks 和旧投影的事务统一未完成 |
 | T05 | ACP 驱动已抽取；受管进程/MCP/模型、其他协议驱动仍需迁移 |
-| T06 | 文本 API 有协调器；多轮租约、交互响应、usage 聚合、checkpoint 恢复及原聊天统一写入未完成 |
+| T06 | 实例 API 已有多轮租约、交互、取消、token 归并和成功 checkpoint；模型服务计量关联、父子 Run、原聊天及其他入口统一写入未完成 |
 | T07 | 新注册表与实例开放 ID；旧枚举、历史别名及客户端目录尚未迁移 |
 | T08–T10 | 厂商插件独立化和 Hermes/Ekko 统一运行接入未完成；禁止用定义搬迁替代功能验收 |
 | T11 | 新 HTTP 入口已接入；聊天/Socket、群聊、工作流、全局任务及客户端管理未完成 |
@@ -89,7 +89,7 @@
 - [x] SDK/runner/宿主完整支持 `runs.start`；manifest 声明且当前 profile 授予此能力后，真实 worker 才能调用。身份和 profile 来自宿主句柄，输入不能携带 owner、principal、provider 或 scope。
 - [x] 授权等待前复制请求；协调器在接收前重新检查主体、profile 和实例 owner。暂不支持已有 session/workspace/Run 绑定的上下文启动新 Run，明确返回 `CAPABILITY_UNSUPPORTED`，不会丢弃绑定后扩大范围。
 - [x] 相同 owner/profile 下的幂等键关联实例及完整输入；HTTP/SDK 并发重试只创建一次。不同输入返回 `REVISION_CONFLICT`；已接收请求在提供方移除后仍可查询，权限撤销后不能靠重试读取结果。
-- [x] 接收前取消不落库、不执行；接收落库后返回实际 Run 回执，调用方上下文结束不撤销已接受的独立执行。后续通过现有 Run 读取/输出/取消 HTTP 入口管理；SDK 取消方法尚未实现。
+- [x] 接收前取消不落库、不执行；接收落库后返回实际 Run 回执，调用方上下文结束不撤销已接受的独立执行。后续通过现有 Run 读取/输出/取消 HTTP 入口管理；SDK 取消方法已在后续 T06 增量实现，见下文生命周期进展。
 
 | 边界 | 当前行为 |
 | --- | --- |
@@ -204,6 +204,27 @@ Node 24.22.1 下验证：
 - 最终生产构建、harness、规划文档文件链接和 `git diff --check`：通过。
 
 首轮全量因临时 npm 分发的 Node 可执行文件旁缺少 npm，导致既有 Node/npm 探测用例 4 项失败；换用完整官方发行包后，相关用例及启动/关闭专项 31 项全部通过。未改这些业务实现、原测试或时限；其后全量先通过 9,092 项，再补充正文权限回归并完成上述最终 9,093 项复验。
+
+## T06 进展：实例运行生命周期
+
+本增量扩展已有 Agent 实例协调器，尚未把旧聊天、工作流、群聊和全局任务切换到该写入链，T06/T11 仍未完成。
+
+- 同实例输入串行排队，排队期间仍受 deadline 限制，派发前重新核对权限、实例 revision 与提供方快照。队列取消只移除对应 Run；同实例后续输入不会被误停。
+- 声明 `persistentSession` 的 runtime 可跨成功轮次复用；单轮结束只关闭该轮上下文，runtime signal 保留。宿主持久化 lease 与 Run 绑定，空闲 60 秒释放；失败、取消和关闭释放 runtime。活动输入、排队和租约受配额约束。
+- 增加 `waiting_input` 和 `finalizing`。输出排空、交互回复与未结束工具均进入完成屏障；结果返回后 5 秒内未收尾则中断。领取完成权后取消返回 `RUN_FINALIZING`。
+- 规范交互先持久化，再由 HTTP 或 `ctx.runs.interactions/respond` 查询和响应。绑定 owner/profile/Run，校验选项与时效，响应幂等并只派发一次。响应回执不含 prompt/choices；`runs.respond` 不赋予正文读取权限。取消和恢复将未解决交互中断。
+- `ctx.runs.cancel` 接入同一取消端口；HTTP/SDK 的 usage 查询返回按模型调用归并的记录。delta 累加、cumulative 替换、final 校正；相同 revision 不重复计数，冲突 revision 和变更模型 ID 拒绝并回滚对应输出。没有报告的用量保持未知，不宣称零消耗。
+- checkpoint 与成功终态在同一事务保存；只有显式声明 resume 且提供方/配置快照完全匹配时，下一次创建 runtime 才传入恢复引用。启动恢复只把未终结 Run 标为 interrupted，关闭旧 lease，不重放输入。
+
+新增接口：`GET /api/studio/agent-runs/:id/interactions`、`POST /api/studio/agent-runs/:id/respond`、`GET /api/studio/agent-runs/:id/usage`。SDK 新增 `runs.cancel/interactions/respond/usage`；取消、响应分别要求 `runs.cancel`、`runs.respond`，读取仍要求 `runs.read`，真实 worker 每次重新验证授权。
+
+当前恢复不跨插件 generation 自动迁移 checkpoint，也不提供模型服务权威计费合并；这些与父子 Run、可靠事件和五入口统一仍须继续完成。独立 worker 的交互/多轮测试使用临时测试插件，不替代真实厂商 CLI 验收。
+
+Node 24.22.1 下验证：
+
+- 生命周期、真实 worker、上下文授权、HTTP/RPC 专项：7 个文件、87 项通过（最后补充的 2 项 HTTP 用例单独复测，所在文件 5 项全部通过）。
+- 全量 coverage：890 个文件、9,108 项通过；12 个文件/32 项跳过；1 项既有 Electron 原生设备控件测试失败。失败发生于测试的崩溃 renderer 诊断，进程被既有 55 秒期限终止；同文件单独复测 1 项通过（15.9 秒）。没有修改该业务或测试，也不把这次全量称为首轮全绿。
+- 生产构建、harness、规划文档文件链接和差异检查通过。全量浏览器回归正在运行。
 
 ## CI 修复：JEV harness 重复解析
 

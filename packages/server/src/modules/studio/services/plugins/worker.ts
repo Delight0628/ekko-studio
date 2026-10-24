@@ -2,7 +2,7 @@ import { fork, execFile, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { RpcPeer, type RpcFrame } from '../../../../../../studio-plugin-sdk/src/rpc'
 import {
-  StudioError, STUDIO_PLUGIN_RPC_VERSION, type AgentTypeDefinition, type AgentRuntime,
+  StudioError, STUDIO_ERROR_CODES, STUDIO_PLUGIN_RPC_VERSION, type StudioErrorCode, type AgentTypeDefinition, type AgentRuntime,
   type AgentRunContext, type AgentRunHandle, type AgentOutputEvent, type AgentRunResult,
   type ExecutionContext, type JsonValue, type JsonObject, type PluginIdentity, type ScopedLogger,
 } from '../../contracts/plugins'
@@ -81,7 +81,9 @@ export class PluginWorker {
     this.peer.handle('run.error', value => {
       const id = String((value as JsonObject).runId), run = this.runs.get(id)
       if (run) {
-        const error = new StudioError('RUNTIME_UNAVAILABLE', 'Plugin Agent run failed')
+        const detail = (value as JsonObject).error as JsonObject | undefined
+        const code = typeof detail?.code === 'string' && (STUDIO_ERROR_CODES as readonly string[]).includes(detail.code) ? detail.code as StudioErrorCode : 'RUNTIME_UNAVAILABLE'
+        const error = new StudioError(code, 'Plugin Agent run failed')
         run.channel.finish(error); run.reject(error); run.release(); this.runs.delete(id)
       }
       return null
@@ -146,9 +148,15 @@ export class PluginWorker {
     const release = () => { this.scopes.delete(scopeHandle); ctx.signal.removeEventListener('abort', aborted) }
     this.runs.set(runId, { channel, resolve, reject, release, sequence: -1 })
     ctx.signal.addEventListener('abort', aborted, { once: true })
-    try { await this.peer.request('run.start', toJson({ runId, runtimeSessionId, input, scope: ctx.scope, scopeHandle })) }
+    let canRespond = false
+    try {
+      const response = await this.peer.request('run.start', toJson({ runId, runtimeSessionId, input, scope: ctx.scope, scopeHandle }))
+      canRespond = !!(response && typeof response === 'object' && !Array.isArray(response) && response.respond === true)
+    }
     catch (error) { channel.finish(error); reject(error); release(); this.runs.delete(runId); throw error }
-    return { events: channel, result, cancel }
+    return { events: channel, result, cancel,
+      ...(canRespond ? { respond: async (input: Parameters<NonNullable<AgentRunHandle['respond']>>[0]) => { await this.peer.request('run.respond', toJson({ runId, input })) } } : {}),
+    }
   }
 
   hasLeases(): boolean { return this.runtimes.size > 0 || this.runs.size > 0 }
@@ -192,6 +200,15 @@ export class PluginWorker {
     if (params.method === 'runs.start') {
       this.authorize('runs.start')
       return toJson(await ctx.runs.start(params.args as unknown as Parameters<ExecutionContext['runs']['start']>[0]))
+    }
+    if (['runs.cancel', 'runs.interactions', 'runs.respond', 'runs.usage'].includes(String(params.method))) {
+      this.authorize(params.method === 'runs.cancel' ? 'runs.cancel' : params.method === 'runs.respond' ? 'runs.respond' : 'runs.read')
+      const args = params.args as JsonObject
+      if (!args || typeof args.id !== 'string' || Object.keys(args).some(key => key !== 'id' && !(params.method === 'runs.respond' && key === 'input'))) throw new StudioError('INVALID_ARGUMENT', 'Invalid run operation')
+      if (params.method === 'runs.cancel') return toJson(await ctx.runs.cancel(args.id))
+      if (params.method === 'runs.interactions') return toJson(await ctx.runs.interactions(args.id))
+      if (params.method === 'runs.usage') return toJson(await ctx.runs.usage(args.id))
+      return toJson(await ctx.runs.respond(args.id, args.input as unknown as Parameters<ExecutionContext['runs']['respond']>[1]))
     }
     if (params.method === 'runs.get' || params.method === 'runs.output') {
       this.authorize('runs.read')

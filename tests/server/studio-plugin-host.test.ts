@@ -40,6 +40,10 @@ function setup(sessions: ContextServices['sessions'] = { get: async () => null }
     runs: {
       start: async (scope, input, signal) => startStudioAgentRun(scope, input, signal, coordinator),
       get: async (scope, id) => coordinator.get(scope, id), output: async (scope, id, after) => coordinator.output(scope, id, after),
+      cancel: (scope, id) => coordinator.cancel(scope, id),
+      interactions: async (scope, id) => coordinator.interactions(scope, id),
+      respond: (scope, id, input) => coordinator.respond(scope, id, input),
+      usage: async (scope, id) => coordinator.usage(scope, id),
     },
   })
   const ctx = (signal: AbortSignal) => createExecutionContext({
@@ -56,6 +60,98 @@ function setup(sessions: ContextServices['sessions'] = { get: async () => null }
 }
 
 describe('plugin worker integration', () => {
+  it('keeps a real worker runtime across turns and routes persisted interaction responses and cancellation', async () => {
+    const { host, coordinator } = setup()
+    const directory = await mkdtemp(join(root, 'interactive-'))
+    const manifest = { schemaVersion: 1, id: 'test.interactive', version: '1.0.0', engines: { studioSdk: '^0.1.0', rpc: 1 }, backend: 'index.cjs', activation: 'profile',
+      contributes: { agents: ['test.interactive/agent'] }, requires: { capabilities: ['agents.register'] } }
+    await writeFile(join(directory, 'studio-plugin.json'), JSON.stringify(manifest))
+    await writeFile(join(directory, 'index.cjs'), `module.exports = { apply(plugin) {
+      plugin.agents.register({ id: 'test.interactive/agent', name: 'Interactive', configSchema: {}, capabilities: { text: true, modes: ['scoped'], persistentSession: true, approvals: true },
+        create: async () => { let turn = 0; return { dispose: async () => {}, run: async () => {
+          turn++; let answer; const answered = new Promise(resolve => { answer = resolve });
+          let complete; const result = new Promise(resolve => { complete = resolve });
+          return { result, events: (async function* () {
+            yield { type: 'interaction.requested', producerSequence: 1, requestId: 'approval', kind: 'approval', prompt: 'Proceed?', choices: [{ id: 'yes', label: 'Yes' }] };
+            const response = await answered;
+            if (response) {
+              yield { type: 'message.delta', producerSequence: 2, messageId: 'answer', text: turn + ':' + response };
+              yield { type: 'usage.reported', producerSequence: 3, modelCallId: 'call', model: 'fixture', mode: 'final', revision: 1, inputTokens: 4, outputTokens: 2 };
+              complete({ status: 'completed' });
+            }
+          })(), respond: async input => answer(input.choiceId), cancel: async () => { answer(null); complete({ status: 'cancelled' }) } };
+        } } }
+      });
+    } }`)
+    await host.install(directory)
+    await host.configure({ pluginId: manifest.id, profileId: 'default', ownerId: '1', enabled: true, config: {}, grants: manifest.requires.capabilities }, 0)
+    const scope: ExecutionScope = { scopeId: 'api', principal: { kind: 'user', id: '1' }, profileId: 'default', surface: 'api', traceId: 'trace' }
+    const instance = coordinator.createInstance(scope, { agentTypeId: 'test.interactive/agent', config: {}, mode: 'scoped' })
+    for (const key of ['first', 'second']) {
+      const run = coordinator.start(scope, instance.id, { content: [{ type: 'text', text: 'go' }] }, key)
+      await vi.waitFor(() => expect(coordinator.get(scope, run.id).status).toBe('waiting_input'))
+      const interaction = coordinator.interactions(scope, run.id)[0]
+      const receipt = await coordinator.respond(scope, run.id, { interactionId: interaction.id, idempotencyKey: key, choiceId: 'yes' })
+      expect(receipt).toEqual({ id: interaction.id, runId: run.id, status: 'resolved' })
+      await coordinator.wait(run.id)
+      expect(coordinator.get(scope, run.id).status).toBe('completed')
+      expect(coordinator.output(scope, run.id, -1)[1]).toMatchObject({ text: key === 'first' ? '1:yes' : '2:yes' })
+      expect(coordinator.usage(scope, run.id)).toMatchObject([{ inputTokens: 4, outputTokens: 2, final: true }])
+    }
+    const run = coordinator.start(scope, instance.id, { content: [{ type: 'text', text: 'stop' }] }, 'third')
+    await vi.waitFor(() => expect(coordinator.get(scope, run.id).status).toBe('waiting_input'))
+    await coordinator.cancel(scope, run.id); await coordinator.wait(run.id)
+    expect(coordinator.get(scope, run.id).status).toBe('cancelled')
+    expect(coordinator.interactions(scope, run.id)[0].status).toBe('interrupted')
+  })
+
+  it.each([true, false])('authorizes lifecycle SDK calls on every real worker request (granted: %s)', async granted => {
+    const { host, coordinator, registry, logger, events, store } = setup()
+    const registration = registry.stage('*', { kind: 'builtin', module: 'ekko', implementationVersion: 'test' }, ['ekko'])
+    registration.register({ id: 'ekko', name: 'Fixture', configSchema: {}, capabilities: { text: true, modes: ['scoped'], clarifications: true }, create: async () => ({
+      run: async () => {
+        let end!: () => void
+        const ended = new Promise<void>(resolve => { end = resolve })
+        return { events: (async function* () { yield { type: 'interaction.requested' as const, producerSequence: 1, requestId: 'question', kind: 'clarification' as const, prompt: 'Private question', choices: [] }; await ended })(),
+          result: ended.then(() => ({ status: 'cancelled' as const })), respond: async () => {}, cancel: async () => end() }
+      }, dispose: async () => {},
+    }) })
+    registration.commit()
+    const scope: ExecutionScope = { scopeId: 'api', principal: { kind: 'user', id: '1' }, profileId: 'default', surface: 'api', traceId: 'trace' }
+    const instance = coordinator.createInstance(scope, { agentTypeId: 'ekko', config: {}, mode: 'scoped' })
+    const run = coordinator.start(scope, instance.id, { content: [{ type: 'text', text: 'hello' }] }, 'one')
+    await vi.waitFor(() => expect(coordinator.get(scope, run.id).status).toBe('waiting_input'))
+    const directory = await mkdtemp(join(root, 'lifecycle-context-'))
+    const manifest = { schemaVersion: 1, id: 'test.lifecycle', version: '1.0.0', engines: { studioSdk: '^0.1.0', rpc: 1 }, backend: 'index.cjs', activation: 'profile',
+      contributes: { agents: [] }, configSchema: { type: 'object' }, requires: { capabilities: ['events.subscribe:plugin.ready', ...(granted ? ['runs.read', 'runs.respond', 'runs.cancel'] : [])] } }
+    await writeFile(join(directory, 'studio-plugin.json'), JSON.stringify(manifest))
+    await writeFile(join(directory, 'index.cjs'), `module.exports = { apply(plugin) { plugin.on('plugin.ready', async (_event, ctx) => {
+      const results = [];
+      for (const fn of [() => ctx.runs.interactions(plugin.config.runId), () => ctx.runs.usage(plugin.config.runId),
+        () => ctx.runs.respond(plugin.config.runId, { interactionId: plugin.config.interactionId, idempotencyKey: 'answer', text: 'hello' }), () => ctx.runs.cancel(plugin.config.runId)]) {
+        try { results.push(await fn()) } catch (error) { results.push(error.code) }
+      }
+      ctx.logger.info('lifecycle-results', { results });
+    }) } }`)
+    await host.install(directory)
+    await host.configure({ pluginId: manifest.id, profileId: 'default', ownerId: '1', enabled: true, config: { runId: run.id, interactionId: coordinator.interactions(scope, run.id)[0].id }, grants: manifest.requires.capabilities }, 0)
+    const outputs = () => logger.info.mock.calls.filter(call => call[0] === 'Plugin stdout')
+      .flatMap(call => String((call[1] as { text: string }).text).trim().split('\n')).map(line => JSON.parse(line))
+      .filter(line => line.message === 'lifecycle-results').map(line => line.data.results)
+    await events.idle(); await vi.waitFor(() => expect(outputs()).toHaveLength(1))
+    if (granted) {
+      expect(outputs()[0][0][0]).toMatchObject({ prompt: 'Private question', status: 'pending' })
+      expect(outputs()[0][1]).toEqual([])
+      expect(outputs()[0][2]).toEqual({ id: coordinator.interactions(scope, run.id)[0].id, runId: run.id, status: 'resolved' })
+      const current = store.profile(manifest.id, 'default')!
+      store.saveProfile({ ...current, grants: ['events.subscribe:plugin.ready'] }, current.revision)
+      events.publish({ schemaVersion: 1, id: 'revoked', type: 'plugin.ready', occurredAt: Date.now(), partitionKey: 'plugin', sequence: 2,
+        subject: { profileId: 'default', pluginId: manifest.id }, data: { pluginId: manifest.id }, correlationId: 'trace' })
+      await events.idle(); await vi.waitFor(() => expect(outputs()).toHaveLength(2))
+      expect(outputs()[1]).toEqual(['FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN'])
+    } else expect(outputs()[0]).toEqual(['FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN'])
+  })
+
   it.each([true, false])('starts, queries and cancels chat through real worker RPC (granted: %s)', async granted => {
     let chat!: PluginChatRuns
     let options!: DirectChatRunOptions
@@ -286,7 +382,7 @@ describe('plugin worker integration', () => {
     const { host, coordinator, ctx, eventStore } = setup()
     const installation = await host.install(resolve('plugins/example-echo'))
     await host.configure({ pluginId: installation.id, profileId: 'default', ownerId: '1', enabled: true, config: { prefix: 'Echo: ' }, grants: installation.manifest.requires.capabilities }, 0)
-    const scope = ctx(new AbortController().signal).scope
+    const { runId: _runId, ...scope } = ctx(new AbortController().signal).scope
     const instance = coordinator.createInstance(scope, { agentTypeId: 'example.echo/assistant', config: {}, mode: 'scoped' })
     const input = { content: [{ type: 'text' as const, text: 'persisted' }] }
     const run = coordinator.start(scope, instance.id, input, 'same-request')
@@ -308,7 +404,7 @@ describe('plugin worker integration', () => {
     await writeFile(join(directory, 'index.cjs'), `module.exports = { apply(ctx) { ctx.agents.register({ id: 'test.crash/agent', name: 'Crash fixture', configSchema: {}, capabilities: { text: true, modes: ['scoped'] }, create: async () => ({ run: async () => { process.exit(12) }, dispose: async () => {} }) }) } }`)
     await host.install(directory)
     await host.configure({ pluginId: 'test.crash', profileId: 'default', ownerId: '1', enabled: true, config: {}, grants: ['agents.register'] }, 0)
-    const scope = ctx(new AbortController().signal).scope
+    const { runId: _runId, ...scope } = ctx(new AbortController().signal).scope
     const instance = coordinator.createInstance(scope, { agentTypeId: 'test.crash/agent', config: {}, mode: 'scoped' })
     const run = coordinator.start(scope, instance.id, { content: [{ type: 'text', text: 'go' }] }, 'crash-request')
     await coordinator.wait(run.id)
@@ -331,7 +427,7 @@ describe('plugin worker integration', () => {
     }) }) } }`)
     await host.install(directory)
     await host.configure({ pluginId: manifest.id, profileId: 'default', ownerId: '1', enabled: true, config: {}, grants: manifest.requires.capabilities }, 0)
-    const scope = ctx(new AbortController().signal).scope
+    const { runId: _runId, ...scope } = ctx(new AbortController().signal).scope
     const instance = coordinator.createInstance(scope, { agentTypeId: 'test.context/agent', config: {}, mode: 'scoped' })
     const run = coordinator.start(scope, instance.id, { content: [{ type: 'text', text: 'go' }] }, 'context-request')
     await coordinator.wait(run.id)

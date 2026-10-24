@@ -2,6 +2,7 @@ import { randomUUID, createHash } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import { StudioError, type AgentProviderRef, type JsonObject, type AgentRunInput, type AgentOutputEvent, type EventEnvelope, type AgentRunRecord, type AgentRunStatus } from '../contracts/plugins'
 import { PluginEventStore } from './plugin-event-store'
+import { AgentRunStateStore } from './agent-run-state-store'
 
 export interface AgentInstance {
   id: string; agentTypeId: string; profileId: string; ownerId: string
@@ -18,8 +19,10 @@ function canonicalJson(value: unknown): string {
 }
 
 export class AgentExecutionStore {
+  readonly state: AgentRunStateStore
   private readonly events: PluginEventStore
   constructor(private readonly db: DatabaseSync) {
+    this.state = new AgentRunStateStore(db)
     this.events = new PluginEventStore(db)
     db.exec(`CREATE TABLE IF NOT EXISTS studio_agent_instances (
       id TEXT PRIMARY KEY, agent_type_id TEXT NOT NULL, profile_id TEXT NOT NULL, owner_id TEXT NOT NULL,
@@ -79,14 +82,20 @@ export class AgentExecutionStore {
   }
   appendOutput(id: string, event: AgentOutputEvent): void {
     const run = this.get(id)
-    if (!run || !['running', 'cancelling'].includes(run.status)) throw new StudioError('REVISION_CONFLICT', 'Run no longer accepts output')
-    this.db.prepare('INSERT INTO studio_agent_run_outputs (run_id, sequence, event_json) VALUES (?, ?, ?)').run(id, event.producerSequence, JSON.stringify(event))
+    if (!run || !['running', 'waiting_input', 'cancelling'].includes(run.status)) throw new StudioError('REVISION_CONFLICT', 'Run no longer accepts output')
+    this.db.exec('SAVEPOINT studio_agent_output')
+    try {
+      this.db.prepare('INSERT INTO studio_agent_run_outputs (run_id, sequence, event_json) VALUES (?, ?, ?)').run(id, event.producerSequence, JSON.stringify(event))
+      this.state.project(id, event)
+      if (event.type === 'interaction.requested') this.transition(id, ['running'], 'waiting_input')
+      this.db.exec('RELEASE studio_agent_output')
+    } catch (error) { this.db.exec('ROLLBACK TO studio_agent_output; RELEASE studio_agent_output'); throw error }
   }
   output(id: string, after = -1, limit = 100): AgentOutputEvent[] {
     return (this.db.prepare('SELECT event_json FROM studio_agent_run_outputs WHERE run_id=? AND sequence>? ORDER BY sequence LIMIT ?')
       .all(id, after, Math.min(1000, Math.max(1, limit))) as Array<{ event_json: string }>).map(row => JSON.parse(row.event_json) as AgentOutputEvent)
   }
-  finish(id: string, status: 'completed' | 'cancelled' | 'failed' | 'interrupted', errorCode: string | null): EventEnvelope[] {
+  finish(id: string, status: 'completed' | 'cancelled' | 'failed' | 'interrupted', errorCode: string | null, checkpoint?: import('../contracts/plugins').JsonValue): EventEnvelope[] {
     const run = this.get(id)
     if (!run || ['completed', 'cancelled', 'failed', 'interrupted'].includes(run.status)) return []
     const type = status === 'completed' ? 'run.completed' : status === 'cancelled' ? 'run.cancelled' : 'run.failed'
@@ -94,6 +103,10 @@ export class AgentExecutionStore {
     try {
       const changed = this.db.prepare(`UPDATE studio_agent_runs SET status=?, error_code=?, revision=revision+1, updated_at=?
         WHERE id=? AND revision=?`).run(status, errorCode, Date.now(), id, run.revision)
+      if (changed.changes) {
+        this.state.endInteractions(id)
+        if (status === 'completed' && checkpoint !== undefined) this.state.saveCheckpoint(run.instanceId, run.provider, run.configRevision, id, checkpoint)
+      }
       const events = changed.changes ? this.events.append([{
         schemaVersion: 1, id: randomUUID(), type, occurredAt: Date.now(), partitionKey: `${run.profileId}:${run.id}`, sequence: 0,
         subject: { profileId: run.profileId, runId: run.id }, data: { runId: run.id }, correlationId: run.id,
@@ -103,7 +116,8 @@ export class AgentExecutionStore {
     } catch (error) { this.db.exec('ROLLBACK TO studio_agent_finish; RELEASE studio_agent_finish'); throw error }
   }
   recover(): number {
-    const rows = this.db.prepare("SELECT id FROM studio_agent_runs WHERE status IN ('accepted','starting','running','cancelling')").all() as Array<{ id: string }>
+    this.state.recover()
+    const rows = this.db.prepare("SELECT id FROM studio_agent_runs WHERE status IN ('accepted','queued','starting','running','waiting_input','finalizing','cancelling')").all() as Array<{ id: string }>
     for (const row of rows) this.finish(row.id, 'interrupted', 'RUNTIME_UNAVAILABLE')
     return rows.length
   }

@@ -147,7 +147,7 @@ interface AgentRunContext extends ExecutionContext {
 
 当前 `ctx.runs.start({ instanceId, input, idempotencyKey })` 与新 Agent 实例 HTTP 启动共用领域服务，返回持久化的 `AgentRunRecord` 回执；随后通过 `runs.get/output` 查询。`input` 沿用当前文本 `AgentRunInput`，不接受主体、profile、provider 或 scope 字段。插件必须声明并获授 `runs.start`，实例须属于当前主体及 profile。带 session/workspace/Run 绑定的 scope 暂返回 `CAPABILITY_UNSUPPORTED`，不通过清除绑定启动独立执行。
 
-启动在授权等待前复制输入；接收前取消不产生 Run。接收后的独立 Run 由协调器管理，回调结束或请求断开不隐式取消它。相同 owner/profile、幂等键、实例和输入返回原记录，输入冲突返回 `REVISION_CONFLICT`；重试也重新授权。现有 HTTP 取消入口继续可用，实例 SDK 取消、父子 Run、hook 和多轮运行仍未实现；不能将当前回执等同于上表完整的可管理流句柄。详见[启动实施记录](studio-plugin-progress.md#t02-进展agent-实例启动共用领域服务)。
+启动在授权等待前复制输入；接收前取消不产生 Run。接收后的独立 Run 由协调器管理，回调结束或请求断开不隐式取消它。相同 owner/profile、幂等键、实例和输入返回原记录，输入冲突返回 `REVISION_CONFLICT`；重试也重新授权。现有 HTTP 取消入口继续可用，实例 SDK 取消与声明能力后的多轮 runtime 复用已在后续 T06 增量实现；父子 Run、hook 和旧入口统一仍未实现；不能将当前回执等同于上表完整的可管理流句柄。详见[启动实施记录](studio-plugin-progress.md#t02-进展agent-实例启动共用领域服务)。
 
 旧聊天现通过 `ctx.chat.start({ sessionId, input, idempotencyKey })` 接入；它不改变 `ctx.runs.start` 的实例请求形状。SDK 只接受已有自有直接聊天的文本输入，配置由宿主会话派生，不接受身份、profile、凭据、Agent/provider/workspace 覆盖或斜杠管理命令。要求分别声明并获授 `chat.start`、`chat.read`、`chat.cancel`；当前 user/profile/session owner 在启动、读取、取消和延迟派发时重新检查。管理员权限不绕过 owner；无明确 Studio owner 的导入会话拒绝执行。有 session 绑定时只能操作该会话，Run/workspace 绑定仍不支持。
 
@@ -158,6 +158,14 @@ HTTP 与 SDK 共用内部直调端口和旧执行器，SDK 不暴露 `ChatRunCal
 写操作接受 `idempotencyKey` 或领域 revision；是否可重试由方法契约明确。RPC 断线不能触发无条件重试付款、消息发送、文件写入或启动 Run。会话删除等跨运行时操作采用可恢复操作记录，不声称远程清理和 SQLite 可以组成一个原子事务。
 
 通用错误包含 `code`、安全 `message`、`retryable` 和可选 `details/operationId`。建议稳定错误码：`INVALID_ARGUMENT`、`FORBIDDEN`、`NOT_FOUND`、`REVISION_CONFLICT`、`CAPABILITY_UNSUPPORTED`、`PLUGIN_UNAVAILABLE`、`PLUGIN_VERSION_INCOMPATIBLE`、`SYSTEM_PLUGIN_PROTECTED`、`RUNTIME_UNAVAILABLE`、`CANCELLED`、`DEADLINE_EXCEEDED`。HTTP 状态码由传输适配，不向插件暴露内部堆栈和凭据。
+
+### 2.4 当前实例生命周期接口
+
+开发 SDK 已提供 `runs.cancel(id)`、`runs.interactions(id)`、`runs.respond(id, { interactionId, idempotencyKey, choiceId?, text? })` 和 `runs.usage(id)`。读取使用 `runs.read`，取消和响应分别使用 `runs.cancel`、`runs.respond`。响应仅返回 `{ id, runId, status }`，不携带交互正文；重试仍验证当前权限与 Run 范围。响应不确定失败时不会自动重放。
+
+同实例输入当前串行运行；`persistentSession` 是显式能力，成功轮次才保留 runtime，空闲 60 秒后释放。运行输入 deadline 包含排队等待。checkpoint 只在成功终态事务中提交，并仅在提供方引用和配置 revision 相同且支持 resume 时用于下一次创建；未完成输入不会自动重放。结果返回后的输出收尾期限为 5 秒，领取 `finalizing` 后拒绝取消并返回 `RUN_FINALIZING`。
+
+现有 usage DTO 仅归并 runtime 上报的 input/output token：按 modelCallId、revision 去重，cumulative/final 替换，delta 累加，final 可由更高 final revision 校正。空数组表示未知；尚未完成下文模型服务的权威计量关联、跨父子 Run 聚合和计价。实例生命周期的实际证据见[实施记录](studio-plugin-progress.md#t06-进展实例运行生命周期)，不能据此宣称旧聊天及其他入口已统一。
 
 ## 3 Agent 注册与管理
 

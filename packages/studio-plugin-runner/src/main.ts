@@ -58,6 +58,10 @@ function executionContext(scope: ExecutionScope, scopeHandle: string, signal: Ab
       start: async input => await call('runs.start', json(input)) as unknown as Awaited<ReturnType<ExecutionContext['runs']['start']>>,
       get: async id => await call('runs.get', { id }) as unknown as Awaited<ReturnType<ExecutionContext['runs']['get']>>,
       output: async (id, after = -1) => await call('runs.output', { id, after }) as unknown as Awaited<ReturnType<ExecutionContext['runs']['output']>>,
+      cancel: async id => await call('runs.cancel', { id }) as unknown as Awaited<ReturnType<ExecutionContext['runs']['cancel']>>,
+      interactions: async id => await call('runs.interactions', { id }) as unknown as Awaited<ReturnType<ExecutionContext['runs']['interactions']>>,
+      respond: async (id, input) => await call('runs.respond', { id, input: json(input) }) as unknown as Awaited<ReturnType<ExecutionContext['runs']['respond']>>,
+      usage: async id => await call('runs.usage', { id }) as unknown as Awaited<ReturnType<ExecutionContext['runs']['usage']>>,
     },
   }
 }
@@ -135,23 +139,35 @@ peer.handle('run.start', async value => {
   const handle = await runtime.runtime.run(object(params.input) as unknown as AgentRunInput, ctx)
   runs.set(runId, { handle, controller })
   void (async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let ended = false
     try {
-      const [, result] = await Promise.all([
-        (async () => { for await (const event of handle.events) await peer.request('run.event', { runId, event: json(event) }) })(),
+      const expired = new Promise<never>((_, reject) => {
+        void handle.result.then(() => { timer = setTimeout(() => reject(new StudioError('DEADLINE_EXCEEDED', 'Agent output did not drain')), 5_000) }).catch(() => {})
+      })
+      const [, result] = await Promise.race([Promise.all([
+        (async () => { for await (const event of handle.events) { if (ended) break; await peer.request('run.event', { runId, event: json(event) }) } })(),
         handle.result,
-      ])
+      ]), expired])
       await peer.request('run.result', { runId, result: json(result) })
     } catch (error) {
       const safe = error instanceof StudioError ? error.toJSON() : new StudioError('INTERNAL', 'Agent run failed').toJSON()
       await peer.request('run.error', { runId, error: json(safe) }).catch(() => {})
-    } finally { runs.delete(runId); controller.abort() }
+    } finally { ended = true; if (timer) clearTimeout(timer); runs.delete(runId); controller.abort() }
   })()
-  return null
+  return { respond: typeof handle.respond === 'function' }
 })
 
 peer.handle('run.cancel', async value => {
   const params = object(value), run = runs.get(string(params.runId))
   if (run) { run.controller.abort(); await run.handle.cancel(string(params.reason)) }
+  return null
+})
+peer.handle('run.respond', async value => {
+  const params = object(value), run = runs.get(string(params.runId))
+  if (!run || run.controller.signal.aborted) throw new StudioError('RUNTIME_UNAVAILABLE', 'Run is unavailable')
+  if (!run.handle.respond) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent cannot respond to interactions')
+  await run.handle.respond(object(params.input) as unknown as Parameters<NonNullable<AgentRunHandle['respond']>>[0])
   return null
 })
 peer.handle('runtime.dispose', async value => {

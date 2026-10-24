@@ -7,7 +7,7 @@ import { jsonCopy } from '../services/plugins/validation'
 const statusFor = (code: string): number => ({ INVALID_ARGUMENT: 400, FORBIDDEN: 403, NOT_FOUND: 404,
   SYSTEM_PLUGIN_PROTECTED: 403, REVISION_CONFLICT: 409, REGISTRATION_CONFLICT: 409,
   PLUGIN_UNAVAILABLE: 503, PLUGIN_VERSION_INCOMPATIBLE: 409, CAPABILITY_UNSUPPORTED: 422,
-  RUNTIME_UNAVAILABLE: 503, DEADLINE_EXCEEDED: 504, CANCELLED: 409,
+  RUNTIME_UNAVAILABLE: 503, DEADLINE_EXCEEDED: 504, CANCELLED: 409, RUN_FINALIZING: 409,
   RESOURCE_EXHAUSTED: 429 }[code] || 500)
 
 async function respond(ctx: Context, action: () => unknown | Promise<unknown>): Promise<void> {
@@ -86,3 +86,10 @@ export const startAgentExecution = (ctx: Context) => respond(ctx, () => {
 export const getAgentExecution = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().coordinator.get(executionScope(ctx), ctx.params.id))
 export const getAgentExecutionOutput = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().coordinator.output(executionScope(ctx), ctx.params.id, Number(ctx.query.after ?? -1)))
 export const cancelAgentExecution = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().coordinator.cancel(executionScope(ctx), ctx.params.id))
+export const getAgentExecutionInteractions = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().coordinator.interactions(executionScope(ctx), ctx.params.id))
+export const getAgentExecutionUsage = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().coordinator.usage(executionScope(ctx), ctx.params.id))
+export const respondAgentExecution = (ctx: Context) => respond(ctx, () => {
+  const input = body(ctx, ['interactionId', 'idempotencyKey', 'choiceId', 'text', 'profile'])
+  const { profile: _profile, ...response } = input
+  return getStudioPluginRuntime().coordinator.respond(executionScope(ctx), ctx.params.id, response as unknown as import('../contracts/plugins').AgentInteractionResponse)
+})

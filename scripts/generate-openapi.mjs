@@ -1987,6 +1987,14 @@ openapi.paths['/api/studio/agent-instances/{id}/runs'].post.requestBody = studio
   },
 })
 openapi.paths['/api/studio/agent-runs/{id}/output'].get.parameters.push({ name: 'after', in: 'query', schema: { type: 'integer', minimum: -1, default: -1 }, description: 'Exclusive producer sequence cursor; returns up to 100 persisted output events.' })
+openapi.paths['/api/studio/agent-runs/{id}/respond'].post.requestBody = studioPluginBody({ type: 'object', additionalProperties: false,
+  required: ['interactionId', 'idempotencyKey'], properties: {
+    interactionId: { type: 'string', minLength: 1, maxLength: 256 }, idempotencyKey: { type: 'string', minLength: 1, maxLength: 128 },
+    choiceId: { type: 'string', minLength: 1, maxLength: 256 }, text: { type: 'string', maxLength: 16384 }, profile: { type: 'string' },
+  },
+})
+openapi.paths['/api/studio/agent-runs/{id}/usage'].get.description += ' Returns one normalized record per model call; cumulative snapshots replace prior counts and final revisions may correct them. An empty list means unknown usage, not a measured zero.'
+openapi.paths['/api/studio/agent-runs/{id}/interactions'].get.description += ' Returns persisted approval/clarification requests for this run. Responses require a declared choice or clarification text and an idempotency key; expired or foreign interactions cannot reach the runtime.'
 
 // Write output
 const outputPath = join(rootDir, 'docs/openapi.json')

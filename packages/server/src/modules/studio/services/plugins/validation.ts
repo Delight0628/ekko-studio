@@ -97,7 +97,7 @@ export function validateAgentDefinition(definition: AgentTypeDefinition): void {
   const capabilities = definition.capabilities
   if (!capabilities || typeof capabilities.text !== 'boolean' || !Array.isArray(capabilities.modes) || !capabilities.modes.length
     || capabilities.modes.some(mode => mode !== 'scoped' && mode !== 'global')) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent capabilities')
-  const flags = ['text', 'images', 'files', 'streaming', 'reasoning', 'resume', 'compact', 'approvals', 'clarifications', 'steering']
+  const flags = ['text', 'images', 'files', 'streaming', 'reasoning', 'resume', 'persistentSession', 'compact', 'approvals', 'clarifications', 'steering']
   for (const [key, value] of Object.entries(capabilities)) {
     if (key === 'modes') continue
     if (!flags.includes(key) || typeof value !== 'boolean') throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent capability')
@@ -117,6 +117,11 @@ const validateOutput = ajv.compile({ anyOf: [
   eventSchema(['usage.reported'], { modelCallId: eventString, model: eventString, mode: { enum: ['delta', 'cumulative', 'final'] }, revision: eventSequence,
     inputTokens: eventSequence, outputTokens: eventSequence }, ['modelCallId', 'model', 'mode', 'revision', 'inputTokens', 'outputTokens']),
   eventSchema(['checkpoint.updated'], { value: {} }, ['value']),
+  eventSchema(['interaction.requested'], {
+    requestId: eventString, kind: { enum: ['approval', 'clarification'] }, prompt: { type: 'string', minLength: 1, maxLength: 16384 },
+    choices: { type: 'array', maxItems: 32, items: { type: 'object', additionalProperties: false, required: ['id', 'label'], properties: { id: eventString, label: { type: 'string', minLength: 1, maxLength: 1024 } } } },
+    expiresAt: eventSequence,
+  }, ['requestId', 'kind', 'prompt', 'choices']),
   eventSchema(['diagnostic'], { message: { type: 'string', maxLength: 4096 } }, ['message']),
 ] })
 export function parseAgentOutput(value: unknown): AgentOutputEvent {

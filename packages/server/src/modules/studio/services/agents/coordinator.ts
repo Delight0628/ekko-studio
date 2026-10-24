@@ -1,16 +1,41 @@
-import { randomUUID } from 'node:crypto'
 import {
   StudioError, type AgentRunHandle, type AgentRunInput, type AgentRunContext, type AgentRuntime,
-  type ExecutionScope, type ExecutionContext, type JsonObject, type ScopedLogger,
+  type ExecutionScope, type ExecutionContext, type JsonObject, type JsonValue, type ScopedLogger,
+  type AgentProviderRef, type AgentInteractionResponse, type AgentInteraction, type AgentInteractionReceipt,
 } from '../../contracts/plugins'
 import { AgentExecutionStore, type AgentInstance, type AgentExecution } from '../../repositories/agent-execution-store'
 import { AgentRegistry } from './registry'
 import { PluginEventBus } from '../events/plugin-events'
 import { compileSchema, jsonCopy, parseAgentOutput } from '../plugins/validation'
 
-interface ActiveRun { controller: AbortController; handle?: AgentRunHandle; completed: Promise<void> }
+interface ActiveRun {
+  controller: AbortController; handle?: AgentRunHandle; completed: Promise<void>; resolve(): void
+  started: boolean; expired: boolean; timer: ReturnType<typeof setTimeout>; launch(): void
+  responses: Map<string, Promise<AgentInteraction>>
+}
+interface RuntimeLease {
+  id: string; provider: AgentProviderRef; revision: number; controller: AbortController
+  runtime: AgentRuntime; idleTimer?: ReturnType<typeof setTimeout>
+}
+interface InstanceQueue { current?: string; pending: string[] }
+
+export function parseInteractionResponse(value: unknown): AgentInteractionResponse {
+  const input = jsonCopy(value) as AgentInteractionResponse
+  if (!input || typeof input !== 'object' || Array.isArray(input)
+    || Object.keys(input).some(key => !['interactionId', 'idempotencyKey', 'choiceId', 'text'].includes(key))
+    || typeof input.interactionId !== 'string' || !input.interactionId.trim() || input.interactionId.length > 256
+    || typeof input.idempotencyKey !== 'string' || !input.idempotencyKey.trim() || input.idempotencyKey.length > 128
+    || (input.choiceId !== undefined && (typeof input.choiceId !== 'string' || !input.choiceId || input.choiceId.length > 256))
+    || (input.text !== undefined && (typeof input.text !== 'string' || input.text.length > 16384))) {
+    throw new StudioError('INVALID_ARGUMENT', 'Invalid interaction response')
+  }
+  return input
+}
+
 export class AgentCoordinator {
   private readonly active = new Map<string, ActiveRun>()
+  private readonly queues = new Map<string, InstanceQueue>()
+  private readonly leases = new Map<string, RuntimeLease>()
   private closed = false
   constructor(private readonly options: {
     store: AgentExecutionStore; registry: AgentRegistry; events: PluginEventBus; logger: ScopedLogger
@@ -35,9 +60,11 @@ export class AgentCoordinator {
     if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent coordinator is shutting down')
     this.options.authorize(scope)
     if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim() || idempotencyKey.length > 128) throw new StudioError('INVALID_ARGUMENT', 'An idempotency key is required')
+    if (scope.sessionId !== undefined || scope.runId !== undefined || scope.workspaceId !== undefined) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Independent instance runs require an unbound scope')
     const instance = this.options.store.instance(instanceId)
     if (!instance || instance.ownerId !== scope.principal.id || instance.profileId !== scope.profileId) throw new StudioError('NOT_FOUND', 'Agent instance is unavailable')
     input = jsonCopy(input)
+    scope = jsonCopy(scope)
     const previous = this.options.store.findRequest(instance, input, idempotencyKey)
     if (previous) return previous
     const { definition, provider } = this.options.registry.resolve(scope.profileId, instance.agentTypeId)
@@ -50,20 +77,45 @@ export class AgentCoordinator {
     if (input.model !== undefined && (typeof input.model !== 'string' || !input.model.trim() || input.model.length > 256)) throw new StudioError('INVALID_ARGUMENT', 'Invalid model')
     if (!definition.capabilities.text) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent does not support text input')
     if (input.timeoutMs !== undefined && (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 100 || input.timeoutMs > 3_600_000)) throw new StudioError('INVALID_ARGUMENT', 'Invalid run deadline')
-    const accepted = this.options.store.accept(instance, provider, jsonCopy(input), idempotencyKey)
+    const queue = this.queues.get(instance.id) || { pending: [] }
+    if (this.active.size + this.leases.size >= 128 || queue.pending.length >= 32) throw new StudioError('RESOURCE_EXHAUSTED', 'Agent run queue is full')
+    const accepted = this.options.store.accept(instance, provider, input, idempotencyKey)
     if (!accepted.created) return accepted.run
-    const controller = new AbortController()
-    const active: ActiveRun = { controller, completed: Promise.resolve() }
-    this.active.set(accepted.run.id, active)
-    active.completed = this.execute(accepted.run, instance, input, scope, active).finally(() => this.active.delete(accepted.run.id))
-    void active.completed.catch(() => this.options.logger.error('Agent execution finalization failed', { runId: accepted.run.id }))
-    return accepted.run
+    const id = accepted.run.id
+    let resolve!: () => void
+    const completed = new Promise<void>(done => { resolve = done })
+    const active: ActiveRun = {
+      controller: new AbortController(), completed, resolve, started: false, expired: false, responses: new Map(),
+      timer: setTimeout(() => { active.expired = true; this.stop(id) }, input.timeoutMs ?? 600_000),
+      launch: () => {
+        active.started = true
+        queue.current = id
+        void this.execute(accepted.run, instance, input, scope, active).catch(() => {
+          this.options.logger.error('Agent execution finalization failed', { runId: id })
+        }).finally(() => {
+          this.release(id, instance.id)
+          if (queue.current === id) queue.current = undefined
+          const next = queue.pending.shift()
+          if (next) this.active.get(next)?.launch()
+          else this.queues.delete(instance.id)
+        })
+      },
+    }
+    this.active.set(id, active)
+    this.queues.set(instance.id, queue)
+    if (queue.current) {
+      this.options.store.transition(id, ['accepted'], 'queued')
+      queue.pending.push(id)
+    } else active.launch()
+    return this.options.store.get(id)!
   }
 
   get(scope: ExecutionScope, id: string): AgentExecution {
     this.options.authorize(scope)
     const run = this.options.store.get(id)
     if (!run || run.ownerId !== scope.principal.id || run.profileId !== scope.profileId) throw new StudioError('NOT_FOUND', 'Run is unavailable')
+    if (scope.runId && scope.runId !== id) throw new StudioError('FORBIDDEN', 'Run is outside the execution scope')
+    if (scope.sessionId || scope.workspaceId) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Instance runs have no chat or workspace binding')
     return run
   }
   output(scope: ExecutionScope, id: string, after: number) {
@@ -71,31 +123,100 @@ export class AgentCoordinator {
     if (!Number.isSafeInteger(after) || after < -1) throw new StudioError('INVALID_ARGUMENT', 'Invalid output cursor')
     return this.options.store.output(id, after)
   }
+  usage(scope: ExecutionScope, id: string) { this.get(scope, id); return this.options.store.state.usage(id) }
+  interactions(scope: ExecutionScope, id: string) { this.get(scope, id); return this.options.store.state.interactions(id) }
+
+  async respond(scope: ExecutionScope, id: string, value: AgentInteractionResponse): Promise<AgentInteractionReceipt> {
+    const input = parseInteractionResponse(value)
+    this.get(scope, id)
+    const active = this.active.get(id)
+    const existing = this.options.store.state.interactions(id).find(item => item.id === input.interactionId)
+    if (existing?.status === 'pending' && (!active?.handle?.respond || active.controller.signal.aborted)) {
+      throw new StudioError('RUNTIME_UNAVAILABLE', 'Interaction runtime is unavailable')
+    }
+    const claim = this.options.store.state.claimResponse(id, input)
+    const receipt = (value: AgentInteraction): AgentInteractionReceipt => ({ id: value.id, runId: value.runId, status: value.status })
+    if (!claim.dispatch) {
+      const result = await (active?.responses.get(input.interactionId) ?? claim.interaction)
+      this.get(scope, id)
+      return receipt(result)
+    }
+    const task = (async () => {
+      try {
+        await active!.handle!.respond!({ requestId: claim.interaction.requestId,
+          ...(input.choiceId === undefined ? {} : { choiceId: input.choiceId }), ...(input.text === undefined ? {} : { text: input.text }) })
+        const result = this.options.store.state.setInteraction(claim.interaction, 'resolved')
+        if (!this.options.store.state.interactions(id).some(item => ['pending', 'responding'].includes(item.status))) {
+          this.options.store.transition(id, ['waiting_input'], 'running')
+        }
+        return result
+      } catch (error) {
+        this.options.store.state.setInteraction(claim.interaction, 'interrupted')
+        this.stop(id)
+        throw error instanceof StudioError ? error : new StudioError('RUNTIME_UNAVAILABLE', 'Interaction response failed')
+      }
+    })()
+    active!.responses.set(input.interactionId, task)
+    // Keep the settled promise for the completion barrier and idempotent concurrent callers.
+    void task.catch(() => {})
+    const result = await task
+    this.get(scope, id)
+    return receipt(result)
+  }
+
   async cancel(scope: ExecutionScope, id: string): Promise<AgentExecution> {
     const run = this.get(scope, id)
-    if (!this.options.store.transition(id, ['accepted', 'starting', 'running'], 'cancelling')) return run
-    const active = this.active.get(id)
-    // The execution owns cancellation dispatch; HTTP acknowledgement must not wait on a broken provider.
-    active?.controller.abort()
+    if (run.status === 'finalizing') throw new StudioError('RUN_FINALIZING', 'Run is committing its final result')
+    this.stop(id)
     return this.get(scope, id)
+  }
+  private stop(id: string): void {
+    if (!this.options.store.transition(id, ['accepted', 'queued', 'starting', 'running', 'waiting_input'], 'cancelling')) return
+    const active = this.active.get(id)
+    active?.controller.abort()
+    if (active && !active.started) {
+      const run = this.options.store.get(id)!
+      this.finish(id, active.expired ? 'interrupted' : 'cancelled', active.expired ? 'DEADLINE_EXCEEDED' : null)
+      this.release(id, run.instanceId)
+    }
+  }
+  private release(id: string, instanceId: string): void {
+    const active = this.active.get(id)
+    if (!active) return
+    clearTimeout(active.timer)
+    this.active.delete(id)
+    const queue = this.queues.get(instanceId)
+    if (queue) queue.pending = queue.pending.filter(value => value !== id)
+    active.resolve()
+  }
+  private finish(id: string, status: 'completed' | 'cancelled' | 'failed' | 'interrupted', error: string | null, checkpoint?: JsonValue): void {
+    for (const event of this.options.store.finish(id, status, error, checkpoint)) this.options.events.publish(event)
   }
 
   async wait(id: string): Promise<void> { await this.active.get(id)?.completed }
   async close(): Promise<void> {
     this.closed = true
-    for (const active of this.active.values()) active.controller.abort()
+    for (const id of [...this.active.keys()]) this.stop(id)
     await Promise.allSettled([...this.active.values()].map(active => active.completed))
+    await Promise.allSettled([...this.leases.keys()].map(id => this.disposeLease(id, 'Host shutdown')))
+  }
+
+  private async disposeLease(instanceId: string, reason: string): Promise<void> {
+    const lease = this.leases.get(instanceId)
+    if (!lease) return
+    this.leases.delete(instanceId)
+    if (lease.idleTimer) clearTimeout(lease.idleTimer)
+    lease.controller.abort()
+    this.options.store.state.closeLease(lease.id)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([Promise.resolve().then(() => lease.runtime.dispose(reason)).catch(() => {}), new Promise<void>(resolve => { timer = setTimeout(resolve, 5_000) })])
+    if (timer) clearTimeout(timer)
   }
 
   private async execute(run: AgentExecution, instance: AgentInstance, input: AgentRunInput, scope: ExecutionScope, active: ActiveRun): Promise<void> {
-    let runtime: AgentRuntime | undefined
-    let timer: ReturnType<typeof setTimeout> | undefined
     let deadline: ReturnType<typeof setTimeout> | undefined
-    const runtimeController = new AbortController()
-    const runtimeSessionId = randomUUID()
-    const finish = (status: 'completed' | 'cancelled' | 'failed' | 'interrupted', error: string | null) => {
-      for (const event of this.options.store.finish(run.id, status, error)) this.options.events.publish(event)
-    }
+    let finalizationDeadline: ReturnType<typeof setTimeout> | undefined
+    let ended = false, retain = false
     let rejectAbort!: (error: Error) => void
     const aborted = new Promise<never>((_, reject) => { rejectAbort = reject })
     void aborted.catch(() => {})
@@ -104,54 +225,96 @@ export class AgentCoordinator {
       deadline = setTimeout(() => rejectAbort(new StudioError('DEADLINE_EXCEEDED', 'Agent did not stop within cancellation deadline')), 5_000)
     }
     active.controller.signal.addEventListener('abort', onAbort, { once: true })
-    timer = setTimeout(() => active.controller.abort(), input.timeoutMs ?? 600_000)
-    let ended = false
     try {
-      this.options.store.transition(run.id, ['accepted'], 'starting')
+      if (active.controller.signal.aborted) { this.finish(run.id, 'cancelled', null); return }
+      this.options.authorize(scope)
+      const current = this.options.store.instance(instance.id)
+      if (!current || current.ownerId !== scope.principal.id || current.profileId !== scope.profileId || current.revision !== run.configRevision) throw new StudioError('REVISION_CONFLICT', 'Agent instance changed while queued')
+      this.options.store.transition(run.id, ['accepted', 'queued'], 'starting')
       const resolved = this.options.registry.resolve(scope.profileId, instance.agentTypeId)
-      const creating = resolved.definition.create({ instanceId: instance.id, config: instance.config, configRevision: instance.revision, mode: instance.mode }, {
-        provider: run.provider, runtimeSessionId, profileId: scope.profileId, signal: runtimeController.signal, logger: this.options.logger,
-      })
-      // A slow factory may resolve after the deadline. It still owes us disposal.
-      void creating.then(late => { if (ended) void late.dispose('Runtime creation exceeded deadline').catch(() => {}) }).catch(() => {})
-      runtime = await Promise.race([creating, aborted])
-      if (active.controller.signal.aborted) { finish('cancelled', null); return }
+      if (JSON.stringify(resolved.provider) !== JSON.stringify(run.provider)) throw new StudioError('REVISION_CONFLICT', 'Agent provider changed while queued')
+      let lease = this.leases.get(instance.id)
+      if (lease && (lease.revision !== run.configRevision || JSON.stringify(lease.provider) !== JSON.stringify(run.provider))) {
+        await this.disposeLease(instance.id, 'Provider or configuration changed')
+        lease = undefined
+      }
+      if (lease?.idleTimer) clearTimeout(lease.idleTimer)
+      if (!lease) {
+        const controller = new AbortController()
+        const id = this.options.store.state.openLease(instance.id, run.provider, run.configRevision)
+        const resume = resolved.definition.capabilities.resume ? this.options.store.state.checkpoint(instance.id, run.provider, run.configRevision) : undefined
+        let creating: Promise<AgentRuntime>
+        try {
+          creating = resolved.definition.create({ instanceId: instance.id, config: instance.config, configRevision: instance.revision, mode: instance.mode,
+            ...(resume === undefined ? {} : { resume }) }, {
+            provider: run.provider, runtimeSessionId: id, profileId: scope.profileId, signal: controller.signal, logger: this.options.logger,
+          })
+        } catch (error) { controller.abort(); this.options.store.state.closeLease(id); throw error }
+        void creating.then(late => { if (ended) void late.dispose('Runtime creation exceeded deadline').catch(() => {}) }).catch(() => {})
+        try {
+          const runtime = await Promise.race([creating, aborted])
+          lease = { id, provider: run.provider, revision: run.configRevision, controller, runtime }
+          this.leases.set(instance.id, lease)
+        } catch (error) { controller.abort(); this.options.store.state.closeLease(id); throw error }
+      }
+      if (active.controller.signal.aborted) { this.finish(run.id, active.expired ? 'interrupted' : 'cancelled', active.expired ? 'DEADLINE_EXCEEDED' : null); return }
+      this.options.store.state.bindLease(run.id, lease.id)
       const context = this.options.context({ ...scope, runId: run.id }, active.controller.signal)
-      const runContext: AgentRunContext = { ...context, scope: { ...context.scope, runId: run.id, runtimeSessionId } }
+      const runContext: AgentRunContext = { ...context, scope: { ...context.scope, runId: run.id, runtimeSessionId: lease.id } }
       this.options.store.transition(run.id, ['starting'], 'running')
-      const starting = runtime.run(input, runContext)
+      const starting = lease.runtime.run(input, runContext)
       void starting.then(late => { if (ended) { void late.result.catch(() => {}); void late.cancel('Run start exceeded deadline').catch(() => {}) } }).catch(() => {})
       active.handle = await Promise.race([starting, aborted])
       if (active.controller.signal.aborted) void active.handle.cancel('Execution cancelled').catch(() => {})
-      let sequence = -1
+      let sequence = -1, checkpoint: JsonValue | undefined
+      const tools = new Set<string>()
       const [result] = await Promise.race([
-        Promise.all([active.handle.result, (async () => {
+        Promise.all([active.handle.result.then(value => {
+          finalizationDeadline = setTimeout(() => rejectAbort(new StudioError('DEADLINE_EXCEEDED', 'Agent output did not drain')), 5_000)
+          return value
+        }), (async () => {
           for await (const raw of active.handle!.events) {
             if (ended) break
             const event = parseAgentOutput(raw)
             if (event.producerSequence <= sequence) throw new StudioError('INVALID_ARGUMENT', 'Agent output is out of sequence')
             sequence = event.producerSequence
+            if (event.type === 'interaction.requested' && (!active.handle?.respond
+              || !(event.kind === 'approval' ? resolved.definition.capabilities.approvals : resolved.definition.capabilities.clarifications))) {
+              throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent cannot handle this interaction')
+            }
+            if (event.type === 'tool.started') tools.add(event.callId)
+            if (event.type === 'tool.completed' || event.type === 'tool.failed') tools.delete(event.callId)
+            if (event.type === 'checkpoint.updated') checkpoint = event.value
             this.options.store.appendOutput(run.id, event)
           }
-        })()]),
-        aborted,
+        })()]), aborted,
       ])
+      await Promise.race([Promise.all(active.responses.values()), aborted])
       if (!result || !['completed', 'cancelled'].includes(result.status)) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent result')
       const cancelling = this.options.store.get(run.id)?.status === 'cancelling'
-      finish(cancelling || result.status === 'cancelled' ? 'cancelled' : active.controller.signal.aborted ? 'interrupted' : 'completed', null)
+      if (!cancelling && result.status === 'completed') {
+        if (tools.size || this.options.store.state.interactions(run.id).some(item => item.status !== 'resolved')) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent ended with unresolved work')
+        if (!this.options.store.transition(run.id, ['running', 'waiting_input'], 'finalizing')) throw new StudioError('REVISION_CONFLICT', 'Run cannot finalize')
+        if (result.checkpoint !== undefined) checkpoint = jsonCopy(result.checkpoint)
+        if (checkpoint === undefined && resolved.definition.capabilities.resume && lease.runtime.checkpoint) {
+          checkpoint = jsonCopy(await Promise.race([lease.runtime.checkpoint(), aborted]))
+        }
+        this.finish(run.id, 'completed', null, checkpoint)
+        retain = !!resolved.definition.capabilities.persistentSession && !this.closed
+      } else this.finish(run.id, active.expired ? 'interrupted' : 'cancelled', active.expired ? 'DEADLINE_EXCEEDED' : null)
     } catch (error) {
-      finish(error instanceof StudioError && ['PLUGIN_UNAVAILABLE', 'DEADLINE_EXCEEDED'].includes(error.code) ? 'interrupted' : 'failed', error instanceof StudioError ? error.code : 'INTERNAL')
+      this.finish(run.id, error instanceof StudioError && ['PLUGIN_UNAVAILABLE', 'DEADLINE_EXCEEDED'].includes(error.code) ? 'interrupted' : 'failed', error instanceof StudioError ? error.code : 'INTERNAL')
     } finally {
       ended = true
       active.controller.signal.removeEventListener('abort', onAbort)
-      if (timer) clearTimeout(timer)
       if (deadline) clearTimeout(deadline)
+      if (finalizationDeadline) clearTimeout(finalizationDeadline)
       active.controller.abort()
-      runtimeController.abort()
-      if (runtime) {
-        let cleanupTimer: ReturnType<typeof setTimeout> | undefined
-        await Promise.race([runtime.dispose('Run ended').catch(() => {}), new Promise<void>(resolve => { cleanupTimer = setTimeout(resolve, 5_000) })])
-        if (cleanupTimer) clearTimeout(cleanupTimer)
+      if (!retain) await this.disposeLease(instance.id, 'Run ended')
+      else {
+        const lease = this.leases.get(instance.id)!
+        lease.idleTimer = setTimeout(() => { void this.disposeLease(instance.id, 'Idle runtime expired') }, 60_000)
+        lease.idleTimer.unref()
       }
     }
   }
