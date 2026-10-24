@@ -17,7 +17,7 @@ request resolution withdraws unanswered Studio interactions and suppresses late
 replies. Cancellation never invents an answer. Secret questions are rejected before
 any prompt is persisted, pending a dedicated credential interaction channel.
 It is not automatically installed and
-does not replace legacy chat or management. Cross-protocol model adapters, login/configuration
+does not replace legacy chat or management. Login/configuration
 management, MCP elicitation, compaction, global native usage ledger
 reconciliation and the full real CLI acceptance matrix remain incomplete. Native
 cumulative counters are not represented as fabricated per-call usage records.
@@ -38,15 +38,12 @@ PATH. This verifies global native inspection, text streaming, session reuse and 
 or remote model calls; it does not cover the complete vendor acceptance matrix.
 
 Scoped mode requires `models.gateway` authorization, a Studio-qualified `model`
-and a host-issued `runtime.stateDirectory`. It currently accepts only providers
-with the native Responses protocol; Chat Completions/Anthropic conversion is not
-implemented. A fresh loopback lease binds each request to the current Run, while
+and a host-issued `runtime.stateDirectory`. It supports native Responses providers and conversion to Chat Completions or Anthropic Messages for portable text, image and function-tool requests. A fresh loopback lease binds each request to the current Run, while
 upstream credentials remain in the host. Native custom tools and reasoning history
 pass through unchanged. The plugin uses an isolated HOME/CODEX_HOME and persists
 only the gateway URL and environment-key name, never its temporary token.
 
-State is separated by owner, profile, instance, provider version and configuration
-revision, and retained across worker restarts. This is native configuration isolation,
+State is separated by owner, profile, instance, provider version and state revision, and retained across worker restarts of the same artifact. This is native configuration isolation,
 not an OS sandbox. Old state reclamation and upgrade migration remain pending.
 Scoped management inspection explicitly returns unsupported until a model-bound
 management context exists; it never falls back to the global account.
@@ -67,3 +64,18 @@ session. Scoped image input requires the host model gateway to advertise vision;
 gateway handles without positive image capability are rejected before native turn admission. Global
 mode uses the native CLI's model configuration. This does not establish visual
 understanding by a real provider or complete the remaining migration/UI work.
+
+Compatible instance updates retain the original native directory, edited resources
+and committed checkpoint while advancing the configuration revision. The public
+`resumeConfigKeys` capability lists the supported fields: model, prompt, reasoning
+and explicit MCP settings (plus Codex approval/sandbox settings). Changing cwd,
+command, arguments, environment or mode starts a fresh session. The host drains
+the old runtime and commits configuration/state references atomically; stale
+resource snapshots still fail. Different artifact generations/versions do not
+inherit checkpoints automatically. Cross-mode migration remains pending.
+
+The native acceptance script now uses the actual coordinator, changes compatible
+configuration and reactivates the provider between turns, and checks directory,
+checkpoint, image, configured MCP-tool discovery and accounting continuity. Qwen deferred tool declarations are checked through a real tool_search call, and each revision must produce a fresh native MCP tools/list request. It also switches scoped sessions
+from native protocol to Chat Completions and back. Codex applies translated
+web-search restrictions as thread overrides, preserving the native config file.

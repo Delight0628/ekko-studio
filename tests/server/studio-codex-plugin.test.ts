@@ -238,7 +238,7 @@ it('restores the committed native thread after releasing its runtime lease', asy
   ])
 })
 
-it('releases a real worker runtime before changing config and starts a fresh native thread', async () => {
+it('releases a real worker runtime before changing config and resumes its native thread', async () => {
   const f = await setup(), before = await f.run('before'), pid = await f.pid()
   await expect(f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, config: f.instance.config, mode: 'unsupported' as any })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
   expect(alive(pid)).toBe(true)
@@ -247,8 +247,8 @@ it('releases a real worker runtime before changing config and starts a fresh nat
   expect(await f.run('after')).toMatchObject({ status: 'completed', configRevision: 2 })
   expect(await f.pid()).not.toBe(pid)
   const requests = await f.trace()
-  expect(requests.filter(frame => frame.method === 'thread/start')).toHaveLength(2)
-  expect(requests.filter(frame => frame.method === 'thread/resume')).toHaveLength(0)
+  expect(requests.filter(frame => frame.method === 'thread/start')).toHaveLength(1)
+  expect(requests.filter(frame => frame.method === 'thread/resume')).toHaveLength(1)
   expect(requests.filter(frame => frame.method === 'turn/start').at(-1).params.model).toBe('configured-model')
   expect(f.coordinator.get(scope, before.id)).toMatchObject({ status: 'completed', configRevision: 1 })
 })
@@ -470,4 +470,48 @@ fs.writeFileSync(process.env.PID_FILE + '.resources', JSON.stringify({ config: f
   expect((await f.run('resource-next')).status).toBe('completed')
   loaded = JSON.parse(await readFile(join(f.directory, 'pid.resources'), 'utf8'))
   expect(loaded.skill).toBe('# Updated for next run')
+})
+
+
+it('keeps scoped resources and native history across compatible configuration revisions', async () => {
+  const f = await setup({}, 'scoped')
+  const catalog = await f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'list' }) as any
+  await f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'write', kind: 'configs', locationId: 'native-instructions', path: '', content: 'Keep this instruction', etag: 'missing' }, catalog.snapshot)
+  expect(await f.run('before-config')).toMatchObject({ status: 'completed' })
+  const beforeHome = await readFile(join(f.directory, 'pid.home'), 'utf8')
+  const updated = await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, config: { ...f.instance.config, model: 'fixture/next', systemPrompt: 'New instruction' }, mode: 'scoped' })
+  const { revision, ...profile } = f.store.profile('studio.agent-codex', 'one')!
+  const disabled = await f.host.configure({ ...profile, enabled: false }, revision)
+  await f.host.configure({ ...profile, enabled: true }, disabled.revision)
+  const next = await f.coordinator.resourceFiles(scope, f.instance.id, 2, { action: 'list' }) as any
+  expect(next.configs).toEqual(catalog.configs)
+  expect(next.snapshot).not.toBe(catalog.snapshot)
+  await expect(f.coordinator.resourceFiles(scope, f.instance.id, 2, { action: 'read', kind: 'configs', locationId: 'native-instructions', path: '' }, catalog.snapshot)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  expect(await f.coordinator.resourceFiles(scope, f.instance.id, 2, { action: 'read', kind: 'configs', locationId: 'native-instructions', path: '' }, next.snapshot)).toMatchObject({ file: { content: 'Keep this instruction' } })
+  expect(await f.run('after-config')).toMatchObject({ status: 'completed', configRevision: 2 })
+  expect(await readFile(join(f.directory, 'pid.home'), 'utf8')).toBe(beforeHome)
+  expect((await f.trace()).filter(frame => frame.method === 'thread/resume')).toHaveLength(1)
+  expect(f.issued.at(-1)!.model).toBe('fixture/next')
+  // Environment can select a different account/home; it must not reuse the old state.
+  await f.coordinator.updateInstance(scope, f.instance.id, { revision: 2, config: { ...updated.config, env: { ...updated.config.env as any, NEW_HOME_SELECTOR: 'different' } }, mode: 'scoped' })
+  const changed = await f.coordinator.resourceLocations(scope, f.instance.id, 3)
+  expect(changed.configs!.find(file => file.id === 'native-instructions')!.path).not.toBe(next.configs.find((file: any) => file.id === 'native-instructions').path)
+  expect(await f.run('after-environment')).toMatchObject({ status: 'completed', configRevision: 3 })
+  expect((await f.trace()).filter(frame => frame.method === 'thread/resume')).toHaveLength(1)
+})
+
+it('limits translated web search overrides to the native thread without rewriting user configuration', async () => {
+  const f = await setup({}, 'scoped'), open = f.gateway.getMockImplementation()!
+  let transport: 'native' | 'translated' = 'translated'
+  f.gateway.mockImplementation(async (...args) => ({ ...await open(...args), transport }))
+  const catalog = await f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'list' }) as any
+  const config = catalog.configs.find((location: any) => location.format === 'toml')
+  await f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'write', kind: 'configs', locationId: config.id, path: '', content: 'web_search = "cached"\n', etag: 'missing' }, catalog.snapshot)
+  expect(await f.run('translated')).toMatchObject({ status: 'completed' })
+  transport = 'native'
+  expect(await f.run('native')).toMatchObject({ status: 'completed' })
+  const threads = (await f.trace()).filter(frame => ['thread/start', 'thread/resume'].includes(frame.method))
+  expect(threads[0].params.config.web_search).toBe('disabled')
+  expect(threads[1].params.config?.web_search).toBeUndefined()
+  expect(await readFile(config.path, 'utf8')).toContain('web_search = "cached"')
 })

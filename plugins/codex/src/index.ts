@@ -38,7 +38,8 @@ export const apply: StudioPlugin['apply'] = plugin => {
   plugin.agents.register({
     id: 'codex', name: 'Codex', configSchema: schema,
     management,
-    capabilities: { text: true, images: true, streaming: true, reasoning: true, approvals: true, clarifications: true, resume: true, persistentSession: true, modes: ['scoped', 'global'] },
+    capabilities: { text: true, images: true, streaming: true, reasoning: true, approvals: true, clarifications: true, resume: true,
+      resumeConfigKeys: ['model', 'effort', 'developerInstructions', 'systemPrompt', 'mcpServers', 'approvalPolicy', 'sandbox'], persistentSession: true, modes: ['scoped', 'global'] },
     async create(input, runtime) {
       const config = input.config, cwd = String(config.cwd), scoped = input.mode === 'scoped'
       const contextConfiguration = mergeAgentContextConfiguration(config as AgentContextConfiguration,
@@ -140,9 +141,10 @@ export const apply: StudioPlugin['apply'] = plugin => {
                 if (turn.cancelled) return { status: 'cancelled' }
               }
               if (!resumed) {
+                const overrides = { ...nativeConfiguration, ...(gateway?.transport === 'translated' ? { web_search: 'disabled' } : {}) }
                 const parameters = { ...Object.fromEntries(['model', 'approvalPolicy', 'sandbox'].filter(key => config[key] !== undefined).map(key => [key, config[key]])),
                   ...(contextConfiguration.systemPrompt ? { developerInstructions: contextConfiguration.systemPrompt } : {}),
-                  ...(Object.keys(nativeConfiguration).length ? { config: nativeConfiguration } : {}) }
+                  ...(Object.keys(overrides).length ? { config: overrides } : {}) }
                 const response = await rpc.request(threadId ? 'thread/resume' : 'thread/start', { ...parameters, ...(gateway ? { model: gateway.model } : {}), cwd, ...(threadId ? { threadId } : {}) })
                 if (typeof response?.thread?.id !== 'string' || !response.thread.id || response.thread.id.length > 4096
                   || (threadId && response.thread.id !== threadId)) throw new Error('Invalid Codex thread identity')

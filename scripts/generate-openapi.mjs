@@ -2079,7 +2079,7 @@ openapi.paths['/api/studio/agent-instances/{id}'].put.requestBody = studioPlugin
     mode: { type: 'string', enum: ['scoped', 'global'] }, profile: { type: 'string' },
   },
 })
-openapi.paths['/api/studio/agent-instances/{id}'].put.description += ' Replaces instance configuration after validating its revision and registered schema. Active/queued runs block changes. Idle native resources must finish disposal before committing; new runs are blocked during disposal. The new revision starts a fresh native session; prior run history remains readable.'
+openapi.paths['/api/studio/agent-instances/{id}'].put.description += ' Replaces instance configuration after validating its revision and registered schema. Active/queued runs block changes. Idle native resources must finish disposal before committing; new runs are blocked during disposal. The revision always advances. When mode is unchanged and all changed fields are declared in capabilities.resumeConfigKeys, the configuration transaction preserves the native state directory and successful checkpoint. Undeclared changes and mode changes start a fresh native session. Prior run history remains readable; old resource snapshots are invalidated.'
 openapi.paths['/api/studio/agent-instances/{id}'].put.summary = 'Update Agent instance configuration'
 openapi.paths['/api/studio/agent-instances/{id}'].put.responses['404'].description = 'Agent instance is unavailable in this owner/profile scope.'
 const agentInspection = openapi.paths['/api/studio/agent-instances/{id}/inspect'].post

@@ -15,7 +15,6 @@ export interface ModelGatewayPorts {
 }
 interface Lease {
   key: string; token: string; scope: ExecutionScope; input: ModelGatewayInput
-  transport: 'native' | 'translated'
   authorize(): void; controller: AbortController
   active: Set<Promise<void>>; failure?: unknown; closing?: Promise<void>; release(): void
 }
@@ -58,7 +57,7 @@ export class PluginModelGateways {
       const watch = setInterval(() => { try { authorize() } catch { stop() } }, 250)
       const expiry = setTimeout(stop, 600_000)
       const transport = native.transport ?? 'native'
-      const lease: Lease = { key, token, scope, input, transport, controller, authorize, active: new Set(),
+      const lease: Lease = { key, token, scope, input, controller, authorize, active: new Set(),
         release: () => { clearInterval(watch); clearTimeout(expiry); signal.removeEventListener('abort', stop) } }
       this.leases.set(key, lease)
       signal.addEventListener('abort', stop, { once: true })
@@ -138,7 +137,8 @@ export class PluginModelGateways {
       check()
       target = await this.ports.resolve(lease.scope.profileId, lease.input.model, lease.input.protocol, check)
       check()
-      if ((target.transport ?? 'native') !== lease.transport) throw new StudioError('REVISION_CONFLICT', 'Model transport changed during the Run')
+      // The CLI-facing protocol is stable. Each freshly authorized target
+      // validates whether this request can be represented by its current protocol.
       record = this.ports.store.accept(lease.scope, { idempotencyKey: randomUUID(), model: lease.input.model, input: raw }, call => this.ports.state.claimHostModelCall(call))
       const upstream = await target.request(body, signal, lease.scope.sessionId || lease.scope.runId!)
       try { check() } catch (error) { await upstream.body?.cancel(); throw error }

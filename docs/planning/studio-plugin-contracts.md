@@ -148,11 +148,11 @@ interface AgentRunContext extends ExecutionContext {
 
 当前 SDK 另提供 `ctx.models.gateway({ model, protocol })`，要求 `models.gateway` 授权与已有 Run 绑定。`protocol` 为 `responses` 或 `anthropic`。同协议保持原生直通；跨协议复用旧 Coding Agent proxy 提取的共享适配器，支持 Responses→Chat Completions/Anthropic，以及 Anthropic→Chat Completions/Responses。返回 `{ baseUrl, token, model, protocol, transport, images, dispose }`，其中 token 是本机网关临时凭据，上游密钥不离开宿主。每次 HTTP 请求重新解析模型配置；用户、profile、session、Run 归属均由宿主固定。请求中的 model 不能覆盖实际目标。
 
-`transport` 为 `native` 或 `translated`，同一 Run 内改变传输类型会拒绝请求。转换路径支持文本、图片及普通函数工具；保留命名空间身份并按上游原始用量与结束状态计量，不以旧适配器补出的零或 EOF 作为权威结果。厂商托管工具、custom grammar、严格工具/schema 输出与强制工具选择不属于通用转换契约，明确拒绝；厂商私有推理签名不承诺跨协议重放。Codex 转换模式禁用原生 web search。其他模型协议仍明确拒绝，Gemini 等后续单独验收。
+`transport` 为准入时的 `native` 或 `translated` 提示。CLI 侧协议保持不变，每次请求重新解析并授权所选宿主模型；同一 Run 内允许原生直通与转换互切，具体请求仍须满足目标协议的能力检查。转换路径支持文本、图片及普通函数工具；保留命名空间身份并按上游原始用量与结束状态计量，不以旧适配器补出的零或 EOF 作为权威结果。厂商托管工具、custom grammar、严格工具/schema 输出与强制工具选择不属于通用转换契约，明确拒绝；厂商私有推理签名不承诺跨协议重放。Codex 转换模式通过 thread/start 或 thread/resume 的临时 config 覆盖禁用原生 web search，不把该设置写入用户配置文件。其他模型协议仍明确拒绝，Gemini 等后续单独验收。
 
 网关只监听 loopback，租约最长 10 分钟；每请求 120 秒，16 MiB 输入、32 MiB 输出、1 MiB SSE 帧；最多 64 个租约/请求、每租约 4 个请求。只支持前台完整历史请求，不支持服务端历史引用、后台任务、压缩端点和 WebSocket。HTTP 重试视为新模型调用，不承诺推理副作用幂等。原生成功帧在权威用量写入后交付；缺失计量保留 unknown。`dispose()` 撤销准入并等待请求和记账；Run 取消、worker 退出、授权撤销、超时和宿主关闭也自动回收。清理/记账不确定时不得当作成功屏障。
 
-`AgentRuntimeContext.stateDirectory` 为可选宿主能力：scoped 实例获得按提供方版本、owner、profile、实例和配置 revision 隔离的持久目录。路径不可由执行参数覆盖，worker 重启保持稳定。插件在其中管理自己的原生配置/历史；目录隔离不是操作系统沙箱。新 revision 不复用旧目录，历史清理和升级迁移仍未完成。
+`AgentRuntimeContext.stateDirectory` 为可选宿主能力：scoped 实例获得按提供方版本、owner、profile、实例和状态 revision 隔离的持久目录。默认状态 revision 等于配置 revision；符合插件 `resumeConfigKeys` 声明的更新保留原状态 revision，目录与原生资源无需复制。关联记录与配置更新在同一事务提交，沿用既有目录命名，不搬移旧文件。路径不可由执行参数覆盖，同一工件 worker 重启保持稳定。插件在其中管理自己的原生配置/历史；目录隔离不是操作系统沙箱。历史清理、跨模式和升级迁移仍未完成。
 
 当前 T02 已落地 `ctx.sessions.remove(id)`，要求 `sessions.remove` 授权，并与现有 HTTP 单删/批删共用领域服务。返回本地 `deleted` 与独立的 `native` 清理结果；profile 与主体由宿主绑定，不接收调用参数。首个副作用前响应取消，开始变更后返回实际结果。上表的活动 Run 策略 options、hook 和可靠投递仍为目标契约，不能据此假定已实现；详见[实施记录](studio-plugin-progress.md#t02-进展会话删除共用领域服务)。
 
@@ -176,7 +176,7 @@ HTTP 与 SDK 共用内部直调端口和旧执行器，SDK 不暴露 `ChatRunCal
 
 开发 SDK 已提供 `runs.cancel(id)`、`runs.interactions(id)`、`runs.respond(id, { interactionId, idempotencyKey, choiceId?, text? })` 和 `runs.usage(id)`。读取使用 `runs.read`，取消和响应分别使用 `runs.cancel`、`runs.respond`。响应仅返回 `{ id, runId, status }`，不携带交互正文；重试仍验证当前权限与 Run 范围。响应不确定失败时不会自动重放。
 
-同实例输入当前串行运行；`persistentSession` 是显式能力，成功轮次才保留 runtime，空闲 60 秒后释放。运行输入 deadline 包含排队等待。checkpoint 只在成功终态事务中提交，并仅在提供方引用和配置 revision 相同且支持 resume 时用于下一次创建；未完成输入不会自动重放。结果返回后的输出收尾期限为 5 秒，领取 `finalizing` 后拒绝取消并返回 `RUN_FINALIZING`。
+同实例输入当前串行运行；`persistentSession` 是显式能力，成功轮次才保留 runtime，空闲 60 秒后释放。运行输入 deadline 包含排队等待。checkpoint 只在成功终态事务中提交，并在完整提供方引用和配置 revision 匹配且支持 resume 时用于下一次创建；兼容配置更新可在事务中将成功 checkpoint 的配置关联推进到新 revision，原 Run 记录不变。不同插件工件 generation 不自动兼容；未完成输入不会自动重放。结果返回后的输出收尾期限为 5 秒，领取 `finalizing` 后拒绝取消并返回 `RUN_FINALIZING`。
 
 现有 usage DTO 按 modelCallId、revision 去重，cumulative/final 替换，delta 累加，final 可由更高 final revision 校正。SDK 模型调用 ID 由宿主独占计量，runtime 回显不会重复计入；未知 counters 为 null。跨父子 Run 聚合及旧原生 Run 的权威计量迁移仍待完成。实例生命周期的实际证据见[实施记录](studio-plugin-progress.md#t06-进展实例运行生命周期)，不能据此宣称旧聊天及其他入口已统一。
 
@@ -224,7 +224,7 @@ Hermes/Ekko 使用同一 `AgentTypeDefinition` 与 `AgentRuntime`，由 bootstra
 
 `RuntimeCreateInput` 包含宿主确定的 Agent 实例快照、配置 revision、模式、工作区引用及可选恢复引用。实例配置可定义 system prompt、模型选择或原生 preset；原生配置是否支持以能力为准。一个插件可贡献多个类型，一个类型可有多个持久化实例。
 
-当前实例配置更新使用 `PUT /api/studio/agent-instances/:id`，提交 `{ revision, config, mode }`。只允许当前 profile 的所有者修改；活动/排队运行返回冲突，不隐式取消。宿主在空闲租约回收期间阻止新执行，确认退出、重新授权并确认提供方不变后以 revision/CAS 写入。更新创建新的配置 revision，保留既有运行历史；后续执行从新的原生会话开始，不自动跨配置复用旧 checkpoint。该接口不替代厂商原生登录或配置文件管理。
+当前实例配置更新使用 `PUT /api/studio/agent-instances/:id`，提交 `{ revision, config, mode }`。只允许当前 profile 的所有者修改；活动/排队运行返回冲突，不隐式取消。宿主在空闲租约回收期间阻止新执行，确认退出、重新授权并确认提供方不变后以 revision/CAS 写入。更新创建新的配置 revision，保留既有运行历史。插件可通过 `capabilities.resumeConfigKeys` 声明至多 32 个顶层 schema 字段，要求 `resume: true`、字段唯一且存在于根 schema properties。仅当模式不变且所有实际变化均在声明范围内，事务保留原生目录关联和成功 checkpoint；未声明、不兼容或模式变化仍从新原生会话开始。Qwen 声明 model/reasoningEffort/systemPrompt/mcpServers，Codex 另支持自身 effort/developerInstructions/approvalPolicy/sandbox；cwd、command、args、env 均不在声明中。活动运行、旧 revision、撤权、提供方变化或清理失败不提交配置和状态关联。该接口不替代厂商原生登录或配置文件管理。
 
 `AgentRunInput` 包含内容块、已授权历史/上下文引用、模型选择、预算、超时和必要的来源信息。host 私有 token、数据库行和任意 sessionMap 均不进入参数。原生多轮会话使用 checkpoint 恢复；恢复失败应返回可判断错误，不能悄悄重放有副作用的工具调用。
 

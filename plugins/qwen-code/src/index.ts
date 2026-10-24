@@ -24,7 +24,8 @@ const plugin: StudioPlugin = {
     plugin.agents.register({
       id: 'qwen', name: 'Qwen Code', configSchema: schema as unknown as JsonObject,
       management,
-      capabilities: { text: true, images: true, streaming: true, reasoning: true, approvals: true, resume: true, persistentSession: true, modes: ['scoped', 'global'] },
+      capabilities: { text: true, images: true, streaming: true, reasoning: true, approvals: true, resume: true,
+        resumeConfigKeys: ['model', 'reasoningEffort', 'systemPrompt', 'mcpServers'], persistentSession: true, modes: ['scoped', 'global'] },
       async create(input, runtime) {
         const config = input.config
         const contextConfiguration = mergeAgentContextConfiguration(config as AgentContextConfiguration)

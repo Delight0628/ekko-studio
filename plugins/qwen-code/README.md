@@ -21,15 +21,14 @@ model discovery is `unsupported` without creating a session. Inspection creates
 no chat history and does not authenticate or change configuration.
 
 The artifact is not installed automatically and does not replace the existing
-chat path. Cross-protocol provider conversion, host MCP/Skills injection, native management/login integration, global usage reconciliation and the full real CLI
+chat path. Studio-managed MCP injection, native management/login integration, global usage reconciliation and the full real CLI
 acceptance matrix remain required before complete migration. Missing usage stays unknown.
 Fixture subprocess tests do not establish compatibility with an installed vendor CLI.
 
 Scoped mode requires `models.gateway` authorization, a Studio-qualified `model`
-and host-issued `runtime.stateDirectory`. It currently supports native Anthropic
-Messages providers. Each turn obtains a fresh loopback token; the host keeps the
+and host-issued `runtime.stateDirectory`. It supports native Anthropic Messages and conversion to Chat Completions or Responses for portable text, image and function-tool requests. Each turn obtains a fresh loopback token; the host keeps the
 upstream credential and accounts model calls against the exact Run. HOME, QWEN_HOME
-and runtime state are isolated by owner/profile/instance/provider/config revision.
+and runtime state are isolated by owner/profile/instance/provider/state revision.
 Settings contain the endpoint and environment-key name; the temporary token is
 passed only in the child environment. Native history remains available for resume.
 This isolates native configuration, not operating-system access; state migration
@@ -61,3 +60,18 @@ Scoped Qwen configuration projects the host capability to
 `modelProviders.anthropic[].generationConfig.modalities.image`. For custom global
 models, configure native modalities explicitly; Qwen may otherwise treat an
 unknown model as text-only and replace images with a vision-bridge fallback.
+
+Compatible instance updates retain the original native directory, edited resources
+and committed checkpoint while advancing the configuration revision. The public
+`resumeConfigKeys` capability lists the supported fields: model, prompt, reasoning
+and explicit MCP settings (plus Codex approval/sandbox settings). Changing cwd,
+command, arguments, environment or mode starts a fresh session. The host drains
+the old runtime and commits configuration/state references atomically; stale
+resource snapshots still fail. Different artifact generations/versions do not
+inherit checkpoints automatically. Cross-mode migration remains pending.
+
+The native acceptance script now uses the actual coordinator, changes compatible
+configuration and reactivates the provider between turns, and checks directory,
+checkpoint, image, configured MCP-tool discovery and accounting continuity. Qwen deferred tool declarations are checked through a real tool_search call, and each revision must produce a fresh native MCP tools/list request. It also switches scoped sessions
+from native protocol to Chat Completions and back. Codex applies translated
+web-search restrictions as thread overrides, preserving the native config file.

@@ -13,7 +13,6 @@ export async function scopedCodex(runtime: AgentRuntimeContext, gateway: ModelGa
   try { config = parse(text) } catch { throw new StudioError('INVALID_ARGUMENT', 'Invalid native TOML configuration') }
   const providers = config.model_providers && typeof config.model_providers === 'object' && !Array.isArray(config.model_providers) ? config.model_providers : {}
   const configuration = stringify({ ...config, model: gateway.model, model_provider: 'studio', disable_response_storage: true,
-    ...(gateway.transport === 'translated' ? { web_search: 'disabled' } : {}),
     model_providers: { ...providers, studio: { name: 'Studio', base_url: gateway.baseUrl, wire_api: 'responses', requires_openai_auth: false, env_key: 'STUDIO_NATIVE_MODEL_TOKEN' } } })
   await writeFile(join(root, 'config.toml.tmp'), configuration, { mode: 0o600 })
   await rename(join(root, 'config.toml.tmp'), join(root, 'config.toml'))

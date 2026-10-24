@@ -135,6 +135,13 @@ export function validateAgentDefinition(definition: AgentTypeDefinition): void {
   const flags = ['text', 'images', 'files', 'streaming', 'reasoning', 'resume', 'persistentSession', 'compact', 'approvals', 'clarifications', 'steering']
   for (const [key, value] of Object.entries(capabilities)) {
     if (key === 'modes') continue
+    if (key === 'resumeConfigKeys') {
+      const properties = typeof definition.configSchema === 'object' && definition.configSchema !== null ? definition.configSchema.properties : undefined
+      if (capabilities.resume !== true || !Array.isArray(value) || value.length > 32 || new Set(value).size !== value.length
+        || value.some(field => typeof field !== 'string' || !/^[a-zA-Z][a-zA-Z0-9_]{0,127}$/.test(field)
+          || !properties || typeof properties !== 'object' || !Object.hasOwn(properties, field))) throw new StudioError('INVALID_ARGUMENT', 'Invalid resumable configuration fields')
+      continue
+    }
     if (!flags.includes(key) || typeof value !== 'boolean') throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent capability')
   }
   compileSchema(definition.configSchema)

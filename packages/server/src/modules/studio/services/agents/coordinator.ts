@@ -12,6 +12,7 @@ import { ManagedProcessScope } from '../processes/managed'
 import { agentStateDirectory } from './state-directory'
 import { AgentManagement } from './management'
 import { createHash } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { AgentResourceFiles, type ResourceFileOperation } from './resource-files'
 import { parseAgentResourceLocations } from './resource-contract'
 
@@ -114,7 +115,7 @@ export class AgentCoordinator {
       const resolved = this.options.registry.resolve(scope.profileId, instance.agentTypeId)
       compileSchema(resolved.definition.configSchema)(input.config)
       if (!resolved.definition.capabilities.modes.includes(input.mode)) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Unsupported Agent mode')
-      return { instance, provider: JSON.stringify(resolved.provider) }
+      return { instance, ...resolved }
     }
     const previous = inspect()
     if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance is being managed')
@@ -122,8 +123,12 @@ export class AgentCoordinator {
     try {
       await this.disposeLease(instanceId, 'Instance configuration changed')
       const current = inspect()
-      if (current.provider !== previous.provider) throw new StudioError('REVISION_CONFLICT', 'Agent provider changed during configuration')
-      return this.options.store.configureInstance(current.instance, input)
+      if (JSON.stringify(current.provider) !== JSON.stringify(previous.provider)) throw new StudioError('REVISION_CONFLICT', 'Agent provider changed during configuration')
+      const compatible = current.definition.capabilities.resumeConfigKeys
+      const keys = new Set([...Object.keys(current.instance.config), ...Object.keys(input.config)])
+      const preserve = compatible !== undefined && current.instance.mode === input.mode
+        && [...keys].every(key => compatible.includes(key) || isDeepStrictEqual(current.instance.config[key], input.config[key]))
+      return this.options.store.configureInstance(current.instance, input, preserve ? current.provider : undefined)
     } finally { this.configuring.delete(instanceId) }
   }
 
@@ -171,7 +176,8 @@ export class AgentCoordinator {
     }
     try {
       if (signal?.aborted) throw new StudioError('CANCELLED', 'Resource operation cancelled')
-      const stateDirectory = instance.mode === 'scoped' && this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, provider) : undefined
+      const stateDirectory = instance.mode === 'scoped' && this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, provider,
+        this.options.store.state.stateRevision(instance.id, provider, instance.revision)) : undefined
       authorize()
       const input = { instanceId, config: instance.config, configRevision: instance.revision, mode: instance.mode }
       return await this.management.execute(input, scope, provider, async context => {
@@ -424,7 +430,8 @@ export class AgentCoordinator {
         // Install the lease before invoking user code, including factories that
         // start a process and then throw synchronously.
         const creating = Promise.resolve().then(async () => {
-          const stateDirectory = instance.mode === 'scoped' && this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, run.provider) : undefined
+          const stateDirectory = instance.mode === 'scoped' && this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, run.provider,
+            this.options.store.state.stateRevision(instance.id, run.provider, instance.revision)) : undefined
           assertDispatch()
           return resolved.definition.create({ instanceId: instance.id, config: instance.config, configRevision: instance.revision, mode: instance.mode,
             ...(resume === undefined ? {} : { resume }) }, {

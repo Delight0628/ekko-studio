@@ -113,13 +113,13 @@ it('inspects ACP metadata without creating history or claiming an unknown accoun
   expect(await f.run('after-inspect')).toMatchObject({ status: 'completed' })
 })
 
-it('applies a new instance configuration without restoring the previous native session', async () => {
+it('applies a compatible instance configuration while restoring the previous native session', async () => {
   const f = await setup(), before = await f.run('before')
   await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, config: { ...f.instance.config, model: 'configured-model' }, mode: 'global' })
   expect(await f.run('after')).toMatchObject({ status: 'completed', configRevision: 2 })
   const requests = await f.trace()
-  expect(requests.filter(frame => frame.method === 'session/new')).toHaveLength(2)
-  expect(requests.filter(frame => frame.method === 'session/load')).toHaveLength(0)
+  expect(requests.filter(frame => frame.method === 'session/new')).toHaveLength(1)
+  expect(requests.filter(frame => frame.method === 'session/load')).toHaveLength(1)
   expect(requests.filter(frame => frame.method === 'session/set_model').at(-1).params.modelId).toBe('configured-model')
   expect(f.coordinator.get(scope, before.id).status).toBe('completed')
 })
@@ -301,4 +301,32 @@ fs.writeFileSync(process.env.PID_FILE + '.resources', JSON.stringify({ config: f
   expect((await f.run('resource-next')).status).toBe('completed')
   loaded = JSON.parse(await readFile(join(f.directory, 'pid.resources'), 'utf8'))
   expect(loaded.skill).toBe('# Updated for next run')
+})
+
+
+it('keeps scoped resources and native history across compatible configuration revisions', async () => {
+  const f = await setup('scoped')
+  const catalog = await f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'list' }) as any
+  await f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'write', kind: 'configs', locationId: 'native-instructions', path: '', content: 'Keep this instruction', etag: 'missing' }, catalog.snapshot)
+  expect(await f.run('before-config')).toMatchObject({ status: 'completed' })
+  const beforeHome = await readFile(join(f.directory, 'pid.home'), 'utf8')
+  const updated = await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, config: { ...f.instance.config, model: 'fixture/next', systemPrompt: 'New instruction' }, mode: 'scoped' })
+  const { revision, ...profile } = f.store.profile('studio.agent-qwen', 'one')!
+  const disabled = await f.host.configure({ ...profile, enabled: false }, revision)
+  await f.host.configure({ ...profile, enabled: true }, disabled.revision)
+  const next = await f.coordinator.resourceFiles(scope, f.instance.id, 2, { action: 'list' }) as any
+  expect(next.configs).toEqual(catalog.configs)
+  expect(next.snapshot).not.toBe(catalog.snapshot)
+  await expect(f.coordinator.resourceFiles(scope, f.instance.id, 2, { action: 'read', kind: 'configs', locationId: 'native-instructions', path: '' }, catalog.snapshot)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  expect(await f.coordinator.resourceFiles(scope, f.instance.id, 2, { action: 'read', kind: 'configs', locationId: 'native-instructions', path: '' }, next.snapshot)).toMatchObject({ file: { content: 'Keep this instruction' } })
+  expect(await f.run('after-config')).toMatchObject({ status: 'completed', configRevision: 2 })
+  expect(await readFile(join(f.directory, 'pid.home'), 'utf8')).toBe(beforeHome)
+  expect((await f.trace()).filter(frame => frame.method === 'session/load')).toHaveLength(1)
+  expect(f.issued.at(-1)!.model).toBe('fixture/next')
+  // Environment can select a different account/home; it must not reuse the old state.
+  await f.coordinator.updateInstance(scope, f.instance.id, { revision: 2, config: { ...updated.config, env: { ...updated.config.env as any, NEW_HOME_SELECTOR: 'different' } }, mode: 'scoped' })
+  const changed = await f.coordinator.resourceLocations(scope, f.instance.id, 3)
+  expect(changed.configs!.find(file => file.id === 'native-instructions')!.path).not.toBe(next.configs.find((file: any) => file.id === 'native-instructions').path)
+  expect(await f.run('after-environment')).toMatchObject({ status: 'completed', configRevision: 3 })
+  expect((await f.trace()).filter(frame => frame.method === 'session/load')).toHaveLength(1)
 })

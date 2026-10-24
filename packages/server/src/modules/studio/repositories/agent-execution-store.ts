@@ -65,13 +65,18 @@ export class AgentExecutionStore {
   hasActiveRuns(instanceId: string): boolean {
     return !!this.db.prepare("SELECT 1 FROM studio_agent_runs WHERE instance_id=? AND status NOT IN ('completed','cancelled','failed','interrupted') LIMIT 1").get(instanceId)
   }
-  configureInstance(instance: AgentInstance, input: AgentInstanceConfiguration): AgentInstance {
-    const changed = this.db.prepare(`UPDATE studio_agent_instances SET config_json=?, mode=?, revision=revision+1
-      WHERE id=? AND owner_id=? AND profile_id=? AND revision=? AND revision<?
-      AND NOT EXISTS (SELECT 1 FROM studio_agent_runs WHERE instance_id=? AND status NOT IN ('completed','cancelled','failed','interrupted'))`)
-      .run(JSON.stringify(input.config), input.mode, instance.id, instance.ownerId, instance.profileId, input.revision, Number.MAX_SAFE_INTEGER, instance.id)
-    if (!changed.changes) throw new StudioError('REVISION_CONFLICT', 'Agent instance changed or has active runs')
-    return this.instance(instance.id)!
+  configureInstance(instance: AgentInstance, input: AgentInstanceConfiguration, preserve?: AgentProviderRef): AgentInstance {
+    this.db.exec('SAVEPOINT studio_agent_configuration')
+    try {
+      const changed = this.db.prepare(`UPDATE studio_agent_instances SET config_json=?, mode=?, revision=revision+1
+        WHERE id=? AND owner_id=? AND profile_id=? AND revision=? AND revision<?
+        AND NOT EXISTS (SELECT 1 FROM studio_agent_runs WHERE instance_id=? AND status NOT IN ('completed','cancelled','failed','interrupted'))`)
+        .run(JSON.stringify(input.config), input.mode, instance.id, instance.ownerId, instance.profileId, input.revision, Number.MAX_SAFE_INTEGER, instance.id)
+      if (!changed.changes) throw new StudioError('REVISION_CONFLICT', 'Agent instance changed or has active runs')
+      if (preserve) this.state.carryConfiguration(instance.id, preserve, input.revision, input.revision + 1)
+      this.db.exec('RELEASE studio_agent_configuration')
+      return this.instance(instance.id)!
+    } catch (error) { this.db.exec('ROLLBACK TO studio_agent_configuration; RELEASE studio_agent_configuration'); throw error }
   }
 
   findRequest(instance: AgentInstance, input: AgentRunInput, key: string): AgentExecution | null {

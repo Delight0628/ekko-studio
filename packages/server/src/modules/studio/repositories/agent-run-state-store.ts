@@ -20,6 +20,9 @@ export class AgentRunStateStore {
       status TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     ); CREATE TABLE IF NOT EXISTS studio_agent_run_leases (
       run_id TEXT PRIMARY KEY, lease_id TEXT NOT NULL
+    ); CREATE TABLE IF NOT EXISTS studio_agent_state_revisions (
+      instance_id TEXT NOT NULL, provider_key TEXT NOT NULL, config_revision INTEGER NOT NULL, state_revision INTEGER NOT NULL,
+      PRIMARY KEY(instance_id, provider_key, config_revision)
     );`)
   }
 
@@ -148,5 +151,19 @@ export class AgentRunStateStore {
     const row = this.db.prepare('SELECT value_json FROM studio_agent_checkpoints WHERE instance_id=? AND provider_json=? AND config_revision=?')
       .get(instanceId, JSON.stringify(provider), configRevision) as { value_json: string } | undefined
     return row ? JSON.parse(row.value_json) as JsonValue : undefined
+  }
+  stateRevision(instanceId: string, provider: AgentProviderRef, configRevision: number): number {
+    const row = this.db.prepare('SELECT state_revision FROM studio_agent_state_revisions WHERE instance_id=? AND provider_key=? AND config_revision=?')
+      .get(instanceId, JSON.stringify(provider), configRevision) as { state_revision: number } | undefined
+    return row?.state_revision ?? configRevision
+  }
+  /** Called inside the instance configuration transaction, after the old runtime has drained. */
+  carryConfiguration(instanceId: string, provider: AgentProviderRef, from: number, to: number): void {
+    this.db.prepare('INSERT INTO studio_agent_state_revisions VALUES (?, ?, ?, ?)')
+      .run(instanceId, JSON.stringify(provider), to, this.stateRevision(instanceId, provider, from))
+    if (this.checkpoint(instanceId, provider, from) !== undefined) {
+      this.db.prepare('UPDATE studio_agent_checkpoints SET config_revision=?, provider_json=? WHERE instance_id=? AND config_revision=?')
+        .run(to, JSON.stringify(provider), instanceId, from)
+    }
   }
 }

@@ -1,4 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
+import { OpenAICompatibleModelClient } from '../../packages/ekko-agent/src/model/providers/openai-compatible'
+import { translatedNativeRequest } from '../../packages/server/src/modules/studio/services/models/native-adapter'
 import { afterEach, expect, it, vi } from 'vitest'
 import { PluginModelGateways } from '../../packages/server/src/modules/studio/services/models/gateway'
 import { PluginModelCallStore } from '../../packages/server/src/modules/studio/repositories/plugin-model-call-store'
@@ -141,6 +143,48 @@ it('revalidates the selected model before each call and does not bill a disabled
   f.resolve.mockRejectedValue(new StudioError('NOT_FOUND', 'disabled'))
   expect((await post(gateway)).status).toBe(502)
   expect(f.calls()).toEqual([]); expect(f.request).not.toHaveBeenCalled()
+})
+
+it('keeps the CLI protocol and billing identity while the selected model changes transport', async () => {
+  const f = setup(), gateway = await f.open()
+  for (const transport of ['native', 'translated', 'native'] as const) {
+    f.resolve.mockResolvedValue({ request: f.request, record: f.record, images: true, transport } as any)
+    const response = await post(gateway)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain('response.completed')
+  }
+  expect(f.resolve).toHaveBeenCalledTimes(4)
+  expect(f.request).toHaveBeenCalledTimes(3)
+  expect(f.calls()).toHaveLength(3)
+  expect(f.calls().every(call => call.runId === 'run' && call.status === 'completed')).toBe(true)
+  f.authorize.mockImplementation(() => { throw new StudioError('FORBIDDEN', 'Revoked') })
+  expect((await post(gateway)).status).not.toBe(200)
+  expect(f.request).toHaveBeenCalledTimes(3)
+})
+
+it.each(['responses', 'anthropic'] as const)('switches a live %s lease through the real Chat Completions adapter and back', async protocol => {
+  const f = setup(), upstream = vi.fn(async () => Response.json({ choices: [{ message: { role: 'assistant', content: 'translated' }, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 3 } }))
+  const client = new OpenAICompatibleModelClient({ id: 'fixture', type: 'custom', baseUrl: 'https://fixture.invalid/v1', defaultModel: 'upstream', apiKey: 'host-only' }, { fetch: upstream })
+  const native = vi.fn(async () => Response.json(protocol === 'responses'
+    ? { id: 'response', status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'native' }] }], usage: { input_tokens: 10, output_tokens: 3 } }
+    : { id: 'message', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'native' }], stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 3 } }))
+  let transport: 'native' | 'translated' = 'native'
+  f.resolve.mockImplementation(async () => ({ record: f.record, images: true, transport,
+    request: transport === 'native' ? native : (body: Record<string, unknown>, signal: AbortSignal, sessionId: string) =>
+      translatedNativeRequest({ client, protocol, model: 'upstream', publicModel: 'provider/model', body, signal, sessionId, authorize: () => f.authorize(scope) }),
+  }) as any)
+  const gateway = await f.gateways.open(scope, { model: 'provider/model', protocol }, new AbortController().signal)
+  const body = protocol === 'responses' ? { input: [{ role: 'user', content: 'hello' }], stream: false }
+    : { messages: [{ role: 'user', content: 'hello' }], max_tokens: 100, stream: false }
+  for (const next of ['native', 'translated', 'native'] as const) {
+    transport = next
+    const response = await post(gateway, body)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain(next)
+  }
+  expect(native).toHaveBeenCalledTimes(2)
+  expect(upstream).toHaveBeenCalledOnce()
+  expect(f.calls().map(call => [call.status, call.runId, call.usage?.inputTokens])).toEqual(Array(3).fill(['completed', 'run', 10]))
 })
 
 it('waits for a pending lease admission and prevents it from surviving Run finalization', async () => {

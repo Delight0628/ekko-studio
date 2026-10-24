@@ -12604,7 +12604,7 @@
           "Studio Plugins"
         ],
         "summary": "Update Agent instance configuration",
-        "description": "Operates on registered Agent types and owner-bound instances/runs in the authorized profile. Plugin migration is in progress; existing native Agent execution remains separate until migration completes. Replaces instance configuration after validating its revision and registered schema. Active/queued runs block changes. Idle native resources must finish disposal before committing; new runs are blocked during disposal. The new revision starts a fresh native session; prior run history remains readable.",
+        "description": "Operates on registered Agent types and owner-bound instances/runs in the authorized profile. Plugin migration is in progress; existing native Agent execution remains separate until migration completes. Replaces instance configuration after validating its revision and registered schema. Active/queued runs block changes. Idle native resources must finish disposal before committing; new runs are blocked during disposal. The revision always advances. When mode is unchanged and all changed fields are declared in capabilities.resumeConfigKeys, the configuration transaction preserves the native state directory and successful checkpoint. Undeclared changes and mode changes start a fresh native session. Prior run history remains readable; old resource snapshots are invalidated.",
         "operationId": "configureAgentInstance",
         "security": [
           {

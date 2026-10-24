@@ -96,7 +96,8 @@ export interface ModelGatewayHandle {
   readonly token: string
   readonly model: string
   readonly protocol: ModelGatewayInput['protocol']
-  /** Translation supports portable function tools; provider-hosted tools remain native-only. */
+  /** Transport at admission; subsequent requests re-resolve the selected model.
+   * Translation supports portable function tools; provider-hosted tools remain native-only. */
   readonly transport?: 'native' | 'translated'
   /** Host-resolved model capability; absent means unknown. */
   readonly images?: boolean
@@ -214,6 +215,9 @@ export interface AgentCapabilities {
   streaming?: boolean
   reasoning?: boolean
   resume?: boolean
+  /** Top-level configuration fields that may change without discarding native state.
+   * Opt-in; mode, provider/version and all other changed fields start fresh. */
+  resumeConfigKeys?: string[]
   persistentSession?: boolean
   compact?: boolean
   approvals?: boolean
@@ -250,7 +254,8 @@ export interface AgentManagementAdapter {
 }
 
 export interface AgentRuntimeContext {
-  /** Host-owned persistent directory, isolated by provider, owner, profile, instance and config revision. */
+  /** Host-owned persistent directory, isolated by provider/version, owner, profile and instance.
+   * Compatible configuration revisions share their original directory. */
   readonly stateDirectory?: string
   readonly provider: AgentProviderRef
   readonly runtimeSessionId: string
