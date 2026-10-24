@@ -420,7 +420,9 @@ describe('plugin worker integration', () => {
     await host.install(directory)
     await expect(host.configure({ pluginId: 'test.broken', profileId: 'default', ownerId: '1', enabled: true, config: {}, grants: manifest.requires.capabilities }, 0)).rejects.toThrow('Plugin operation failed')
     expect(registry.list('default')).toEqual([])
-    expect(eventStore.read('default')).toEqual([])
+    expect(eventStore.read('default').map(row => row.event)).toEqual([expect.objectContaining({
+      type: 'plugin.failed', data: { pluginId: manifest.id, generation: expect.any(String) },
+    })])
   }, 20_000)
 
   it('protects all 14 reserved system identities before any deletion and preserves profile choices on registration', async () => {

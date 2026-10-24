@@ -118,7 +118,10 @@ it('checks hook grants again after a delayed real callback returns', async () =>
 it('rejects undeclared hooks before publishing the plugin', async () => {
   const f = await setup(`module.exports = { apply(plugin) { plugin.hooks.before('sessions.remove', () => ({ action: 'continue' }), { key: 'remove' }); } }`)
   await expect(f.host.configure(f.state, 0)).rejects.toMatchObject({ code: 'FORBIDDEN' })
-  expect(f.hooks.has('one', 'sessions.remove')).toBe(false); expect(f.emitted).toEqual([])
+  expect(f.hooks.has('one', 'sessions.remove')).toBe(false)
+  expect(f.emitted).toEqual([expect.objectContaining({ type: 'plugin.failed',
+    data: { pluginId: f.state.pluginId, generation: expect.any(String) },
+  })])
 })
 
 it('preserves an authorized ordinary event callback while a hook executes in the same worker', async () => {

@@ -325,7 +325,7 @@ interface EventEnvelope<T> {
 
 | 事件族 | 首批事件 |
 | --- | --- |
-| 插件与目录 | `plugin.ready`、`plugin.failed`、`plugin.disabled`、`agent.available`、`agent.unavailable` |
+| 插件与目录 | `plugin.ready`、`plugin.failed`、`plugin.disabled`、`agent.available`、`agent.unavailable`、`service.available`、`service.unavailable` |
 | 会话 | `session.created`、`session.updated`、`session.archived`、`session.deleted` |
 | 执行 | `run.accepted`、`run.started`、`run.waiting_input`、`run.completed`、`run.failed`、`run.cancelled`、`run.interrupted` |
 | 交互与任务 | `interaction.requested`、`interaction.resolved`、`task.updated`、`plan.updated` |

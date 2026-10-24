@@ -287,6 +287,8 @@ export interface StudioEventMap {
   'plugin.failed': { pluginId: string; generation: string }
   'agent.available': { agentTypeId: string }
   'agent.unavailable': { agentTypeId: string }
+  'service.available': { serviceId: string; version: string }
+  'service.unavailable': { serviceId: string; version: string }
   'run.completed': { runId: string }
   'run.failed': { runId: string }
   'run.cancelled': { runId: string }

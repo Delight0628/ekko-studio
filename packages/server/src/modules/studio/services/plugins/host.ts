@@ -17,7 +17,7 @@ import { ReliablePluginConsumers } from '../events/reliable-consumers'
 import { parseConsumerSpec } from '../../repositories/plugin-consumer-store'
 import { PluginHookRegistry } from '../events/plugin-hooks'
 
-interface ActivePlugin { worker: PluginWorker; resources: ResourceScope; generation: string }
+interface ActivePlugin { worker: PluginWorker; resources: ResourceScope; generation: string; profileId: string; withdraw(): EventEnvelope[] }
 export interface PluginHostOptions {
   store: PluginStore
   registry: AgentRegistry
@@ -34,6 +34,7 @@ export interface PluginHostOptions {
 
 const CORE_EVENTS: Array<keyof StudioEventMap> = [
   'plugin.ready', 'plugin.disabled', 'plugin.failed', 'agent.available', 'agent.unavailable',
+  'service.available', 'service.unavailable',
   'run.completed', 'run.failed', 'run.cancelled', 'session.deleted',
 ]
 const SUPPORTED_CAPABILITIES = new Set([
@@ -98,8 +99,9 @@ export class PluginHost {
         throw new StudioError('REVISION_CONFLICT', 'Disable dependent plugins before changing their service provider')
       }
       // Compare and persist before stopping any healthy activation.
+      const wasEnabled = this.options.store.profile(input.pluginId, input.profileId)?.enabled
       const state = this.options.store.saveProfile(jsonCopy(input), expectedRevision)
-      await this.stop(input.pluginId, input.profileId)
+      await this.stop(input.pluginId, input.profileId, wasEnabled && !state.enabled ? 'disabled' : undefined)
       if (state.enabled) await this.activateState(installation, state)
       return state
     })
@@ -122,7 +124,11 @@ export class PluginHost {
       if (requiredServiceDependents(this.options.store, pluginId).length) throw new StudioError('REVISION_CONFLICT', 'Plugin is required by enabled service consumers')
       const entries = [...this.active].filter(([key]) => key.startsWith(`${pluginId}:`))
       if (entries.some(([, value]) => value.worker.hasLeases())) throw new StudioError('REVISION_CONFLICT', 'Plugin still has active runtime leases')
-      for (const [key, active] of entries) { this.active.delete(key); await active.resources.close() }
+      const profiles = new Set(this.options.store.enabledProfiles().filter(state => state.pluginId === pluginId).map(state => state.profileId))
+      for (const [, active] of entries) profiles.add(active.profileId)
+      for (const profileId of profiles) {
+        await this.stop(pluginId, profileId, 'disabled')
+      }
       this.options.store.remove(pluginId)
     })
   }
@@ -143,6 +149,8 @@ export class PluginHost {
       if (this.active.has(this.key(state.pluginId, state.profileId))) this.options.store.recordDiagnostic(state.pluginId, state.profileId, 'inactive')
     }
     this.active.clear()
+    // Shutdown withdraws the process-local directory, without announcing a profile disable.
+    for (const entry of active) entry.withdraw()
     await Promise.all(active.map(entry => entry.resources.close()))
     await Promise.allSettled([...this.cleanups])
   }
@@ -157,6 +165,7 @@ export class PluginHost {
       const code = error instanceof StudioError ? error.code : 'INTERNAL'
       this.options.store.recordDiagnostic(installation.id, state.profileId,
         ['FORBIDDEN', 'PLUGIN_UNAVAILABLE', 'PLUGIN_VERSION_INCOMPATIBLE', 'REGISTRATION_CONFLICT'].includes(code) ? 'blocked' : 'failed', code)
+      await this.notifyFailure(installation, state.profileId)
       throw error
     }
   }
@@ -175,15 +184,21 @@ export class PluginHost {
     const provider = { kind: 'plugin' as const, pluginId: installation.id, version: manifest.version, generation: installation.generation }
     const registration = this.options.registry.stage(state.profileId, provider, manifest.contributes.agents)
     const authorize = (capability: string): void => {
+      if (resources.signal.aborted) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin activation ended')
       const latest = this.options.store.profile(installation.id, state.profileId)
       if (!latest?.enabled || !latest.grants.includes(capability) || !manifest.requires.capabilities.includes(capability)) throw new StudioError('FORBIDDEN', 'Plugin capability is not granted')
     }
     let worker: PluginWorker
     worker = new PluginWorker(this.options.runnerPath, this.options.logger, () => {
-      if (this.active.get(key)?.worker === worker) {
+      const active = this.active.get(key)
+      if (active?.worker === worker) {
         this.active.delete(key)
         this.options.store.recordDiagnostic(installation.id, state.profileId, 'failed', 'PLUGIN_UNAVAILABLE')
+        const withdrawn = active.withdraw()
+        this.trackCleanup(resources.close())
         this.trackCleanup(this.invalidateDependents(installation.id, state.profileId))
+        this.trackCleanup(this.options.acceptEvents([...withdrawn, this.lifecycleEvent('plugin.failed', installation, state.profileId)]))
+        return
       }
       this.trackCleanup(resources.close())
     }, authorize)
@@ -220,12 +235,20 @@ export class PluginHost {
       authority(`services.use:${target.id}`)
       return this.services.call(ctx, target, args.method, args.input, authority)
     }
-    worker.peer.handle('service.remove', value => {
+    const providedServices = new Map<string, { id: string; version: string }>()
+    const serviceEvent = (type: 'service.available' | 'service.unavailable', service: { id: string; version: string }) =>
+      this.event(type, { profileId: state.profileId, pluginId: manifest.id }, { serviceId: service.id, version: service.version })
+    worker.peer.handle('service.remove', async value => {
       if (worker.isExecutingHook()) throw new StudioError('FORBIDDEN', 'Hook cannot alter contributions')
       const id = String((value as JsonObject).id)
       if (!manifest.contributes.services?.some(token => token.id === id)) throw new StudioError('FORBIDDEN', 'Service was not provided by this plugin')
       serviceRegistration.remove(id)
-      this.trackCleanup(this.invalidateDependents(installation.id, state.profileId))
+      const service = providedServices.get(id)
+      providedServices.delete(id)
+      if (service) {
+        this.trackCleanup(this.invalidateDependents(installation.id, state.profileId))
+        await this.options.acceptEvents([serviceEvent('service.unavailable', service)])
+      }
       return null
     })
     const removers = new Map<string, Disposer>()
@@ -234,7 +257,25 @@ export class PluginHost {
     const hooks = new Map<string, Disposer>()
     const pendingEvents: EventEnvelope[] = []
     let committed = false
-    worker.peer.handle('agent.remove', value => { if (worker.isExecutingHook()) throw new StudioError('FORBIDDEN', 'Hook cannot alter contributions'); const dispose = removers.get(String((value as JsonObject).id)); if (dispose) void dispose(); return null })
+    const agentEvent = (type: 'agent.available' | 'agent.unavailable', agentTypeId: string) =>
+      this.event(type, { profileId: state.profileId, pluginId: manifest.id, agentTypeId }, { agentTypeId })
+    const withdraw = (): EventEnvelope[] => {
+      const events = [...removers.keys()].map(id => agentEvent('agent.unavailable', id))
+      events.push(...[...providedServices.values()].map(service => serviceEvent('service.unavailable', service)))
+      removers.clear(); providedServices.clear()
+      registration.dispose(); serviceRegistration.dispose()
+      return events
+    }
+    worker.peer.handle('agent.remove', async value => {
+      if (worker.isExecutingHook()) throw new StudioError('FORBIDDEN', 'Hook cannot alter contributions')
+      const id = String((value as JsonObject).id), dispose = removers.get(id)
+      if (dispose) {
+        removers.delete(id)
+        await dispose()
+        if (committed) await this.options.acceptEvents([agentEvent('agent.unavailable', id)])
+      }
+      return null
+    })
     worker.peer.handle('subscription.remove', value => { if (worker.isExecutingHook()) throw new StudioError('FORBIDDEN', 'Hook cannot alter contributions'); const dispose = subscriptions.get(String((value as JsonObject).id)); if (dispose) void dispose(); return null })
     worker.peer.handle('consumer.remove', async value => { if (worker.isExecutingHook()) throw new StudioError('FORBIDDEN', 'Hook cannot alter contributions'); await consumers.get(String((value as JsonObject).name))?.(); return null })
     worker.peer.handle('hook.remove', async value => { if (worker.isExecutingHook()) throw new StudioError('FORBIDDEN', 'Hook cannot alter contributions'); await hooks.get(String((value as JsonObject).key))?.(); return null })
@@ -299,6 +340,7 @@ export class PluginHost {
       const registeredConsumers = this.options.consumers?.store.registerMany(stagedConsumers) || []
       registration.commit()
       serviceRegistration.commit()
+      for (const service of activated.services) providedServices.set(service.id, service)
       stagedSubscriptions.forEach(subscribe => subscribe())
       for (const consumer of registeredConsumers) {
         const dispose = this.options.consumers!.mount(consumer, {
@@ -321,11 +363,28 @@ export class PluginHost {
         })
         hooks.set(JSON.stringify([hook.point, hook.options.key]), resources.add(dispose))
       }
-      this.active.set(key, { worker, resources, generation: installation.generation })
+      this.active.set(key, { worker, resources, generation: installation.generation, profileId: state.profileId, withdraw })
       this.options.store.recordDiagnostic(installation.id, state.profileId, 'ready')
       committed = true
-      await this.options.acceptEvents([...pendingEvents, this.event('plugin.ready', { profileId: state.profileId, pluginId: manifest.id }, { pluginId: manifest.id, generation: installation.generation })])
-    } catch (error) { if (this.active.get(key)?.worker === worker) this.active.delete(key); await resources.close(); throw error }
+      await this.options.acceptEvents([...pendingEvents, this.lifecycleEvent('plugin.ready', installation, state.profileId),
+        ...[...removers.keys()].map(id => agentEvent('agent.available', id)),
+        ...[...providedServices.values()].map(service => serviceEvent('service.available', service))])
+    } catch (error) {
+      if (this.active.get(key)?.worker === worker) this.active.delete(key)
+      const withdrawn = withdraw()
+      await resources.close()
+      if (committed) await this.options.acceptEvents(withdrawn).catch(() => this.options.logger.warn('Plugin withdrawal notification failed'))
+      throw error
+    }
+  }
+
+  private lifecycleEvent(type: 'plugin.ready' | 'plugin.disabled' | 'plugin.failed', installation: PluginInstallation, profileId: string): EventEnvelope {
+    return this.event(type, { profileId, pluginId: installation.id }, { pluginId: installation.id, generation: installation.generation })
+  }
+
+  private async notifyFailure(installation: PluginInstallation, profileId: string): Promise<void> {
+    try { await this.options.acceptEvents([this.lifecycleEvent('plugin.failed', installation, profileId)]) }
+    catch { this.options.logger.warn('Plugin failure notification failed', { pluginId: installation.id, profileId }) }
   }
 
   private event(type: string, subject: EventEnvelope['subject'], data: JsonObject): EventEnvelope {
@@ -355,12 +414,13 @@ export class PluginHost {
   }
 
   private async invalidateDependents(pluginId: string, profileId: string): Promise<void> {
-    for (const dependent of requiredServiceDependents(this.options.store, pluginId, profileId)) {
-      if (!this.active.has(this.key(dependent.pluginId, profileId))) continue
-      await this.stop(dependent.pluginId, profileId)
-      this.options.store.recordDiagnostic(dependent.pluginId, profileId, 'blocked', 'PLUGIN_UNAVAILABLE')
-      await this.invalidateDependents(dependent.pluginId, profileId)
-    }
+    await Promise.all(requiredServiceDependents(this.options.store, pluginId, profileId).map(async dependent => {
+      if (!this.active.has(this.key(dependent.pluginId, profileId))) return
+      const requirements = this.options.store.get(dependent.pluginId)?.manifest.requires.services || []
+      if (requirements.every(service => service.optional || this.services.status(profileId, service).available)) return
+      const stopped = this.stop(dependent.pluginId, profileId, 'dependency')
+      await Promise.all([stopped, this.invalidateDependents(dependent.pluginId, profileId)])
+    }))
   }
 
   private trackCleanup(pending: Promise<void>): void {
@@ -369,12 +429,16 @@ export class PluginHost {
       .finally(() => this.cleanups.delete(pending))
   }
 
-  private async stop(pluginId: string, profileId: string): Promise<void> {
+  private async stop(pluginId: string, profileId: string, reason?: 'disabled' | 'dependency'): Promise<void> {
     const key = this.key(pluginId, profileId), active = this.active.get(key)
-    this.options.store.recordDiagnostic(pluginId, profileId, this.options.store.profile(pluginId, profileId)?.enabled ? 'inactive' : 'disabled')
-    if (!active) return
+    this.options.store.recordDiagnostic(pluginId, profileId, reason === 'dependency' ? 'blocked' : reason === 'disabled' ? 'disabled'
+      : this.options.store.profile(pluginId, profileId)?.enabled ? 'inactive' : 'disabled', reason === 'dependency' ? 'PLUGIN_UNAVAILABLE' : undefined)
     this.active.delete(key)
-    await active.resources.close()
+    const withdrawn = active?.withdraw() || []
+    const closing = active?.resources.close()
+    if (reason) withdrawn.push(this.lifecycleEvent(reason === 'disabled' ? 'plugin.disabled' : 'plugin.failed', this.requireInstallation(pluginId), profileId))
+    try { if (withdrawn.length) await this.options.acceptEvents(withdrawn) }
+    finally { await closing }
   }
   private key(pluginId: string, profileId: string): string { return `${pluginId}:${profileId}` }
 
