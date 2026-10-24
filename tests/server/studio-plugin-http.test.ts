@@ -339,7 +339,9 @@ it('limits bundled plugin setup to super administrators and passes the exact cur
   expect((await fetch(`${base}/api/studio/bundled-agent-plugins`)).status).toBe(400)
   expect((await fetch(`${base}/api/studio/bundled-agent-plugins/qwen/enable?profile=one`, request({ revision: 0, path: '/untrusted' }))).status).toBe(400)
   expect((await fetch(`${base}/api/studio/bundled-agent-plugins/qwen/enable?profile=one`, request({ revision: 0 }))).status).toBe(200)
-  expect(state.bundledAgents.enable).toHaveBeenCalledWith('qwen', 'one', '7', 0)
+  expect(state.bundledAgents.enable).toHaveBeenCalledWith('qwen', 'one', '7', 0, undefined)
+  expect((await fetch(`${base}/api/studio/bundled-agent-plugins/qwen/enable?profile=one`, request({ revision: 1, grants: ['agents.register', 'commands.register'] }))).status).toBe(200)
+  expect(state.bundledAgents.enable).toHaveBeenLastCalledWith('qwen', 'one', '7', 1, ['agents.register', 'commands.register'])
 })
 
 it('requires an interactive super administrator for every native login terminal endpoint', async () => {

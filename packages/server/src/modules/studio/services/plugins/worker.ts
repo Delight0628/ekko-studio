@@ -17,6 +17,8 @@ import { PluginMcpBridge } from './mcp'
 import { PluginModelBridge } from './models'
 import { parseAgentResourceLocations } from '../agents/resource-contract'
 import { parseAgentLogin } from '../agents/login-contract'
+import { runtimeCommandTarget } from '../agents/command-target'
+import type { PluginCommandRegistry } from './commands'
 
 export interface WorkerActivation {
   agents: Array<Omit<AgentTypeSummary, 'provider'>>
@@ -52,6 +54,7 @@ export class PluginWorker {
   callService?: (context: ExecutionContext, args: JsonObject, authority: ServiceAuthority) => Promise<JsonValue>
   private readonly runs = new Map<string, RemoteRun>()
   private readonly runtimes = new Set<string>()
+  private readonly runtimeCommands = new Map<string, { context: AgentRuntimeContext; replace(values: CommandDefinition[]): void; dispose(): void }>()
   private closed = false
   private closing?: Promise<void>
   private readonly exit: Promise<void>
@@ -108,6 +111,17 @@ export class PluginWorker {
     this.mcp = new PluginMcpBridge(() => this.authorize('mcp.connect'), resourceOrigin('mcp.connect'))
     this.peer.handle('mcp.call', value => this.mcp.call(value))
     this.peer.handle('process.call', value => this.processes.call(value))
+    this.peer.handle('command.replace', value => {
+      const params = value as JsonObject
+      if (!params || typeof params.runtimeHandle !== 'string' || !Array.isArray(params.commands)
+        || Object.keys(params).some(key => !['runtimeHandle', 'originHandle', 'commands'].includes(key))) throw new StudioError('INVALID_ARGUMENT', 'Invalid runtime command catalog')
+      const registration = this.runtimeCommands.get(params.runtimeHandle)
+      if (!registration) throw new StudioError('FORBIDDEN', 'Runtime command scope is unavailable')
+      resourceOrigin('commands.register')(params.originHandle, params.runtimeHandle, registration.context)
+      this.authorize('commands.register')
+      registration.replace(params.commands as unknown as CommandDefinition[])
+      return null
+    })
     this.peer.handle('run.event', async value => {
       const params = value as JsonObject, run = this.runs.get(String(params.runId))
       if (!run) throw new StudioError('NOT_FOUND', 'Run is not active')
@@ -147,7 +161,7 @@ export class PluginWorker {
     return result as unknown as WorkerActivation
   }
 
-  definition(meta: Omit<AgentTypeSummary, 'provider'>): AgentTypeDefinition {
+  definition(meta: Omit<AgentTypeSummary, 'provider'>, commands?: PluginCommandRegistry): AgentTypeDefinition {
     const { management, ...metadata } = jsonCopy(meta)
     if (management !== undefined && (!management || !Object.keys(management).length
       || Object.entries(management).some(([key, value]) => !['inspect', 'locations', 'setup', 'prepareLogin'].includes(key) || value !== true))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent management declaration')
@@ -222,13 +236,25 @@ export class PluginWorker {
         // Creation itself owns a lease: configuration changes must not kill an in-flight factory.
         const processScope = this.processes.mount(context)
         const mcpScope = this.mcp.mount(context, processScope.handle)
+        const binding = runtimeCommandTarget(context)
+        let commandScope: ReturnType<PluginCommandRegistry['runtime']> | undefined
+        let commandGrant = false
+        try { this.authorize('commands.register'); commandGrant = true } catch { /* Existing grants remain valid for non-command runtime capabilities. */ }
+        if (commands && binding && commandGrant && context.provider.kind === 'plugin') {
+          commandScope = commands.runtime(context.profileId, context.provider, meta.id, binding.target,
+            (commandId, value, ctx) => this.invokeCommand(commandId, value, ctx, id),
+            () => { this.authorize('commands.register'); binding.authorize() }, context.signal)
+          this.runtimeCommands.set(processScope.handle, { context, ...commandScope })
+        }
         const releaseResources = async () => {
+          commandScope?.dispose(); this.runtimeCommands.delete(processScope.handle)
           const results = await Promise.allSettled([processScope.close(), mcpScope.close()])
           const failed = results.find(result => result.status === 'rejected')
           if (failed?.status === 'rejected') throw failed.reason
         }
         this.runtimes.add(id)
-        try { await this.peer.request('runtime.create', toJson({ agentTypeId: meta.id, runtimeSessionId: id, runtimeHandle: processScope.handle, ownerId: context.ownerId, ...(context.stateDirectory ? { stateDirectory: context.stateDirectory } : {}), input })) }
+        try { await this.peer.request('runtime.create', toJson({ agentTypeId: meta.id, runtimeSessionId: id, runtimeHandle: processScope.handle, ownerId: context.ownerId,
+          ...(commandScope ? { commands: true } : {}), ...(context.stateDirectory ? { stateDirectory: context.stateDirectory } : {}), input })) }
         catch (error) {
           this.runtimes.delete(id)
           try { await releaseResources() } finally { await this.close() }
@@ -236,6 +262,7 @@ export class PluginWorker {
         }
         let disposal: Promise<void> | undefined
         const dispose = (reason: string): Promise<void> => disposal ??= (async () => {
+          commandScope?.dispose(); this.runtimeCommands.delete(processScope.handle)
           context.signal.removeEventListener('abort', aborted)
           try { await this.peer.request('runtime.dispose', { runtimeSessionId: id, reason }, 5_000) }
           catch (error) { await this.close(); throw error }
@@ -280,7 +307,7 @@ export class PluginWorker {
     } finally { this.serviceCalls-- }
   }
 
-  async invokeCommand(id: string, input: CommandInput, ctx: CommandContext): Promise<void> {
+  async invokeCommand(id: string, input: CommandInput, ctx: CommandContext, runtimeSessionId?: string): Promise<void> {
     const callId = randomUUID(), controller = new AbortController()
     const signal = AbortSignal.any([ctx.signal, controller.signal])
     const check = () => { if (signal.aborted) throw signal.reason; this.authorize('commands.register') }
@@ -294,7 +321,8 @@ export class PluginWorker {
           abort = () => { void this.peer.request('command.cancel', { callId }, 1_000).catch(() => {}); reject(signal.reason || new StudioError('CANCELLED', 'Command cancelled')) }
           signal.addEventListener('abort', abort, { once: true })
         })
-        const task = this.peer.request('command.invoke', toJson({ id, input, callId, scope: ctx.scope, scopeHandle, session: ctx.session }), 65_000)
+        const task = this.peer.request('command.invoke', toJson({ id, input, callId, scope: ctx.scope, scopeHandle, session: ctx.session,
+          ...(runtimeSessionId ? { runtimeSessionId } : {}) }), 65_000)
           .finally(() => { finished = true })
         if (signal.aborted) abort()
         try { await Promise.race([task, cancelled]); check() }
@@ -519,6 +547,8 @@ export class PluginWorker {
     for (const lease of this.managementLeases.values()) lease.cancel()
     for (const run of this.runs.values()) { run.channel.finish(error); run.reject(error); void run.release().catch(() => this.logger.error('Plugin model cleanup failed')) }
     this.runs.clear(); this.runtimes.clear(); this.scopes.clear(); this.authorities.clear()
+    for (const registration of this.runtimeCommands.values()) registration.dispose()
+    this.runtimeCommands.clear()
     void this.processes.close().catch(() => this.logger.error('Plugin process cleanup failed'))
     void this.models.close().catch(() => this.logger.error('Plugin model cleanup failed'))
     void this.mcp.close().catch(() => this.logger.error('Plugin MCP cleanup failed'))

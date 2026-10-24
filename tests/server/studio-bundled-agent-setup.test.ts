@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
+import { readFile } from 'node:fs/promises'
 import { afterEach, expect, it, vi } from 'vitest'
 import { BundledAgentPlugins } from '../../packages/server/src/modules/studio/services/plugins/bundled-agents'
 import { PluginStore } from '../../packages/server/src/modules/studio/repositories/plugin-store'
@@ -34,6 +35,15 @@ it('lists only implemented bundles and enables one through a trusted distributio
   expect(f.store.get('studio.agent-codex')).toBeNull()
 })
 
+it('displays the permissions of the actual distributed bundles before first installation', async () => {
+  const f = setup()
+  for (const bundle of f.service.list('one')) {
+    const directory = bundle.id === 'qwen' ? 'qwen-code' : 'codex'
+    const manifest = JSON.parse(await readFile(`plugins/${directory}/studio-plugin.json`, 'utf8'))
+    expect(bundle.requiredCapabilities).toEqual(manifest.requires.capabilities)
+  }
+})
+
 it('does not replace installed artifacts or reset existing profile settings and grants', async () => {
   const f = setup()
   await f.service.enable('qwen', 'one', 'owner', 0)
@@ -43,6 +53,20 @@ it('does not replace installed artifacts or reset existing profile settings and 
   expect(f.registerSystemArtifact).toHaveBeenCalledOnce()
   expect(f.store.get('studio.agent-qwen')).toEqual(original)
   expect(f.store.profile('studio.agent-qwen', 'other')).toBeNull()
+})
+
+it('grants only an explicit current permission selection while preserving saved settings', async () => {
+  const f = setup()
+  await f.service.enable('qwen', 'one', 'owner', 0)
+  f.store.saveProfile({ pluginId: 'studio.agent-qwen', profileId: 'one', ownerId: 'owner', enabled: false, config: { custom: 'keep' }, grants: ['agents.register'] }, 1)
+  const before = f.store.profile('studio.agent-qwen', 'one')
+  for (const grants of [['agents.register'], [...f.manifest.requires.capabilities, 'sessions.remove'], ['agents.register', 'agents.register']]) {
+    await expect(f.service.enable('qwen', 'one', 'owner', 2, grants)).rejects.toBeInstanceOf(StudioError)
+    expect(f.store.profile('studio.agent-qwen', 'one')).toEqual(before)
+  }
+  expect(await f.service.enable('qwen', 'one', 'owner', 2, f.manifest.requires.capabilities)).toMatchObject({
+    config: { custom: 'keep' }, grants: f.manifest.requires.capabilities, enabled: true, revision: 3,
+  })
 })
 
 it('rejects unknown IDs, stale revisions and revoked administrators before side effects', async () => {

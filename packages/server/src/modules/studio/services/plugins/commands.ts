@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
+import type { RuntimeCommandTarget } from '../agents/command-target'
 import { StudioError, type AgentProviderRef, type CommandDefinition, type CommandInput, type CommandContext, type CommandResult } from '../../contracts/plugins'
 import { compileSchema, jsonCopy } from './validation'
 
-const name = { type: 'string', pattern: '^[a-z][a-z0-9-]*$', maxLength: 64 }
+const name = { type: 'string', pattern: '^[a-zA-Z][a-zA-Z0-9_:-]*$', maxLength: 128 }
 const validateDefinition = compileSchema({ type: 'object', additionalProperties: false, required: ['id', 'name', 'description'], properties: {
   id: { type: 'string', maxLength: 256 }, name, description: { type: 'string', maxLength: 512 }, argsHint: { type: 'string', maxLength: 256 },
   aliases: { type: 'array', maxItems: 16, uniqueItems: true, items: name },
@@ -24,22 +26,62 @@ export function parseCommandResult(value: unknown, input: CommandInput): Command
 }
 export interface CommandSummary extends CommandDefinition { provider: AgentProviderRef; revision: string; qualifiedName: string }
 type Invoke = (id: string, input: CommandInput, ctx: CommandContext) => Promise<void>
-interface Entry { summary: CommandSummary; invoke: Invoke; authorize(): void }
+interface Entry { summary: CommandSummary; invoke: Invoke; authorize(): void; target?: RuntimeCommandTarget }
 
 /** Registry owns dispatch only; all argument/command semantics remain in plugin handlers. */
 export class PluginCommandRegistry {
   private entries = new Map<string, Entry>()
-  list(profileId: string, agentTypeId: string): CommandSummary[] {
-    return [...this.entries].filter(([key, entry]) => key.startsWith(`${profileId}:`) && this.matches(entry, agentTypeId))
+  list(profileId: string, agentTypeId: string, target?: RuntimeCommandTarget): CommandSummary[] {
+    return [...this.entries].filter(([key, entry]) => key.startsWith(`${profileId}:`) && this.matches(entry, agentTypeId, target))
       .flatMap(([, entry]) => { try { entry.authorize(); return [jsonCopy(entry.summary)] } catch { return [] } })
       .sort((a, b) => a.id.localeCompare(b.id))
   }
-  resolve(profileId: string, agentTypeId: string, id: string, revision: string): Entry {
-    const entry = this.entries.get(`${profileId}:${id}`)
-    if (!entry || !this.matches(entry, agentTypeId)) throw new StudioError('PLUGIN_UNAVAILABLE', 'Command is unavailable')
+  resolve(profileId: string, agentTypeId: string, id: string, revision: string, target?: RuntimeCommandTarget): Entry {
+    const found = [...this.entries].filter(([key, entry]) => key.startsWith(`${profileId}:`) && entry.summary.id === id && this.matches(entry, agentTypeId, target))
+    if (found.length > 1) throw new StudioError('REGISTRATION_CONFLICT', 'Command target is ambiguous')
+    const entry = found[0]?.[1]
+    if (!entry) throw new StudioError('PLUGIN_UNAVAILABLE', 'Command is unavailable')
     entry.authorize()
     if (entry.summary.revision !== revision) throw new StudioError('REVISION_CONFLICT', 'Command registration changed')
     return entry
+  }
+  runtime(profileId: string, provider: Extract<AgentProviderRef, { kind: 'plugin' }>, agentTypeId: string,
+    target: RuntimeCommandTarget, invoke: Invoke, authorize: () => void, signal: AbortSignal) {
+    const prefix = `${profileId}:runtime:${randomUUID()}:`
+    let current = new Map<string, Entry>(), disposed = false
+    const dispose = () => {
+      disposed = true
+      signal.removeEventListener('abort', dispose)
+      for (const id of current.keys()) this.entries.delete(`${prefix}${id}`)
+      current.clear()
+    }
+    signal.addEventListener('abort', dispose, { once: true })
+    return {
+      dispose,
+      replace: (values: CommandDefinition[]) => {
+        if (disposed || signal.aborted) throw new StudioError('CANCELLED', 'Command runtime ended')
+        authorize()
+        const definitions = jsonCopy(values, 65_536)
+        if (!Array.isArray(definitions) || definitions.length > 64) throw new StudioError('RESOURCE_EXHAUSTED', 'Runtime command catalog limit exceeded')
+        const next = new Map<string, Entry>()
+        for (const definition of definitions) {
+          validateDefinition(definition as unknown as import('../../contracts/plugins').JsonValue)
+          if (!definition.id.startsWith(`${provider.pluginId}/`) || !/^[a-z][a-z0-9.-]+\/[a-z][a-z0-9-]*$/.test(definition.id)
+            || definition.agentTypeIds?.some(id => id !== agentTypeId)) throw new StudioError('FORBIDDEN', 'Runtime command is outside its declared provider')
+          if (next.has(definition.id) || new Set([definition.name, ...(definition.aliases || [])]).size !== 1 + (definition.aliases?.length || 0)) throw new StudioError('REGISTRATION_CONFLICT', 'Duplicate runtime command')
+          const scoped = { ...definition, agentTypeIds: [agentTypeId] }
+          const prior = current.get(definition.id)
+          const { provider: _provider, revision: _revision, qualifiedName: _qualifiedName, ...previous } = prior?.summary || {}
+          const revision = prior && isDeepStrictEqual(previous, scoped) ? prior.summary.revision : randomUUID()
+          next.set(definition.id, { summary: { ...scoped, provider: jsonCopy(provider), revision, qualifiedName: `${provider.pluginId}:${definition.name}` },
+            target: { ...target }, invoke, authorize })
+        }
+        // Validation completes before any published entry changes.
+        for (const id of current.keys()) this.entries.delete(`${prefix}${id}`)
+        for (const [id, entry] of next) this.entries.set(`${prefix}${id}`, entry)
+        current = next
+      },
+    }
   }
   stage(profileId: string, provider: Extract<AgentProviderRef, { kind: 'plugin' }>, ids: string[], agentIds: string[], invoke: Invoke, authorize: () => void) {
     const pending = new Map<string, Entry>()
@@ -74,5 +116,7 @@ export class PluginCommandRegistry {
       },
     }
   }
-  private matches(entry: Entry, type: string): boolean { return !entry.summary.agentTypeIds || entry.summary.agentTypeIds.includes(type) }
+  private matches(entry: Entry, type: string, target?: RuntimeCommandTarget): boolean {
+    return (!entry.summary.agentTypeIds || entry.summary.agentTypeIds.includes(type)) && (!entry.target || !!target && isDeepStrictEqual(entry.target, target))
+  }
 }

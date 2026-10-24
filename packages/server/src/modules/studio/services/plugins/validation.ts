@@ -75,6 +75,7 @@ const manifestSchema = {
     contributes: { type: 'object', additionalProperties: false, required: ['agents'], properties: {
       agents: { type: 'array', maxItems: 64, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 256 } },
       commands: { type: 'array', maxItems: 64, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 256 } },
+      runtimeCommands: { type: 'array', maxItems: 64, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 256 } },
       events: { type: 'object', maxProperties: 64, additionalProperties: { type: ['object', 'boolean'] } },
       services: { type: 'array', maxItems: 64, items: serviceSchema },
     } },
@@ -100,6 +101,10 @@ export function parseManifest(value: unknown): PluginManifest {
     throw new StudioError('INVALID_ARGUMENT', 'Plugin entry must be a relative path inside its artifact')
   }
   if (result.configSchema !== undefined) compileSchema(result.configSchema)
+  if (result.contributes.runtimeCommands?.some(id => !result.contributes.agents.includes(id))
+    || (result.contributes.runtimeCommands?.length && !result.requires.capabilities.includes('commands.register'))) {
+    throw new StudioError('INVALID_ARGUMENT', 'Runtime commands require declared Agent types and commands.register')
+  }
   for (const id of result.contributes.commands || []) {
     if (!id.startsWith(`${result.id}/`) || !/^[a-z][a-z0-9.-]+\/[a-z][a-z0-9-]*$/.test(id)) throw new StudioError('INVALID_ARGUMENT', 'Invalid command namespace')
   }

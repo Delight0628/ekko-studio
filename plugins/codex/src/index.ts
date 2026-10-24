@@ -5,6 +5,7 @@ import { codexEvents } from './events'
 import { codexInteractions } from './interactions'
 import { scopedCodex } from './scoped'
 import { management } from './management'
+import { compactCommand, isCompact } from './commands'
 import { codexContextConfiguration } from './configuration'
 
 type Output = AgentOutputEvent extends infer T ? T extends AgentOutputEvent ? Omit<T, 'producerSequence'> : never : never
@@ -36,6 +37,7 @@ interface Turn {
 }
 
 export const apply: StudioPlugin['apply'] = plugin => {
+  plugin.commands.register(compactCommand.definition, compactCommand.handler)
   plugin.agents.register({
     id: 'codex', name: 'Codex', configSchema: schema,
     management,
@@ -80,6 +82,7 @@ export const apply: StudioPlugin['apply'] = plugin => {
       return {
         async run(input, ctx) {
           if (ended || current) throw new StudioError('RUNTIME_UNAVAILABLE', 'Codex runtime is unavailable or busy')
+          const compact = isCompact(input)
           const events = new AgentEventQueue<AgentOutputEvent>()
           let sequence = 0, ready!: () => void, complete!: (status: string) => void
           const started = new Promise<void>(resolve => { ready = resolve })
@@ -101,6 +104,13 @@ export const apply: StudioPlugin['apply'] = plugin => {
                 return
               }
               if (!turn.id) {
+                if (compact && method === 'turn/started') {
+                  const id = params.turn?.id
+                  if (typeof id !== 'string' || !id || id.length > 256) throw new Error('Invalid Codex compaction turn identity')
+                  turn.id = id; ready()
+                  for (const [method, params] of buffered.splice(0)) turn.notification(method, params)
+                  return
+                }
                 bufferedBytes += Buffer.byteLength(JSON.stringify(params))
                 if (buffered.length >= 128 || bufferedBytes > 4 * 1024 * 1024) throw new Error('Codex startup event limit exceeded')
                 buffered.push([method, params]); return
@@ -154,15 +164,19 @@ export const apply: StudioPlugin['apply'] = plugin => {
                 threadId = response.thread.id; resumed = true
               }
               if (turn.cancelled) return { status: 'cancelled' }
-              const response = await rpc.request('turn/start', { threadId, input: input.content.map(block => {
+              if (compact) {
+                await rpc.request('thread/compact/start', { threadId })
+              } else {
+                const response = await rpc.request('turn/start', { threadId, input: input.content.map(block => {
                 if (block.type === 'text') return block
                 const image = images.get(block.artifactId)!
                 return { type: 'image', url: `data:${image.mediaType};base64,${image.data}` }
               }).concat(ctx.nativeContext?.turnInstructions ? [{ type: 'text' as const, text: ctx.nativeContext.turnInstructions }] : []),
                 ...(input.model || config.model ? { model: input.model || config.model } : {}), ...(config.effort ? { effort: config.effort } : {}) })
               if (typeof response?.turn?.id !== 'string' || !response.turn.id || response.turn.id.length > 256) throw new Error('Invalid Codex turn identity')
-              turn.id = response.turn.id; ready()
-              for (const [method, params] of buffered.splice(0)) turn.notification(method, params)
+                turn.id = response.turn.id; ready()
+                for (const [method, params] of buffered.splice(0)) turn.notification(method, params)
+              }
               const status = await Promise.race([terminal, rpc.closed])
               if (status === 'interrupted') turn.cancelled = true
               if (turn.cancelled) return { status: 'cancelled' }

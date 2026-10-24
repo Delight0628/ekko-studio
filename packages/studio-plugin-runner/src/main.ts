@@ -28,6 +28,7 @@ const callbacks = new Map<string, { type: string; once: boolean; handler: (event
 const services = new Map<string, { token: ServiceToken; implementation: ServiceImplementation }>()
 const serviceCalls = new Map<string, AbortController>()
 const commands = new Map<string, { definition: CommandDefinition; handler: CommandHandler }>()
+const runtimeCommands = new Map<string, Map<string, { definition: CommandDefinition; handler: CommandHandler }>>()
 const commandCalls = new Map<string, AbortController>()
 const consumers = new Map<string, { spec: EventConsumerSpec; handler: ReliableEventHandler }>()
 const deliveries = new Map<string, AbortController>()
@@ -232,11 +233,38 @@ peer.handle('runtime.create', async value => {
   const controller = new AbortController()
   const provider: AgentProviderRef = { kind: 'plugin', pluginId: identity.id, generation: identity.generation, version: identity.version }
   const runtimeHandle = string(params.runtimeHandle)
+  const catalog = new Map<string, { definition: CommandDefinition; handler: CommandHandler }>()
+  let replacing = false
+  const replace: NonNullable<AgentRuntimeContext['commands']>['replace'] = async values => {
+    assertContributionMutation()
+    if (controller.signal.aborted) throw new StudioError('CANCELLED', 'Command runtime ended')
+    if (replacing) throw new StudioError('REVISION_CONFLICT', 'Command catalog update is in progress')
+    if (!Array.isArray(values) || values.length > 64) throw new StudioError('RESOURCE_EXHAUSTED', 'Command catalog limit exceeded')
+    const next = new Map<string, { definition: CommandDefinition; handler: CommandHandler }>()
+    for (const value of values) {
+      if (!value || typeof value.handler !== 'function' || next.has(value.definition?.id)) throw new StudioError('INVALID_ARGUMENT', 'Invalid runtime command registration')
+      const definition = json(value.definition) as unknown as CommandDefinition
+      next.set(definition.id, { definition, handler: value.handler })
+    }
+    replacing = true
+    // Host validation and publication are atomic. Callbacks are not serialized.
+    const previous = new Map(catalog)
+    catalog.clear(); for (const [key, command] of next) catalog.set(key, command)
+    try {
+      await peer.request('command.replace', { runtimeHandle, originHandle: callbackScope.getStore() || runtimeScope.getStore() || runtimeHandle,
+        commands: json([...next.values()].map(value => value.definition)) })
+    } catch (error) { catalog.clear(); for (const [key, command] of previous) catalog.set(key, command); throw error }
+    finally { replacing = false }
+  }
+  if (params.commands === true) runtimeCommands.set(id, catalog)
   const ctx: AgentRuntimeContext = { ...(typeof params.stateDirectory === 'string' ? { stateDirectory: params.stateDirectory } : {}), provider, profileId: identity.profileId, ownerId: string(params.ownerId), runtimeSessionId: id, logger, signal: controller.signal,
+    ...(params.commands === true ? { commands: { replace } } : {}),
     processes: remoteProcesses(peer, runtimeHandle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation),
     mcp: remoteMcp(peer, runtimeHandle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation) }
-  const runtime = await runtimeScope.run(runtimeHandle, () => definition.create(object(params.input) as unknown as RuntimeCreateInput, ctx))
-  runtimes.set(id, { runtime, controller, handle: runtimeHandle })
+  try {
+    const runtime = await runtimeScope.run(runtimeHandle, () => definition.create(object(params.input) as unknown as RuntimeCreateInput, ctx))
+    runtimes.set(id, { runtime, controller, handle: runtimeHandle })
+  } catch (error) { controller.abort(); runtimeCommands.delete(id); throw error }
   return null
 })
 
@@ -285,7 +313,7 @@ peer.handle('run.respond', async value => {
 })
 peer.handle('runtime.dispose', async value => {
   const params = object(value), id = string(params.runtimeSessionId), runtime = runtimes.get(id)
-  if (runtime) { runtimes.delete(id); runtime.controller.abort(); await runtimeScope.run(runtime.handle, () => runtime.runtime.dispose(string(params.reason))) }
+  if (runtime) { runtimes.delete(id); runtimeCommands.delete(id); runtime.controller.abort(); await runtimeScope.run(runtime.handle, () => runtime.runtime.dispose(string(params.reason))) }
   return null
 })
 peer.handle('runtime.checkpoint', async value => {
@@ -294,7 +322,9 @@ peer.handle('runtime.checkpoint', async value => {
   return runtimeScope.run(runtime.handle, () => runtime.runtime.checkpoint!())
 })
 peer.handle('command.invoke', async value => {
-  const params = object(value), command = commands.get(string(params.id)), callId = string(params.callId)
+  const params = object(value), callId = string(params.callId)
+  const command = typeof params.runtimeSessionId === 'string'
+    ? runtimeCommands.get(params.runtimeSessionId)?.get(string(params.id)) : commands.get(string(params.id))
   if (!active || !command) throw new StudioError('PLUGIN_UNAVAILABLE', 'Command is unavailable')
   if (commandCalls.has(callId) || commandCalls.size >= 16) throw new StudioError('RESOURCE_EXHAUSTED', 'Command concurrency limit reached')
   const controller = new AbortController(), scopeHandle = string(params.scopeHandle)

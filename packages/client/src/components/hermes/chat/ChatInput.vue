@@ -361,7 +361,10 @@ const filteredBridgeCommands = computed(() => {
         ? bridgeCommands.value.filter(command => command.name === 'fork')
         : []
   const commands: SlashCommandOption[] = [...legacyCommands, ...pluginCommands.value.map(command => ({
-    key: `plugin:${command.id}`, name: command.qualifiedName, args: command.argsHint || '', description: command.description,
+    key: `plugin:${command.id}`,
+    name: composerSession.value?.agentInstanceId && !pluginCommands.value.some(other => other.id !== command.id
+      && [other.name, other.qualifiedName, ...(other.aliases || [])].includes(command.name)) ? command.name : command.qualifiedName,
+    args: command.argsHint || '', description: command.description,
     pluginCommand: command,
   }))]
   if (!query) return commands
@@ -1581,7 +1584,7 @@ function openAttachmentPreview(attachment: Attachment) {
             @mousedown.prevent="selectBridgeCommand(command)"
             @mouseenter="handleCommandHover(i)"
           >
-            <span class="slash-command-name">/{{ command.name }}</span>
+            <span class="slash-command-name" :title="command.pluginCommand?.qualifiedName">/{{ command.name }}</span>
             <span v-if="command.args" class="slash-command-args">{{ command.args }}</span>
             <span class="slash-command-desc">{{ command.description }}</span>
           </div>

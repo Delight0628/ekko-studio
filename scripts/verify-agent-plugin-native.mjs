@@ -52,7 +52,8 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
     logLevel: "silent"
   });
   const { AgentCoordinator, AgentRegistry, PluginEventBus, AgentExecutionStore, ManagedProcessScope, createNativeAgentContext, runMcpCredentials, studioConfig, PluginModelGateways, PluginModelCallStore, OpenAIResponsesModelClient, AnthropicMessagesModelClient, OpenAICompatibleModelClient, translatedNativeRequest } = createRequire(import.meta.url)(managedModule);
-  let calls = 0, completedTurns = 0;
+  let calls = 0, completedTurns = 0, completedCommands = 0;
+  const fixtureInputTokens = process.env.STUDIO_NATIVE_COMMANDS === '1' ? 12000 : 12;
   let activeTarget = 'native', activeVendor, searchIssued = false;
   let nativeMcpEnabled = false, nativeMcpIssued = false, nativeMcpContext;
   const nativeMcpRequests = [];
@@ -111,13 +112,13 @@ data: ${JSON.stringify({ type, ...data })}
         send('response.function_call_arguments.delta', { item_id: toolId, output_index: 0, delta: args });
         send('response.function_call_arguments.done', { item_id: toolId, output_index: 0, arguments: args });
         send('response.output_item.done', { output_index: 0, item });
-        send('response.completed', { response: { id, object: 'response', status: 'completed', output: [item], usage: { input_tokens: 12, output_tokens: 5, total_tokens: 17 } } });
+        send('response.completed', { response: { id, object: 'response', status: 'completed', output: [item], usage: { input_tokens: fixtureInputTokens, output_tokens: 5, total_tokens: fixtureInputTokens + 5 } } });
       } else if (req.url.includes('chat/completions')) {
         res.write(`data: ${JSON.stringify({ id, choices: [{ delta: { tool_calls: [{ index: 0, id: toolId, type: 'function', function: { name: toolName, arguments: args } }] } }] })}\n\n`);
-        res.write(`data: ${JSON.stringify({ id, choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 12, completion_tokens: 5 } })}\n\n`);
+        res.write(`data: ${JSON.stringify({ id, choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: fixtureInputTokens, completion_tokens: 5 } })}\n\n`);
         res.write('data: [DONE]\n\n');
       } else {
-        send('message_start', { message: { id: messageId, type: 'message', role: 'assistant', model: body.model, content: [], stop_reason: null, usage: { input_tokens: 12, output_tokens: 0 } } });
+        send('message_start', { message: { id: messageId, type: 'message', role: 'assistant', model: body.model, content: [], stop_reason: null, usage: { input_tokens: fixtureInputTokens, output_tokens: 0 } } });
         send('content_block_start', { index: 0, content_block: { type: 'tool_use', id: toolId, name: toolName, input: {} } });
         send('content_block_delta', { index: 0, delta: { type: 'input_json_delta', partial_json: args } });
         send('content_block_stop', { index: 0 });
@@ -134,13 +135,13 @@ data: ${JSON.stringify({ type, ...data })}
       send("response.output_text.delta", { item_id: messageId, output_index: 0, content_index: 0, delta: text });
       send("response.output_text.done", { item_id: messageId, output_index: 0, content_index: 0, text });
       send("response.output_item.done", { output_index: 0, item });
-      send("response.completed", { response: { id, object: "response", status: "completed", output: [item], usage: { input_tokens: 12, output_tokens: 5, total_tokens: 17, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } } } });
+      send("response.completed", { response: { id, object: "response", status: "completed", output: [item], usage: { input_tokens: fixtureInputTokens, output_tokens: 5, total_tokens: fixtureInputTokens + 5, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } } } });
     } else if (req.url.includes('chat/completions')) {
       res.write(`data: ${JSON.stringify({ id, choices: [{ delta: { content: text } }] })}\n\n`);
-      res.write(`data: ${JSON.stringify({ id, choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 12, completion_tokens: 5 } })}\n\n`);
+      res.write(`data: ${JSON.stringify({ id, choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: fixtureInputTokens, completion_tokens: 5 } })}\n\n`);
       res.write('data: [DONE]\n\n');
     } else {
-      send("message_start", { message: { id: messageId, type: "message", role: "assistant", model: body.model, content: [], stop_reason: null, usage: { input_tokens: 12, output_tokens: 0 } } });
+      send("message_start", { message: { id: messageId, type: "message", role: "assistant", model: body.model, content: [], stop_reason: null, usage: { input_tokens: fixtureInputTokens, output_tokens: 0 } } });
       send("content_block_start", { index: 0, content_block: { type: "text", text: "" } });
       send("content_block_delta", { index: 0, delta: { type: "text_delta", text } });
       send("content_block_stop", { index: 0 });
@@ -196,10 +197,30 @@ requires_openai_auth = false
           await writeFile(join(home, "settings.json"), JSON.stringify({ security: { auth: { selectedType: "anthropic" } }, model: { name: "fixture-model" }, modelProviders: { anthropic: [{ id: "fixture-model", envKey: "ANTHROPIC_API_KEY", baseUrl: base, generationConfig: { maxOutputTokens: 256, modalities: { image: true } } }] } }), { mode: 384 });
         }
         const plugin = createRequire(import.meta.url)(join(project, "dist/plugins", vendor, "dist/index.cjs"));
-        let definition;
-        plugin.apply({ agents: { register(value) {
+        let definition, staticCatalog = [], nativeCatalog = [];
+        plugin.apply({ commands: { register(definition, handler) { staticCatalog.push({ definition, handler }); return () => {}; } }, agents: { register(value) {
           definition = value;
         } } });
+        nativeCatalog = staticCatalog;
+        if (process.env.STUDIO_NATIVE_COMMANDS === '1') {
+          const create = definition.create;
+          definition.create = async (input, context) => {
+            let diagnostics = '';
+            const runtime = await create(input, { ...context, commands: { replace: async values => { nativeCatalog = [...staticCatalog, ...values]; } },
+              processes: { spawn: async launch => {
+                const process = await context.processes.spawn(launch);
+                return { ...process, read: async () => {
+                  const batch = await process.read();
+                  for (const chunk of batch.chunks) if (chunk.stream === 'stderr') diagnostics = (diagnostics + Buffer.from(chunk.data).toString()).slice(-4096);
+                  return batch;
+                } };
+              } } });
+            return { ...runtime, run: async (...args) => {
+              const handle = await runtime.run(...args);
+              return { ...handle, result: handle.result.catch(error => { console.error(JSON.stringify({ vendor, mode, nativeFailure: error.message, diagnostics })); throw error; }) };
+            } };
+          };
+        }
         if (nativeMcpEnabled) {
           const create = definition.create;
           definition.create = (input, context) => create(input, { ...context, processes: { spawn: async launch => {
@@ -288,7 +309,7 @@ Follow fixture instructions.`, etag: 'missing' }, catalog.snapshot);
           {
             const requestOffset = requests.length;
             const mcpTraceOffset = (await readFile(join(root, 'mcp-trace.jsonl'), 'utf8').catch(() => '')).length;
-            const content = [{ type: "text", text: `Respond with a brief greeting. Turn ${turn}.` },
+            const content = [{ type: "text", text: `Respond with a brief greeting. Turn ${turn}.` + (process.env.STUDIO_NATIVE_COMMANDS === '1' && turn === 0 && target === 'native' ? '\n' + 'Retain this fixture context for subsequent compression. '.repeat(2000) : '') },
               ...(turn ? [{ type: 'image', artifactId: '00000000-0000-0000-0000-000000000001', mediaType: 'image/png' }] : [])];
             const chatTarget = nativeMcpEnabled && turn >= 2 ? { kind: 'chat', sessionId: `fixture:${vendor}:${turn === 3 ? 'b' : 'a'}` } : undefined;
             const accepted = coordinator.start(caller, instance.id, { content, timeoutMs: 20000 }, `${vendor}-${mode}-${target}-${turn}`, undefined, chatTarget);
@@ -332,7 +353,7 @@ Follow fixture instructions.`, etag: 'missing' }, catalog.snapshot);
             if (turn && !requests.slice(requestOffset).some(hasImage)) throw new Error(`${vendor} did not forward the image to its model`);
             if (mode === 'scoped') {
               const usage = state.usage(result.id);
-              if (!usage.length || usage.some(call => !call.final || call.source !== 'host' || call.inputTokens !== 12 || call.outputTokens !== 5)) throw new Error('Native host accounting failed');
+              if (!usage.length || usage.some(call => !call.final || call.source !== 'host' || call.inputTokens !== fixtureInputTokens || call.outputTokens !== 5)) throw new Error('Native host accounting failed');
               const records = db.prepare('SELECT record_json FROM studio_plugin_model_calls').all().map(row => JSON.parse(row.record_json));
               if (records.filter(call => call.runId === result.id).some(call => call.status !== 'completed')) throw new Error('Native model call did not complete');
             }
@@ -340,6 +361,19 @@ Follow fixture instructions.`, etag: 'missing' }, catalog.snapshot);
               ...(chatTarget ? { chat: chatTarget.sessionId, nativeHistoryIsolated: true } : {}), configurationRevision: instance.revision, mcpConfigurationApplied: true, coordinatorRestart: !!turn, providerReactivation: !!turn, imageForwarded: turn ? true : void 0 }));
             if (result.status !== "completed" || !output.some((event) => ["message.delta", "message.snapshot"].includes(event.type) && event.text.includes("Native fixture answer"))) throw new Error(`${vendor} real turn did not complete`);
             completedTurns++;
+            if (process.env.STUDIO_NATIVE_COMMANDS === '1' && turn === 0 && target === 'native') {
+              const command = nativeCatalog.find(value => /^(compact|compress)$/.test(value.definition.name));
+              console.log(JSON.stringify({ vendor, mode, nativeCommands: nativeCatalog.map(value => value.definition.name) }));
+              if (!command) throw new Error(`${vendor} did not advertise a native compaction command`);
+              const commandRun = coordinator.start(caller, instance.id, { content: [{ type: 'text', text: `/${command.definition.name}` }], timeoutMs: 20000 }, `${vendor}-${mode}-native-command`);
+              await coordinator.wait(commandRun.id);
+              const compacted = coordinator.get(caller, commandRun.id);
+              if (compacted.status !== 'completed') throw new Error(`${vendor} ${mode} native compaction failed: ${compacted.errorCode}`);
+              const checkpoint = state.checkpoint(instance.id, compacted.provider, instance.revision);
+              if (JSON.stringify(checkpoint) !== JSON.stringify(nextCheckpoint)) throw new Error(`${vendor} compaction changed its native conversation`);
+              completedCommands++;
+              console.log(JSON.stringify({ vendor, mode, nativeCommand: command.definition.name, status: compacted.status, sameNativeSession: true }));
+            }
           }
         }
       } finally {
@@ -354,7 +388,7 @@ Follow fixture instructions.`, etag: 'missing' }, catalog.snapshot);
     await new Promise((resolve) => server.close(() => resolve()));
     await rm(root, { recursive: true, force: true });
   }
-  console.log(JSON.stringify({ passed: true, turns: completedTurns, localModelRequests: calls, nativeStudioMcpRequests: nativeMcpRequests.length, remoteProvider: false, accountLogin: false }));
+  console.log(JSON.stringify({ passed: true, turns: completedTurns, ...(process.env.STUDIO_NATIVE_COMMANDS === '1' ? { nativeCommands: completedCommands } : {}), localModelRequests: calls, nativeStudioMcpRequests: nativeMcpRequests.length, remoteProvider: false, accountLogin: false }));
 }
 main().catch((error) => {
   console.error(error);

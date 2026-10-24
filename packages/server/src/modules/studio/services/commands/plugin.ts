@@ -19,7 +19,7 @@ export class PluginCommands {
   list(scope: ExecutionScope, sessionId: string) {
     this.checkScope(scope)
     const target = this.deps.authorize(scope, sessionId)
-    return this.deps.registry.list(scope.profileId, target.agentTypeId)
+    return this.deps.registry.list(scope.profileId, target.agentTypeId, this.selection(scope, sessionId, target))
   }
   start(scope: ExecutionScope, value: CommandStart): CommandCall {
     this.checkScope(scope)
@@ -33,7 +33,7 @@ export class PluginCommands {
     if (this.closed) throw new StudioError('PLUGIN_UNAVAILABLE', 'Command service is closed')
     if ([...this.active.values()].some(call => call.sessionId === input.sessionId)) throw new StudioError('REVISION_CONFLICT', 'A command is already running in this session')
     if (this.active.size >= 32) throw new StudioError('RESOURCE_EXHAUSTED', 'Command concurrency limit reached')
-    const entry = this.deps.registry.resolve(scope.profileId, target.agentTypeId, input.commandId, input.revision)
+    const entry = this.deps.registry.resolve(scope.profileId, target.agentTypeId, input.commandId, input.revision, this.selection(scope, input.sessionId, target))
     const match = /^\s*\/([^\s]+)([\s\S]*)$/.exec(input.text)
     if (!match || ![entry.summary.name, entry.summary.qualifiedName, ...(entry.summary.aliases || [])].includes(match[1])) throw new StudioError('INVALID_ARGUMENT', 'Input does not match selected command')
     // Preserve the entire tail, including whitespace, quoting and line breaks. The plugin parses it.
@@ -50,7 +50,7 @@ export class PluginCommands {
       if (controller.signal.aborted) throw controller.signal.reason
       const current = this.deps.authorize(snapshot, input.sessionId)
       if (current.fingerprint !== target.fingerprint) throw new StudioError('REVISION_CONFLICT', 'Command target changed')
-      this.deps.registry.resolve(snapshot.profileId, current.agentTypeId, input.commandId, input.revision)
+      this.deps.registry.resolve(snapshot.profileId, current.agentTypeId, input.commandId, input.revision, this.selection(snapshot, input.sessionId, current))
       return current
     }
     const timer = setTimeout(() => controller.abort(new StudioError('DEADLINE_EXCEEDED', 'Command timed out')), 60_000)
@@ -100,5 +100,10 @@ export class PluginCommands {
   }
   private checkScope(scope: ExecutionScope): void {
     if (scope.runId || scope.workspaceId) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Command requires a chat scope')
+  }
+  private selection(scope: ExecutionScope, sessionId: string, target: CommandTarget) {
+    return target.instanceId && target.instanceRevision !== undefined ? {
+      ownerId: scope.principal.id, sessionId, instanceId: target.instanceId, instanceRevision: target.instanceRevision,
+    } : undefined
   }
 }

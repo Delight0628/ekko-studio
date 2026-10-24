@@ -15982,7 +15982,7 @@
           "Studio Plugins"
         ],
         "summary": "Explicitly install and enable an implemented bundled Agent plugin",
-        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Only qwen and codex are eligible. Uses trusted distribution paths, never caller paths or arbitrary plugin IDs. Requires the current profile revision (zero when absent); preserves existing settings and grants. This is opt-in setup, not default installation of all reserved agents or installation of native CLIs. Existing installations are not upgraded or replaced by this endpoint.",
+        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Only qwen and codex are eligible. Uses trusted distribution paths, never caller paths or arbitrary plugin IDs. Requires the current profile revision (zero when absent); preserves existing settings and grants unless the administrator explicitly supplies the exact displayed required capabilities as grants. Stale permission selections are rejected. This is opt-in setup, not default installation of all reserved agents or installation of native CLIs. Existing installations are not upgraded or replaced by this endpoint.",
         "operationId": "enableBundledAgentPlugin",
         "security": [
           {
@@ -16049,6 +16049,15 @@
                   "revision": {
                     "type": "integer",
                     "minimum": 0
+                  },
+                  "grants": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "maxLength": 256
+                    }
                   },
                   "profile": {
                     "type": "string"

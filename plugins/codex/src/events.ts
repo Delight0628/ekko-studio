@@ -4,7 +4,7 @@ type Output = AgentOutputEvent extends infer T ? T extends AgentOutputEvent ? Om
 /** The final native item is authoritative; snapshots replace streamed text. */
 export function codexEvents(emit: (event: Output) => void) {
   const tools = new Map<string, { name: string; done: boolean }>()
-  const toolTypes = new Set(['commandExecution', 'fileChange', 'mcpToolCall', 'dynamicToolCall', 'collabToolCall', 'webSearch', 'imageView'])
+  const toolTypes = new Set(['commandExecution', 'fileChange', 'mcpToolCall', 'dynamicToolCall', 'collabToolCall', 'webSearch', 'imageView', 'contextCompaction'])
   return (method: string, params: Record<string, any>) => {
     if (method === 'item/agentMessage/delta' && typeof params.delta === 'string') {
       emit({ type: 'message.delta', messageId: String(params.itemId), text: params.delta })

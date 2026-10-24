@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
-import { AcpConnection, AgentEventQueue, ManagedProcessTransport, acpMcpServers } from '@ekko-studio/agent-drivers'
+import { AcpConnection, AcpRequestError, AgentEventQueue, ManagedProcessTransport, acpMcpServers } from '@ekko-studio/agent-drivers'
 import { StudioError, readAgentImages, agentContextConfigurationProperties, mergeAgentContextConfiguration, type AgentContextConfiguration, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
 import { scopedQwen } from './scoped'
 import { management } from './management'
+import { qwenCommandCatalog, compressCommand } from './commands'
 
 const schema = {
   type: 'object', required: ['cwd'], additionalProperties: false,
@@ -22,6 +23,7 @@ const schema = {
 
 const plugin: StudioPlugin = {
   apply(plugin) {
+    plugin.commands.register(compressCommand.definition, compressCommand.handler)
     plugin.agents.register({
       id: 'qwen', name: 'Qwen Code', configSchema: schema as unknown as JsonObject,
       management,
@@ -43,6 +45,7 @@ const plugin: StudioPlugin = {
           nativeSessionId = resume.nativeSessionId
         }
         let active: AgentRunHandle | undefined
+        const commands = qwenCommandCatalog(runtime)
         let ended = false
         return {
           async run(input, ctx) {
@@ -84,7 +87,9 @@ const plugin: StudioPlugin = {
                   session(id) { nativeSessionId = id },
                   update(update) {
                     if (cancelled) return
-                    if (update?.sessionUpdate === 'agent_message_chunk' && update.content?.type === 'text') {
+                    if (update?.sessionUpdate === 'available_commands_update') {
+                      commands.update(update.availableCommands)
+                    } else if (update?.sessionUpdate === 'agent_message_chunk' && update.content?.type === 'text') {
                       emit({ type: 'message.delta', messageId: 'answer', text: update.content.text } as AgentOutputEvent)
                     } else if (update?.sessionUpdate === 'agent_thought_chunk' && update.content?.type === 'text') {
                       emit({ type: 'reasoning.delta', messageId: 'reasoning', text: update.content.text } as AgentOutputEvent)
@@ -124,8 +129,12 @@ const plugin: StudioPlugin = {
                     })
                   },
                 })
-                const text = [input.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), ctx.nativeContext?.turnInstructions].filter(Boolean).join('\n\n')
-                const reason = await connection.prompt({ cwd, text: effectiveContext.systemPrompt ? `${effectiveContext.systemPrompt}\n\n${text}` : text,
+                const rawText = input.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
+                // The native parser owns all slash syntax, including a command
+                // sent after idle disposal before its dynamic catalog is known.
+                const native = /^\/[^\s]+/.test(rawText)
+                const text = native ? rawText : [rawText, ctx.nativeContext?.turnInstructions].filter(Boolean).join('\n\n')
+                const reason = await connection.prompt({ cwd, text: !native && effectiveContext.systemPrompt ? `${effectiveContext.systemPrompt}\n\n${text}` : text,
                   images: input.content.flatMap(block => block.type === 'image' ? [images.get(block.artifactId)!] : []),
                   nativeSessionId, mcpServers: acpMcpServers(effectiveContext.mcpServers || {}),
                   model: input.model || config.model as string | undefined, reasoningEffort: config.reasoningEffort as string | undefined })
@@ -138,9 +147,15 @@ const plugin: StudioPlugin = {
                   })])
                   if (!cancelled && exit.code !== 0) throw new Error('Qwen process failed after its final result')
                 } finally { clearTimeout(timer) }
+                await commands.drain()
                 return cancelled ? { status: 'cancelled' } : { status: 'completed', checkpoint: { nativeSessionId: nativeSessionId! } }
               } catch (error) {
                 if (cancelled) return { status: 'cancelled' }
+                if (error instanceof AcpRequestError && error.data && typeof error.data === 'object'
+                  && (error.data as { details?: unknown }).details === 'Compression was not beneficial for this history size.') {
+                  emit({ type: 'message.snapshot', messageId: 'answer', text: 'Qwen did not compact this conversation because compression would not reduce its size. The existing history was kept.' } as AgentOutputEvent)
+                  throw new StudioError('CAPABILITY_UNSUPPORTED', 'Qwen compression did not reduce the conversation')
+                }
                 events.fail(error instanceof Error ? error : new Error('Qwen execution failed'))
                 throw error
               } finally {

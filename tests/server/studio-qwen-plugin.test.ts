@@ -48,11 +48,18 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
     agentInfo: { name: 'Qwen Code', version: 'fixture', privateField: 'secret' }, authMethods: [{ id: 'qwen-oauth', name: 'Qwen OAuth', env: { KEY: 'secret' } }] } });
   else if (r.method === 'session/new' || r.method === 'session/load') {
     if (r.method === 'session/load') update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'replayed old text' } });
+    update({ sessionUpdate: 'available_commands_update', availableCommands: process.env.LARGE_CATALOG === '1'
+      ? Array.from({ length: 100 }, (_, index) => ({ name: 'native-' + index, description: 'Native command '.repeat(100) }))
+      : [{ name: 'inspect:state', description: 'Inspect native state', input: { hint: '<raw>' } }] });
     send({ id: r.id, result: { sessionId: 'qwen-native' } });
   } else if (r.method === 'session/set_model') send({ id: r.id, result: {} });
   else if (r.method === 'session/prompt') {
     prompt = r;
     const text = r.params.prompt[0].text;
+    if (text === '/compress' && process.env.COMPRESSION_NOOP === '1') {
+      send({ id: r.id, error: { code: -32603, message: 'Internal error', data: { details: 'Compression was not beneficial for this history size.' } } });
+      return;
+    }
     if (text === 'broken') { process.stdout.write('{bad\\n'); return; }
     update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } });
     update({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'thinking' } });
@@ -68,7 +75,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
   else if (r.method === 'session/cancel') process.exit(0);
 });`
 
-async function setup(mode: 'global' | 'scoped' = 'global') {
+async function setup(mode: 'global' | 'scoped' = 'global', extraEnv: Record<string, string> = {}) {
   const directory = await mkdtemp(join(root, 'run-')), cli = join(directory, 'qwen.cjs')
   const pidFile = join(directory, 'pid'), traceFile = join(directory, 'trace')
   await writeFile(cli, fixture)
@@ -89,7 +96,7 @@ async function setup(mode: 'global' | 'scoped' = 'global') {
   })
   const executionStore = new AgentExecutionStore(db)
   const artifacts = new AgentArtifacts(db, executionStore, () => {})
-  const coordinator = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, validateInput: (scope, input) => artifacts.validate(scope, input), context, stateRoot: join(directory, 'state'),
+  const coordinator = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, authorizeChat: () => {}, validateInput: (scope, input) => artifacts.validate(scope, input), context, stateRoot: join(directory, 'state'),
     nativeContext: (instance, current, provider, signal) => createNativeAgentContext(instance, current, signal, runId => {
       host.authorizeNativeMcp(provider, current.profileId)
       if (!['starting', 'running', 'waiting_input'].includes(executionStore.get(runId)?.status || '')) throw new StudioError('RUN_FINALIZING', 'Turn ended')
@@ -98,9 +105,9 @@ async function setup(mode: 'global' | 'scoped' = 'global') {
     eventContext: async (_state, _event, signal) => context(scope, signal), acceptEvents: async batch => { for (const event of batch) events.publish(event) } })
   cleanups.push(async () => { await coordinator.close(); await host.close(); events.close(); db.close() })
   await host.registerSystemArtifact(join(root, 'plugins/qwen-code'))
-  await host.configure({ pluginId: 'studio.agent-qwen', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'processes.spawn', 'mcp.studio', 'models.gateway', 'artifacts.read'] }, 0)
+  await host.configure({ pluginId: 'studio.agent-qwen', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'commands.register', 'runs.start', 'processes.spawn', 'mcp.studio', 'models.gateway', 'artifacts.read'] }, 0)
   const instance = coordinator.createInstance(scope, { agentTypeId: 'qwen', mode, config: { ...(mode === 'scoped' ? { model: 'fixture/model' } : {}),
-    cwd: directory, command: process.execPath, args: [cli], env: { PID_FILE: pidFile, TRACE_FILE: traceFile },
+    cwd: directory, command: process.execPath, args: [cli], env: { PID_FILE: pidFile, TRACE_FILE: traceFile, ...extraEnv },
   } })
   const start = (text: string) => coordinator.start(scope, instance.id, { content: [{ type: 'text', text }] }, text)
   const run = async (text: string) => { const r = start(text); await coordinator.wait(r.id); return coordinator.get(scope, r.id) }
@@ -109,6 +116,52 @@ async function setup(mode: 'global' | 'scoped' = 'global') {
   return { readArtifact, artifacts, gateway, issued, directory, coordinator, host, store, executionStore, instance, start, run, trace, pid }
 }
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
+
+it('bounds completion metadata from large native skill catalogs without failing an ordinary chat', async () => {
+  const f = await setup('global', { LARGE_CATALOG: '1' })
+  const current: ExecutionScope = { ...scope, surface: 'chat', sessionId: 'large-catalog' }
+  const run = f.coordinator.start(current, f.instance.id, { content: [{ type: 'text', text: 'First' }] }, 'first', undefined, { kind: 'chat', sessionId: 'large-catalog' })
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(scope, run.id).status).toBe('completed')
+  const commands = f.host.commands.list('one', 'qwen', { ownerId: scope.principal.id, sessionId: 'large-catalog', instanceId: f.instance.id, instanceRevision: 1 })
+  expect(commands).toHaveLength(65) // One static compression command and a bounded native completion catalog.
+  expect(commands.filter(command => command.name.startsWith('native-'))).toHaveLength(64)
+  expect(commands.every(command => command.description.length <= 512)).toBe(true)
+})
+
+it('reports non-beneficial native compression as a failed operation and retains the previous history checkpoint', async () => {
+  const f = await setup('global', { COMPRESSION_NOOP: '1' }), first = await f.run('first')
+  const checkpoint = f.executionStore.state.checkpoint(f.instance.id, first.provider, f.instance.revision)
+  const result = await f.run('/compress')
+  expect(result).toMatchObject({ status: 'failed', errorCode: 'CAPABILITY_UNSUPPORTED' })
+  expect(f.coordinator.output(scope, result.id, -1)).toEqual(expect.arrayContaining([
+    expect.objectContaining({ type: 'message.snapshot', text: expect.stringContaining('existing history was kept') }),
+  ]))
+  expect(f.executionStore.state.checkpoint(f.instance.id, result.provider, f.instance.revision)).toEqual(checkpoint)
+  expect((await f.run('after failure')).status).toBe('completed')
+  expect((await f.trace()).filter(frame => frame.method === 'session/load').at(-1).params.sessionId).toBe('qwen-native')
+})
+
+it('publishes the native ACP catalog before session creation completes and preserves raw command arguments across retained turns', async () => {
+  const f = await setup()
+  const updated = await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, mode: 'global', config: { ...f.instance.config, systemPrompt: 'Do not add to command arguments' } })
+  const chatScope: ExecutionScope = { ...scope, surface: 'chat', sessionId: 'native-chat' }
+  const target = { ownerId: scope.principal.id, sessionId: 'native-chat', instanceId: f.instance.id, instanceRevision: updated.revision }
+  const run = async (text: string) => {
+    const accepted = f.coordinator.start(chatScope, f.instance.id, { content: [{ type: 'text', text }] }, text, undefined, { kind: 'chat', sessionId: 'native-chat' })
+    await f.coordinator.wait(accepted.id)
+    expect(f.coordinator.get(scope, accepted.id).status).toBe('completed')
+  }
+  expect(f.host.commands.list('one', 'qwen', target).map(command => command.name)).toEqual(['compress'])
+  await run('first')
+  const commands = f.host.commands.list('one', 'qwen', target)
+  expect(commands).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'inspect:state', argsHint: '<raw>' })]))
+  const inspect = commands.find(command => command.name === 'inspect:state')!
+  await run('/inspect:state  "quoted"\n tail ')
+  expect((await f.trace()).filter(frame => frame.method === 'session/prompt').at(-1).params.prompt[0].text).toBe('/inspect:state  "quoted"\n tail ')
+  expect(f.host.commands.list('one', 'qwen', target).find(command => command.name === 'inspect:state')?.revision).toBe(inspect.revision)
+  expect(f.host.commands.list('one', 'qwen', { ...target, sessionId: 'other' }).map(command => command.name)).toEqual(['compress'])
+})
 
 it('inspects ACP metadata without creating history or claiming an unknown account state', async () => {
   const f = await setup(), result = await f.coordinator.inspectInstance(scope, f.instance.id)

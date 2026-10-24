@@ -16,6 +16,8 @@ readline.on('line', line => { const request = JSON.parse(line); if (!request.met
   if (request.method === 'initialize') reply({ id: request.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true, promptCapabilities: { image: true } } } });
   else if (request.method === 'session/new' || request.method === 'session/load') {
     if (request.method === 'session/load') reply({ method: 'session/update', params: { sessionId: 'native', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'old history' } } } });
+    reply({ method: 'session/update', params: { sessionId: 'foreign', update: { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'foreign', description: 'Other session' }] } } });
+    reply({ method: 'session/update', params: { sessionId: 'native', update: { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'inspect', description: 'Native inspect' }] } } });
     reply({ id: request.id, result: { sessionId: 'native', configOptions: [{ id: 'model', category: 'model' }, { id: 'effort', category: 'thought_level' }] } });
   } else if (request.method === 'session/set_config_option') reply({ id: request.id, result: {} });
   else if (request.method === 'session/prompt') {
@@ -40,8 +42,9 @@ it('runs ACP negotiation, restoration, model selection and large image/text inpu
   await writeFile(path, image)
   await expect(connection.prompt({ cwd: root, text, images: [{ path, mediaType: 'image/png' }], nativeSessionId: 'native', mcpServers: [], model: 'native/model', reasoningEffort: 'high' })).resolves.toBe('end_turn')
   expect(session).toHaveBeenCalledExactlyOnceWith('native')
-  expect(update).toHaveBeenCalledTimes(1)
-  const prompt = JSON.parse(update.mock.calls[0][0].content.text)
+  expect(update).toHaveBeenCalledTimes(2)
+  expect(update.mock.calls[0][0]).toEqual({ sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'inspect', description: 'Native inspect' }] })
+  const prompt = JSON.parse(update.mock.calls[1][0].content.text)
   expect(prompt[0]).toEqual({ type: 'text', text })
   expect(Buffer.from(prompt[1].data, 'base64').equals(image)).toBe(true)
   expect(await transport.exited).toEqual({ code: 0, signal: null })

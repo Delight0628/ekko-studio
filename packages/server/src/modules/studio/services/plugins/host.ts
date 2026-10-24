@@ -336,7 +336,8 @@ export class PluginHost {
       if (activated.commands.length) authorize('commands.register')
       commandRegistration.validate(activated.commands)
       if (activated.agents.length) authorize('agents.register')
-      for (const meta of activated.agents) removers.set(meta.id, registration.register(worker.definition(meta)))
+      for (const meta of activated.agents) removers.set(meta.id, registration.register(worker.definition(meta,
+        manifest.contributes.runtimeCommands?.includes(meta.id) ? this.commands : undefined)))
       const stagedSubscriptions: Array<() => void> = []
       for (const subscription of activated.subscriptions) {
         if (typeof subscription.id !== 'string' || !CORE_EVENTS.includes(subscription.type as keyof StudioEventMap) || typeof subscription.once !== 'boolean') throw new StudioError('INVALID_ARGUMENT', 'Invalid plugin subscription')

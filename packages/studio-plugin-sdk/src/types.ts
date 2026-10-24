@@ -289,6 +289,8 @@ export interface AgentRuntimeContext {
   readonly logger: ScopedLogger
   readonly processes: RuntimeProcesses
   readonly mcp: RuntimeMcp
+  /** Available only for declared, granted commands in a host-bound chat runtime. */
+  readonly commands?: import('./commands').RuntimeCommandContributions
 }
 
 /** Managed processes belong to the runtime lease, not a single turn or HTTP request. */
@@ -595,7 +597,7 @@ export interface PluginManifest {
   engines: { studioSdk: string; rpc: 1 }
   backend: string
   activation: 'profile'
-  contributes: { agents: string[]; commands?: string[]; events?: Record<string, JsonSchema>; services?: ServiceToken[] }
+  contributes: { agents: string[]; commands?: string[]; runtimeCommands?: string[]; events?: Record<string, JsonSchema>; services?: ServiceToken[] }
   requires: { capabilities: string[]; services?: ServiceDependency[] }
   configSchema?: JsonSchema
 }

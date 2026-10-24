@@ -24,7 +24,7 @@ export function saveManagedAgentInstance(profile: string, agentTypeId: string, c
     : data<ManagedAgentInstance>('agent-instances', profile, 'POST', { agentTypeId, config, mode })
 }
 export function fetchBundledAgentPlugins(profile: string) { return data<BundledAgentPlugin[]>('bundled-agent-plugins', profile) }
-export function enableBundledAgentPlugin(profile: string, plugin: BundledAgentPlugin) { return data(`bundled-agent-plugins/${encodeURIComponent(plugin.id)}/enable`, profile, 'POST', { revision: plugin.revision }) }
+export function enableBundledAgentPlugin(profile: string, plugin: BundledAgentPlugin) { return data(`bundled-agent-plugins/${encodeURIComponent(plugin.id)}/enable`, profile, 'POST', { revision: plugin.revision, grants: plugin.requiredCapabilities }) }
 export function fetchAgentSetup(profile: string, instance: ManagedAgentInstance) { return data<AgentSetup>(`agent-instances/${encodeURIComponent(instance.id)}/setup`, profile, 'POST', { revision: instance.revision }) }
 export function inspectManagedAgent(profile: string, instance: ManagedAgentInstance) { return data<AgentInspection>(`agent-instances/${encodeURIComponent(instance.id)}/inspect`, profile, 'POST', {}) }
 export function startAgentLogin(profile: string, instance: ManagedAgentInstance, idempotencyKey: string) { return data<AgentManagementOperation>(`agent-instances/${encodeURIComponent(instance.id)}/login`, profile, 'POST', { revision: instance.revision, idempotencyKey }) }

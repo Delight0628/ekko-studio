@@ -55,6 +55,20 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
     send({ id: r.id, result: { data: [model(r.params.cursor ? 'second' : 'first')], nextCursor: process.env.INSPECT_MODE === 'loop' || !r.params.cursor ? 'next' : null } });
   }
   else if (r.method === 'thread/start' || r.method === 'thread/resume') { if (process.env.STARTUP_PHASE === 'thread') return; send({ id: r.id, result: { thread: { id: 'native-thread' } } }); }
+  else if (r.method === 'thread/compact/start') {
+    turnId = 'compact-' + (++index);
+    notify('turn/started', { turn: { id: turnId, status: 'inProgress' } });
+    notify('item/started', { item: { id: 'compaction', type: 'contextCompaction' } });
+    send({ id: r.id, result: {} });
+    if (process.env.COMPACT_HOLD === '1') return;
+    const finishCompaction = () => {
+      notify('item/completed', { item: { id: 'compaction', type: 'contextCompaction' } });
+      notify('turn/completed', { turn: { id: turnId, status: process.env.COMPACT_FAIL === '1' ? 'failed' : 'completed' } });
+    };
+    if (process.env.COMPACT_GATE === '1') {
+      const gate = setInterval(() => { if (fs.existsSync(process.env.CONTROL_FILE)) { clearInterval(gate); finishCompaction(); } }, 10);
+    } else finishCompaction();
+  }
   else if (r.method === 'turn/start') {
     turnId = 'turn-' + (++index);
     const text = r.params.input[0].text;
@@ -126,7 +140,7 @@ async function setup(env: Record<string, string> = {}, mode: 'global' | 'scoped'
   })
   const executionStore = new AgentExecutionStore(db)
   const artifacts = new AgentArtifacts(db, executionStore, () => {})
-  const coordinator = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, validateInput: (scope, input) => artifacts.validate(scope, input), context, stateRoot: join(directory, 'state'),
+  const coordinator = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, authorizeChat: () => {}, validateInput: (scope, input) => artifacts.validate(scope, input), context, stateRoot: join(directory, 'state'),
     nativeContext: (instance, current, provider, signal) => createNativeAgentContext(instance, current, signal, runId => {
       host.authorizeNativeMcp(provider, current.profileId)
       if (!['starting', 'running', 'waiting_input'].includes(executionStore.get(runId)?.status || '')) throw new StudioError('RUN_FINALIZING', 'Turn ended')
@@ -135,7 +149,7 @@ async function setup(env: Record<string, string> = {}, mode: 'global' | 'scoped'
     eventContext: async (_state, _event, signal) => context(scope, signal), acceptEvents: async batch => { for (const event of batch) events.publish(event) } })
   cleanups.push(async () => { await coordinator.close(); await host.close(); events.close(); db.close() })
   await host.registerSystemArtifact(join(root, 'plugins/codex'))
-  await host.configure({ pluginId: 'studio.agent-codex', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'processes.spawn', 'mcp.studio', 'models.gateway', 'artifacts.read'] }, 0)
+  await host.configure({ pluginId: 'studio.agent-codex', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'commands.register', 'runs.start', 'processes.spawn', 'mcp.studio', 'models.gateway', 'artifacts.read'] }, 0)
   const instance = coordinator.createInstance(scope, { agentTypeId: 'codex', mode, config: { ...(mode === 'scoped' ? { model: 'fixture/model' } : {}),
     cwd: directory, command: process.execPath, args: [cli], env: { PID_FILE: pidFile, TRACE_FILE: traceFile, CONTROL_FILE: controlFile, ...env },
   } })
@@ -152,6 +166,40 @@ async function setup(env: Record<string, string> = {}, mode: 'global' | 'scoped'
   return { readArtifact, artifacts, gateway, issued, directory, coordinator, host, store, registry, executionStore, instance, start, run, trace, pid, reopen, controlFile }
 }
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
+
+it.each(['global', 'scoped'] as const)('waits for native compaction completion and retains its thread in %s mode', async mode => {
+  const f = await setup({ COMPACT_GATE: '1' }, mode)
+  expect((await f.run('first')).status).toBe('completed')
+  const offset = (await f.trace()).length, accepted = f.start('/compact')
+  await vi.waitFor(async () => expect((await f.trace()).slice(offset).some(frame => frame.method === 'thread/compact/start')).toBe(true))
+  expect(f.coordinator.get(scope, accepted.id).status).toBe('running')
+  await writeFile(f.controlFile, 'complete compaction')
+  await f.coordinator.wait(accepted.id)
+  expect(f.coordinator.get(scope, accepted.id).status).toBe('completed')
+  const frames = (await f.trace()).slice(offset)
+  expect(frames.find(frame => frame.method === 'thread/compact/start').params).toEqual({ threadId: 'native-thread' })
+  expect(frames.some(frame => frame.method === 'turn/start')).toBe(false)
+  expect(f.coordinator.output(scope, accepted.id, -1)).toEqual(expect.arrayContaining([
+    expect.objectContaining({ type: 'tool.started', name: 'contextCompaction' }), expect.objectContaining({ type: 'tool.completed', name: 'contextCompaction' }),
+  ]))
+  expect((await f.run('after compact')).status).toBe('completed')
+})
+
+it('does not report a failed native compaction as success', async () => {
+  const f = await setup({ COMPACT_FAIL: '1' })
+  expect((await f.run('/compact')).status).toBe('failed')
+})
+
+it('cancels a native compaction by its actual turn identity and confirms process cleanup', async () => {
+  const f = await setup({ COMPACT_HOLD: '1' }), accepted = f.start('/compact')
+  await vi.waitFor(() => expect(f.coordinator.output(scope, accepted.id, -1).some(event => event.type === 'tool.started')).toBe(true))
+  const pid = await f.pid()
+  await f.coordinator.cancel(scope, accepted.id)
+  await f.coordinator.waitForCleanup(scope, accepted.id)
+  expect(f.coordinator.get(scope, accepted.id).status).toBe('cancelled')
+  expect((await f.trace()).find(frame => frame.method === 'turn/interrupt').params.turnId).toBe('compact-1')
+  expect(alive(pid)).toBe(false)
+})
 
 it('inspects account state and paginated native models through a worker without exposing private fields', async () => {
   const f = await setup()

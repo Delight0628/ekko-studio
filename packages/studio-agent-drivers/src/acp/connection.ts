@@ -13,6 +13,10 @@ interface Pending {
   reject(error: Error): void
   timer?: ReturnType<typeof setTimeout>
 }
+/** Native error data is for the owning plugin to interpret, never host transport authority. */
+export class AcpRequestError extends Error {
+  constructor(readonly code: number, message: string, readonly data: unknown) { super(`ACP: ${message}`); this.name = 'AcpRequestError' }
+}
 
 /** Standard ACP only: no DSH extensions or vendor-specific close requests. */
 export class AcpConnection {
@@ -22,6 +26,8 @@ export class AcpConnection {
   private buffer = ''
   private closed = false
   private sessionId = ''
+  private loadingSession = false
+  private commandCatalogs = new Map<string, unknown>()
   private cancelling = false
   private permissions = new Map<string | number, AbortController>()
 
@@ -88,8 +94,13 @@ export class AcpConnection {
   private receive(message: any) {
     if (this.closed) return
     if (message.method) {
-      if (message.method === 'session/update' && message.params?.sessionId === this.sessionId) {
-        this.callbacks.update(message.params.update)
+      if (message.method === 'session/update') {
+        const { sessionId, update } = message.params || {}
+        if (this.loadingSession && update?.sessionUpdate === 'available_commands_update') {
+          if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 4096
+            || JSON.stringify(update).length > 1_048_576 || (!this.commandCatalogs.has(sessionId) && this.commandCatalogs.size >= 4)) throw new Error('ACP startup command catalog limit exceeded')
+          this.commandCatalogs.set(sessionId, update)
+        } else if (sessionId === this.sessionId && !this.loadingSession) this.callbacks.update(update)
       } else if (message.id !== undefined) {
         if (message.method === 'session/request_permission' && message.params?.sessionId === this.sessionId) {
           if (this.callbacks.permission) { this.requestPermission(message); return }
@@ -106,7 +117,7 @@ export class AcpConnection {
     if (!pending) return
     this.pending.delete(message.id)
     if (pending.timer) clearTimeout(pending.timer)
-    if (message.error) pending.reject(new Error(`ACP: ${message.error.message || 'request failed'}`))
+    if (message.error) pending.reject(new AcpRequestError(Number(message.error.code), String(message.error.message || 'request failed'), message.error.data))
     else pending.resolve(message.result)
   }
 
@@ -169,13 +180,20 @@ export class AcpConnection {
     }
     // session/load can replay history. Discard it until loading finishes to
     // avoid saving the same assistant/tool messages a second time in Studio.
-    const session = await this.request(method, {
-      cwd: input.cwd, mcpServers: input.mcpServers,
-      ...(input.nativeSessionId ? { sessionId: input.nativeSessionId } : {}),
-    })
+    this.loadingSession = true
+    let session: any
+    try {
+      session = await this.request(method, {
+        cwd: input.cwd, mcpServers: input.mcpServers,
+        ...(input.nativeSessionId ? { sessionId: input.nativeSessionId } : {}),
+      })
+    } finally { this.loadingSession = false }
     this.sessionId = session?.sessionId || input.nativeSessionId
     if (!this.sessionId || typeof this.sessionId !== 'string') throw new Error('ACP returned no session ID')
     this.callbacks.session(this.sessionId)
+    const commands = this.commandCatalogs.get(this.sessionId)
+    this.commandCatalogs.clear()
+    if (commands) this.callbacks.update(commands)
     let options = Array.isArray(session.configOptions) ? session.configOptions : []
     if (input.model) {
       const selector = options.find((option: any) => option.category === 'model' || option.id === 'model')

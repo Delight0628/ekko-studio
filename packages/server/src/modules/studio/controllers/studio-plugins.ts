@@ -107,8 +107,8 @@ export const createAgentChat = (ctx: Context) => respond(ctx, () => {
 })
 export const listBundledAgentPlugins = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().bundledAgents.list(profile(ctx)))
 export const enableBundledAgentPlugin = (ctx: Context) => respond(ctx, () => {
-  const input = body(ctx, ['revision', 'profile'])
-  return getStudioPluginRuntime().bundledAgents.enable(ctx.params.id, profile(ctx), userId(ctx), input.revision as number)
+  const input = body(ctx, ['revision', 'grants', 'profile'])
+  return getStudioPluginRuntime().bundledAgents.enable(ctx.params.id, profile(ctx), userId(ctx), input.revision as number, input.grants as string[] | undefined)
 })
 export const setupAgentInstance = (ctx: Context) => respond(ctx, async () => {
   const input = body(ctx, ['revision', 'profile'])

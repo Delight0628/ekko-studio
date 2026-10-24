@@ -29,3 +29,7 @@ export interface CommandContext extends ExecutionContext {
 }
 export type CommandHandler = (input: CommandInput, context: CommandContext) => CommandResult | void | Promise<CommandResult | void>
 export interface CommandContributions { register(definition: CommandDefinition, handler: CommandHandler): Disposer }
+/** Atomic runtime catalog. Handlers stay in the plugin and expire with its lease. */
+export interface RuntimeCommandContributions {
+  replace(commands: Array<{ definition: CommandDefinition; handler: CommandHandler }>): Promise<void>
+}

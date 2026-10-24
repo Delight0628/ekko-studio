@@ -9,6 +9,7 @@ import { PluginStore } from '../../packages/server/src/modules/studio/repositori
 import { PluginCommandStore } from '../../packages/server/src/modules/studio/repositories/plugin-command-store'
 import { PluginCommands } from '../../packages/server/src/modules/studio/services/commands/plugin'
 import { CommandExecutionScopes } from '../../packages/server/src/modules/studio/services/commands/scopes'
+import { bindRuntimeCommandTarget } from '../../packages/server/src/modules/studio/services/agents/command-target'
 import { AgentRegistry } from '../../packages/server/src/modules/studio/services/agents/registry'
 import { PluginEventBus } from '../../packages/server/src/modules/studio/services/events/plugin-events'
 import { createExecutionContext } from '../../packages/server/src/modules/studio/services/context/execution'
@@ -24,7 +25,7 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 afterAll(async () => { await rm(root, { force: true, recursive: true }) })
 const scope: ExecutionScope = { scopeId: 'scope', traceId: 'trace', profileId: 'one', principal: { kind: 'user', id: 'caller' }, surface: 'api' }
 const definition = { id: 'test.commands/echo', name: 'echo', aliases: ['say'], description: 'Plugin echo', argsHint: '<text>' }
-async function setup(handler: string, options: { definition?: object; extra?: string; grants?: string[]; cancelRuns?: (scope: ExecutionScope, id: string) => Promise<void> } = {}) {
+async function setup(handler: string, options: { definition?: object; extra?: string; grants?: string[]; runtime?: string; cancelRuns?: (scope: ExecutionScope, id: string) => Promise<void> } = {}) {
   const db = new DatabaseSync(':memory:'), store = new PluginStore(db), registry = new AgentRegistry(), events = new PluginEventBus(), calls = new PluginCommandStore(db)
   db.exec('CREATE TABLE command_messages (id INTEGER PRIMARY KEY, session_id TEXT, content TEXT)')
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, publish = vi.fn()
@@ -57,11 +58,13 @@ async function setup(handler: string, options: { definition?: object; extra?: st
   })
   cleanup.push(async () => { await service.close(); await host.close(); events.close(); db.close() })
   const manifest: PluginManifest = { schemaVersion: 1, id: 'test.commands', version: '1.0.0', engines: { studioSdk: '^0.1.0', rpc: 1 }, backend: 'index.cjs', activation: 'profile',
-    contributes: { agents: [], commands: [definition.id] }, requires: { capabilities: ['commands.register', ...(options.grants || [])] } }
+    contributes: { agents: options.runtime ? ['test.commands/native'] : [], commands: [definition.id], ...(options.runtime ? { runtimeCommands: ['test.commands/native'] } : {}) },
+    requires: { capabilities: ['commands.register', ...(options.grants || [])] } }
   const directory = await mkdtemp(join(root, 'plugin-'))
   await writeFile(join(directory, 'studio-plugin.json'), JSON.stringify(manifest))
   await writeFile(join(directory, 'index.cjs'), `module.exports = { apply(plugin) {
     const remove = plugin.commands.register(${JSON.stringify(options.definition || definition)}, ${handler}); ${options.extra || ''}
+    ${options.runtime ? `plugin.agents.register({ id: 'test.commands/native', name: 'Native fixture', configSchema: {}, capabilities: { text: true, modes: ['global'] }, create: ${options.runtime} });` : ''}
   } }`)
   await host.install(directory)
   const state = { pluginId: manifest.id, profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: manifest.requires.capabilities }
@@ -73,10 +76,54 @@ async function setup(handler: string, options: { definition?: object; extra?: st
     return service.get(scope, id)
   }
   const messages = () => db.prepare('SELECT content FROM command_messages ORDER BY id').all().map(row => row.content)
-  return { db, host, store, calls, service, publish, target, activate, input, finish, messages, state, startRun, origins }
+  return { db, host, store, calls, service, publish, target, activate, input, finish, messages, state, startRun, origins, registry, logger }
 }
 const echo = `async (input, ctx) => ({ command: input.command, action: 'echo', ok: true, message: input.rawArguments,
   terminal: !ctx.session.isWorking, caller: ctx.scope.principal.id, profileName: ctx.scope.profileId })`
+
+it('publishes lease-bound runtime commands from a real worker, updates them atomically and withdraws old leases', async () => {
+  const s = await setup(echo, { grants: ['agents.register'], runtime: `async (input, runtime) => {
+    const registrations = label => [{ definition: { id: 'test.commands/native-inspect', name: 'inspect:state', description: label },
+      handler: (input, ctx) => ({ command: input.command, action: 'inspect', ok: true, message: label + input.rawArguments + ':' + ctx.scope.principal.id }) }];
+    if (runtime.commands) await runtime.commands.replace(registrations('initial'));
+    return { run: async () => { throw new Error('not used') }, checkpoint: async () => {
+      await runtime.commands.replace(registrations('updated')); return null;
+    }, dispose: async () => {} };
+  }` })
+  s.target.agentTypeId = 'test.commands/native'
+  Object.assign(s.target, { instanceId: 'selected-instance', instanceRevision: 2 })
+  await s.activate()
+  const resolved = s.registry.resolve('one', 'test.commands/native'), controller = new AbortController()
+  let valid = true
+  const context = bindRuntimeCommandTarget({ runtimeSessionId: 'native-runtime', provider: resolved.provider,
+    profileId: 'one', ownerId: 'caller', signal: controller.signal, logger: s.logger,
+    processes: { spawn: async () => { throw new Error('unused') } }, mcp: { connect: async () => { throw new Error('unused') } },
+  }, { ownerId: 'caller', sessionId: 'session', instanceId: 'selected-instance', instanceRevision: 2 }, () => { if (!valid) throw new StudioError('FORBIDDEN', 'Target revoked') })
+  const runtime = await resolved.definition.create({ instanceId: 'selected-instance', configRevision: 2, config: {}, mode: 'global' }, context)
+  cleanup.push(async () => { controller.abort(); await runtime.dispose('test done') })
+  const command = s.service.list(scope, 'session').find(value => value.name === 'inspect:state')!
+  expect(command).toMatchObject({ description: 'initial', qualifiedName: 'test.commands:inspect:state', agentTypeIds: ['test.commands/native'] })
+  expect(s.host.commands.list('one', 'test.commands/native')).toHaveLength(1) // Static command only; runtime target cannot be omitted.
+  for (const target of [
+    { ownerId: 'foreign', sessionId: 'session', instanceId: 'selected-instance', instanceRevision: 2 },
+    { ownerId: 'caller', sessionId: 'other', instanceId: 'selected-instance', instanceRevision: 2 },
+    { ownerId: 'caller', sessionId: 'session', instanceId: 'selected-instance', instanceRevision: 3 },
+  ]) expect(s.host.commands.list('one', 'test.commands/native', target)).toHaveLength(1)
+  const request = { sessionId: 'session', commandId: command.id, revision: command.revision, text: '/inspect:state  "raw"', idempotencyKey: 'native' }
+  expect((await s.finish(s.service.start(scope, request).id)).results[0].message).toBe('initial  "raw":caller')
+  await runtime.checkpoint!()
+  expect(() => s.service.start(scope, { ...request, idempotencyKey: 'stale' })).toThrow('registration changed')
+  const updated = s.service.list(scope, 'session').find(value => value.id === command.id)!
+  await runtime.checkpoint!()
+  expect(s.service.list(scope, 'session').find(value => value.id === command.id)?.revision).toBe(updated.revision)
+  expect((await s.finish(s.service.start(scope, { ...request, revision: updated.revision, idempotencyKey: 'updated' }).id)).results[0].message).toBe('updated  "raw":caller')
+  valid = false
+  expect(s.service.list(scope, 'session').map(value => value.id)).toEqual([definition.id])
+  valid = true
+  controller.abort()
+  expect(s.service.list(scope, 'session').map(value => value.id)).toEqual([definition.id])
+  await expect(runtime.checkpoint!()).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
+})
 
 it('retains private command provenance when the host rebuilds a real worker context and injects the selected instance', async () => {
   const s = await setup(`async (input, ctx) => {

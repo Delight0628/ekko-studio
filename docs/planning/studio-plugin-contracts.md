@@ -273,7 +273,7 @@ Coding Agent 插件通过 `management.locations(input, context)` 告诉 Studio S
 
 `configSchema` 描述 Studio 保存的实例参数，不等于 Agent 原生配置文件清单。`create({ config }, runtimeCtx)` 的提示词、MCP 等输入也不替代此位置声明。Studio 管理的 MCP 及其运行凭据仍由宿主提供，插件负责原生适配；插件描述的 Skills 与配置位置应对应 Agent 实际使用的范围。模式或工作区改变后重新解析整个位置清单，不能继续使用旧位置缓存。
 
-Qwen/Codex 已实现多个位置声明；现有 Coding Agent 配置页与 Skills 页已消费声明，按自有实例选择来源，保存后下一次运行重新创建原生 runtime。未选择实例时继续使用原管理路径。配置页已提供实例 schema 表单与手工安装/登录指引；原生交互登录和完整管理能力仍待完成。
+Qwen/Codex 已实现多个位置声明；现有 Coding Agent 配置页与 Skills 页已消费声明，按自有实例选择来源，保存后下一次运行重新创建原生 runtime。未选择实例时继续使用原管理路径。配置页已提供实例 schema 表单、手工安装指引和受管交互登录终端；CLI 自动安装升级、真实账号及完整管理验收仍待完成。
 
 Studio 文件入口为 `POST /api/studio/agent-instances/:id/resources`：`{ action: 'list', revision }` 返回位置、`snapshot` 和文件目录；`read` 使用 `{ revision, snapshot, kind, locationId, path }`，`write` 再带 `content/etag`。相对路径采用 `/` 分隔，文件位置的 path 为空；不接受绝对路径或自报 owner/provider。所有操作在管理锁与取消作用域内重新授权，位置快照包含提供方、配置 revision 与规范化位置。文件版本绑定规范路径和内容；原生文件被外部修改时返回冲突。JSON/TOML 保存前校验语法，原子替换并保留既有文件权限。
 
@@ -283,7 +283,7 @@ Studio 文件入口为 `POST /api/studio/agent-instances/:id/resources`：`{ act
 
 ### 3.4 插件向 Studio 提供输入框命令
 
-本节定义完整目标契约；激活期注册、worker 调用和 Web 输入框已实现，动态原生目录及跨入口迁移仍待完成。**插件自己注册命令、解析参数、处理调用，并按现有命令返回格式输出；Studio 不实现插件命令的业务逻辑。** Studio 提供注册容器、输入框补全、通用鉴权、按注册关系转发、生命周期管理及既有结果呈现。普通功能插件也可贡献命令，不要求先注册 Agent；前端沿用现有输入框，不加载插件 JavaScript。
+本节定义完整目标契约；激活期及聊天租约内动态注册、worker 调用和 Web 输入框已实现，跨入口迁移仍待完成。**插件自己注册命令、解析参数、处理调用，并按现有命令返回格式输出；Studio 不实现插件命令的业务逻辑。** Studio 提供注册容器、输入框补全、通用鉴权、按注册关系转发、生命周期管理及既有结果呈现。普通功能插件也可贡献命令，不要求先注册 Agent；前端沿用现有输入框，不加载插件 JavaScript。
 
 #### 注册与调用归属
 
@@ -323,7 +323,11 @@ Disposer、停用、卸载和 generation/原生租约回收撤销对应注册。
 
 通用转发服务维护调用 ID、幂等回执、deadline、取消及资源清理。重复提交不自动重复执行插件 handler，未确认的外部副作用不自动重试；“已派发”不等于处理成功。目录大小、文本长度、RPC 帧及并发有界。Web/Desktop/App 共用命令目录、通用转发和当前返回格式；HTTP/Socket 只适配传输，旧客户端保留现有协议投影。
 
-当前 SDK 已开放 `commands.register`、`CommandInput/Result/Context`，manifest 声明命令 ID；Web 输入框消费已激活插件的命令目录，通过带 revision 和幂等键的 HTTP 调用插件 handler，实时事件和轮询回执共用现有结果渲染。激活期注册支持 `id/name/aliases/description/argsHint/agentTypeIds`；暂不支持 examples、实例/入口范围及运行期动态注册。现阶段只面向已有自有直接聊天的文本输入，旧平台命令继续使用固定目录与旧处理链；保留短名称不被插件覆盖，插件始终可用限定名称。插件回执不直接清空聊天、删除消息、终止其他 Run 或跳转到返回数据中的会话；业务变更仍须经获权领域服务。`ctx.chat.start` 当前拒绝斜杠管理命令的限制保持，不能因本节目标契约而视为已开放。完整验收见实施计划 A35–A39。
+当前 SDK 已开放 `commands.register`、`CommandInput/Result/Context`，manifest 声明静态命令 ID；Web 输入框消费目录，通过带 revision 和幂等键的 HTTP 调用插件 handler，实时事件和轮询回执共用现有结果渲染。注册支持 `id/name/aliases/description/argsHint/agentTypeIds`，名称可包含大小写字母、数字、下划线、冒号和连字符。受管聊天优先展示无歧义短名称，歧义时使用限定名称；旧平台命令的保留名称继续受保护。暂不支持 examples、草稿和其他输入入口。插件回执不直接清空聊天、删除消息、终止其他 Run 或跳转到返回数据中的会话；业务变更仍须经获权领域服务。`ctx.chat.start` 当前拒绝斜杠管理命令的限制保持。完整验收见实施计划 A35–A39。
+
+manifest 的可选 `contributes.runtimeCommands` 只允许声明本插件 Agent 类型，并须声明/获授 `commands.register`。宿主仅为已绑定自有直接聊天的 runtime 注入可选 `runtime.commands.replace([{ definition, handler }])`；独立 Run 或管理探测不提供此能力。注册沿用相同目录、调用服务和 worker handler，宿主只接收描述，私有目标由协调器绑定 owner/profile、会话、实例/revision、提供方 generation 和 runtime 租约。每个目录最多 64 项、65,536 字节；验证全部通过才替换，相同描述保留 revision。取消、清理、worker 故障及配置/所有权改变撤销或隐藏目录，旧句柄不得更新新租约。
+
+Qwen 插件消费 ACP `available_commands_update`，在同一 worker 内保留处理器；ACP 恢复期间只缓冲匹配原生会话的命令元数据，不回放历史消息。基础 `/compress` 与 Codex `/compact` 由各插件静态注册，因此查看新聊天目录或空闲租约回收后不必启动 CLI。Qwen 保留原始斜杠参数，不把系统提示词和交互指引拼入参数；Codex 自己调用 `thread/compact/start`，等待真实 turn/item 终态后提交成功 checkpoint。原生拒绝的操作维持失败语义，不能把受理回执算作业务完成。尚未声明支持所有原生交互式管理操作、Hermes/Ekko 或 App 命令迁移。
 
 受管实例聊天的命令上下文包含宿主派生的 `session.instanceId/instanceRevision`，处理器可显式通过 `ctx.runs.start` 启动当前实例 Run。宿主以私有 scope 映射和持久来源表绑定命令回执、输入消息和唯一 Run，来源字段不接受插件请求覆盖。接受事务复核当前所有权、实例 revision 与运行中的命令回执，canonical 投影复用命令输入消息。正常命令完成不取消已接受工作；处理器失败、超时或取消须等待关联 Run 的清理，清理未确认则回执失败并隔离原租约。父 Run/workspace 绑定仍不支持；本接口不自动解释斜杠文本或插件返回动作。
 
@@ -482,7 +486,7 @@ hook 可按授权作用于内置 Agent 的 Run。插件停用或故障清理时�
 | --- | --- |
 | `ctx.services.provide(token, implementation)` | token 包含发布者、服务名、major 和方法 schema；激活时检查冲突 |
 | `ctx.services.use(token)` | 返回 RPC 代理，版本必须满足 manifest 依赖；不能获取服务内部实例 |
-| `ctx.commands.register(definition, handler)` | 插件注册并自行处理输入框命令，按现有格式返回；宿主仅发布目录、鉴权转发并绑定执行上下文，详见 §3.4；已实现激活期注册和 Web 文本调用，原生动态目录及其他入口待迁移 |
+| `ctx.commands.register(definition, handler)` | 插件注册并自行处理输入框命令，按现有格式返回；宿主仅发布目录、鉴权转发并绑定执行上下文，详见 §3.4；已实现激活期注册、聊天租约的 `runtime.commands.replace` 和 Web 文本调用，其他入口待迁移 |
 | `ctx.http.route(definition, handler)` | 方法、相对路径、输入输出 schema、访问范围、限额；提供 ExecutionContext |
 | `ctx.scheduler.register(definition, handler)` | 持久化计划、执行身份、时区、重叠策略和幂等任务 ID |
 | `ctx.storage` | 插件命名空间内的事务 KV/文档接口；区分 profile 和插件公共数据 |

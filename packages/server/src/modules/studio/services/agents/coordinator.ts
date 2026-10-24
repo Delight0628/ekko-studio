@@ -20,6 +20,7 @@ import type { AgentManagementStore } from '../../repositories/agent-management-s
 import { parseAgentLogin } from './login-contract'
 import type { NativeAgentContext } from './native-context'
 import type { AgentRunTarget } from '../../repositories/agent-conversation-store'
+import { bindRuntimeCommandTarget } from './command-target'
 
 interface ActiveRun {
   controller: AbortController; handle?: AgentRunHandle; completed: Promise<void>; resolve(): void
@@ -549,9 +550,8 @@ export class AgentCoordinator {
     active.controller.signal.addEventListener('abort', onAbort, { once: true })
     try {
       if (active.controller.signal.aborted) { this.finish(run.id, 'cancelled', null); return }
-      const assertDispatch = () => {
+      const assertBinding = () => {
         this.options.authorize(scope)
-        this.options.validateInput?.(scope, input)
         const current = this.options.store.instance(instance.id)
         if (!current || current.ownerId !== scope.principal.id || current.profileId !== scope.profileId || current.revision !== run.configRevision) throw new StudioError('REVISION_CONFLICT', 'Agent instance changed before dispatch')
         this.authorizeTarget(scope, current, run.sessionId ? { kind: 'chat', sessionId: run.sessionId } : undefined)
@@ -559,6 +559,7 @@ export class AgentCoordinator {
         if (JSON.stringify(resolved.provider) !== JSON.stringify(run.provider)) throw new StudioError('REVISION_CONFLICT', 'Agent provider changed before dispatch')
         return resolved
       }
+      const assertDispatch = () => { this.options.validateInput?.(scope, input); return assertBinding() }
       const resolved = assertDispatch()
       this.options.store.transition(run.id, ['accepted', 'queued'], 'starting')
       // An instance-wide management/failed cleanup must finish before another
@@ -578,8 +579,8 @@ export class AgentCoordinator {
         const controller = new AbortController()
         const id = this.options.store.state.openLease(instance.id, run.provider, run.configRevision)
         const resume = resolved.definition.capabilities.resume ? this.options.store.state.checkpoint(leaseKey, run.provider, run.configRevision) : undefined
-        const processes = new ManagedProcessScope(controller.signal, () => { assertDispatch() })
-        const mcp = new ManagedMcpScope(controller.signal, () => { assertDispatch() })
+        const processes = new ManagedProcessScope(controller.signal, () => { assertBinding() })
+        const mcp = new ManagedMcpScope(controller.signal, () => { assertBinding() })
         // Install the lease before invoking user code, including factories that
         // start a process and then throw synchronously.
         const creating = Promise.resolve().then(async () => {
@@ -587,10 +588,14 @@ export class AgentCoordinator {
           const stateDirectory = instance.mode === 'scoped' && this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, run.provider,
             this.options.store.state.stateRevision(instance.id, run.provider, instance.revision)) : undefined
           assertDispatch()
-          return resolved.definition.create({ instanceId: instance.id, config: instance.config, configRevision: instance.revision, mode: instance.mode,
-            ...(resume === undefined ? {} : { resume }) }, {
+          const runtimeContext = {
             ...(stateDirectory ? { stateDirectory } : {}), provider: run.provider, runtimeSessionId: id, profileId: scope.profileId, ownerId: scope.principal.id, signal: controller.signal, logger: this.options.logger, processes: processes.api, mcp: mcp.api,
-          })
+          }
+          if (run.sessionId && scope.surface === 'chat') bindRuntimeCommandTarget(runtimeContext, {
+            ownerId: scope.principal.id, sessionId: run.sessionId, instanceId: instance.id, instanceRevision: instance.revision,
+          }, () => { assertBinding() })
+          return resolved.definition.create({ instanceId: instance.id, config: instance.config, configRevision: instance.revision, mode: instance.mode,
+            ...(resume === undefined ? {} : { resume }) }, runtimeContext)
         })
         lease = { id, instanceId: instance.id, surface: scope.surface, provider: run.provider, revision: run.configRevision, controller, runtime: creating, creating: true, processes, mcp }
         this.leases.set(leaseKey, lease)
