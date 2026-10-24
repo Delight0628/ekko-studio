@@ -5,7 +5,7 @@ import { studioManagedMcpConfig, isStudioManagedMcpServer } from './managed-conf
 
 /** One authenticated execution owns its credential files, independent of other turns in the Profile. */
 export async function leaseStudioMcpServers(servers: Record<string, unknown> | undefined, run: {
-  sessionId: string; profile: string; agentId: string; userId?: number; signal: AbortSignal; nativeTaskPlan?: boolean; contextId?: string; sessionTasks?: boolean; userClarification?: boolean; authorize?(): void
+  sessionId: string; runId?: string; profile: string; agentId: string; userId?: number; signal: AbortSignal; nativeTaskPlan?: boolean; contextId?: string; sessionTasks?: boolean; userClarification?: boolean; authorize?(): void
 }) {
   if (run.contextId !== undefined && (typeof run.contextId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(run.contextId))) throw new Error('Invalid host MCP context')
   const lifecycle = new AbortController(), contextId = run.contextId ?? randomUUID()
@@ -20,7 +20,7 @@ export async function leaseStudioMcpServers(servers: Record<string, unknown> | u
   run.signal.addEventListener('abort', dispose, { once: true })
   if (!managed.length) return { servers, signal: lifecycle.signal, dispose, contextId: undefined }
   try {
-    const tokenFile = await runMcpCredentials.issue({ sessionId: run.sessionId, profile: run.profile, userId: run.userId,
+    const tokenFile = await runMcpCredentials.issue({ sessionId: run.sessionId, runId: run.runId, profile: run.profile, userId: run.userId,
       contextId, agentId: run.agentId, isActive: () => {
         if (lifecycle.signal.aborted || run.signal.aborted) return false
         try { run.authorize?.(); return true } catch { return false }

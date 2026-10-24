@@ -42,4 +42,7 @@ export class AgentConversationStore {
   ids(instanceId: string): string[] {
     return (this.db.prepare('SELECT id FROM studio_agent_conversations WHERE instance_id=?').all(instanceId) as Array<{ id: string }>).map(row => row.id)
   }
+  forSession(sessionId: string): string[] {
+    return (this.db.prepare('SELECT id FROM studio_agent_conversations WHERE session_id=?').all(sessionId) as Array<{ id: string }>).map(row => row.id)
+  }
 }

@@ -30,7 +30,7 @@ it('injects interaction tools only from a host binding and uses the same context
   expect(server.env).toMatchObject({ ELECTRON_RUN_AS_NODE: '1', HERMES_WEB_UI_PROFILE: 'one', HERMES_MCP_RUN_BOUND_CONTEXT: '1', AUTH_TOKEN: '', HERMES_WEB_UI_TOKEN: '' })
   const file = server.env.HERMES_WEB_UI_RUN_TOKEN_FILE, credential = JSON.parse(await readFile(file, 'utf8'))
   expect(credential.context_id).toBe('host_turn_context')
-  expect(runMcpCredentials.authenticate(credential.token)).toMatchObject({ sessionId: 'owned-chat', contextId: 'host_turn_context', profile: 'one', userId: 7, agentId: instance.agentTypeId })
+  expect(runMcpCredentials.authenticate(credential.token)).toMatchObject({ runId: 'run', sessionId: 'owned-chat', contextId: 'host_turn_context', profile: 'one', userId: 7, agentId: instance.agentTypeId })
   expect(turn.turnInstructions).toContain(bind().instructions)
   expect(turn.turnInstructions).toContain('context_id="host_turn_context"')
   expect(JSON.stringify(turn)).not.toContain(credential.token)

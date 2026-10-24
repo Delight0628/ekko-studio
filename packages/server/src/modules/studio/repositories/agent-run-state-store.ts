@@ -152,6 +152,9 @@ export class AgentRunStateStore {
       .get(instanceId, JSON.stringify(provider), configRevision) as { value_json: string } | undefined
     return row ? JSON.parse(row.value_json) as JsonValue : undefined
   }
+  forgetCheckpoint(conversationId: string): void {
+    this.db.prepare('DELETE FROM studio_agent_checkpoints WHERE instance_id=?').run(conversationId)
+  }
   stateRevision(instanceId: string, provider: AgentProviderRef, configRevision: number): number {
     const row = this.db.prepare('SELECT state_revision FROM studio_agent_state_revisions WHERE instance_id=? AND provider_key=? AND config_revision=?')
       .get(instanceId, JSON.stringify(provider), configRevision) as { state_revision: number } | undefined

@@ -6,6 +6,7 @@ import type { SessionMessage } from '../contracts/runs/session'
 import { MESSAGES_TABLE, SESSIONS_TABLE } from '../infrastructure/database/schemas'
 import { BUILTIN_HISTORY_SOURCES } from '../contracts/history-source'
 import { recordSkillUsageMessage } from './skill-usage-store'
+import { readAgentChatRunSummaries } from './agent-chat-summary'
 
 type Source = typeof BUILTIN_HISTORY_SOURCES[number]
 export interface AgentChatBinding { sessionId: string; instanceId: string; ownerId: string; profileId: string; source: Source }
@@ -31,6 +32,7 @@ export class AgentChatProjection implements AgentExecutionProjection {
       .get(sessionId) as { instance_id: string; owner_id: string; profile_id: string; source: Source } | undefined
     return row ? { sessionId, instanceId: row.instance_id, ownerId: row.owner_id, profileId: row.profile_id, source: row.source } : undefined
   }
+  hasSession(sessionId: string): boolean { return !!this.db.prepare(`SELECT 1 FROM ${SESSIONS_TABLE} WHERE id=?`).get(sessionId) }
 
   assertBinding(sessionId: string, instance: AgentInstance): AgentChatBinding {
     const binding = this.binding(sessionId)
@@ -121,7 +123,7 @@ export class AgentChatProjection implements AgentExecutionProjection {
   }
 
   /** Read committed rows for delivery. Transport never rewrites the transcript. */
-  rows(runId: string, events: AgentOutputEvent[], includeInput = false): SessionMessage[] {
+  rows(runId: string, events: AgentOutputEvent[], includeInput = false, refreshUsage = false): SessionMessage[] {
     const ids = new Set<number>()
     const add = (kind: Kind, id: string) => { const row = this.message(runId, kind, id); if (row) ids.add(row.id) }
     if (includeInput) add('input', 'input')
@@ -130,10 +132,17 @@ export class AgentChatProjection implements AgentExecutionProjection {
       else if (event.type === 'tool.started') add('tool-call', event.callId)
       else if (event.type === 'tool.completed' || event.type === 'tool.failed') add('tool-result', event.callId)
     }
-    return [...ids].sort((a, b) => a - b).map(id => {
+    if (refreshUsage || events.some(event => event.type === 'usage.reported')) {
+      const last = this.db.prepare("SELECT max(message_id) AS id FROM studio_agent_chat_messages WHERE run_id=? AND kind IN ('message','tool-call')").get(runId)
+      if (last?.id) ids.add(Number(last.id))
+    }
+    const rows = [...ids].sort((a, b) => a - b).map(id => {
       const row = this.db.prepare(`SELECT * FROM ${MESSAGES_TABLE} WHERE id=?`).get(id)!
       return { ...row, tool_calls: parseStoredToolCalls(row.tool_calls) } as unknown as SessionMessage
     })
+    const sessionId = rows[0]?.session_id
+    const summaries = new Map(sessionId ? readAgentChatRunSummaries(this.db, sessionId, rows.filter(row => row.role === 'assistant').map(row => String(row.id))).map(summary => [summary.assistantMessageId, summary]) : [])
+    return rows.map(row => summaries.has(String(row.id)) ? { ...row, run_usage: summaries.get(String(row.id)) } : row)
   }
 
   private check(binding: AgentChatBinding): void {

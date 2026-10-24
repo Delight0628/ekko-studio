@@ -12,6 +12,7 @@ import { groupRunUser } from '../../packages/server/src/modules/studio/services/
 import { isSensitivePath } from '../../packages/server/src/modules/studio/services/files/file-policy'
 import { leaseStudioMcpServers } from '../../packages/server/src/modules/studio/services/mcp/credential-lease'
 import { NativeMcpCredentialSlot } from '../../packages/server/src/modules/studio/services/mcp/native-credential-slot'
+import { getRunRequestContext } from '../../packages/server/src/modules/studio/services/auth/run-request-context'
 
 const users = vi.hoisted(() => ({
   findUserById: vi.fn(), userCanAccessProfile: vi.fn(() => true),
@@ -34,10 +35,10 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true })
 })
 
-async function issue(sessionId: string, options: { userId?: number; isActive?: () => boolean; contextId?: string; contextLookup?: boolean } = {}) {
+async function issue(sessionId: string, options: { runId?: string; userId?: number; isActive?: () => boolean; contextId?: string; contextLookup?: boolean } = {}) {
   sessions.push(sessionId)
   const file = await runMcpCredentials.issue({
-    sessionId, contextId: options.contextId || `context-${sessionId}`, profile: 'research',
+    sessionId, runId: options.runId, contextId: options.contextId || `context-${sessionId}`, profile: 'research',
     roomId: `room-${sessionId}`, agentId: 'codex', isActive: options.isActive || (() => true),
     ...(options.userId !== undefined ? { userId: options.userId } : {}),
   }, { contextLookup: options.contextLookup })
@@ -71,6 +72,21 @@ it('isolates concurrent credentials, removes files, and rejects credentials afte
   runMcpCredentials.revoke('b', b.context_id)
   expect(runMcpCredentials.authenticate(b.token)).toBeUndefined()
   expect(runMcpCredentials.authenticate(replacement.token)?.contextId).toBe('next-turn')
+})
+
+it('exposes canonical Run identity only within an authenticated credential request, never from a forged header or body', async () => {
+  const credential = await issue('owned', { userId: 7, runId: 'canonical-run' })
+  const request = context(credential, '/api/studio/sessions/owned', { method: 'DELETE', request: { body: { run_id: 'forged' } } })
+  await requireUserJwt(request, async () => {
+    expect(getRunRequestContext(request)).toEqual({ runId: 'canonical-run', sessionId: 'owned', profile: 'research' })
+    expect(request.state).not.toHaveProperty('runId')
+  })
+  expect(getRunRequestContext(request)).toBeUndefined()
+  const token = signUserJwt({ id: 7, username: 'requester', role: 'user' }, 'fixture-secret')
+  const ordinary = context({ token, context_id: 'canonical-run' }, '/api/studio/sessions/owned', { method: 'DELETE', request: { body: { run_id: 'canonical-run' } } })
+  const next = vi.fn(async () => { expect(getRunRequestContext(ordinary)).toBeUndefined() })
+  await requireUserJwt(ordinary, next)
+  expect(next).toHaveBeenCalledOnce()
 })
 
 it('revokes an aborted preparation without leaving a usable credential or file', async () => {

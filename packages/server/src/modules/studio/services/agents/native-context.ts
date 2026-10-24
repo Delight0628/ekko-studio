@@ -30,7 +30,7 @@ export function createNativeAgentContext(instance: AgentInstance, scope: Executi
       authorize(runId)
       if (binding && binding.sessionId !== scope.sessionId) throw new StudioError('FORBIDDEN', 'Native MCP binding belongs to another chat')
       turn = await slot.begin({ ...servers, ...(binding ? { 'ekko-studio-interaction': { env: { [STUDIO_MANAGED_MCP_ENV]: '1' } } } : {}) },
-        { sessionId: binding?.sessionId ?? scope.sessionId ?? `agent-run:${runId}`, profile: scope.profileId, agentId: instance.agentTypeId, userId, ...(binding ? { contextId: binding.contextId } : {}),
+        { sessionId: binding?.sessionId ?? scope.sessionId ?? `agent-run:${runId}`, runId, profile: scope.profileId, agentId: instance.agentTypeId, userId, ...(binding ? { contextId: binding.contextId } : {}),
         ...(binding ? { sessionTasks: binding.interactive !== false, userClarification: binding.interactive !== false } : {}),
         signal: AbortSignal.any([signal, runtimeSignal]), authorize: () => authorize(runId) })
       authorize(runId)

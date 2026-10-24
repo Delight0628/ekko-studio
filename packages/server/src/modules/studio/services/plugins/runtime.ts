@@ -61,6 +61,12 @@ export function authorizePluginScope(scope: ExecutionScope, operation?: ContextO
     if (session && ((session.profile || 'default') !== scope.profileId || (scope.sessionId && scope.sessionId !== session.id))) {
       throw new StudioError('FORBIDDEN', 'Session is outside the execution scope')
     }
+    const chats = getAgentChatService()
+    if (chats?.isBound(sessionId)) {
+      if (operation === 'sessions.remove') chats.authorizeRemoval(scope, sessionId)
+      else chats.ownedBinding(scope, sessionId)
+    }
+    else if (session?.agent_instance_id) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent chat service is unavailable')
   }
 }
 
@@ -161,9 +167,15 @@ export function createStudioPluginRuntime(runnerPath: string) {
       return server.beginAgentTaskPlanRun(...args)
     } }, interactionError: runId => logger.warn('Agent chat interaction cleanup failed', { runId }) })
   const removeHook = configureSessionRemovalHook(async ({ scope, profileId, sessionId, signal }) => {
-    if (!hooks.has(profileId, 'sessions.remove')) return
+    const managed = agentChats.isBound(sessionId)
+    if (!managed && !hooks.has(profileId, 'sessions.remove')) return
     if (!scope || scope.profileId !== profileId || (scope.sessionId && scope.sessionId !== sessionId)) throw new StudioError('FORBIDDEN', 'Session hook requires the authorized caller scope')
-    await hooks.run('sessions.remove', { sessionId }, context({ ...scope, sessionId }, signal))
+    const lease = managed ? await agentChats.prepareRemoval(scope, sessionId) : undefined
+    try {
+      if (managed) await getChatRunServer()?.settleManagedAgentChat?.(sessionId)
+      if (hooks.has(profileId, 'sessions.remove')) await hooks.run('sessions.remove', { sessionId }, context({ ...scope, sessionId }, signal))
+      return lease ? { ownsNative: true as const, removed: () => lease.reset(), release: () => lease.release() } : undefined
+    } catch (error) { lease?.release(); throw error }
   })
   const host = new PluginHost({ store, registry, events, consumers, hooks, runnerPath, artifactsRoot: resolve(config.appHome, 'plugins', 'artifacts'), logger, context,
     eventContext: async (state, event, signal) => {

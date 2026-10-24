@@ -1,7 +1,7 @@
 import { chatRunCaller, isDirectChatRunCaller, type ChatRunCaller, type ChatRunCallerTarget } from '../services/chat-run/caller'
 import type { DirectChatRunOptions, DirectChatRunHandle } from '../services/chat-run/direct'
 import { StudioError, type ExecutionScope } from '../contracts/plugins'
-import { getAgentChatService } from '../services/agents/chat-registry'
+import { getAgentChatService, isManagedAgentChat } from '../services/agents/chat-registry'
 import { AgentChatDelivery, type AgentChatActivity } from '../services/chat-run/agent-delivery'
 import { createChatRunInvocation } from '../services/chat-run/invocation'
 import { startChatRun, requireChatRunSessionAccess, type ChatRunStartRequest, type ChatRunStartScope, type ChatRunStartPorts } from '../services/chat-run/start'
@@ -813,10 +813,11 @@ export class ChatRunSocket {
       })
     })
     if (!shared) {
-      bindAppEventSubscription(socket, (_user, profile) => {
+      bindAppEventSubscription(socket, (user, profile) => {
         const result: BusinessEvent[] = []
         for (const [sessionId, state] of this.sessionMap) {
           if (!state.isWorking || (state.profile || getSession(sessionId)?.profile || 'default') !== profile) continue
+          if (!this.canObserveManagedChat(user, sessionId, profile)) continue
           const source = state.source || getSession(sessionId)?.source
           if (source === 'group_chat') continue
           // Task cards belong to a turn; coding-agent runId can span many turns.
@@ -859,13 +860,17 @@ export class ChatRunSocket {
     const currentProfile = () => socketProfile || getActiveProfileName() || 'default'
     const mobileTarget = socket.data.mobileDeviceTarget as MobileDeviceTarget | undefined
     if (mobileTarget) socket.join(mobileDeviceRoom(mobileTarget))
-    if (!shared) { socket.join('studio-account'); socket.join(`pending-interactions:${currentProfile()}`) }
+    if (!shared) {
+      socket.join('studio-account'); socket.join(`pending-interactions:${currentProfile()}`)
+      if (socketUser) socket.join(`pending-interactions:${currentProfile()}:owner:${socketUser.id}`)
+    }
     socket.emit('session.activity.snapshot', {
       event: 'session.activity.snapshot',
       profile: currentProfile(),
       sessions: Array.from(this.sessionMap.entries()).flatMap(([sessionId, state]) => {
         if (!state.isWorking || (shared && sessionId !== shared.share.session_id)) return []
         const profile = state.profile || getSession(sessionId)?.profile || 'default'
+        if (!shared && !this.canObserveManagedChat(socketUser, sessionId, profile)) return []
         return profile === currentProfile() ? [{ session_id: sessionId, status: 'running' }] : []
       }),
       timestamp: Date.now(),
@@ -874,8 +879,13 @@ export class ChatRunSocket {
       if (!profile || profile === 'default') return true
       return listProfileNamesFromDisk().includes(profile)
     }
-    const requireSocketSessionAccess = (sessionId: string, authorizedProfile = currentProfile()) =>
-      requireChatRunSessionAccess({ profile: currentProfile(), user: socketUser }, sessionId, authorizedProfile)
+    const requireSocketSessionAccess = (sessionId: string, authorizedProfile = currentProfile()) => {
+      const profile = requireChatRunSessionAccess({ profile: currentProfile(), user: socketUser }, sessionId, authorizedProfile)
+      const chats = getAgentChatService()
+      if (chats?.isBound(sessionId)) chats.ownedBinding(this.managedAgentScope(socket, profile, sessionId), sessionId)
+      else if (getSession(sessionId)?.agent_instance_id) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent chat service is unavailable')
+      return profile
+    }
     // Read-only access to a session. A connection may read sessions from any profile the
     // user can access: the UI switches between profiles without always reconnecting (see
     // #1884), so pinning every read to the handshake profile made `resume` fail and left
@@ -891,6 +901,9 @@ export class ChatRunSocket {
       if (socketUser && !this.canAccessProfile(socketUser, sessionProfile)) {
         throw new Error(`Profile "${sessionProfile}" is not available for this user`)
       }
+      const chats = getAgentChatService()
+      if (chats?.isBound(sessionId) && !shared) chats.ownedBinding(this.managedAgentScope(socket, sessionProfile, sessionId), sessionId)
+      else if (!shared && session.agent_instance_id) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent chat service is unavailable')
       return sessionProfile
     }
 
@@ -1324,6 +1337,18 @@ export class ChatRunSocket {
 
   private managedAgentDelivery?: AgentChatDelivery
 
+  async settleManagedAgentChat(sessionId: string): Promise<void> { await this.managedAgentDelivery?.idle(sessionId) }
+
+  private canObserveManagedChat(user: AuthenticatedUser | undefined, sessionId: string, profile: string): boolean {
+    const chats = getAgentChatService()
+    if (!isManagedAgentChat(sessionId)) return !getSession(sessionId)?.agent_instance_id
+    if (!user || !chats) return false
+    try {
+      chats.ownedBinding({ scopeId: randomUUID(), traceId: randomUUID(), principal: { kind: 'user', id: String(user.id) }, profileId: profile, surface: 'api', sessionId }, sessionId)
+      return true
+    } catch { return false }
+  }
+
   private managedAgentScope(socket: ChatRunCallerTarget, profile: string, sessionId: string): ExecutionScope {
     const caller = chatRunCaller(socket)
     if (!caller.user || (!isDirectChatRunCaller(socket) && (socket as Socket).data?.sessionShare)) throw new StudioError('FORBIDDEN', 'Managed Agent chats require their owner')
@@ -1388,7 +1413,7 @@ export class ChatRunSocket {
 
   private startRun(socket: ChatRunCallerTarget, data: ChatRunStartRequest, scope: ChatRunStartScope, pushActor: ChatRunStartPorts['pushActor']) {
     return startChatRun(data, scope, {
-      isManagedChat: sessionId => !!getAgentChatService()?.isBound(sessionId),
+      isManagedChat: sessionId => !!(isManagedAgentChat(sessionId) || getSession(sessionId)?.agent_instance_id),
       sessions: this.sessionMap,
       emit: (event, payload) => chatRunCaller(socket).reply(event, payload),
       emitSession: (sessionId, event, payload) => this.emitToSession(socket, sessionId, event, payload),
@@ -1594,7 +1619,7 @@ export class ChatRunSocket {
         this.mobileRunTargets.set(data.session_id, { ...target })
       } else this.mobileRunTargets.delete(data.session_id)
     }
-    if (data.session_id && getAgentChatService()?.isBound(data.session_id)) {
+    if (data.session_id && (isManagedAgentChat(data.session_id) || getSession(data.session_id)?.agent_instance_id)) {
       await this.handleManagedAgentRun(socket, data as ChatRunStartRequest, profile)
       return
     }
@@ -2981,6 +3006,7 @@ export class ChatRunSocket {
   }
 
   async deleteSessionMessages(sessionId: string, messageIds: number[], historyRevision: number) {
+    if (isManagedAgentChat(sessionId) || getSession(sessionId)?.agent_instance_id) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Partial native history edits require a conversation migration adapter')
     await this.assertSessionMessagesEditable(sessionId)
     // No await between the final idle check, transaction, and cache invalidation.
     this.assertSessionMessageEditIdle(sessionId)
@@ -3004,6 +3030,7 @@ export class ChatRunSocket {
   }
 
   clearSessionHistory(sessionId: string): { deleted: number; hadMemoryState: boolean } {
+    if (isManagedAgentChat(sessionId) || getSession(sessionId)?.agent_instance_id) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Native chat history must be drained through its Agent instance')
     this.finishTaskPlanRun(sessionId, 'abort.completed')
     const deleted = clearSessionMessages(sessionId)
     const state = this.sessionMap.get(sessionId)
@@ -3281,12 +3308,17 @@ export class ChatRunSocket {
       && event !== 'location.requested' && event !== 'location.resolved'
       && event !== 'calendar.requested' && event !== 'calendar.resolved'
       && event !== 'reminder.requested' && event !== 'reminder.resolved'
-      && event !== 'health.requested' && event !== 'health.resolved') return
+      && event !== 'health.requested' && event !== 'health.resolved' && event !== 'agent.interaction.updated') return
     const sessionId = typeof payload?.session_id === 'string' ? payload.session_id : ''
     const source = sessionId
       ? this.sessionMap.get(sessionId)?.source || getSession(sessionId)?.source
       : undefined
     if (source === 'group_chat') return
+    if (sessionId && (isManagedAgentChat(sessionId) || getSession(sessionId)?.agent_instance_id)) {
+      const owner = studioSessionAccount(getSession(sessionId) || {})
+      if (owner) this.nsp.to(`pending-interactions:${profile}:owner:${owner}`).emit(event, payload)
+      return
+    }
     this.nsp.to(`pending-interactions:${profile}`).emit(event, payload)
   }
 

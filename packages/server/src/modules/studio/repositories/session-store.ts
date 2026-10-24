@@ -14,9 +14,13 @@ import { BUILTIN_EKKO_AGENT_IDS, BUILTIN_HISTORY_SOURCES, isBuiltinEkkoAgent, no
 import { studioSessionAccount } from '../contracts/runs/usage'
 import { randomUUID } from 'node:crypto'
 import { PluginEventStore } from './plugin-event-store'
+import { readAgentChatSummaries, agentChatOwnerFilter, type AgentChatUsage } from './agent-chat-summary'
 
 // Re-export types for compatibility with sessions-db.ts consumers
 export interface HermesSessionRow {
+  agent_instance_id?: string
+  agent_instance_revision?: number
+  agent_usage?: AgentChatUsage
   id: string
   profile: string
   source: string
@@ -88,6 +92,8 @@ export interface HermesSessionSearchRow extends HermesSessionRow {
 }
 
 export interface SessionListOptions {
+  /** HTTP/application read identity; only affects owned managed chat bindings. */
+  managedOwnerId?: string
   offset?: number
   categoryId?: number | null
   pinned?: boolean
@@ -124,7 +130,9 @@ function mapSessionRows(rows: Record<string, unknown>[]): HermesSessionRow[] {
     || row.agent === 'claude' || row.agent === 'claude_code')).map(row => String(row.id))
   const usage = nativeIds.length ? getRecordedSessionTokensBatch(nativeIds, 'coding_agent') : {}
   Object.assign(usage, builtinIds.length ? getRecordedSessionTokensBatch(builtinIds, 'ekko_agent') : {})
-  return rows.map(row => mapStoredSessionRow({ ...row, ...usage[String(row.id)] }))
+  const database = getDb()
+  const agentChats = database ? readAgentChatSummaries(database, rows.map(row => String(row.id))) : {}
+  return rows.map(row => mapStoredSessionRow({ ...row, ...usage[String(row.id)], ...agentChats[String(row.id)] }))
 }
 
 function mapStoredSessionRow(row: Record<string, unknown>): HermesSessionRow {
@@ -132,6 +140,7 @@ function mapStoredSessionRow(row: Record<string, unknown>): HermesSessionRow {
   const preview = String(row.preview || '')
   const title = sessionDisplayTitle(rawTitle, preview)
   return {
+    ...(row.agent_instance_id ? { agent_instance_id: String(row.agent_instance_id), agent_instance_revision: Number(row.agent_instance_revision), agent_usage: row.agent_usage as AgentChatUsage } : {}),
     id: String(row.id || ''),
     profile: String(row.profile || 'default'),
     source: String(row.source || 'api_server'),
@@ -495,7 +504,7 @@ export function updateSession(id: string, data: Partial<Omit<HermesSessionRow, '
   db.prepare(`UPDATE ${SESSIONS_TABLE} SET ${fields.join(', ')} WHERE id = ?`).run(...values, id)
 }
 
-export function deleteSession(id: string, notification?: { id: string; occurredAt: number }): boolean {
+export function deleteSession(id: string, notification?: { id: string; occurredAt: number }, beforeCommit?: () => void): boolean {
   if (!isSqliteAvailable()) return false
   const db = getDb()!
   const events = new PluginEventStore(db)
@@ -516,6 +525,7 @@ export function deleteSession(id: string, notification?: { id: string; occurredA
       }], studioSessionAccount(session))
       if (accepted.length !== 1) throw new Error('Session deletion event identity already exists')
     }
+    if (result.changes) beforeCommit?.()
     db.exec('COMMIT')
     return result.changes > 0
   } catch (error) {
@@ -675,6 +685,8 @@ function sessionFilterSql(
 ): { sql: string; params: string[] } | null {
   const clauses: string[] = []
   const params: string[] = []
+  const database = getDb(), managed = database ? agentChatOwnerFilter(database, options.managedOwnerId) : undefined
+  if (managed) { clauses.push(managed.sql); params.push(...managed.params) }
   const profileFilter = profile?.trim()
   if (profileFilter) {
     clauses.push('s.profile = ?')

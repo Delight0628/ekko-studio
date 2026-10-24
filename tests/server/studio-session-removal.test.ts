@@ -60,6 +60,36 @@ function context(controller = new AbortController(), authorize = vi.fn(async () 
 }
 
 describe('shared session removal use case', () => {
+  it('commits native checkpoint cleanup with local deletion and releases its lifecycle barrier', async () => {
+    seed()
+    db.exec("CREATE TABLE checkpoint_fixture (id TEXT PRIMARY KEY); INSERT INTO checkpoint_fixture VALUES ('native')")
+    const removed = vi.fn(() => { db.prepare('DELETE FROM checkpoint_fixture').run() }), release = vi.fn()
+    const dispose = configureHook(async () => ({ ownsNative: true, removed, release }))
+    try {
+      await expect(service.removeStudioSession({ id: 'session' }, allowed)).resolves.toMatchObject({ deleted: true })
+      expect(removed).toHaveBeenCalledOnce(); expect(release).toHaveBeenCalledOnce()
+      expect(db.prepare('SELECT * FROM checkpoint_fixture').all()).toEqual([])
+      expect(sessions.getSession('session')).toBeNull()
+      await expect(service.removeStudioSession({ id: 'session' }, allowed)).resolves.toMatchObject({ deleted: false, native: { attempted: false } })
+      expect(removed).toHaveBeenCalledOnce(); expect(release).toHaveBeenCalledTimes(2)
+      expect(native.stop).not.toHaveBeenCalled(); expect(native.inspect).not.toHaveBeenCalled()
+    } finally { await dispose() }
+  })
+
+  it('rolls back deletion and checkpoint cleanup together if the lifecycle commit fails', async () => {
+    seed()
+    db.exec("CREATE TABLE checkpoint_fixture (id TEXT PRIMARY KEY); INSERT INTO checkpoint_fixture VALUES ('native')")
+    const release = vi.fn()
+    const dispose = configureHook(async () => ({ removed: () => { db.prepare('DELETE FROM checkpoint_fixture').run(); throw new Error('Fixture commit failure') }, release }))
+    try {
+      await expect(service.removeStudioSession({ id: 'session' }, allowed)).rejects.toMatchObject({ code: 'INTERNAL' })
+      expect(release).toHaveBeenCalledOnce()
+      expect(db.prepare('SELECT * FROM checkpoint_fixture').all()).toEqual([{ id: 'native' }])
+      expect(sessions.getSessionDetail('session')?.messages).toHaveLength(1)
+      expect(new PluginEventStore(db).read('default')).toEqual([])
+      expect(received).toEqual([])
+    } finally { await dispose() }
+  })
   it('rejects a deletion hook before native or local side effects and rechecks permission after hooks', async () => {
     seed()
     const scope = { scopeId: 'scope', traceId: 'trace', profileId: 'default', principal: { kind: 'user' as const, id: '1' }, surface: 'api' as const }

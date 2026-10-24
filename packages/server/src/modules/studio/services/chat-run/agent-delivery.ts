@@ -77,6 +77,8 @@ export class AgentChatDelivery {
       if (terminal.has(run.status) && events.length < 100) {
         await this.deps.chats.wait(runId)
         const final = this.deps.chats.get(scope, sessionId, runId)
+        const settledRows = this.deps.chats.rows(scope, sessionId, runId, [], !inputDelivered, true)
+        if (settledRows.length) emit('message.persisted', { messages: settledRows, producer_sequence: cursor })
         const remaining = this.deps.chats.activity(scope, sessionId)
         this.deps.activity(sessionId, remaining)
         emit(final.status === 'completed' ? 'run.completed' : final.status === 'cancelled' ? 'abort.completed' : 'run.failed', {

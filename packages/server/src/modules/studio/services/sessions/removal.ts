@@ -72,46 +72,49 @@ async function remove(input: { id: string; profileId?: string }, access: Session
   }
   await check()
   checkLocal()
-  await beforeSessionRemoval({ scope: access.scope?.(profileId), profileId, sessionId: input.id, signal: access.signal || new AbortController().signal })
-  await check()
-  checkLocal()
-  const native: SessionRemovalResult['native'] = { attempted: false, deleted: false, profileId }
-  const providerSession = isProviderAgentSession(local)
-  let nativePresent = false
-  if (!providerSession && isHermesAgentAvailable() && listProfileNamesFromDisk().includes(profileId)) {
-    try { nativePresent = Boolean(await getExactHermesSessionDetailForProfile(input.id, profileId)) }
-    catch (err) {
-      logger.warn({ err, sessionId: input.id, profile: profileId }, 'Hermes Session: profile delete skipped')
-      native.attempted = true
-      native.error = 'Failed to inspect Hermes session'
-    }
-  }
-  // Inspection can await native I/O. Recheck access and cancellation before the first side effect.
-  await check()
-  checkLocal()
-  if (providerSession) stopCodingAgentSessionRun(input.id, { reportClosed: false })
-  if (nativePresent) {
-    native.attempted = true
-    try {
-      native.deleted = await deleteHermesSessionForProfile(input.id, profileId)
-      if (!native.deleted) native.error = 'Failed to delete Hermes session'
-    } catch (err) {
-      logger.warn({ err, sessionId: input.id, profile: profileId }, 'Hermes Session: profile delete failed')
-      native.error = 'Failed to delete Hermes session'
-    }
-  }
-  // Once mutation starts, finish local cleanup and report its outcome even if the caller cancels.
-  // Native state and Studio SQLite cannot share a transaction; native failures remain explicit.
-  if (local) {
+  const lease = await beforeSessionRemoval({ scope: access.scope?.(profileId), profileId, sessionId: input.id, signal: access.signal || new AbortController().signal })
+  try {
+    await check()
     checkLocal()
-    const notification = { id: randomUUID(), occurredAt: Date.now() }
-    try {
-      if (!deleteSession(input.id, notification)) throw new Error('Session was not removed')
-    } catch (err) {
-      logger.warn({ err, sessionId: input.id, profile: profileId }, 'Studio Session: deletion failed')
-      throw new SessionRemovalError('Failed to delete session', native)
+    const native: SessionRemovalResult['native'] = { attempted: false, deleted: false, profileId }
+    const providerSession = lease?.ownsNative || isProviderAgentSession(local)
+    let nativePresent = false
+    if (!providerSession && isHermesAgentAvailable() && listProfileNamesFromDisk().includes(profileId)) {
+      try { nativePresent = Boolean(await getExactHermesSessionDetailForProfile(input.id, profileId)) }
+      catch (err) {
+        logger.warn({ err, sessionId: input.id, profile: profileId }, 'Hermes Session: profile delete skipped')
+        native.attempted = true
+        native.error = 'Failed to inspect Hermes session'
+      }
     }
-    publishSessionRemoval(local, 'deleted', notification)
-  }
-  return { deleted: Boolean(local), native }
+    // Inspection can await native I/O. Recheck access and cancellation before the first side effect.
+    await check()
+    checkLocal()
+    if (providerSession && !lease?.ownsNative) stopCodingAgentSessionRun(input.id, { reportClosed: false })
+    if (nativePresent) {
+      native.attempted = true
+      try {
+        native.deleted = await deleteHermesSessionForProfile(input.id, profileId)
+        if (!native.deleted) native.error = 'Failed to delete Hermes session'
+      } catch (err) {
+        logger.warn({ err, sessionId: input.id, profile: profileId }, 'Hermes Session: profile delete failed')
+        native.error = 'Failed to delete Hermes session'
+      }
+    }
+    // Once mutation starts, finish local cleanup and report its outcome even if the caller cancels.
+    // Native state and Studio SQLite cannot share a transaction; native failures remain explicit.
+    if (local) {
+      checkLocal()
+      const notification = { id: randomUUID(), occurredAt: Date.now() }
+      try {
+        const deleted = lease ? deleteSession(input.id, notification, () => lease.removed()) : deleteSession(input.id, notification)
+        if (!deleted) throw new Error('Session was not removed')
+      } catch (err) {
+        logger.warn({ err, sessionId: input.id, profile: profileId }, 'Studio Session: deletion failed')
+        throw new SessionRemovalError('Failed to delete session', native)
+      }
+      publishSessionRemoval(local, 'deleted', notification)
+    }
+    return { deleted: Boolean(local), native }
+  } finally { lease?.release() }
 }

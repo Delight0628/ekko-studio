@@ -13,6 +13,7 @@ import { PluginEventBus } from '../../packages/server/src/modules/studio/service
 import { createExecutionContext } from '../../packages/server/src/modules/studio/services/context/execution'
 import { StudioError, type ExecutionScope } from '../../packages/studio-plugin-sdk/src'
 import { AgentChatDelivery } from '../../packages/server/src/modules/studio/services/chat-run/agent-delivery'
+import { readAgentChatSummaries, readAgentChatRunSummaries, agentChatOwnerFilter } from '../../packages/server/src/modules/studio/repositories/agent-chat-summary'
 
 const scope: ExecutionScope = { scopeId: 'app', principal: { kind: 'user', id: '7' }, profileId: 'one', surface: 'api', traceId: 'trace' }
 const cleanup: Array<() => Promise<void>> = []
@@ -66,6 +67,119 @@ it('creates one owned chat and binding without starting the native Agent, includ
     agent: f.instance.agentTypeId, agent_mode: 'global', studio_user_id: '7', user_id: '7', workspace: '/owned-workspace', model: 'native-model' }])
   expect(f.chats.isBound(receipt.sessionId)).toBe(true)
   expect(f.chats.ownedBinding(scope, receipt.sessionId).instance.id).toBe(f.instance.id)
+})
+
+it('reads managed instance metadata and reports unmeasured usage as unknown without adding a legacy ledger', async () => {
+  const f = setup(), chat = f.create()
+  expect(readAgentChatSummaries(f.db, [chat.sessionId])[chat.sessionId]).toMatchObject({ agent_instance_id: f.instance.id, agent_instance_revision: 1,
+    model: 'native-model', workspace: '/owned-workspace', agent_mode: 'global', agent_usage: { modelCalls: 0, unknownModelCalls: 0, inputTokens: null, outputTokens: null, costUsd: null } })
+  const run = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Question' }] }, 'run', new AbortController().signal)
+  await f.chats.wait(run.id)
+  const message = f.projection.message(run.id, 'message', 'm')!
+  expect(readAgentChatRunSummaries(f.db, chat.sessionId, [String(message.id)])).toMatchObject([{ runId: run.id, assistantMessageId: String(message.id), inputTokens: null, outputTokens: null, costUsd: null }])
+  expect(f.db.prepare("SELECT 1 FROM sqlite_master WHERE name='usage'").get()).toBeUndefined()
+})
+
+it('reads corrected per-call usage once and preserves partial unknowns across model calls and independent runs', async () => {
+  const f = setup(), chat = f.create()
+  f.hold()
+  const run = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Question' }] }, 'run', new AbortController().signal)
+  await vi.waitFor(() => expect(f.executions.output(run.id).length).toBe(1))
+  f.executions.appendOutput(run.id, { type: 'usage.reported', producerSequence: 1, modelCallId: 'native-call', model: 'native-model', mode: 'cumulative', revision: 1, inputTokens: 12, outputTokens: 3 })
+  f.executions.appendOutput(run.id, { type: 'usage.reported', producerSequence: 2, modelCallId: 'native-call', model: 'native-model', mode: 'final', revision: 2, inputTokens: 18, outputTokens: 4 })
+  expect(readAgentChatSummaries(f.db, [chat.sessionId])[chat.sessionId].agent_usage).toMatchObject({ modelCalls: 1, inputTokens: 18, outputTokens: 4, unknownModelCalls: 0, cacheReadTokens: null })
+  const host = { id: 'host-call', runId: run.id, model: 'native-model', revision: 1, status: 'running', usage: null } as any
+  f.executions.state.claimHostModelCall(host)
+  expect(readAgentChatSummaries(f.db, [chat.sessionId])[chat.sessionId].agent_usage).toMatchObject({ modelCalls: 2, unknownModelCalls: 1, inputTokens: null, outputTokens: null })
+  f.executions.state.recordHostModelUsage({ ...host, revision: 2, status: 'completed', usage: { inputTokens: 7, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0 } })
+  const message = f.projection.message(run.id, 'message', 'm')!
+  expect(readAgentChatRunSummaries(f.db, chat.sessionId, [String(message.id)] )).toMatchObject([{ inputTokens: 25, outputTokens: 6, cacheReadTokens: null, costUsd: null, tokensPerSecond: null }])
+  expect(readAgentChatRunSummaries(f.db, 'other-chat', [String(message.id)])).toEqual([])
+  f.release(); await f.chats.wait(run.id)
+})
+
+it('includes host cache buckets once in total input and retains reported versus estimated cost corrections', async () => {
+  const f = setup(), chat = f.create()
+  const run = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Question' }] }, 'run', new AbortController().signal)
+  await f.chats.wait(run.id)
+  const host = { id: 'host-call', runId: run.id, model: 'native-model', revision: 1, status: 'completed',
+    usage: { inputTokens: 3, outputTokens: 4, cacheReadTokens: 10, cacheWriteTokens: 2, reasoningTokens: 1, costUsd: 0.03, costSource: 'estimated' } } as any
+  f.executions.state.claimHostModelCall(host)
+  const message = f.projection.message(run.id, 'message', 'm')!
+  expect(readAgentChatSummaries(f.db, [chat.sessionId])[chat.sessionId].agent_usage).toMatchObject({ inputTokens: 15, outputTokens: 4, cacheReadTokens: 10, cacheWriteTokens: 2, costUsd: 0.03, estimatedCost: true })
+  expect(readAgentChatRunSummaries(f.db, chat.sessionId, [String(message.id)])[0]).toMatchObject({ inputTokens: 15, cacheHitRate: 10 / 15, isEstimated: true })
+  f.executions.state.recordHostModelUsage({ ...host, revision: 2, usage: { ...host.usage, inputTokens: 4, cacheReadTokens: 7, cacheWriteTokens: 1, costUsd: 0.02, costSource: 'reported' } })
+  expect(readAgentChatRunSummaries(f.db, chat.sessionId, [String(message.id)])[0]).toMatchObject({ inputTokens: 12, cacheHitRate: 7 / 12, costUsd: 0.02, isEstimated: false })
+})
+
+it('filters managed ownership before pagination and counting while preserving ordinary profile history', () => {
+  const f = setup(), chat = f.create()
+  f.db.prepare("INSERT INTO sessions (id, profile, source, agent, started_at, last_active) VALUES ('legacy', 'one', 'cli', 'hermes', 1, 1)").run()
+  const visible = (owner: string) => {
+    const filter = agentChatOwnerFilter(f.db, owner)!
+    return f.db.prepare(`SELECT s.id FROM sessions s WHERE ${filter.sql} ORDER BY s.id`).all(...filter.params).map(row => row.id)
+  }
+  expect(visible('7')).toEqual([chat.sessionId, 'legacy'].sort())
+  expect(visible('8')).toEqual(['legacy'])
+  expect(visible('')).toEqual(['legacy'])
+  f.db.prepare("UPDATE sessions SET studio_user_id='8' WHERE id=?").run(chat.sessionId)
+  expect(visible('7')).toEqual(['legacy'])
+  expect(visible('8')).toEqual(['legacy'])
+})
+
+it('drains only the changed chat, blocks new admission until release and resets only its conversation checkpoint', async () => {
+  const f = setup(), chat = f.create(), other = f.create('other-chat')
+  const initial = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'First' }] }, 'initial', new AbortController().signal)
+  await f.chats.wait(initial.id)
+  f.executions.state.saveCheckpoint(initial.conversationId!, initial.provider, initial.configRevision, initial.id, { nativeId: 'first-chat' })
+  const sibling = await f.chats.start(scope, other.sessionId, { content: [{ type: 'text', text: 'Other chat' }] }, 'sibling', new AbortController().signal)
+  await f.chats.wait(sibling.id)
+  f.executions.state.saveCheckpoint(sibling.conversationId!, sibling.provider, sibling.configRevision, sibling.id, { nativeId: 'sibling-chat' })
+  f.hold()
+  const active = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Running' }] }, 'active', new AbortController().signal)
+  await vi.waitFor(() => expect(f.executions.get(active.id)?.status).toBe('running'))
+  const queued = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Queued' }] }, 'queued', new AbortController().signal)
+  const lease = await f.chats.prepareHistoryChange(scope, chat.sessionId)
+  expect(f.executions.get(active.id)?.status).toBe('cancelled')
+  expect(f.executions.get(queued.id)?.status).toBe('cancelled')
+  expect(f.projection.message(queued.id, 'input', 'input')).toBeUndefined()
+  await expect(f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Race' }] }, 'race', new AbortController().signal)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  const unaffected = await f.chats.start(scope, other.sessionId, { content: [{ type: 'text', text: 'Continues' }] }, 'continues', new AbortController().signal)
+  await f.chats.wait(unaffected.id)
+  lease.reset()
+  expect(f.executions.state.checkpoint(initial.conversationId!, initial.provider, initial.configRevision)).toBeUndefined()
+  expect(f.executions.state.checkpoint(sibling.conversationId!, sibling.provider, sibling.configRevision)).toEqual({ nativeId: 'sibling-chat' })
+  lease.release()
+  const next = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Fresh conversation' }] }, 'fresh', new AbortController().signal)
+  await f.chats.wait(next.id)
+  expect(next.conversationId).toBe(initial.conversationId)
+})
+
+it('retains ownership on a removed chat tombstone without reopening its legacy runtime or exposing old Run output', async () => {
+  const f = setup(), chat = f.create()
+  const run = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Question' }] }, 'run', new AbortController().signal)
+  await f.chats.wait(run.id)
+  f.db.prepare('DELETE FROM sessions WHERE id=?').run(chat.sessionId)
+  expect(f.chats.isBound(chat.sessionId)).toBe(true)
+  expect(() => f.chats.authorizeRemoval(scope, chat.sessionId)).not.toThrow()
+  await expect(f.chats.prepareRemoval({ ...scope, principal: { kind: 'user', id: '8' } }, chat.sessionId)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  expect(() => f.chats.output(scope, chat.sessionId, run.id, -1)).toThrow(expect.objectContaining({ code: 'FORBIDDEN' }))
+  const lease = await f.chats.prepareRemoval(scope, chat.sessionId)
+  lease.release()
+  expect(f.factory).toHaveBeenCalledOnce()
+})
+
+it('rejects self-removal from an executing Run before cancellation or waiting on its own cleanup', async () => {
+  const f = setup(), chat = f.create()
+  f.hold()
+  const run = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Running' }] }, 'run', new AbortController().signal)
+  await vi.waitFor(() => expect(f.executions.get(run.id)?.status).toBe('running'))
+  await expect(f.chats.prepareRemoval({ ...scope, runId: run.id }, chat.sessionId)).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
+  await expect(f.chats.prepareHistoryChange({ ...scope, runId: run.id }, chat.sessionId)).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
+  expect(f.executions.get(run.id)?.status).toBe('running')
+  const userMutation = await f.chats.prepareRemoval(scope, chat.sessionId)
+  expect(f.executions.get(run.id)?.status).toBe('cancelled')
+  userMutation.release()
 })
 
 it('returns an existing receipt after provider removal but rejects a new chat with an unavailable provider', async () => {
@@ -198,8 +312,9 @@ it('delivers committed rows in Run order with stable ids and queue identity, inc
   expect(emitted.filter(item => ['run.started', 'run.completed', 'abort.completed'].includes(item.event)).map(item => [item.event, item.data.queue_id]))
     .toEqual([['run.started', 'first'], ['run.completed', 'first'], ['abort.completed', 'second']])
   const rows = emitted.filter(item => item.event === 'message.persisted').flatMap(item => item.data.messages)
-  expect(rows).toMatchObject([{ role: 'user', content: 'First', run_marker: first.id }, { role: 'assistant', content: 'Native answer', run_marker: first.id }])
+  expect([...new Map(rows.map(row => [row.id, row])).values()]).toMatchObject([{ role: 'user', content: 'First', run_marker: first.id }, { role: 'assistant', content: 'Native answer', run_marker: first.id }])
   expect(new Set(rows.map(row => row.id)).size).toBe(2)
+  expect(rows.at(-1).id).toBe(rows.find(row => row.role === 'assistant').id)
   delivery.close()
 })
 

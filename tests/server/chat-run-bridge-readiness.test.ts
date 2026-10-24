@@ -167,6 +167,34 @@ function makeServerHarness() {
 }
 
 describe('ChatRunSocket global pending interactions', () => {
+  it('publishes managed questions only to the owning account pending room', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { setAgentChatService } = await import('../../packages/server/src/modules/studio/services/agents/chat-registry')
+    const { io, emitted } = makeServerHarness(), server = new ChatRunSocket(io as any)
+    const previous = getSessionMock.getMockImplementation()
+    getSessionMock.mockImplementation((id: string) => ({ id, source: 'coding_agent', profile: 'default', user_id: '7', studio_user_id: '7' }) as any)
+    setAgentChatService({ isBound: (id: string) => id === 'managed-session' } as any)
+    try {
+      server.emitExternalEvent('managed-session', 'clarify.requested', { event: 'clarify.requested', question: 'Private native question', clarify_id: 'question' })
+      expect(emitted.some(item => item.room === 'pending-interactions:default' && item.event === 'clarify.requested')).toBe(false)
+      expect(emitted).toContainEqual(expect.objectContaining({ room: 'pending-interactions:default:owner:7', event: 'clarify.requested', payload: expect.objectContaining({ question: 'Private native question' }) }))
+    } finally { setAgentChatService(undefined); getSessionMock.mockImplementation(previous!) }
+  })
+  it('rejects a nonowner before joining a managed chat room or returning history', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { setAgentChatService } = await import('../../packages/server/src/modules/studio/services/agents/chat-registry')
+    const { io, socket, handlers } = makeServerHarness(), server = new ChatRunSocket(io as any)
+    Object.assign(socket.data, { user: { id: 8, role: 'super_admin' }, profile: 'default' })
+    setAgentChatService({ isBound: (id: string) => id === 'managed-session', ownedBinding: () => { throw new Error('Not the instance owner') } } as any)
+    try {
+      ;(server as any).onConnection(socket)
+      socket.join.mockClear(); socket.emit.mockClear()
+      await handlers.get('resume')!({ session_id: 'managed-session' })
+      expect(socket.join).not.toHaveBeenCalledWith('session:managed-session')
+      expect(socket.emit).toHaveBeenCalledWith('run.failed', expect.objectContaining({ session_id: 'managed-session' }))
+      expect(socket.emit.mock.calls.some(([event]) => event === 'resumed')).toBe(false)
+    } finally { setAgentChatService(undefined) }
+  })
   it('routes bound chats to canonical admission with trusted identity and leaves legacy managers unused', async () => {
     const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
     const { setAgentChatService } = await import('../../packages/server/src/modules/studio/services/agents/chat-registry')

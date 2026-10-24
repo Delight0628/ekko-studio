@@ -103,9 +103,9 @@ export class AgentChats {
     return this.deps.coordinator.output({ ...scope, sessionId }, runId, after)
   }
 
-  rows(scope: ExecutionScope, sessionId: string, runId: string, events: AgentOutputEvent[], includeInput = false) {
+  rows(scope: ExecutionScope, sessionId: string, runId: string, events: AgentOutputEvent[], includeInput = false, refreshUsage = false) {
     this.get(scope, sessionId, runId)
-    return this.deps.projection.rows(runId, events, includeInput)
+    return this.deps.projection.rows(runId, events, includeInput, refreshUsage)
   }
 
   interactions(scope: ExecutionScope, sessionId: string, runId: string) {
@@ -119,6 +119,41 @@ export class AgentChats {
   }
 
   wait(runId: string) { return this.deps.coordinator.wait(runId) }
+
+  async prepareHistoryChange(scope: ExecutionScope, sessionId: string) {
+    this.ownedBinding(scope, sessionId)
+    this.assertNotExecutingTarget(scope, sessionId)
+    const lease = await this.deps.coordinator.freezeChat(sessionId)
+    try { this.ownedBinding(scope, sessionId); return lease }
+    catch (error) { lease.release(); throw error }
+  }
+
+  authorizeRemoval(scope: ExecutionScope, sessionId: string): void {
+    // The durable binding is also a tombstone. A lost-response retry must never
+    // fall through to a legacy engine using the now-deleted chat id.
+    this.check(scope)
+    const binding = this.deps.projection.binding(sessionId)
+    if (!binding || binding.ownerId !== scope.principal.id || binding.profileId !== scope.profileId
+      || (scope.sessionId !== undefined && scope.sessionId !== sessionId)) throw new StudioError('NOT_FOUND', 'Agent chat is unavailable')
+    this.instance(scope, binding.instanceId)
+    if (this.deps.projection.hasSession(sessionId)) this.ownedBinding(scope, sessionId)
+  }
+
+  async prepareRemoval(scope: ExecutionScope, sessionId: string) {
+    this.authorizeRemoval(scope, sessionId)
+    this.assertNotExecutingTarget(scope, sessionId)
+    const lease = await this.deps.coordinator.freezeChat(sessionId)
+    try { this.authorizeRemoval(scope, sessionId); return lease }
+    catch (error) { lease.release(); throw error }
+  }
+
+  private assertNotExecutingTarget(scope: ExecutionScope, sessionId: string): void {
+    const run = scope.runId ? this.deps.executions.get(scope.runId) : undefined
+    if (run?.sessionId === sessionId && run.ownerId === scope.principal.id && run.profileId === scope.profileId
+      && !['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status)) {
+      throw new StudioError('CAPABILITY_UNSUPPORTED', 'Stop the current Run before removing or clearing its chat')
+    }
+  }
 
   beginNativeTurn(inputScope: ExecutionScope, instance: AgentInstance, runId: string, signal: AbortSignal): NativeAgentTurnBinding {
     const scope = jsonCopy(inputScope)

@@ -56,6 +56,7 @@ export class AgentCoordinator {
   private readonly queues = new Map<string, InstanceQueue>()
   private readonly leases = new Map<string, RuntimeLease>()
   private readonly configuring = new Set<string>()
+  private readonly frozenChats = new Set<string>()
   private readonly management = new AgentManagement()
   readonly managementOperations?: AgentManagementOperations
   private closed = false
@@ -358,6 +359,7 @@ export class AgentCoordinator {
       if (scope.sessionId !== undefined || scope.runId !== undefined || scope.workspaceId !== undefined) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Independent instance runs require an unbound scope')
       return
     }
+    if (this.frozenChats.has(target.sessionId)) throw new StudioError('REVISION_CONFLICT', 'Chat history is being changed')
     if (scope.runId !== undefined || scope.workspaceId !== undefined) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Run and workspace bindings require a dedicated execution adapter')
     if (target.kind !== 'chat' || Object.keys(target).some(key => !['kind', 'sessionId'].includes(key))
       || typeof target.sessionId !== 'string' || !target.sessionId.trim() || target.sessionId.length > 256) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent target')
@@ -461,6 +463,26 @@ export class AgentCoordinator {
   }
 
   async wait(id: string): Promise<void> { await this.active.get(id)?.completed }
+
+  /** Trusted lifecycle port. Its caller authorizes the user mutation before
+   * acquiring and immediately before applying it. SDK payloads cannot invoke it. */
+  async freezeChat(sessionId: string): Promise<{ reset(): void; release(): void }> {
+    if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent coordinator is shutting down')
+    if (this.frozenChats.has(sessionId)) throw new StudioError('REVISION_CONFLICT', 'Chat history is being changed')
+    this.frozenChats.add(sessionId)
+    const runs = this.options.store.activeForChat(sessionId)
+    for (const run of runs) this.stop(run.id)
+    await Promise.all(runs.map(run => this.wait(run.id)))
+    const conversations = this.options.store.conversations.forSession(sessionId)
+    // A failed cleanup retains the barrier: a second native runtime must not
+    // begin while the old one may still be writing this conversation.
+    await Promise.all(conversations.map(id => this.disposeLease(id, 'Chat history changed')))
+    let released = false
+    return {
+      reset: () => { if (released) throw new StudioError('REVISION_CONFLICT', 'Chat history lease ended'); for (const id of conversations) this.options.store.state.forgetCheckpoint(id) },
+      release: () => { if (!released) { released = true; this.frozenChats.delete(sessionId) } },
+    }
+  }
   async close(): Promise<void> {
     this.closed = true
     const management = this.management.close()
