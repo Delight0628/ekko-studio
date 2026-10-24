@@ -218,6 +218,7 @@ export interface AgentRuntimeContext {
   readonly signal: AbortSignal
   readonly logger: ScopedLogger
   readonly processes: RuntimeProcesses
+  readonly mcp: RuntimeMcp
 }
 
 /** Pipe processes belong to the runtime lease, not a single turn or HTTP request. */
@@ -247,6 +248,34 @@ export interface ProcessHandle {
   dispose(): Promise<void>
 }
 export interface RuntimeProcesses { spawn(input: ProcessSpawnInput): Promise<ProcessHandle> }
+
+/** Explicit plugin-owned configuration; host profile secrets are never expanded into this DTO. */
+export type McpConnectInput = (
+  | ({ type: 'stdio' } & ProcessSpawnInput)
+  | { type: 'streamable_http'; url: string; headers?: Record<string, string> }
+) & { timeoutMs?: number; supportsParallelToolCalls?: boolean }
+export interface McpToolDefinition {
+  /** Model-safe name; unsafe remote names are represented by a server proxy tool. */
+  name: string
+  description?: string
+  parameters: JsonObject
+  concurrency: 'serial' | 'parallel'
+}
+export interface McpToolResult {
+  ok: boolean
+  content: string
+  contentParts?: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }>
+  data?: JsonValue
+  error?: string
+}
+export interface McpConnectionHandle {
+  readonly id: string
+  listTools(): Promise<McpToolDefinition[]>
+  /** Transport failures are not replayed; callers must decide whether a side effect may have occurred. */
+  callTool(name: string, input: JsonObject): Promise<McpToolResult>
+  dispose(): Promise<void>
+}
+export interface RuntimeMcp { connect(input: McpConnectInput): Promise<McpConnectionHandle> }
 
 export interface AgentRunContext extends ExecutionContext {
   readonly scope: ExecutionScope & { readonly runId: string; readonly runtimeSessionId: string }

@@ -2,7 +2,7 @@ import { fork, execFile, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { RpcPeer, type RpcFrame } from '../../../../../../studio-plugin-sdk/src/rpc'
 import {
-  StudioError, STUDIO_ERROR_CODES, STUDIO_PLUGIN_RPC_VERSION, type StudioErrorCode, type AgentTypeDefinition, type AgentRuntime,
+  StudioError, STUDIO_ERROR_CODES, STUDIO_PLUGIN_RPC_VERSION, type StudioErrorCode, type AgentTypeDefinition, type AgentRuntime, type AgentRuntimeContext,
   type AgentRunContext, type AgentRunHandle, type AgentOutputEvent, type AgentRunResult,
   type ExecutionContext, type JsonValue, type JsonObject, type PluginIdentity, type ScopedLogger, type ServiceToken, type EventConsumerSpec, type EventEnvelope,
 } from '../../contracts/plugins'
@@ -12,6 +12,7 @@ import { AsyncChannel } from './channel'
 import { authorizeHookOperation, type HookRegistration } from '../events/plugin-hooks'
 import { PluginProcessBridge } from './processes'
 import { managedProcessEnvironment } from '../processes/managed'
+import { PluginMcpBridge } from './mcp'
 import { PluginModelBridge } from './models'
 
 export interface WorkerActivation {
@@ -48,6 +49,7 @@ export class PluginWorker {
   private closing?: Promise<void>
   private readonly exit: Promise<void>
   private readonly processes: PluginProcessBridge
+  private readonly mcp: PluginMcpBridge
   private readonly models: PluginModelBridge
 
   constructor(runnerPath: string, private readonly logger: ScopedLogger, private readonly onExit: () => void, private readonly authorize: (capability: string) => void, timeoutMs = 30_000) {
@@ -78,18 +80,21 @@ export class PluginWorker {
       this.authorize(capability); this.authorities.get(handle)?.(capability)
       return ctx
     })
-    this.processes = new PluginProcessBridge(() => this.authorize('processes.spawn'), (origin, runtimeHandle, runtime) => {
+    const resourceOrigin = (capability: string) => (origin: JsonValue | undefined, runtimeHandle: string, runtime: AgentRuntimeContext) => {
       if (origin === runtimeHandle) {
         // A live factory/background runtime capability remains valid while an
         // unrelated hook runs. Hook-origin calls take the authority path below.
         return
       }
-      if (typeof origin !== 'string' || !this.scopes.has(origin) || this.scopes.get(origin)!.signal.aborted) throw new StudioError('FORBIDDEN', 'Process caller scope is unavailable')
+      if (typeof origin !== 'string' || !this.scopes.has(origin) || this.scopes.get(origin)!.signal.aborted) throw new StudioError('FORBIDDEN', 'Runtime caller scope is unavailable')
       const scope = this.scopes.get(origin)!.scope as AgentRunContext['scope']
       if (scope.profileId !== runtime.profileId || scope.principal.id !== runtime.ownerId
-        || (scope.runId && scope.runtimeSessionId !== runtime.runtimeSessionId)) throw new StudioError('FORBIDDEN', 'Process is outside the caller runtime scope')
-      this.authorities.get(origin)?.('processes.spawn')
-    })
+        || (scope.runId && scope.runtimeSessionId !== runtime.runtimeSessionId)) throw new StudioError('FORBIDDEN', 'Resource is outside the caller runtime scope')
+      this.authorities.get(origin)?.(capability)
+    }
+    this.processes = new PluginProcessBridge(() => this.authorize('processes.spawn'), resourceOrigin('processes.spawn'))
+    this.mcp = new PluginMcpBridge(() => this.authorize('mcp.connect'), resourceOrigin('mcp.connect'))
+    this.peer.handle('mcp.call', value => this.mcp.call(value))
     this.peer.handle('process.call', value => this.processes.call(value))
     this.peer.handle('run.event', async value => {
       const params = value as JsonObject, run = this.runs.get(String(params.runId))
@@ -139,11 +144,17 @@ export class PluginWorker {
         if (this.runtimes.has(id)) throw new StudioError('REGISTRATION_CONFLICT', 'Runtime is already active')
         // Creation itself owns a lease: configuration changes must not kill an in-flight factory.
         const processScope = this.processes.mount(context)
+        const mcpScope = this.mcp.mount(context, processScope.handle)
+        const releaseResources = async () => {
+          const results = await Promise.allSettled([processScope.close(), mcpScope.close()])
+          const failed = results.find(result => result.status === 'rejected')
+          if (failed?.status === 'rejected') throw failed.reason
+        }
         this.runtimes.add(id)
         try { await this.peer.request('runtime.create', toJson({ agentTypeId: meta.id, runtimeSessionId: id, runtimeHandle: processScope.handle, ownerId: context.ownerId, input })) }
         catch (error) {
           this.runtimes.delete(id)
-          try { await processScope.close() } finally { await this.close() }
+          try { await releaseResources() } finally { await this.close() }
           throw error
         }
         let disposal: Promise<void> | undefined
@@ -151,7 +162,7 @@ export class PluginWorker {
           context.signal.removeEventListener('abort', aborted)
           try { await this.peer.request('runtime.dispose', { runtimeSessionId: id, reason }, 5_000) }
           catch (error) { await this.close(); throw error }
-          finally { await processScope.close(); this.runtimes.delete(id) }
+          finally { await releaseResources(); this.runtimes.delete(id) }
         })()
         const aborted = () => { void dispose('Runtime scope ended').catch(() => {}) }
         context.signal.addEventListener('abort', aborted, { once: true })
@@ -276,8 +287,9 @@ export class PluginWorker {
         }
       }
       await this.exit
-      await this.processes.close()
-      await this.models.close()
+      const results = await Promise.allSettled([this.processes.close(), this.mcp.close(), this.models.close()])
+      const failed = results.find(result => result.status === 'rejected')
+      if (failed?.status === 'rejected') throw failed.reason
     })()
   }
 
@@ -360,6 +372,7 @@ export class PluginWorker {
     this.runs.clear(); this.runtimes.clear(); this.scopes.clear(); this.authorities.clear()
     void this.processes.close().catch(() => this.logger.error('Plugin process cleanup failed'))
     void this.models.close().catch(() => this.logger.error('Plugin model cleanup failed'))
+    void this.mcp.close().catch(() => this.logger.error('Plugin MCP cleanup failed'))
     try { this.onExit() } catch { this.logger.error('Plugin cleanup failed') }
   }
 }

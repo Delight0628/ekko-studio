@@ -8,6 +8,8 @@ on:
       - 'packages/studio-plugin-sdk/**'
       - 'packages/studio-plugin-runner/**'
       - 'packages/studio-agent-drivers/**'
+      - 'packages/ekko-agent/**'
+      - 'tests/ekko-agent/mcp-*.test.ts'
       - 'tests/server/**'
       - 'tests/setup.ts'
       - 'package*.json'
@@ -20,6 +22,8 @@ on:
       - 'packages/studio-plugin-sdk/**'
       - 'packages/studio-plugin-runner/**'
       - 'packages/studio-agent-drivers/**'
+      - 'packages/ekko-agent/**'
+      - 'tests/ekko-agent/mcp-*.test.ts'
       - 'tests/server/**'
       - 'tests/setup.ts'
       - 'package*.json'
@@ -70,6 +74,9 @@ jobs:
           tests/server/studio-managed-processes.test.ts
           tests/server/studio-managed-acp.test.ts
           tests/server/studio-managed-mcp.test.ts
+          tests/server/studio-mcp-tools.test.ts
+          tests/server/studio-plugin-mcp-bridge.test.ts
+          tests/ekko-agent/mcp-lifecycle.test.ts
           tests/server/native-acp-turn.test.ts
           tests/server/studio-plugin-processes.test.ts
           tests/server/studio-plugin-process-bridge.test.ts

@@ -283,6 +283,7 @@ it('propagates cancellation through real service RPC without sending a second ex
   const runtime = await definition.create({ instanceId: 'instance', config: {}, configRevision: 1, mode: 'scoped' }, {
     provider: ref, runtimeSessionId: 'lease', profileId: 'one', ownerId: 'caller', signal: runtimeController.signal, logger,
     processes: { spawn: async () => { throw new Error('Processes are not used by this fixture') } },
+    mcp: { connect: async () => { throw new Error('MCP is not used by this fixture') } },
   })
   const controller = new AbortController(), ctx = context({ ...scope, runId: 'run' }, controller.signal)
   const handle = await runtime.run({ content: [{ type: 'text', text: 'wait' }] }, { ...ctx, scope: { ...ctx.scope, runId: 'run', runtimeSessionId: 'lease' } } as AgentRunContext)

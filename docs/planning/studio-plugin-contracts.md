@@ -169,7 +169,7 @@ HTTP 与 SDK 共用内部直调端口和旧执行器，SDK 不暴露 `ChatRunCal
 
 同实例输入当前串行运行；`persistentSession` 是显式能力，成功轮次才保留 runtime，空闲 60 秒后释放。运行输入 deadline 包含排队等待。checkpoint 只在成功终态事务中提交，并仅在提供方引用和配置 revision 相同且支持 resume 时用于下一次创建；未完成输入不会自动重放。结果返回后的输出收尾期限为 5 秒，领取 `finalizing` 后拒绝取消并返回 `RUN_FINALIZING`。
 
-现有 usage DTO 仅归并 runtime 上报的 input/output token：按 modelCallId、revision 去重，cumulative/final 替换，delta 累加，final 可由更高 final revision 校正。空数组表示未知；尚未完成下文模型服务的权威计量关联、跨父子 Run 聚合和计价。实例生命周期的实际证据见[实施记录](studio-plugin-progress.md#t06-进展实例运行生命周期)，不能据此宣称旧聊天及其他入口已统一。
+现有 usage DTO 按 modelCallId、revision 去重，cumulative/final 替换，delta 累加，final 可由更高 final revision 校正。SDK 模型调用 ID 由宿主独占计量，runtime 回显不会重复计入；未知 counters 为 null。跨父子 Run 聚合及旧原生 Run 的权威计量迁移仍待完成。实例生命周期的实际证据见[实施记录](studio-plugin-progress.md#t06-进展实例运行生命周期)，不能据此宣称旧聊天及其他入口已统一。
 
 ## 3 Agent 注册与管理
 
@@ -474,6 +474,12 @@ worker 崩溃使租约失效，当前 Run 标记 interrupted，未确认 RPC 明
 协议驱动依赖 SDK 的 ProcessHandle、字节流和取消接口。宿主的原始 ChildProcess/PTY 对象不跨 RPC；stdout、stdin、resize、exit 等映射为句柄操作。厂商必须写入原生 auth 配置时，插件提交受控配置模板与 secret reference，由获准的宿主执行环境注入；确需明文秘密的插件能力单独授予，不能借运行准备读取整个平台凭据。
 
 当前已实现 runtime `processes.spawn` 和管道 `ProcessHandle.read/write/end/stop/dispose`；读取为有界长轮询，返回 stdout/stderr 字节、截断标志与退出结果，空批次不表示 EOF。身份、runtime 生命周期和能力来自宿主；PTY/resize、秘密注入及厂商驱动切换仍为后续范围。实现限制和退出语义见[受管进程实施记录](studio-plugin-progress.md#t05-进展runtime-受管管道进程)。
+
+当前 runtime 还提供 `mcp.connect(McpConnectInput)`，插件须声明并获授 `mcp.connect`。此权限包含启动 MCP 子进程或连接显式 HTTP 端点及调用工具；不自动扩展账户或 profile 凭据。stdio 使用 `{ type: 'stdio', command, args, cwd, env? }`，HTTP 使用 `{ type: 'streamable_http', url, headers? }`，可选 `timeoutMs`（100 ms–300 秒，默认 30 秒）和 `supportsParallelToolCalls`。
+
+返回句柄通过 `listTools()` 读取模型可用的工具定义，通过 `callTool(name, arguments)` 取得文本、图片及 JSON 结果，`dispose()` 等待连接实际关闭。非法模型工具名沿用公共 MCP 提供者的代理工具表示，调用方应使用返回的工具名和 schema。连接归 runtime 租约所有，可跨成功轮次复用；其他用户/runtime/hook 不能借用。宿主和 RPC 前后重查授权，空闲撤权也会回收连接；关闭后迟到的结果不再交付。调用失败不自动重发可能已有副作用的工具。
+
+每个 runtime 最多 16 个连接，宿主最多 64 个；默认单个进行中请求，显式允许并行时最多四个。工具定义最多 256 个，输入最多 128 KiB，DTO 结果最多 512 KiB，stdio 帧和 HTTP 响应流最多 1 MiB。HTTP 不跟随重定向。取消连接、工厂失败、worker 退出和 runtime 清理均等待所持连接及请求结算，未确认的清理保留租约隔离。旧厂商原生配置注入、平台交互凭据绑定和 MCP resources/prompts 等其他协议操作仍需后续迁移。
 
 ## 10 配置和权限
 

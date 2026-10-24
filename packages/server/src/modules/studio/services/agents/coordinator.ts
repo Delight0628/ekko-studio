@@ -7,6 +7,7 @@ import { AgentExecutionStore, type AgentInstance, type AgentExecution, type Agen
 import { AgentRegistry } from './registry'
 import { PluginEventBus } from '../events/plugin-events'
 import { compileSchema, jsonCopy, parseAgentOutput } from '../plugins/validation'
+import { ManagedMcpScope } from '../mcp/managed'
 import { ManagedProcessScope } from '../processes/managed'
 
 interface ActiveRun {
@@ -18,6 +19,7 @@ interface RuntimeLease {
   id: string; provider: AgentProviderRef; revision: number; controller: AbortController
   runtime: Promise<AgentRuntime>; creating: boolean; idleTimer?: ReturnType<typeof setTimeout>; disposing?: Promise<void>
   processes: ManagedProcessScope
+  mcp: ManagedMcpScope
   settling?: Promise<void>
 }
 interface InstanceQueue { current?: string; pending: string[] }
@@ -227,7 +229,7 @@ export class AgentCoordinator {
     // factory result. A timeout bounds the caller's wait; it cannot certify exit.
     const cleanup = lease.runtime.then(runtime => runtime.dispose(reason), () => {})
       .finally(async () => {
-        const results = await Promise.allSettled([lease.processes.close(), lease.settling])
+        const results = await Promise.allSettled([lease.processes.close(), lease.mcp.close(), lease.settling])
         const failed = results.find(result => result.status === 'rejected')
         if (failed?.status === 'rejected') throw failed.reason
       })
@@ -281,16 +283,17 @@ export class AgentCoordinator {
         const id = this.options.store.state.openLease(instance.id, run.provider, run.configRevision)
         const resume = resolved.definition.capabilities.resume ? this.options.store.state.checkpoint(instance.id, run.provider, run.configRevision) : undefined
         const processes = new ManagedProcessScope(controller.signal, () => { assertDispatch() })
+        const mcp = new ManagedMcpScope(controller.signal, () => { assertDispatch() })
         // Install the lease before invoking user code, including factories that
         // start a process and then throw synchronously.
         const creating = Promise.resolve().then(() => {
           assertDispatch()
           return resolved.definition.create({ instanceId: instance.id, config: instance.config, configRevision: instance.revision, mode: instance.mode,
             ...(resume === undefined ? {} : { resume }) }, {
-            provider: run.provider, runtimeSessionId: id, profileId: scope.profileId, ownerId: scope.principal.id, signal: controller.signal, logger: this.options.logger, processes: processes.api,
+            provider: run.provider, runtimeSessionId: id, profileId: scope.profileId, ownerId: scope.principal.id, signal: controller.signal, logger: this.options.logger, processes: processes.api, mcp: mcp.api,
           })
         })
-        lease = { id, provider: run.provider, revision: run.configRevision, controller, runtime: creating, creating: true, processes }
+        lease = { id, provider: run.provider, revision: run.configRevision, controller, runtime: creating, creating: true, processes, mcp }
         this.leases.set(instance.id, lease)
         const pending = lease
         void creating.then(() => { pending.creating = false }, () => { pending.creating = false })

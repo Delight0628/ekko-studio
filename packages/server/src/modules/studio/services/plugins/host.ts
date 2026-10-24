@@ -43,7 +43,7 @@ const SUPPORTED_CAPABILITIES = new Set([
   ...CORE_EVENTS.map(name => `events.subscribe:${name}`),
   ...CORE_EVENTS.map(name => `events.consume:${name}`),
   'hooks.before:runs.start', 'hooks.before:sessions.remove',
-  'processes.spawn',
+  'processes.spawn', 'mcp.connect',
   'models.read', 'models.stream',
 ])
 

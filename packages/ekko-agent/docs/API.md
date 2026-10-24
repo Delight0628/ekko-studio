@@ -2,6 +2,8 @@
 
 本文档对应 `ekko-agent` 的公共 TypeScript API。推荐入口是 `new EkkoAgent()`：它是安装级容器，每个 Profile 会创建一个独立的 `EkkoProfileAgent`，Profile 的模块由该实例统一提供。
 
+MCP-only hosts may import `createMcpToolProvider` and its connection types from `ekko-agent/mcp`. This public entrypoint avoids loading the agent runtime graph; `closeScope()` and `dispose()` return the owned transport cleanup barrier.
+
 ## 安装与最小示例
 
 ```bash
@@ -1705,6 +1707,13 @@ export class EkkoRuntimeLogger {
   skillJev(runId: string, diagnostic: EkkoJevDiagnostic, inputContext?: EkkoRuntimeLogContext): void
   startModelRequest(input: EkkoModelRequestLogInput): EkkoModelRequestSpan
 }
+```
+### `src/mcp.ts`
+
+```ts
+export * from './tools/mcp'
+
+export type { AgentTool, AgentToolContext } from './tools/types'
 ```
 ### `src/memory/context.ts`
 

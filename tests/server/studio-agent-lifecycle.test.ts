@@ -398,3 +398,23 @@ it('rejects scoped reads and mutations outside the bound run', async () => {
   await expect(coordinator.cancel(bound, run.id)).rejects.toMatchObject({ code: 'FORBIDDEN' })
   expect(() => coordinator.start(bound, instance.id, input, 'two')).toThrow('unbound scope')
 })
+
+it('cleans MCP connections from a failed factory before dispatching the queued replacement', async () => {
+  let pid = 0, factories = 0
+  const f = setup(async (_input, ctx) => {
+    if (++factories === 1) {
+      const connection = await ctx.mcp.connect({ type: 'stdio', command: process.execPath,
+        args: [`${process.cwd()}/tests/fixtures/fake-mcp-server.cjs`], cwd: process.cwd() })
+      pid = Number((await connection.callTool('fake_pid', {})).content)
+      throw new Error('factory failed after acquiring MCP')
+    }
+    expect(pid).toBeGreaterThan(0)
+    expect(() => process.kill(pid, 0)).toThrow()
+    return { run: async () => { const current = turn(); current.complete(); return current }, dispose: async () => {} }
+  })
+  const first = f.coordinator.start(scope, f.instance.id, input, 'mcp-factory-failed')
+  const second = f.coordinator.start(scope, f.instance.id, input, 'mcp-factory-retry')
+  await Promise.all([f.coordinator.wait(first.id), f.coordinator.wait(second.id)])
+  expect(f.coordinator.get(scope, first.id).status).toBe('failed')
+  expect(f.coordinator.get(scope, second.id).status).toBe('completed')
+})

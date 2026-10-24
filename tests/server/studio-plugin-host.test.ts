@@ -50,6 +50,7 @@ it('retains a real worker lease and shares disposal completion after runtime abo
   const runtime = await definition.create({ instanceId: 'instance', config: {}, configRevision: 1, mode: 'scoped' }, {
     runtimeSessionId: 'disposal-runtime', provider, profileId: 'default', ownerId: '1', signal: controller.signal, logger,
     processes: { spawn: async () => { throw new Error('Processes are not used by this fixture') } },
+    mcp: { connect: async () => { throw new Error('MCP is not used by this fixture') } },
   })
   controller.abort()
   let stopped = false
@@ -371,6 +372,7 @@ describe('plugin worker integration', () => {
     const runtime = await resolved.definition.create({ instanceId: 'instance', config: {}, configRevision: 1, mode: 'scoped' }, {
       provider: resolved.provider, runtimeSessionId: 'native', profileId: 'default', ownerId: '1', signal: controller.signal, logger,
       processes: { spawn: async () => { throw new Error('Processes are not used by this fixture') } },
+    mcp: { connect: async () => { throw new Error('MCP is not used by this fixture') } },
     })
     const scope = { scopeId: 'scope', principal: { kind: 'user' as const, id: '1' }, profileId: 'default', sessionId: 'session', runId: 'run', runtimeSessionId: 'native', surface: 'api' as const, traceId: 'trace' }
     const ctx = createExecutionContext(scope, controller.signal, logger, { authorize: async () => {}, agents: { list: async () => [] }, sessions: { get: async () => null, remove } })
@@ -393,6 +395,7 @@ describe('plugin worker integration', () => {
     const runtime = await resolved.definition.create({ instanceId: 'instance', config: {}, configRevision: 1, mode: 'scoped' }, {
       provider: resolved.provider, runtimeSessionId: 'native', profileId: 'default', ownerId: '1', signal: controller.signal, logger,
       processes: { spawn: async () => { throw new Error('Processes are not used by this fixture') } },
+    mcp: { connect: async () => { throw new Error('MCP is not used by this fixture') } },
     })
     const runCtx = { ...ctx(controller.signal), scope: { ...ctx(controller.signal).scope, runId: 'run', runtimeSessionId: 'native' } } as AgentRunContext
     const run = await runtime.run({ content: [{ type: 'text', text: 'hello' }] }, runCtx)

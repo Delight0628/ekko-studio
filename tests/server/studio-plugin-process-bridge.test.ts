@@ -8,7 +8,7 @@ function process(id: string): ProcessHandle {
 }
 function context(spawn: AgentRuntimeContext['processes']['spawn']): AgentRuntimeContext {
   return { ownerId: 'owner', profileId: 'profile', runtimeSessionId: 'runtime', provider: { kind: 'builtin', module: 'ekko', implementationVersion: '1' },
-    signal: new AbortController().signal, logger: { info() {}, warn() {}, error() {} }, processes: { spawn } }
+    signal: new AbortController().signal, logger: { info() {}, warn() {}, error() {} }, processes: { spawn }, mcp: { connect: async () => { throw new Error('unused') } } }
 }
 
 it('scopes process IDs to the issuing runtime and rejects foreign handles and identity overrides', async () => {

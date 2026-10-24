@@ -1,6 +1,7 @@
 import { pathToFileURL } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { remoteMcp } from './mcp'
 import { remoteProcesses } from './processes'
 import { remoteModels } from './models'
 import { RpcPeer, type RpcFrame } from '../../studio-plugin-sdk/src/rpc'
@@ -197,7 +198,8 @@ peer.handle('runtime.create', async value => {
   const provider: AgentProviderRef = { kind: 'plugin', pluginId: identity.id, generation: identity.generation, version: identity.version }
   const runtimeHandle = string(params.runtimeHandle)
   const ctx: AgentRuntimeContext = { provider, profileId: identity.profileId, ownerId: string(params.ownerId), runtimeSessionId: id, logger, signal: controller.signal,
-    processes: remoteProcesses(peer, runtimeHandle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation) }
+    processes: remoteProcesses(peer, runtimeHandle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation),
+    mcp: remoteMcp(peer, runtimeHandle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation) }
   const runtime = await runtimeScope.run(runtimeHandle, () => definition.create(object(params.input) as unknown as RuntimeCreateInput, ctx))
   runtimes.set(id, { runtime, controller, handle: runtimeHandle })
   return null
