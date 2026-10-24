@@ -9,11 +9,11 @@ import { PluginConsumerStore } from '../../packages/server/src/modules/studio/re
 import { ReliablePluginConsumers } from '../../packages/server/src/modules/studio/services/events/reliable-consumers'
 
 const state = vi.hoisted(() => ({ remove: vi.fn(), configure: vi.fn(), install: vi.fn(), diagnostic: vi.fn(), list: vi.fn(() => []),
-  respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), updateInstance: vi.fn(), role: 'super_admin', consumers: null as unknown as ReliablePluginConsumers }))
+  respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), updateInstance: vi.fn(), inspectInstance: vi.fn(), role: 'super_admin', consumers: null as unknown as ReliablePluginConsumers }))
 vi.mock('../../packages/server/src/modules/studio/services/plugins/runtime', () => ({
   authorizePluginScope: vi.fn(),
   getStudioPluginRuntime: () => ({ host: { uninstall: state.remove, configure: state.configure, install: state.install, list: state.list, diagnostic: state.diagnostic },
-    consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance } }),
+    consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance } }),
 }))
 import { studioPluginRoutes } from '../../packages/server/src/modules/studio/routes/studio-plugins'
 
@@ -116,6 +116,37 @@ it('configures only the authenticated owner instance and surfaces active-run con
   expect(state.updateInstance).toHaveBeenCalledWith(expect.objectContaining({ principal: { kind: 'user', id: '7' }, profileId: 'default' }), 'instance', configuration)
   state.updateInstance.mockRejectedValue(new StudioError('REVISION_CONFLICT', 'Active run'))
   expect((await request(configuration)).status).toBe(409)
+})
+
+it('inspects using the authenticated owner, rejects configuration overrides, and prevents caching', async () => {
+  state.inspectInstance.mockResolvedValue({ native: { name: 'Fixture' } })
+  const request = (body: unknown, profile = '?profile=default') => fetch(`${base}/api/studio/agent-instances/instance/inspect${profile}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+  expect((await request({}, '')).status).toBe(400)
+  expect((await request({ config: {} })).status).toBe(400)
+  expect((await request({ ownerId: 'forged' })).status).toBe(400)
+  expect(state.inspectInstance).not.toHaveBeenCalled()
+  const response = await request({})
+  expect(response.status).toBe(200)
+  expect(response.headers.get('cache-control')).toBe('no-store')
+  expect(state.inspectInstance).toHaveBeenCalledWith(expect.objectContaining({ principal: { id: '7', kind: 'user' }, profileId: 'default' }), 'instance', expect.any(AbortSignal))
+  state.inspectInstance.mockRejectedValue(new StudioError('CAPABILITY_UNSUPPORTED', 'No inspection'))
+  expect((await request({})).status).toBe(422)
+})
+
+it('cancels a native inspection when the HTTP client disconnects', async () => {
+  let signal: AbortSignal | undefined
+  state.inspectInstance.mockImplementation((_scope, _id, current: AbortSignal) => {
+    signal = current
+    return new Promise((_resolve, reject) => current.addEventListener('abort', () => reject(new StudioError('CANCELLED', 'Disconnected')), { once: true }))
+  })
+  const controller = new AbortController()
+  const pending = fetch(`${base}/api/studio/agent-instances/instance/inspect?profile=default`, { method: 'POST', signal: controller.signal }).catch(error => error)
+  await vi.waitFor(() => expect(signal).toBeDefined())
+  controller.abort()
+  expect(await pending).toMatchObject({ name: 'AbortError' })
+  await vi.waitFor(() => expect(signal!.aborted).toBe(true))
 })
 
 it('scopes consumer management to an administrator, plugin and profile and requires explicit revisions', async () => {

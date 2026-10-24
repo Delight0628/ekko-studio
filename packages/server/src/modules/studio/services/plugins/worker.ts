@@ -4,10 +4,10 @@ import { RpcPeer, type RpcFrame } from '../../../../../../studio-plugin-sdk/src/
 import {
   StudioError, STUDIO_ERROR_CODES, STUDIO_PLUGIN_RPC_VERSION, type StudioErrorCode, type AgentTypeDefinition, type AgentRuntime, type AgentRuntimeContext,
   type AgentRunContext, type AgentRunHandle, type AgentOutputEvent, type AgentRunResult,
-  type ExecutionContext, type JsonValue, type JsonObject, type PluginIdentity, type ScopedLogger, type ServiceToken, type EventConsumerSpec, type EventEnvelope,
+  type ExecutionContext, type JsonValue, type JsonObject, type PluginIdentity, type ScopedLogger, type ServiceToken, type EventConsumerSpec, type EventEnvelope, type AgentTypeSummary,
 } from '../../contracts/plugins'
 import type { ServiceAuthority } from './services'
-import { jsonCopy, toJson, parseAgentOutput } from './validation'
+import { jsonCopy, toJson, parseAgentOutput, parseAgentInspection } from './validation'
 import { AsyncChannel } from './channel'
 import { authorizeHookOperation, type HookRegistration } from '../events/plugin-hooks'
 import { PluginProcessBridge } from './processes'
@@ -16,7 +16,7 @@ import { PluginMcpBridge } from './mcp'
 import { PluginModelBridge } from './models'
 
 export interface WorkerActivation {
-  agents: Array<Omit<AgentTypeDefinition, 'create'>>
+  agents: Array<Omit<AgentTypeSummary, 'provider'>>
   subscriptions: Array<{ id: string; type: string; once: boolean }>
   services: ServiceToken[]
   consumers: Array<{ name: string; spec: EventConsumerSpec }>
@@ -42,6 +42,7 @@ export class PluginWorker {
   private serviceCalls = 0
   private consumerCalls = 0
   private hookCalls = 0
+  private managementCalls = 0
   callService?: (context: ExecutionContext, args: JsonObject, authority: ServiceAuthority) => Promise<JsonValue>
   private readonly runs = new Map<string, RemoteRun>()
   private readonly runtimes = new Set<string>()
@@ -135,9 +136,61 @@ export class PluginWorker {
     return result as unknown as WorkerActivation
   }
 
-  definition(meta: Omit<AgentTypeDefinition, 'create'>): AgentTypeDefinition {
+  definition(meta: Omit<AgentTypeSummary, 'provider'>): AgentTypeDefinition {
+    const { management, ...metadata } = jsonCopy(meta)
+    if (management !== undefined && (!management || management.inspect !== true || Object.keys(management).length !== 1)) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent management declaration')
     return {
-      ...jsonCopy(meta),
+      ...metadata,
+      ...(management ? { management: { inspect: async (input, context) => {
+        if (context.signal.aborted) throw new StudioError('CANCELLED', 'Management scope ended')
+        this.authorize('agents.register')
+        const processScope = this.processes.mount(context), mcpScope = this.mcp.mount(context, processScope.handle)
+        this.managementCalls++
+        const callId = context.runtimeSessionId
+        let finished = false, rejectAbort!: (error: unknown) => void
+        const cancelled = new Promise<never>((_, reject) => { rejectAbort = reject })
+        const abort = () => {
+          void this.peer.request('management.cancel', { callId }, 1_000).catch(() => {})
+          rejectAbort(new StudioError('CANCELLED', 'Management scope ended'))
+        }
+        const watch = setInterval(() => {
+          try { this.authorize('agents.register') }
+          catch (error) {
+            void this.peer.request('management.cancel', { callId }, 1_000).catch(() => {})
+            rejectAbort(error)
+          }
+        }, 250)
+        context.signal.addEventListener('abort', abort, { once: true })
+        const task = Promise.resolve().then(() => this.peer.request('management.inspect', toJson({ callId, agentTypeId: meta.id,
+          runtimeHandle: processScope.handle, ownerId: context.ownerId, input }))).finally(() => { finished = true })
+        if (context.signal.aborted) abort()
+        try {
+          const result = await Promise.race([task, cancelled])
+          this.authorize('agents.register')
+          return parseAgentInspection(result)
+        }
+        catch (error) {
+          if (error instanceof StudioError && error.code === 'DEADLINE_EXCEEDED') await this.close()
+          throw error
+        }
+        finally {
+          clearInterval(watch)
+          context.signal.removeEventListener('abort', abort)
+          try {
+            if (!finished) {
+              let timer: ReturnType<typeof setTimeout> | undefined
+              try { await Promise.race([task.catch(() => {}), new Promise(resolve => { timer = setTimeout(resolve, 1_000) })]) }
+              finally { clearTimeout(timer) }
+              if (!finished) await this.close()
+            }
+          } finally {
+            const results = await Promise.allSettled([processScope.close(), mcpScope.close()])
+            this.managementCalls--
+            const failed = results.find(result => result.status === 'rejected')
+            if (failed?.status === 'rejected') throw failed.reason
+          }
+        }
+      } } } : {}),
       create: async (input, context): Promise<AgentRuntime> => {
         const id = context.runtimeSessionId
         if (context.signal.aborted) throw new StudioError('CANCELLED', 'Runtime scope ended')
@@ -279,7 +332,7 @@ export class PluginWorker {
     if (typeof scopeHandle !== 'string' || !this.scopes.has(scopeHandle) || this.scopes.get(scopeHandle)!.signal.aborted) throw new StudioError('FORBIDDEN', 'Event caller scope is unavailable')
     this.authorities.get(scopeHandle)?.(`events.emit:${type}`)
   }
-  hasLeases(): boolean { return this.runtimes.size > 0 || this.runs.size > 0 || this.serviceCalls > 0 || this.consumerCalls > 0 || this.hookCalls > 0 }
+  hasLeases(): boolean { return this.runtimes.size > 0 || this.runs.size > 0 || this.serviceCalls > 0 || this.consumerCalls > 0 || this.hookCalls > 0 || this.managementCalls > 0 }
   isAvailable(): boolean { return !this.closed }
 
   close(): Promise<void> {

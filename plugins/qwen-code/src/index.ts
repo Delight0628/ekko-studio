@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { AcpConnection, AgentEventQueue, ManagedProcessTransport, acpMcpServers } from '@ekko-studio/agent-drivers'
 import { StudioError, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
+import { management } from './management'
 
 const schema = {
   type: 'object', required: ['cwd'], additionalProperties: false,
@@ -21,6 +22,7 @@ const plugin: StudioPlugin = {
   apply(plugin) {
     plugin.agents.register({
       id: 'qwen', name: 'Qwen Code', configSchema: schema as unknown as JsonObject,
+      management,
       // Scoped provider setup and artifact-based images need host integration
       // before these capabilities can be advertised through the instance API.
       capabilities: { text: true, streaming: true, reasoning: true, approvals: true, resume: true, persistentSession: true, modes: ['global'] },

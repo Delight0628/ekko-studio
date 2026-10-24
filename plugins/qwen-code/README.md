@@ -14,6 +14,12 @@ Credentials are not inferred from the Studio profile. Native Qwen authentication
 continues to use the CLI's configured home, including an explicitly supplied
 `QWEN_HOME`. No CLI is downloaded or login performed by activation.
 
+`management.inspect` starts a short-lived ACP connection and performs only the
+v1 initialize handshake. It returns native name/version and authentication method
+labels, omitting private extension fields. Current authentication remains `unknown`;
+model discovery is `unsupported` without creating a session. Inspection creates
+no chat history and does not authenticate or change configuration.
+
 The artifact is not installed automatically and does not replace the existing
 chat path. Scoped provider configuration, host MCP/Skills injection, image artifact
 resolution, native management/login integration, usage reconciliation and real CLI

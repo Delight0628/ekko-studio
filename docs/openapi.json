@@ -12527,6 +12527,249 @@
         }
       }
     },
+    "/api/studio/agent-instances/{id}/inspect": {
+      "post": {
+        "tags": [
+          "Studio Plugins"
+        ],
+        "summary": "Inspect native Agent metadata",
+        "description": "Operates on registered Agent types and owner-bound instances/runs in the authorized profile. Plugin migration is in progress; existing native Agent execution remains separate until migration completes. Requires an idle owned instance and a declared management adapter. Starts short-lived managed resources; does not create a Studio Run or native chat session, log in, refresh credentials or change configuration. Serializes with instance changes and new runs. Results contain only native name/version, authentication state/method labels and native model choices. Unknown authentication and unsupported model discovery are explicit. Rechecks access and provider/configuration revision; cancellation, revocation and the 25-second deadline dispose resources.",
+        "operationId": "inspectAgentInstance",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Native metadata snapshot; no raw configuration, account identifiers or credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "instanceId",
+                        "configRevision",
+                        "provider",
+                        "native",
+                        "authentication",
+                        "models"
+                      ],
+                      "properties": {
+                        "instanceId": {
+                          "type": "string"
+                        },
+                        "configRevision": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "provider": {
+                          "type": "object",
+                          "description": "Host-resolved builtin or plugin provider snapshot."
+                        },
+                        "native": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "name"
+                          ],
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256
+                            },
+                            "version": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256
+                            }
+                          }
+                        },
+                        "authentication": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "state",
+                            "methods"
+                          ],
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "authenticated",
+                                "required",
+                                "not_required",
+                                "unknown"
+                              ]
+                            },
+                            "methods": {
+                              "type": "array",
+                              "maxItems": 32,
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "id",
+                                  "name"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 256
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 256
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "models": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "status",
+                            "items"
+                          ],
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "available",
+                                "unsupported"
+                              ]
+                            },
+                            "items": {
+                              "type": "array",
+                              "maxItems": 512,
+                              "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "id",
+                                  "name"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 256
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 256
+                                  },
+                                  "isDefault": {
+                                    "type": "boolean"
+                                  },
+                                  "reasoningEfforts": {
+                                    "type": "array",
+                                    "maxItems": 32,
+                                    "uniqueItems": true,
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 256
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or manifest."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Access denied or SYSTEM_PLUGIN_PROTECTED; no deletion side effects."
+          },
+          "404": {
+            "description": "Agent instance is unavailable in this owner/profile scope."
+          },
+          "409": {
+            "description": "Revision conflict, registration conflict or active runtime leases."
+          },
+          "422": {
+            "description": "Plugin requests unsupported capabilities."
+          },
+          "429": {
+            "description": "Concurrent inspection or metadata size limit exceeded."
+          },
+          "503": {
+            "description": "Plugin host or runtime unavailable."
+          },
+          "504": {
+            "description": "Native inspection deadline exceeded."
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "profile",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Authorized Studio profile."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "profile": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/studio/agent-instances/{id}/runs": {
       "post": {
         "tags": [

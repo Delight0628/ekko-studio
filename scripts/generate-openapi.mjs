@@ -2020,6 +2020,35 @@ openapi.paths['/api/studio/agent-instances/{id}'].put.requestBody = studioPlugin
 openapi.paths['/api/studio/agent-instances/{id}'].put.description += ' Replaces instance configuration after validating its revision and registered schema. Active/queued runs block changes. Idle native resources must finish disposal before committing; new runs are blocked during disposal. The new revision starts a fresh native session; prior run history remains readable.'
 openapi.paths['/api/studio/agent-instances/{id}'].put.summary = 'Update Agent instance configuration'
 openapi.paths['/api/studio/agent-instances/{id}'].put.responses['404'].description = 'Agent instance is unavailable in this owner/profile scope.'
+const agentInspection = openapi.paths['/api/studio/agent-instances/{id}/inspect'].post
+agentInspection.summary = 'Inspect native Agent metadata'
+agentInspection.description += ' Requires an idle owned instance and a declared management adapter. Starts short-lived managed resources; does not create a Studio Run or native chat session, log in, refresh credentials or change configuration. Serializes with instance changes and new runs. Results contain only native name/version, authentication state/method labels and native model choices. Unknown authentication and unsupported model discovery are explicit. Rechecks access and provider/configuration revision; cancellation, revocation and the 25-second deadline dispose resources.'
+agentInspection.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, properties: { profile: { type: 'string' } } })
+agentInspection.requestBody.required = false
+agentInspection.responses['404'].description = 'Agent instance is unavailable in this owner/profile scope.'
+agentInspection.responses['429'] = { description: 'Concurrent inspection or metadata size limit exceeded.' }
+agentInspection.responses['504'] = { description: 'Native inspection deadline exceeded.' }
+const inspectionString = { type: 'string', minLength: 1, maxLength: 256 }
+agentInspection.responses['200'] = { description: 'Native metadata snapshot; no raw configuration, account identifiers or credentials.', content: { 'application/json': { schema: {
+  type: 'object', required: ['ok', 'data'], properties: { ok: { type: 'boolean', enum: [true] }, data: {
+    type: 'object', additionalProperties: false, required: ['instanceId', 'configRevision', 'provider', 'native', 'authentication', 'models'], properties: {
+      instanceId: { type: 'string' }, configRevision: { type: 'integer', minimum: 1 }, provider: { type: 'object', description: 'Host-resolved builtin or plugin provider snapshot.' },
+      native: { type: 'object', additionalProperties: false, required: ['name'], properties: { name: inspectionString, version: inspectionString } },
+      authentication: { type: 'object', additionalProperties: false, required: ['state', 'methods'], properties: {
+        state: { type: 'string', enum: ['authenticated', 'required', 'not_required', 'unknown'] }, methods: { type: 'array', maxItems: 32, items: {
+          type: 'object', additionalProperties: false, required: ['id', 'name'], properties: { id: inspectionString, name: inspectionString },
+        } },
+      } },
+      models: { type: 'object', additionalProperties: false, required: ['status', 'items'], properties: {
+        status: { type: 'string', enum: ['available', 'unsupported'] }, items: { type: 'array', maxItems: 512, items: {
+          type: 'object', additionalProperties: false, required: ['id', 'name'], properties: {
+            id: inspectionString, name: inspectionString, isDefault: { type: 'boolean' }, reasoningEfforts: { type: 'array', maxItems: 32, uniqueItems: true, items: inspectionString },
+          },
+        } },
+      } },
+    },
+  } },
+} } } }
 openapi.paths['/api/studio/agent-runs/{id}/output'].get.parameters.push({ name: 'after', in: 'query', schema: { type: 'integer', minimum: -1, default: -1 }, description: 'Exclusive producer sequence cursor; returns up to 100 persisted output events.' })
 openapi.paths['/api/studio/agent-runs/{id}/respond'].post.requestBody = studioPluginBody({ type: 'object', additionalProperties: false,
   required: ['interactionId', 'idempotencyKey'], properties: {

@@ -38,7 +38,8 @@ const finish = () => {
 require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
   const r = JSON.parse(line);
   fs.appendFileSync(process.env.TRACE_FILE, JSON.stringify(r) + '\\n');
-  if (r.method === 'initialize') send({ id: r.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true } } });
+  if (r.method === 'initialize') send({ id: r.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true },
+    agentInfo: { name: 'Qwen Code', version: 'fixture', privateField: 'secret' }, authMethods: [{ id: 'qwen-oauth', name: 'Qwen OAuth', env: { KEY: 'secret' } }] } });
   else if (r.method === 'session/new' || r.method === 'session/load') {
     if (r.method === 'session/load') update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'replayed old text' } });
     send({ id: r.id, result: { sessionId: 'qwen-native' } });
@@ -87,6 +88,16 @@ async function setup() {
   return { coordinator, host, executionStore, instance, start, run, trace, pid }
 }
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
+
+it('inspects ACP metadata without creating history or claiming an unknown account state', async () => {
+  const f = await setup(), result = await f.coordinator.inspectInstance(scope, f.instance.id)
+  expect(result).toMatchObject({ native: { name: 'Qwen Code', version: 'fixture' },
+    authentication: { state: 'unknown', methods: [{ id: 'qwen-oauth', name: 'Qwen OAuth' }] }, models: { status: 'unsupported', items: [] } })
+  expect(JSON.stringify(result)).not.toMatch(/privateField|secret|KEY/)
+  expect((await f.trace()).map(r => r.method)).toEqual(['initialize'])
+  expect(alive(await f.pid())).toBe(false)
+  expect(await f.run('after-inspect')).toMatchObject({ status: 'completed' })
+})
 
 it('applies a new instance configuration without restoring the previous native session', async () => {
   const f = await setup(), before = await f.run('before')

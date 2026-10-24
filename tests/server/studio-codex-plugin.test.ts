@@ -40,6 +40,13 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
   const r = JSON.parse(line);
   fs.appendFileSync(process.env.TRACE_FILE, JSON.stringify(r) + '\\n');
   if (r.method === 'initialize') send({ id: r.id, result: {} });
+  else if (r.method === 'account/read') {
+    if (process.env.INSPECT_MODE === 'hang') return;
+    send({ id: r.id, result: { requiresOpenaiAuth: true, account: { type: 'chatgpt', email: 'private@example.test', planType: 'team', accessToken: 'native-secret' } } });
+  } else if (r.method === 'model/list') {
+    const model = id => ({ id: 'internal-' + id, model: id, displayName: 'Model ' + id, hidden: false, isDefault: id === 'first', supportedReasoningEfforts: [{ reasoningEffort: 'high', description: 'details' }], privateField: 'native-secret' });
+    send({ id: r.id, result: { data: [model(r.params.cursor ? 'second' : 'first')], nextCursor: process.env.INSPECT_MODE === 'loop' || !r.params.cursor ? 'next' : null } });
+  }
   else if (r.method === 'thread/start' || r.method === 'thread/resume') send({ id: r.id, result: { thread: { id: 'native-thread' } } });
   else if (r.method === 'turn/start') {
     turnId = 'turn-' + (++index);
@@ -91,7 +98,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
   }
 });`
 
-async function setup() {
+async function setup(env: Record<string, string> = {}) {
   const directory = await mkdtemp(join(root, 'run-')), cli = join(directory, 'codex.cjs')
   const pidFile = join(directory, 'pid'), traceFile = join(directory, 'trace'), controlFile = join(directory, 'control')
   await writeFile(cli, fixture)
@@ -108,7 +115,7 @@ async function setup() {
   await host.registerSystemArtifact(join(root, 'plugins/codex'))
   await host.configure({ pluginId: 'studio.agent-codex', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'processes.spawn'] }, 0)
   const instance = coordinator.createInstance(scope, { agentTypeId: 'codex', mode: 'global', config: {
-    cwd: directory, command: process.execPath, args: [cli], env: { PID_FILE: pidFile, TRACE_FILE: traceFile, CONTROL_FILE: controlFile },
+    cwd: directory, command: process.execPath, args: [cli], env: { PID_FILE: pidFile, TRACE_FILE: traceFile, CONTROL_FILE: controlFile, ...env },
   } })
   const start = (text: string) => coordinator.start(scope, instance.id, { content: [{ type: 'text', text }] }, text)
   const run = async (text: string) => { const r = start(text); await coordinator.wait(r.id); return coordinator.get(scope, r.id) }
@@ -120,9 +127,55 @@ async function setup() {
     cleanups.push(() => next.close())
     return next
   }
-  return { coordinator, host, executionStore, instance, start, run, trace, pid, reopen, controlFile }
+  return { coordinator, host, store, registry, executionStore, instance, start, run, trace, pid, reopen, controlFile }
 }
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
+
+it('inspects account state and paginated native models through a worker without exposing private fields', async () => {
+  const f = await setup()
+  expect(f.registry.list('one')[0].management).toEqual({ inspect: true })
+  const result = await f.coordinator.inspectInstance(scope, f.instance.id)
+  expect(result).toMatchObject({ native: { name: 'Codex' }, authentication: { state: 'authenticated', methods: [] }, models: { status: 'available', items: [
+    { id: 'first', name: 'Model first', isDefault: true, reasoningEfforts: ['high'] },
+    { id: 'second', name: 'Model second', isDefault: false, reasoningEfforts: ['high'] },
+  ] } })
+  expect(JSON.stringify(result)).not.toMatch(/private|native-secret|email|accessToken/)
+  const trace = await f.trace()
+  expect(trace.filter(r => r.method === 'account/read')[0].params).toEqual({ refreshToken: false })
+  expect(trace.some(r => r.method?.startsWith('thread/') || r.method?.startsWith('turn/'))).toBe(false)
+  expect(alive(await f.pid())).toBe(false)
+  expect(await f.run('after-inspect')).toMatchObject({ status: 'completed' })
+})
+
+it('rejects a cycling native model cursor and disposes the inspection process', async () => {
+  const f = await setup({ INSPECT_MODE: 'loop' })
+  await expect(f.coordinator.inspectInstance(scope, f.instance.id)).rejects.toMatchObject({ code: 'INTERNAL' })
+  expect(alive(await f.pid())).toBe(false)
+  expect((await f.trace()).filter(r => r.method === 'model/list')).toHaveLength(2)
+})
+
+it('cancels a hung native inspection and keeps the plugin available', async () => {
+  const f = await setup({ INSPECT_MODE: 'hang' }), controller = new AbortController()
+  const pending = f.coordinator.inspectInstance(scope, f.instance.id, controller.signal)
+  await vi.waitFor(async () => expect((await f.trace()).some(r => r.method === 'account/read')).toBe(true))
+  expect(f.host.diagnostic('studio.agent-codex', 'one').hasActiveLeases).toBe(true)
+  await expect(f.host.configure({ pluginId: 'studio.agent-codex', profileId: 'one', ownerId: 'installer', enabled: false, config: {}, grants: [] }, 1)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  controller.abort()
+  await expect(pending).rejects.toMatchObject({ code: 'CANCELLED' })
+  expect(alive(await f.pid())).toBe(false)
+  await vi.waitFor(() => expect(f.host.diagnostic('studio.agent-codex', 'one').hasActiveLeases).toBe(false))
+  expect(await f.run('after-cancelled-inspection')).toMatchObject({ status: 'completed' })
+})
+
+it('revokes managed process access during native inspection', async () => {
+  const f = await setup({ INSPECT_MODE: 'hang' })
+  const pending = f.coordinator.inspectInstance(scope, f.instance.id).catch(error => error)
+  await vi.waitFor(async () => expect((await f.trace()).some(r => r.method === 'account/read')).toBe(true))
+  const profile = f.store.profile('studio.agent-codex', 'one')!
+  f.store.saveProfile({ ...profile, grants: ['agents.register'] }, profile.revision)
+  expect(await pending).toMatchObject({ code: 'FORBIDDEN' })
+  expect(alive(await f.pid())).toBe(false)
+})
 
 it('loads the Codex bundle in a worker, routes approvals and reuses a native process across turns', async () => {
   const f = await setup(), first = f.start('approval')

@@ -17,6 +17,7 @@ studioPluginRoutes.get('/api/studio/agent-types', requireUserProfile, controller
 studioPluginRoutes.get('/api/studio/agent-instances', requireUserProfile, controller.listAgentInstances)
 studioPluginRoutes.post('/api/studio/agent-instances', requireUserProfile, controller.createAgentInstance)
 studioPluginRoutes.put('/api/studio/agent-instances/:id', requireUserProfile, controller.configureAgentInstance)
+studioPluginRoutes.post('/api/studio/agent-instances/:id/inspect', requireUserProfile, controller.inspectAgentInstance)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/runs', requireUserProfile, controller.startAgentExecution)
 studioPluginRoutes.get('/api/studio/agent-runs/:id', requireUserProfile, controller.getAgentExecution)
 studioPluginRoutes.get('/api/studio/agent-runs/:id/output', requireUserProfile, controller.getAgentExecutionOutput)

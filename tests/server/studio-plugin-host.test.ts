@@ -93,6 +93,35 @@ function setup(sessions: ContextServices['sessions'] = { get: async () => null }
   return { db, store, registry, events, logger, host, ctx, coordinator, eventStore }
 }
 
+it.each(['cancel', 'revoke'])('stops an uncooperative management callback before releasing its instance (%s)', async action => {
+  const { host, store, registry, coordinator, logger } = setup()
+  const directory = await mkdtemp(join(root, 'management-'))
+  const manifest = { schemaVersion: 1, id: 'test.management', version: '1.0.0', engines: { studioSdk: '^0.1.0', rpc: 1 }, backend: 'index.cjs', activation: 'profile',
+    contributes: { agents: ['test.management/agent'] }, requires: { capabilities: ['agents.register'] } }
+  await writeFile(join(directory, 'studio-plugin.json'), JSON.stringify(manifest))
+  await writeFile(join(directory, 'index.cjs'), `module.exports = { apply(plugin) { plugin.agents.register({
+    id: 'test.management/agent', name: 'Fixture', configSchema: {}, capabilities: { text: true, modes: ['global'] },
+    management: { inspect: async () => { plugin.logger.info('inspection-started'); await new Promise(() => {}); } },
+    create: async () => { throw new Error('must not start'); }
+  }); } };`)
+  await host.install(directory)
+  const state = { pluginId: manifest.id, profileId: 'default', ownerId: '1', enabled: true, config: {}, grants: manifest.requires.capabilities }
+  await host.configure(state, 0)
+  const scope: ExecutionScope = { scopeId: 'inspect', principal: { kind: 'user', id: '1' }, profileId: 'default', surface: 'api', traceId: 'trace' }
+  const instance = coordinator.createInstance(scope, { agentTypeId: 'test.management/agent', mode: 'global', config: {} })
+  const controller = new AbortController(), pending = coordinator.inspectInstance(scope, instance.id, controller.signal).catch(error => error)
+  await vi.waitFor(() => expect(logger.info.mock.calls.some(call => JSON.stringify(call).includes('inspection-started'))).toBe(true))
+  if (action === 'cancel') controller.abort()
+  else store.saveProfile({ ...state, grants: [] }, 1)
+  await expect(coordinator.updateInstance(scope, instance.id, { revision: 1, mode: 'global', config: {} })).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  const error = await pending
+  // Revocation can be observed either by the grant watcher or by the
+  // coordinator after the uncooperative worker's contribution is withdrawn.
+  expect(action === 'cancel' ? ['CANCELLED'] : ['FORBIDDEN', 'RUNTIME_UNAVAILABLE']).toContain(error.code)
+  expect(registry.list('default')).toEqual([])
+  expect(host.diagnostic(manifest.id, 'default')).toMatchObject({ state: 'failed', hasActiveLeases: false })
+})
+
 describe('plugin worker integration', () => {
   it.each([true, false])('calls workflow services through scoped worker RPC and rejects revoked grants (granted: %s)', async granted => {
     const receipt = { id: 'workflow-run', workflowId: 'workflow', profileId: 'default', ownerId: '1', status: 'running' as const, createdAt: 1, startedAt: 1, finishedAt: null }

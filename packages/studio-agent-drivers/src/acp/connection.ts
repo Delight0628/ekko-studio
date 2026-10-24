@@ -146,11 +146,17 @@ export class AcpConnection {
       .finally(() => { if (this.permissions.get(id) === controller) this.permissions.delete(id) })
   }
 
-  async prompt(input: { cwd: string; text: string; images?: AcpImageInput[]; nativeSessionId?: string; mcpServers: object[]; model?: string; reasoningEffort?: string }): Promise<string> {
+  /** Metadata handshake only; does not authenticate or create a native session. */
+  async initialize(): Promise<any> {
     const initialized = await this.request('initialize', {
       protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'ekko-studio', version: '1.0.0' },
     })
     if (initialized?.protocolVersion !== 1) throw new Error('Unsupported ACP protocol version')
+    return initialized
+  }
+
+  async prompt(input: { cwd: string; text: string; images?: AcpImageInput[]; nativeSessionId?: string; mcpServers: object[]; model?: string; reasoningEffort?: string }): Promise<string> {
+    const initialized = await this.initialize()
     const capabilities = initialized.agentCapabilities || {}
     if (input.images?.length && capabilities.promptCapabilities?.image !== true) {
       throw new Error('This CLI does not advertise ACP image input support; update the CLI or choose an image-capable model')

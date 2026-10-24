@@ -93,6 +93,13 @@ requires_openai_auth = false
         plugin.apply({ agents: { register(value) {
           definition = value;
         } } });
+        const inspectionTimer = setTimeout(() => controller.abort(), 25000);
+        try {
+          const inspection = await definition.management.inspect({ instanceId: "acceptance", mode: "global", configRevision: 1, config }, { signal: controller.signal, processes: scope.api });
+          if (vendor === "codex" && (inspection.authentication.state !== "not_required" || inspection.models.status !== "available")) throw new Error("Unexpected Codex inspection");
+          if (vendor === "qwen-code" && (inspection.authentication.state !== "unknown" || inspection.models.status !== "unsupported" || !inspection.authentication.methods.length)) throw new Error("Unexpected Qwen inspection");
+          console.log(JSON.stringify({ vendor, inspection: true, authentication: inspection.authentication.state, modelCatalog: inspection.models.status, models: inspection.models.items.length }));
+        } finally { clearTimeout(inspectionTimer); }
         runtime = await definition.create({ instanceId: "acceptance", mode: "global", configRevision: 1, config }, { signal: controller.signal, processes: scope.api });
         let checkpoint;
         for (let turn = 0; turn < 2; turn++) {

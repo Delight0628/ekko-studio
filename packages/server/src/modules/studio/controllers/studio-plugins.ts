@@ -94,6 +94,14 @@ function executionScope(ctx: Context): ExecutionScope {
   return { scopeId: randomUUID(), principal: { kind: 'user', id: userId(ctx) }, profileId: profile(ctx), surface: 'api', traceId: randomUUID() }
 }
 export const listAgentInstances = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().coordinator.listInstances(executionScope(ctx)))
+export const inspectAgentInstance = (ctx: Context) => respond(ctx, async () => {
+  body(ctx, ['profile'])
+  const controller = new AbortController(), abort = () => controller.abort()
+  ctx.res.once('close', abort)
+  if (ctx.res.destroyed) abort()
+  try { return await getStudioPluginRuntime().coordinator.inspectInstance(executionScope(ctx), ctx.params.id, controller.signal) }
+  finally { ctx.res.removeListener('close', abort) }
+})
 export const createAgentInstance = (ctx: Context) => respond(ctx, () => {
   const input = body(ctx, ['agentTypeId', 'config', 'mode', 'profile'])
   if (typeof input.agentTypeId !== 'string' || !input.config || typeof input.config !== 'object' || Array.isArray(input.config)

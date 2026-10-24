@@ -3,6 +3,7 @@ import { AgentEventQueue, NativeRpcConnection } from '@ekko-studio/agent-drivers
 import { StudioError, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
 import { codexEvents } from './events'
 import { codexInteractions } from './interactions'
+import { management } from './management'
 
 type Output = AgentOutputEvent extends infer T ? T extends AgentOutputEvent ? Omit<T, 'producerSequence'> : never : never
 const schema: JsonObject = {
@@ -32,6 +33,7 @@ interface Turn {
 export const apply: StudioPlugin['apply'] = plugin => {
   plugin.agents.register({
     id: 'codex', name: 'Codex', configSchema: schema,
+    management,
     capabilities: { text: true, streaming: true, reasoning: true, approvals: true, clarifications: true, resume: true, persistentSession: true, modes: ['global'] },
     async create(input, runtime) {
       const config = input.config, cwd = String(config.cwd)

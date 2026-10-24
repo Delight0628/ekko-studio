@@ -9,6 +9,7 @@ import { PluginEventBus } from '../events/plugin-events'
 import { compileSchema, jsonCopy, parseAgentOutput } from '../plugins/validation'
 import { ManagedMcpScope } from '../mcp/managed'
 import { ManagedProcessScope } from '../processes/managed'
+import { AgentManagement } from './management'
 
 interface ActiveRun {
   controller: AbortController; handle?: AgentRunHandle; completed: Promise<void>; resolve(): void
@@ -42,6 +43,7 @@ export class AgentCoordinator {
   private readonly queues = new Map<string, InstanceQueue>()
   private readonly leases = new Map<string, RuntimeLease>()
   private readonly configuring = new Set<string>()
+  private readonly management = new AgentManagement()
   private closed = false
   constructor(private readonly options: {
     store: AgentExecutionStore; registry: AgentRegistry; events: PluginEventBus; logger: ScopedLogger
@@ -63,6 +65,33 @@ export class AgentCoordinator {
     return this.options.store.instances(scope.principal.id, scope.profileId)
   }
 
+  async inspectInstance(scope: ExecutionScope, instanceId: string, signal?: AbortSignal) {
+    scope = jsonCopy(scope)
+    const inspect = () => {
+      if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent coordinator is shutting down')
+      this.options.authorize(scope)
+      if (scope.sessionId !== undefined || scope.runId !== undefined || scope.workspaceId !== undefined) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent management requires an unbound scope')
+      const instance = this.options.store.instance(instanceId)
+      if (!instance || instance.ownerId !== scope.principal.id || instance.profileId !== scope.profileId) throw new StudioError('NOT_FOUND', 'Agent instance is unavailable')
+      if (this.queues.has(instanceId) || this.options.store.hasActiveRuns(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance has active runs')
+      return { instance, ...this.options.registry.resolve(scope.profileId, instance.agentTypeId) }
+    }
+    const original = inspect(), { instance, provider, definition } = original
+    if (!definition.management) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent does not support native inspection')
+    if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance is being managed')
+    this.configuring.add(instanceId)
+    const authorize = () => {
+      const current = inspect()
+      if (current.instance.revision !== instance.revision || JSON.stringify(current.provider) !== JSON.stringify(provider)) throw new StudioError('REVISION_CONFLICT', 'Agent changed during inspection')
+    }
+    try {
+      const result = await this.management.inspect({ instanceId, config: instance.config, configRevision: instance.revision, mode: instance.mode },
+        scope, provider, definition.management, authorize, this.options.logger, signal)
+      authorize()
+      return { instanceId, configRevision: instance.revision, provider, ...result }
+    } finally { if (!this.management.isBlocked(instanceId)) this.configuring.delete(instanceId) }
+  }
+
   async updateInstance(scope: ExecutionScope, instanceId: string, value: AgentInstanceConfiguration): Promise<AgentInstance> {
     scope = jsonCopy(scope)
     const input = jsonCopy(value)
@@ -82,7 +111,7 @@ export class AgentCoordinator {
       return { instance, provider: JSON.stringify(resolved.provider) }
     }
     const previous = inspect()
-    if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent configuration is changing')
+    if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance is being managed')
     this.configuring.add(instanceId)
     try {
       await this.disposeLease(instanceId, 'Instance configuration changed')
@@ -103,7 +132,7 @@ export class AgentCoordinator {
     scope = jsonCopy(scope)
     const previous = this.options.store.findRequest(instance, input, idempotencyKey)
     if (previous) return { instance, previous }
-    if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent configuration is changing')
+    if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance is being managed')
     const { definition, provider } = this.options.registry.resolve(scope.profileId, instance.agentTypeId)
     if (!input || typeof input !== 'object' || Object.keys(input).some(key => !['content', 'model', 'timeoutMs'].includes(key))) throw new StudioError('INVALID_ARGUMENT', 'Invalid run input')
     if (!Array.isArray(input.content) || !input.content.length || input.content.length > 100) throw new StudioError('INVALID_ARGUMENT', 'Run content is required')
@@ -249,8 +278,9 @@ export class AgentCoordinator {
   async wait(id: string): Promise<void> { await this.active.get(id)?.completed }
   async close(): Promise<void> {
     this.closed = true
+    const management = this.management.close()
     for (const id of [...this.active.keys()]) this.stop(id)
-    await Promise.allSettled([...this.active.values()].map(active => active.completed))
+    await Promise.allSettled([management, ...[...this.active.values()].map(active => active.completed)])
     await Promise.allSettled([...this.leases.keys()].map(id => this.disposeLease(id, 'Host shutdown')))
   }
 

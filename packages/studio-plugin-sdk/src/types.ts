@@ -208,6 +208,22 @@ export interface AgentTypeSummary {
   configSchema: JsonSchema
   capabilities: AgentCapabilities
   provider: AgentProviderRef
+  management?: { inspect: true }
+}
+
+/** Native metadata only: never return credentials, config files or account identifiers. */
+export interface AgentInspection {
+  native: { name: string; version?: string }
+  authentication: {
+    state: 'authenticated' | 'required' | 'not_required' | 'unknown'
+    methods: Array<{ id: string; name: string }>
+  }
+  models: { status: 'available' | 'unsupported'; items: Array<{ id: string; name: string; isDefault?: boolean; reasoningEfforts?: string[] }> }
+}
+export type AgentManagementInput = Pick<RuntimeCreateInput, 'instanceId' | 'config' | 'configRevision' | 'mode'>
+export interface AgentManagementAdapter {
+  /** Short-lived resources; no prompt, login, credential refresh or config mutation. */
+  inspect(input: AgentManagementInput, context: AgentRuntimeContext): Promise<AgentInspection>
 }
 
 export interface AgentRuntimeContext {
@@ -397,6 +413,7 @@ export interface AgentTypeDefinition {
   description?: string
   configSchema: JsonSchema
   capabilities: AgentCapabilities
+  management?: AgentManagementAdapter
   create(input: RuntimeCreateInput, ctx: AgentRuntimeContext): Promise<AgentRuntime>
 }
 

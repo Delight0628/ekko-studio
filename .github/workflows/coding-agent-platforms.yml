@@ -85,4 +85,5 @@ jobs:
           tests/server/studio-plugin-processes.test.ts
           tests/server/studio-plugin-process-bridge.test.ts
           tests/server/studio-agent-lifecycle.test.ts
+          tests/server/studio-agent-management.test.ts
           --maxWorkers=1

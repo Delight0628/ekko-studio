@@ -15,6 +15,7 @@
 | 安装策略 | 14 个系统插件 ID 已保留；用户安装不能覆盖，删除在接触工件/worker 前返回 `SYSTEM_PLUGIN_PROTECTED`；profile 选择不会被重复系统登记覆盖 |
 | 事件 | `ctx.on` / `ctx.once`、profile/owner 授权、每分区有序通知；`ctx.events.consume` 持久化游标、租约、重试/死信和保留期；仅把明确允许的旧业务事件字段投影到公共事件表 |
 | Agent API 执行 | 实例、接受请求、幂等、启动、流输出、完成屏障、取消、终态与事件事务落库；崩溃恢复标记 interrupted，不自动重放输入 |
+| 原生管理检查 | 通用 `management.inspect`、目录能力发现、独立短期资源和所有者/profile 鉴权；Codex 脱敏账号状态及模型分页，Qwen ACP 信息/认证方式；登录、配置文件等完整管理仍未迁移 |
 | 受管进程 | runtime 租约持有管道进程，宿主签发句柄、用户/profile/runtime 隔离、有界字节读取与写入背压、环境白名单、退出确认和进程树终止；worker 不持有宿主 ChildProcess |
 | MCP 工具 SDK | `runtime.mcp.connect` 支持显式 stdio/HTTP 配置、工具发现/调用、文本/图片/JSON 结果、跨成功轮次连接复用、撤权回收及可等待清理；原生配置注入、统一交互凭据和 resources/prompts 仍未完成 |
 | 协议抽取 | 标准 ACP 连接及事件转换移入独立 `studio-agent-drivers`；旧调用通过兼容入口复用，原有协议测试继续通过 |
@@ -43,6 +44,7 @@
 | `GET /api/studio/agent-instances` | 当前用户、当前 profile 的实例 |
 | `POST /api/studio/agent-instances` | 按已注册类型的 schema 创建实例 |
 | `PUT /api/studio/agent-instances/:id` | 按 revision 更新自身实例配置；活动 Run 阻止修改，旧租约确认回收后提交 |
+| `POST /api/studio/agent-instances/:id/inspect` | 检查空闲自有实例的原生元数据；与运行/配置修改互斥，不创建 Run 或聊天历史 |
 | `POST /api/studio/agent-instances/:id/runs` | 接受文本执行及幂等键 |
 | `GET /api/studio/agent-runs/:id` | 读取自身 Run 状态 |
 | `GET /api/studio/agent-runs/:id/output` | 按 `after` 序号读取自身 Run 输出 |
@@ -487,6 +489,24 @@ MCP SDK 已以 `93cc9e9ff` 提交并推送至现有草稿 PR。随后在该提�
 增加 `npm run verify:plugins:native`：在临时 Home 与本地 Responses/Anthropic 模拟服务下，运行生产插件工件和宿主管理进程。可用 `STUDIO_CODEX_COMMAND` / `STUDIO_QWEN_COMMAND` 指定已安装 CLI 的路径，不自动安装 CLI、不读取既有 Home 或账号凭据。本机 Codex 0.163.0、Qwen Code 0.25.0 均完成两轮实际文本运行及同一原生会话续聊。该结果验证原生协议与输出，不覆盖真实提供商服务、登录、工具/图片/审批全矩阵。
 
 两插件完整迁移仍缺 scoped provider、原生登录/管理、宿主 MCP/Skills 注入、图片、用量对账及聊天交接；Codex 另缺 MCP elicitation 与 compact。实例配置 API 不等同于厂商原生配置管理完成，七大交付块及 T08/T09 继续保持未完成。
+
+## T06/T08 进展：统一原生管理检查
+
+已增加公共 `AgentManagementAdapter.inspect` 和 `AgentInspection` DTO，Agent 目录公开检查能力；内置提供方直接实现，插件通过 worker RPC 使用同一契约。`POST /api/studio/agent-instances/:id/inspect` 仅根据宿主持有的自有实例配置启动检查，没有可覆盖的身份、profile、路径或 provider 参数。
+
+- 检查与新 Run、实例配置修改互斥，活动/排队 Run 阻止检查；不创建 Studio Run、checkpoint 或原生聊天会话。
+- 检查使用独立短期进程/MCP 作用域，重新检查当前 owner/profile、提供方 generation、配置 revision 和插件授权。16 个并发检查、25 秒期限、256 KiB 元数据及有界模型/认证方式列表。
+- 请求断连、取消、撤权与应用关闭会中止检查并确认清理。忽略取消的 worker 被终止，直到清理完成才释放实例；不能确认退出时保留占用。修复了延迟关闭旧管理 worker 可能误伤下一轮运行的竞态。
+- Codex 通过原生 `account/read`（不刷新令牌）和有界 `model/list` 分页返回账号状态及模型选择；原生 email、Home、配置、token 和未知扩展字段不进入结果。模型分页循环被拒绝并回收进程。
+- Qwen 只执行 ACP v1 initialize，读取客户端名称/版本与认证方式。该握手不提供账号登录状态，明确返回 unknown；不为查询模型创建原生会话，模型发现明确返回 unsupported。
+
+真实工件验收已扩展到检查接口：本机 Codex 0.163.0 返回无需 OpenAI 认证的本地 provider 状态及 8 个原生模型；Qwen Code 0.25.0 返回原生认证方式。两者随后均通过两轮本地模型 fixture 文本执行及同一原生会话续聊。使用临时 Home、伪凭据和本地模型服务，没有进行真实账号登录、真实供应商推理或全能力验收。
+
+该增量不包含登录/退出、配置文件修改、CLI 安装升级、终端、Skills/MCP 原生管理或通用界面。scoped provider 模式仍需宿主模型网关与原生隔离配置接入；不能使用现有模型流接口宣称完整兼容原生工具协议。七大块与 T08/T09 继续保持未完成。
+
+验证：最终管理/配置/原生插件/HTTP/worker/生命周期/ACP 专项 8 文件、138 项通过；全量 coverage 915 文件、9,414 项通过，12 文件/33 项跳过，563.45 秒（Node 24.22.1、两 worker、默认时限，同机同时执行浏览器回归）。生产构建、插件及服务端类型检查、生成式 OpenAPI、harness 和差异检查通过。
+
+完整浏览器回归首轮 934 项通过、1 项失败（11.2 分钟，无自动重试）：既有 `unified-page-loading` 的 TTS 页在虚拟时钟推进后没有找到加载遮罩。保留首次失败诊断，原断言、默认时限和生产前端代码均未修改；仅该用例带 trace 单独复测 1 项通过（8.1 秒）。不将本次浏览器全量称为首轮全绿；前一提交 `c7ddd48e9` 的构建、runtime、全部浏览器分片与三平台进程 CI 均已通过，新提交仍由 PR CI 继续验证。
 
 ## CI 修复：JEV harness 重复解析
 

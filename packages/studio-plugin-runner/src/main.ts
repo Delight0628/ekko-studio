@@ -20,6 +20,7 @@ const peer = new RpcPeer({ send: frame => new Promise((resolve, reject) => {
   process.send(frame, error => error ? reject(error) : resolve())
 }) })
 const definitions = new Map<string, AgentTypeDefinition>()
+const managementCalls = new Map<string, AbortController>()
 const runtimes = new Map<string, { runtime: AgentRuntime; controller: AbortController; handle: string }>()
 const runs = new Map<string, { handle: AgentRunHandle; controller: AbortController }>()
 const callbacks = new Map<string, { type: string; once: boolean; handler: (event: EventEnvelope, ctx: ExecutionContext) => void | Promise<void> }>()
@@ -180,13 +181,31 @@ peer.handle('activate', async value => {
   active = true
   return json({
     rpc: STUDIO_PLUGIN_RPC_VERSION,
-    agents: [...definitions.values()].map(({ create: _create, ...definition }) => definition),
+    agents: [...definitions.values()].map(({ create: _create, management, ...definition }) => ({ ...definition,
+      ...(management ? { management: { inspect: typeof management.inspect === 'function' } } : {}) })),
     subscriptions: [...callbacks].map(([id, { type, once }]) => ({ id, type, once })),
     services: [...services.values()].map(value => value.token),
     consumers: [...consumers].map(([name, { spec }]) => ({ name, spec })),
     hooks: [...hooks.values()].map(({ point, options }) => ({ point, options })),
   })
 })
+
+peer.handle('management.inspect', async value => {
+  const params = object(value), callId = string(params.callId), definition = definitions.get(string(params.agentTypeId))
+  if (!active || !identity || !definition?.management) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent inspection is unavailable')
+  if (managementCalls.has(callId) || managementCalls.size >= 16) throw new StudioError('RESOURCE_EXHAUSTED', 'Agent inspection limit reached')
+  const controller = new AbortController(), handle = string(params.runtimeHandle)
+  managementCalls.set(callId, controller)
+  try {
+    return json(await runtimeScope.run(handle, () => definition.management!.inspect(object(params.input) as unknown as import('../../studio-plugin-sdk/src').AgentManagementInput, {
+      provider: { kind: 'plugin', pluginId: identity!.id, generation: identity!.generation, version: identity!.version },
+      runtimeSessionId: callId, profileId: identity!.profileId, ownerId: string(params.ownerId), logger, signal: controller.signal,
+      processes: remoteProcesses(peer, handle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation),
+      mcp: remoteMcp(peer, handle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation),
+    })))
+  } finally { controller.abort(); managementCalls.delete(callId) }
+})
+peer.handle('management.cancel', async value => { managementCalls.get(string(object(value).callId))?.abort(); return null })
 
 peer.handle('runtime.create', async value => {
   const params = object(value)
@@ -315,12 +334,14 @@ async function dispose(): Promise<void> {
   for (const controller of serviceCalls.values()) controller.abort()
   for (const controller of deliveries.values()) controller.abort()
   for (const controller of hookCalls.values()) controller.abort()
+  for (const controller of managementCalls.values()) controller.abort()
   for (const { handle, controller } of runs.values()) { controller.abort(); await handle.cancel('Plugin shutdown').catch(() => {}) }
   for (const { runtime, controller, handle } of runtimes.values()) { controller.abort(); await runtimeScope.run(handle, () => runtime.dispose('Plugin shutdown')).catch(() => {}) }
   for (const dispose of disposers.reverse()) { try { await dispose() } catch { /* Host also owns process cleanup. */ } }
   runs.clear(); runtimes.clear(); definitions.clear(); callbacks.clear(); services.clear(); serviceCalls.clear()
   consumers.clear(); deliveries.clear()
   hooks.clear(); hookCalls.clear()
+  managementCalls.clear()
 }
 peer.handle('dispose', async () => { await dispose(); return null })
 process.on('message', message => { void peer.receive(message).catch(() => { peer.close(); if (process.connected) process.disconnect() }) })

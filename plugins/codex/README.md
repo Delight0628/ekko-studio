@@ -23,8 +23,14 @@ cumulative counters are not represented as fabricated per-call usage records.
 Protocol reference: [official app-server documentation](https://learn.chatgpt.com/docs/app-server).
 The initial schema was also checked against locally generated Codex 0.163.0 types.
 
+The optional `management.inspect` adapter uses a separate short-lived app-server
+to read account state without refreshing credentials and enumerate native models
+with bounded pagination. It returns no email, account identifier, native home,
+configuration or token. Inspection does not start a thread or prompt, log in,
+or mutate configuration. Host cancellation/grant revocation reaps its resources.
+
 `npm run verify:plugins:native` builds both native plugin artifacts and runs two
 real CLI turns against local model fixtures in temporary homes. Set
 `STUDIO_CODEX_COMMAND` and `STUDIO_QWEN_COMMAND` when the installed CLIs are not on
-PATH. This verifies native text streaming and session reuse without account login
+PATH. This verifies native inspection, text streaming and session reuse without account login
 or remote model calls; it does not cover the complete vendor acceptance matrix.

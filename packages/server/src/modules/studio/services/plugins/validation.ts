@@ -2,7 +2,7 @@ import Ajv from 'ajv'
 import { valid, validRange, satisfies, major } from 'semver'
 import {
   StudioError, STUDIO_SDK_VERSION,
-  type JsonValue, type JsonSchema, type PluginManifest, type AgentTypeDefinition, type AgentOutputEvent, type ServiceToken,
+  type JsonValue, type JsonSchema, type PluginManifest, type AgentTypeDefinition, type AgentOutputEvent, type ServiceToken, type AgentInspection,
 } from '../../contracts/plugins'
 
 const ajv = new Ajv({ allErrors: false, strict: true, validateFormats: false, allowUnionTypes: true })
@@ -124,6 +124,8 @@ export function validateAgentDefinition(definition: AgentTypeDefinition): void {
     throw new StudioError('INVALID_ARGUMENT', 'Agent requires a name and runtime factory')
   }
   const capabilities = definition.capabilities
+  if (definition.management !== undefined && (!definition.management || typeof definition.management.inspect !== 'function'
+    || Object.keys(definition.management).some(key => key !== 'inspect'))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent management adapter')
   if (!capabilities || typeof capabilities.text !== 'boolean' || !Array.isArray(capabilities.modes) || !capabilities.modes.length
     || capabilities.modes.some(mode => mode !== 'scoped' && mode !== 'global')) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent capabilities')
   const flags = ['text', 'images', 'files', 'streaming', 'reasoning', 'resume', 'persistentSession', 'compact', 'approvals', 'clarifications', 'steering']
@@ -132,6 +134,27 @@ export function validateAgentDefinition(definition: AgentTypeDefinition): void {
     if (!flags.includes(key) || typeof value !== 'boolean') throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent capability')
   }
   compileSchema(definition.configSchema)
+}
+
+const managementString = { type: 'string', minLength: 1, maxLength: 256 }
+const validateInspection = ajv.compile({ type: 'object', additionalProperties: false, required: ['native', 'authentication', 'models'], properties: {
+  native: { type: 'object', additionalProperties: false, required: ['name'], properties: { name: managementString, version: managementString } },
+  authentication: { type: 'object', additionalProperties: false, required: ['state', 'methods'], properties: {
+    state: { enum: ['authenticated', 'required', 'not_required', 'unknown'] },
+    methods: { type: 'array', maxItems: 32, items: { type: 'object', additionalProperties: false, required: ['id', 'name'], properties: { id: managementString, name: managementString } } },
+  } },
+  models: { type: 'object', additionalProperties: false, required: ['status', 'items'], properties: {
+    status: { enum: ['available', 'unsupported'] }, items: { type: 'array', maxItems: 512, items: { type: 'object', additionalProperties: false, required: ['id', 'name'], properties: {
+      id: managementString, name: managementString, isDefault: { type: 'boolean' }, reasoningEfforts: { type: 'array', maxItems: 32, uniqueItems: true, items: managementString },
+    } } },
+  } },
+} })
+export function parseAgentInspection(value: unknown): AgentInspection {
+  const result = jsonCopy(value, 262_144) as AgentInspection
+  if (!validateInspection(result) || new Set(result.models.items.map(item => item.id)).size !== result.models.items.length
+    || new Set(result.authentication.methods.map(item => item.id)).size !== result.authentication.methods.length
+    || (result.models.status === 'unsupported' && result.models.items.length)) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent inspection')
+  return result
 }
 
 const eventSequence = { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER }
