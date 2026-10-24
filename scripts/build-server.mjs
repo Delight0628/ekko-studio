@@ -29,6 +29,7 @@ await esbuild.build({
 })
 
 await import('./build-plugin-runtime.mjs')
+await (await import('./build-agent-plugins.mjs')).buildAgentPlugins()
 
 const bridgeOutDir = resolve(serverOutDir, 'agent-bridge', 'python')
 const bridgeSrcDir = resolve(rootDir, 'packages/server/src/modules/hermes/services/bridge/python')

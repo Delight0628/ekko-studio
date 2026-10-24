@@ -3,3 +3,4 @@ export { acpMcpServers, applyNativeAcpUpdate, type AcpEventHost } from './acp/ev
 export { ManagedProcessTransport, type ManagedProcessPort, type AgentProcessIO } from './process/transport'
 export { ManagedJsonRpcTransport } from './process/json-rpc'
 export { AgentEventQueue } from './events/queue'
+export { NativeRpcConnection, type NativeRpcMessage } from './process/rpc-connection'

@@ -21,7 +21,7 @@
 | 旧聊天启动 | 准入已迁为共用服务，HTTP 直接调用；直调入口已绑定宿主 ExecutionScope、复制输入与身份并区分准入前取消和准入后排队；SDK 已通过 `chat.start/get/cancel` 接入已有会话文本运行 |
 | 工程接入 | bootstrap、鉴权 API、生成式 OpenAPI、runner 构建、插件私有导入边界检查、独立 Echo 样例 |
 
-安装策略测试中的 14 条 fixture 只验证保护和幂等规则。**当前没有把这 14 个 Agent 注册成已安装系统插件**，也没有用空壳包代替厂商迁移。已有 Qwen 独立包的 global 文本运行增量，尚未默认安装或替换旧入口，不能计为完整迁移。旧 Coding Agent 仍使用原执行和管理路径。Hermes/Ekko 仍是原内置模块。
+安装策略测试中的 14 条 fixture 只验证保护和幂等规则。**当前没有把这 14 个 Agent 注册成已安装系统插件**，也没有用空壳包代替厂商迁移。已有 Qwen 与 Codex 独立包的 global 文本运行增量，尚未默认安装或替换旧入口，不能计为完整迁移。旧 Coding Agent 仍使用原执行和管理路径。Hermes/Ekko 仍是原内置模块。
 
 ## 当前开发接口
 
@@ -455,6 +455,21 @@ MCP SDK 已以 `93cc9e9ff` 提交并推送至现有草稿 PR。随后在该提�
 验证：Qwen 独立工件/真实 worker、错误边界与输出背压及原宿主回归共 4 文件、31 项通过；ACP 审批与原协议/受管进程回归 2 文件、30 项通过；插件类型检查、生产构建通过。worker 使用确定性 CLI fixture，不等于厂商真实模型调用验收。
 
 最终全量 coverage：911 文件、9,334 项通过，12 文件/33 项跳过，273.46 秒；Node 24.22.1、两 worker、默认测试时限。harness 和差异检查通过。本机 Qwen Code 0.25.0 与 Codex 0.163.0 在隔离配置目录完成真实 initialize 握手；未使用这些握手结果声称登录、模型调用或完整真实 CLI 验收完成。
+
+## T08 进展：Codex 独立 app-server 运行增量
+
+`plugins/codex` 提供 `studio.agent-codex` / `codex` 工件，经公共 SDK、受管进程和有界双向 JSONL RPC 运行。生产构建现在也生成两个已有实现的插件包；原安装策略不变，未把预留 ID 自动登记为已迁移插件。
+
+- 每个 runtime 初始化一次原生 app-server，成功轮次复用进程和 thread；租约释放后从持久化 checkpoint 恢复原 thread，不静默新建替代会话。
+- 文本 delta 和最终 snapshot 使用相同消息 ID，工具完成去重。事件在 turn/start 响应前到达时有界暂存；严格按 thread/turn 过滤，其他会话及旧轮次输出不能混入当前 Run。
+- 命令与文件审批走统一 interaction，用户只能选择公开且被原生允许的选项。取消发出 turn/interrupt，随后等待实际进程关闭；准入期间取消同样回收进程。畸形帧、异常退出和未结束工具不能提交成功 checkpoint。
+- 原生 RPC 分开维护双向请求 ID、限制并发及帧大小，退出时中止所有等待；不自动重试可能已发生副作用的请求。
+
+独立包仍缺 scoped provider 设置、原生配置/登录管理、图片、clarification/MCP elicitation、compact 和原生用量账本归并。线程累计计数没有冒充逐模型调用用量。新聊天选择器、默认系统安装和旧 Codex 路径交接均未完成；本项不关闭 T08/T09。
+
+验证：Codex/Qwen 真实 worker、原生 thread 恢复、审批、取消及 RPC 协议专项 3 文件、19 项通过；类型检查、生产构建及 harness 通过。两包已纳入三平台默认时限进程任务。本机 Codex 0.163.0 还经实际生产插件 bundle 与宿主管理进程完成 initialize/清理验证，未发起推理。
+
+最终全量 coverage：913 文件、9,347 项通过，12 文件/33 项跳过，277.18 秒；Node 24.22.1、两 worker、默认测试时限。两个 npm 插件工件在仓库外解包验证，解包后的 Codex 工件通过同一实际 CLI 握手与清理检查；未发布 npm 包。生产构建、harness 和差异检查通过，当前完整浏览器证据仍为前述 `93cc9e9ff` 的 935 项通过。
 
 ## CI 修复：JEV harness 重复解析
 
