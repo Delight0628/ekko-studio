@@ -87,6 +87,11 @@ export class AgentManagementOperations {
     return this.store.list(scope.principal.id, scope.profileId, instanceId).map(record => this.project(record))
   }
   get(scope: ExecutionScope, id: string): AgentManagementOperation { return this.project(this.owned(scope, id)) }
+  async wait(scope: ExecutionScope, id: string): Promise<void> {
+    this.owned(scope, id)
+    await this.operations.get(id)?.completed
+    this.owned(scope, id)
+  }
   output(scope: ExecutionScope, id: string, after: number): AgentManagementOutput {
     const record = this.owned(scope, id)
     if (!Number.isSafeInteger(after) || after < 0) throw new StudioError('INVALID_ARGUMENT', 'Invalid terminal cursor')

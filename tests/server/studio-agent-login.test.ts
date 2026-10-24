@@ -13,6 +13,7 @@ import { PluginHost } from '../../packages/server/src/modules/studio/services/pl
 import { PluginEventBus } from '../../packages/server/src/modules/studio/services/events/plugin-events'
 import { createExecutionContext } from '../../packages/server/src/modules/studio/services/context/execution'
 import { parseAgentLogin } from '../../packages/server/src/modules/studio/services/agents/login-contract'
+import { AgentManagementOperations } from '../../packages/server/src/modules/studio/services/agents/management-operations'
 import { nativeAgentLogin, StudioError, type ExecutionScope } from '../../packages/studio-plugin-sdk/src'
 
 const scope: ExecutionScope = { scopeId: 'scope', principal: { kind: 'user', id: 'owner' }, profileId: 'one', surface: 'api', traceId: 'trace' }
@@ -27,7 +28,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 afterAll(async () => { await rm(root, { recursive: true, force: true }) })
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
 
-async function setup(options: { crash?: boolean; grant?: boolean; flood?: boolean } = {}) {
+async function setup(options: { crash?: boolean; grant?: boolean } = {}) {
   const directory = await mkdtemp(join(root, 'artifact-')), pidPath = join(directory, 'pid'), crashPath = join(directory, 'crash')
   const db = new DatabaseSync(':memory:'), store = new AgentExecutionStore(db), managementStore = new AgentManagementStore(db)
   const pluginStore = new PluginStore(db), registry = new AgentRegistry(), events = new PluginEventBus()
@@ -41,9 +42,12 @@ async function setup(options: { crash?: boolean; grant?: boolean; flood?: boolea
   await writeFile(join(directory, 'cli.cjs'), `require('node:fs').writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));
     process.stdin.setRawMode(true); process.stdin.setEncoding('utf8');
     process.stdout.write('READY ' + process.stdout.columns + 'x' + process.stdout.rows + '\\r\\n');
-    ${options.flood ? "process.stdout.write('x'.repeat(400_000), () => process.stdout.write('FLOOD_END\\r\\n'));" : ''}
-    let count = 0; process.stdin.on('data', data => { count++; process.stdout.write('ACK:' + count + ':' + data + '\\r\\n');
-      if(data.includes('exit')) setTimeout(() => process.exit(0), 10); });`)
+    let count = 0, pending = ''; process.stdin.on('data', data => { pending += data;
+      let end; while ((end = pending.search(/[\\r\\n]/)) >= 0) {
+        const line = pending.slice(0, end); pending = pending.slice(end + 1); if (!line) continue;
+        process.stdout.write('ACK:' + (++count) + ':' + line + '\\r\\n');
+        if(line === 'exit') setTimeout(() => process.exit(0), 10);
+      } });`)
   const capabilities = ['agents.register', ...(options.grant === false ? [] : ['processes.spawn'])]
   await writeFile(join(directory, 'studio-plugin.json'), JSON.stringify({ schemaVersion: 1, id: 'test.login', version: '1.0.0', engines: { studioSdk: '^0.1.0', rpc: 1 },
     backend: 'index.cjs', activation: 'profile', contributes: { agents: ['test.login/agent'] }, requires: { capabilities }, configSchema: {} }))
@@ -63,7 +67,7 @@ async function setup(options: { crash?: boolean; grant?: boolean; flood?: boolea
     await vi.waitFor(() => expect(operations.output(scope, id, 0).chunks.map(chunk => Buffer.from(chunk.data, 'base64').toString()).join('')).toContain(text))
     return Number(await readFile(pidPath, 'utf8'))
   }
-  const ended = async (id: string, status: string) => { await vi.waitFor(() => expect(operations.get(scope, id).status).toBe(status)) }
+  const ended = async (id: string, status: string) => { await operations.wait(scope, id); expect(operations.get(scope, id).status).toBe(status) }
   return { db, store, managementStore, coordinator, host, registry, logger, authorize, instance, operations, profile, start, ready, ended, crashPath }
 }
 
@@ -79,14 +83,14 @@ it('runs native login through a real worker and PTY with retry-safe receipts and
   for (const [sequence, text] of [[0, 'input'], [1, ''], [1, 'x'.repeat(65_537)]] as const) await expect(f.operations.input(scope, receipt.id, sequence, text)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
   expect(() => f.operations.output(scope, receipt.id, -1)).toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))
   await f.operations.resize(scope, receipt.id, { cols: 100, rows: 40 })
-  await Promise.all([f.operations.input(scope, receipt.id, 1, 'private-input'), f.operations.input(scope, receipt.id, 1, 'private-input')])
+  await Promise.all([f.operations.input(scope, receipt.id, 1, 'private-input\r'), f.operations.input(scope, receipt.id, 1, 'private-input\r')])
   await f.ready(receipt.id, 'ACK:1:private-input')
   await expect(f.operations.input(scope, receipt.id, 1, 'different')).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
   await expect(f.operations.input(scope, receipt.id, 3, 'skip')).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
   expect(f.operations.output(scope, receipt.id, 0).nextInputSequence).toBe(2)
-  await f.operations.input(scope, receipt.id, 2, 'exit')
+  await f.operations.input(scope, receipt.id, 2, 'exit\r')
   await f.ended(receipt.id, 'completed')
-  await expect(f.operations.input(scope, receipt.id, 2, 'exit')).resolves.toBeUndefined()
+  await expect(f.operations.input(scope, receipt.id, 2, 'exit\r')).resolves.toBeUndefined()
   expect(alive(pid)).toBe(false)
   const ended = f.operations.get(scope, receipt.id)
   expect(ended).toMatchObject({ status: 'completed', exit: { code: 0 }, errorCode: null })
@@ -158,24 +162,33 @@ it('revokes a live terminal when owner authorization is removed', async () => {
 })
 
 it('bounds disconnected terminal output and reports cursor truncation', async () => {
-  const f = await setup({ flood: true }), receipt = f.start()
-  await f.ready(receipt.id)
-  await vi.waitFor(() => {
+  const db = new DatabaseSync(':memory:'), store = new AgentManagementStore(db)
+  const operations = new AgentManagementOperations(store, () => {})
+  try {
+    let batch = 0
+    const receipt = operations.start({ ownerId: scope.principal.id, profileId: scope.profileId, instanceId: 'buffered-instance', revision: 1,
+      provider: { kind: 'builtin', module: 'ekko', implementationVersion: 'fixture' }, idempotencyKey: 'buffered-login' }, () => {}, control => control.consume({
+      id: 'controlled-byte-stream', read: async () => ++batch <= 8 ? {
+        chunks: Array.from({ length: 4 }, (_, index) => ({ stream: 'stdout' as const, data: Buffer.from(batch === 8 && index === 3 ? 'FLOOD_END'.padStart(16_384, 'x') : 'x'.repeat(16_384)) })),
+        exit: null, truncated: false,
+      } : { chunks: [], exit: { code: 0, signal: null }, truncated: false },
+      write: async () => {}, stop: async () => {}, end: async () => {}, dispose: async () => {},
+    }), () => {})
+    await operations.wait(scope, receipt.id)
     let cursor = 0, text = '', bytes = 0, truncated = false
     while (true) {
-      const output = f.operations.output(scope, receipt.id, cursor)
+      const output = operations.output(scope, receipt.id, cursor)
+      expect(output.chunks.length).toBeLessThanOrEqual(4)
       text += output.chunks.map(chunk => Buffer.from(chunk.data, 'base64').toString()).join('')
       bytes += output.chunks.reduce((sum, chunk) => sum + Buffer.from(chunk.data, 'base64').length, 0)
       truncated ||= output.truncated
-      if (output.lastSequence === cursor || !output.chunks.length) break
       cursor = output.lastSequence
+      if (output.finished) break
     }
-    expect(text).toContain('FLOOD_END'); expect(bytes).toBeLessThanOrEqual(262_144); expect(truncated).toBe(true)
-  })
-  await f.operations.cancel(scope, receipt.id)
-  vi.setSystemTime(Date.now() + 300_001)
-  const expired = f.operations.output(scope, receipt.id, 0)
-  expect(expired).toMatchObject({ chunks: [], truncated: true, finished: true })
+    expect(text).toContain('FLOOD_END'); expect(bytes).toBe(262_144); expect(truncated).toBe(true)
+    vi.setSystemTime(Date.now() + 300_001)
+    expect(operations.output(scope, receipt.id, 0)).toMatchObject({ chunks: [], truncated: true, finished: true })
+  } finally { await operations.close(); db.close() }
 })
 
 it('marks interrupted metadata after a host restart without replaying the command', () => {
