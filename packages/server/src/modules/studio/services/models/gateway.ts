@@ -48,7 +48,7 @@ export class PluginModelGateways {
     }
     authorize()
     const operation = (async () => {
-      await this.ports.resolve(scope.profileId, input.model, input.protocol, authorize)
+      const native = await this.ports.resolve(scope.profileId, input.model, input.protocol, authorize)
       authorize()
       const port = await this.listen()
       authorize()
@@ -60,7 +60,7 @@ export class PluginModelGateways {
         release: () => { clearInterval(watch); clearTimeout(expiry); signal.removeEventListener('abort', stop) } }
       this.leases.set(key, lease)
       signal.addEventListener('abort', stop, { once: true })
-      return Object.freeze({ baseUrl: `http://127.0.0.1:${port}/${key}/v1`, token, ...input, dispose: () => this.stop(lease) })
+      return Object.freeze({ baseUrl: `http://127.0.0.1:${port}/${key}/v1`, token, ...input, images: native.images === true, dispose: () => this.stop(lease) })
     })()
     this.opening.set(operation, { runId: scope.runId, controller })
     // Release the plugin RPC promptly on cancellation, while retaining the

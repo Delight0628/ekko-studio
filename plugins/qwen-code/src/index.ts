@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { AcpConnection, AgentEventQueue, ManagedProcessTransport, acpMcpServers } from '@ekko-studio/agent-drivers'
-import { StudioError, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
+import { StudioError, readAgentImages, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
 import { scopedQwen } from './scoped'
 import { management } from './management'
 
@@ -24,7 +24,7 @@ const plugin: StudioPlugin = {
     plugin.agents.register({
       id: 'qwen', name: 'Qwen Code', configSchema: schema as unknown as JsonObject,
       management,
-      capabilities: { text: true, streaming: true, reasoning: true, approvals: true, resume: true, persistentSession: true, modes: ['scoped', 'global'] },
+      capabilities: { text: true, images: true, streaming: true, reasoning: true, approvals: true, resume: true, persistentSession: true, modes: ['scoped', 'global'] },
       async create(input, runtime) {
         const config = input.config
         const cwd = String(config.cwd), scoped = input.mode === 'scoped'
@@ -45,7 +45,6 @@ const plugin: StudioPlugin = {
           async run(input, ctx) {
             if (ended || runtime.signal.aborted) throw new StudioError('CANCELLED', 'Qwen runtime ended')
             if (active) throw new StudioError('REVISION_CONFLICT', 'Qwen is already running')
-            if (input.content.some(block => block.type !== 'text')) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Qwen instance runs currently accept text')
             const events = new AgentEventQueue<AgentOutputEvent>()
             let sequence = 0, cancelled = ctx.signal.aborted, transport: ManagedProcessTransport | undefined, connection: AcpConnection | undefined
             let gateway: import('@ekko-studio/plugin-sdk').ModelGatewayHandle | undefined
@@ -66,9 +65,11 @@ const plugin: StudioPlugin = {
             const result = (async (): Promise<AgentRunResult> => {
               try {
                 if (cancelled) return { status: 'cancelled' }
+                const images = await readAgentImages(input.content, ctx)
                 const model = input.model || config.model as string | undefined
                 if (scoped && !model) throw new StudioError('INVALID_ARGUMENT', 'Scoped Qwen requires a Studio model')
                 gateway = scoped ? await ctx.models.gateway({ model: model!, protocol: 'anthropic' }) : undefined
+                if (gateway && images.size && gateway.images !== true) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Selected Studio model does not support images')
                 const isolated = gateway ? await scopedQwen(runtime, gateway) : undefined
                 if (cancelled) return { status: 'cancelled' }
                 const process = await runtime.processes.spawn({ command: String(config.command || 'qwen'),
@@ -121,6 +122,7 @@ const plugin: StudioPlugin = {
                 })
                 const text = input.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
                 const reason = await connection.prompt({ cwd, text: config.systemPrompt ? `${config.systemPrompt}\n\n${text}` : text,
+                  images: input.content.flatMap(block => block.type === 'image' ? [images.get(block.artifactId)!] : []),
                   nativeSessionId, mcpServers: acpMcpServers(config.mcpServers as Record<string, unknown> || {}),
                   model: input.model || config.model as string | undefined, reasoningEffort: config.reasoningEffort as string | undefined })
                 if (!cancelled && !['end_turn', 'max_tokens'].includes(reason)) throw new Error(`Qwen stopped: ${reason}`)

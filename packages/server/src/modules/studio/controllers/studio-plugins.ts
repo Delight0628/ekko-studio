@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto'
 import { StudioError, type JsonObject, type AgentRunStartInput, type ExecutionScope } from '../contracts/plugins'
 import { getStudioPluginRuntime, authorizePluginScope } from '../services/plugins/runtime'
 import { jsonCopy } from '../services/plugins/validation'
+import { MAX_AGENT_IMAGE_BYTES } from '../services/agents/artifacts'
+import { drainRejectedRequest, nonDestroyingRequestBody } from '../http/request-body'
 
 const statusFor = (code: string): number => ({ INVALID_ARGUMENT: 400, FORBIDDEN: 403, NOT_FOUND: 404,
   SYSTEM_PLUGIN_PROTECTED: 403, REVISION_CONFLICT: 409, REGISTRATION_CONFLICT: 409,
@@ -94,6 +96,34 @@ function executionScope(ctx: Context): ExecutionScope {
   return { scopeId: randomUUID(), principal: { kind: 'user', id: userId(ctx) }, profileId: profile(ctx), surface: 'api', traceId: randomUUID() }
 }
 export const listAgentInstances = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().coordinator.listInstances(executionScope(ctx)))
+let agentImageUploads = 0
+export const uploadAgentImage = (ctx: Context) => respond(ctx, async () => {
+  const scope = executionScope(ctx)
+  if (ctx.get('content-type').split(';')[0] !== 'application/octet-stream') throw new StudioError('INVALID_ARGUMENT', 'Expected image bytes as application/octet-stream')
+  if (agentImageUploads >= 4) throw new StudioError('RESOURCE_EXHAUSTED', 'Image upload is busy')
+  agentImageUploads++
+  const controller = new AbortController(), abort = () => controller.abort()
+  ctx.res.once('close', abort)
+  try {
+    let chunks: Buffer[] = []
+    let size = 0
+    for await (const chunk of nonDestroyingRequestBody(ctx.req)) {
+      size += chunk.length
+      if (size > MAX_AGENT_IMAGE_BYTES) break
+      chunks.push(chunk)
+    }
+    if (size > MAX_AGENT_IMAGE_BYTES) {
+      chunks = []
+      await drainRejectedRequest(ctx.req)
+      throw new StudioError('RESOURCE_EXHAUSTED', 'Image exceeds 4 MiB')
+    }
+    return await getStudioPluginRuntime().artifacts.create(scope, Buffer.concat(chunks), controller.signal)
+  } finally { agentImageUploads--; ctx.res.removeListener('close', abort) }
+})
+export const removeAgentImage = (ctx: Context) => respond(ctx, () => {
+  getStudioPluginRuntime().artifacts.remove(executionScope(ctx), ctx.params.id)
+  return { removed: true }
+})
 export const inspectAgentInstance = (ctx: Context) => respond(ctx, async () => {
   body(ctx, ['profile'])
   const controller = new AbortController(), abort = () => controller.abort()

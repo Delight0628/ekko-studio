@@ -62,6 +62,7 @@ function executionContext(scope: ExecutionScope, scopeHandle: string, signal: Ab
   }
   const context: ExecutionContext = {
     scope: Object.freeze({ ...scope, principal: Object.freeze({ ...scope.principal }) }), signal, logger,
+    artifacts: { read: async (id, offset = 0) => await call('artifacts.read', { id, offset }) as unknown as Awaited<ReturnType<ExecutionContext['artifacts']['read']>> },
     models: remoteModels(call),
     workflows: {
       run: async input => await call('workflows.run', json(input)) as unknown as Awaited<ReturnType<ExecutionContext['workflows']['run']>>,

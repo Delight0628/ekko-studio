@@ -361,6 +361,16 @@ export class PluginWorker {
     const authority = this.authorities.get(String(params.scopeHandle))
     const authorize = (capability: string) => { this.authorize(capability); authority?.(capability) }
     if (['models.open', 'models.next', 'models.close', 'models.gateway', 'models.gateway.close'].includes(String(params.method))) return this.models.call(String(params.scopeHandle), String(params.method), params.args)
+    if (params.method === 'artifacts.read') {
+      authorize('artifacts.read')
+      const args = params.args as JsonObject
+      if (!args || typeof args.id !== 'string' || Object.keys(args).some(key => !['id', 'offset'].includes(key))
+        || (args.offset !== undefined && (!Number.isSafeInteger(args.offset) || Number(args.offset) < 0))) throw new StudioError('INVALID_ARGUMENT', 'Invalid artifact read')
+      const result = await ctx.artifacts.read(args.id, args.offset === undefined ? 0 : Number(args.offset))
+      authorize('artifacts.read')
+      if (ctx.signal.aborted) throw new StudioError('CANCELLED', 'Artifact scope ended')
+      return toJson(result)
+    }
     if (params.method === 'models.list') { authorize('models.read'); const result = await ctx.models.list(); authorize('models.read'); return toJson(result) }
     if (params.method === 'models.get') {
       authorize('models.read')

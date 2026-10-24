@@ -17,7 +17,7 @@ function setup(options: { failedCleanup?: boolean } = {}) {
   const authorize = vi.fn(), authorizeStart = vi.fn()
   const request = vi.fn(async (_body: unknown, _signal: AbortSignal, _session: string): Promise<Response> => sse({ type: 'response.output_text.delta', delta: 'hello' }, terminal))
   const record = vi.fn((input: RecordSessionUsageInput) => { const usage = normalizeTokenUsage(input.usage); input.onRecorded?.(usage); return usage })
-  const resolve = vi.fn(async () => ({ request, record }))
+  const resolve = vi.fn(async () => ({ request, record, images: true }))
   const gateways = new PluginModelGateways({ store, state, authorize, authorizeStart, resolve })
   cleanups.push(async () => { try { if (options.failedCleanup) await expect(gateways.close()).rejects.toMatchObject({ code: 'RUNTIME_UNAVAILABLE' }); else await gateways.close() } finally { db.close() } })
   const open = (signal = new AbortController().signal, caller = scope) => gateways.open(caller, { model: 'provider/model', protocol: 'responses' }, signal)
@@ -30,6 +30,7 @@ const post = (gateway: ModelGatewayHandle, body: unknown = { model: 'caller-mode
 
 it('binds native requests to the host identity and commits measured usage before completion', async () => {
   const f = setup(), gateway = await f.open()
+  expect(gateway.images).toBe(true)
   const body = { model: 'caller-model', stream: true, input: [{ type: 'custom_tool_call_output', call_id: 'call', output: 'result' }],
     tools: [{ type: 'custom', name: 'apply_patch', format: { type: 'grammar', syntax: 'lark', definition: 'start: /.+/' } }], parallel_tool_calls: false }
   const response = await post(gateway, body), text = await response.text()

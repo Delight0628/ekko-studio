@@ -7,9 +7,10 @@ import { resolveModelProviderConfigs } from '../../packages/ekko-agent/src/model
 import type { ModelEvent } from '../../packages/ekko-agent/src/model/types'
 
 const mocks = vi.hoisted(() => ({
-  groups: vi.fn(), runtime: vi.fn(), record: vi.fn(), fetch: vi.fn(), createClient: vi.fn(), findKey: vi.fn(),
+  capabilities: vi.fn(), groups: vi.fn(), runtime: vi.fn(), record: vi.fn(), fetch: vi.fn(), createClient: vi.fn(), findKey: vi.fn(),
   config: { appHome: '' },
 }))
+vi.mock('../../packages/server/src/modules/studio/public/provider-runtime', () => ({ getModelRuntimeCapabilities: mocks.capabilities }))
 vi.mock('../../packages/server/src/modules/studio/public/config', () => ({ config: mocks.config }))
 vi.mock('../../packages/server/src/modules/studio/public/logging', () => ({ logger: { warn: vi.fn() } }))
 vi.mock('../../packages/server/src/modules/studio/public/session-agent-runtime', () => ({ getSessionAvailableModelGroups: mocks.groups }))
@@ -37,6 +38,7 @@ const sse = (chunks: any[]) => new Response(chunks.map(chunk => `data: ${typeof 
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mocks.capabilities.mockReturnValue({ input: ['text', 'image'] })
   mocks.findKey.mockReturnValue(null)
   mocks.groups.mockResolvedValue([{ provider: 'deepseek', models: ['deepseek-reasoner'], api_mode: 'chat_completions', api_key: 'must-not-leak' }])
   mocks.runtime.mockImplementation(async input => ({ provider: input.provider, apiKey: 'upstream-secret', baseUrl: 'https://api.deepseek.com/v1', apiMode: input.apiMode }))
@@ -57,11 +59,20 @@ describe('host native model transport', () => {
     expect(JSON.parse(request.body)).toEqual({ ...input, model: 'native' })
     expect(request.redirect).toBe('error')
     expect(new Headers(request.headers).get(protocol === 'responses' ? 'authorization' : 'x-api-key')).toBe(protocol === 'responses' ? 'Bearer upstream-secret' : 'upstream-secret')
-    expect(Object.keys(target).sort()).toEqual(['record', 'request'])
+    expect(Object.keys(target).sort()).toEqual(['images', 'record', 'request'])
     expect(JSON.stringify(target)).not.toContain('secret')
     authorize.mockImplementation(() => { throw new Error('revoked') })
     expect(() => target.request({}, new AbortController().signal, 'host-session')).toThrow('revoked')
     expect(mocks.fetch).toHaveBeenCalledOnce()
+  })
+
+  it('uses selected model metadata rather than provider transport support to advertise images', async () => {
+    mocks.groups.mockResolvedValue([{ provider: 'fixture', models: ['native'], api_mode: 'anthropic_messages' }])
+    mocks.capabilities.mockReturnValue({ input: ['text'] })
+    expect((await resolveNativeModel('one', 'fixture/native', 'anthropic', () => {})).images).toBe(false)
+    mocks.capabilities.mockReturnValue({ input: ['text', 'image'] })
+    expect((await resolveNativeModel('one', 'fixture/native', 'anthropic', () => {})).images).toBe(true)
+    expect(mocks.capabilities).toHaveBeenLastCalledWith({ profile: 'one', provider: 'fixture', model: 'native' })
   })
 
   it('rejects incompatible, disabled and missing model selections before native requests', async () => {

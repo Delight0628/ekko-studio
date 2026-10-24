@@ -35,7 +35,7 @@ export class PluginModelBridge {
             try { this.context(scope, 'models.gateway') } catch { clearInterval(watch); void handle.dispose().catch(error => this.cleanupFailures.set(scope, error)) }
           }, 250)
           this.gateways.set(id, { scope, handle, watch })
-          return { handle: id, baseUrl: handle.baseUrl, token: handle.token, model: handle.model, protocol: handle.protocol }
+          return { handle: id, baseUrl: handle.baseUrl, token: handle.token, model: handle.model, protocol: handle.protocol, images: handle.images === true }
         } catch (error) {
           try { await handle.dispose() } catch (cleanupError) { this.cleanupFailures.set(scope, cleanupError); throw cleanupError }
           throw error

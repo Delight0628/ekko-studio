@@ -9,11 +9,11 @@ import { PluginConsumerStore } from '../../packages/server/src/modules/studio/re
 import { ReliablePluginConsumers } from '../../packages/server/src/modules/studio/services/events/reliable-consumers'
 
 const state = vi.hoisted(() => ({ remove: vi.fn(), configure: vi.fn(), install: vi.fn(), diagnostic: vi.fn(), list: vi.fn(() => []),
-  respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), updateInstance: vi.fn(), inspectInstance: vi.fn(), role: 'super_admin', consumers: null as unknown as ReliablePluginConsumers }))
+  uploadImage: vi.fn(), removeImage: vi.fn(), respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), updateInstance: vi.fn(), inspectInstance: vi.fn(), role: 'super_admin', consumers: null as unknown as ReliablePluginConsumers }))
 vi.mock('../../packages/server/src/modules/studio/services/plugins/runtime', () => ({
   authorizePluginScope: vi.fn(),
   getStudioPluginRuntime: () => ({ host: { uninstall: state.remove, configure: state.configure, install: state.install, list: state.list, diagnostic: state.diagnostic },
-    consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance } }),
+    artifacts: { create: state.uploadImage, remove: state.removeImage }, consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance } }),
 }))
 import { studioPluginRoutes } from '../../packages/server/src/modules/studio/routes/studio-plugins'
 
@@ -187,4 +187,24 @@ it('retries only the selected dead letter revision and reports expired cursors w
   expect(expired.status).toBe(409)
   expect(await expired.json()).toMatchObject({ ok: false, error: { code: 'EVENT_CURSOR_EXPIRED' } })
   expect(store.get(record.id)?.state).toBe('expired')
+})
+
+it('uploads raw image bytes with host identity and rejects JSON paths and oversized bodies', async () => {
+  state.uploadImage.mockResolvedValue({ id: 'image', mediaType: 'image/png', byteLength: 3 })
+  state.uploadImage.mockClear()
+  const response = await fetch(`${base}/api/studio/agent-images?profile=one`, {
+    method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: Buffer.from([1, 2, 3]),
+  })
+  expect(response.status).toBe(200)
+  expect(state.uploadImage).toHaveBeenCalledWith(expect.objectContaining({ principal: { id: '7', kind: 'user' }, profileId: 'one' }), Buffer.from([1, 2, 3]), expect.any(AbortSignal))
+  state.uploadImage.mockClear()
+  expect((await fetch(`${base}/api/studio/agent-images?profile=one`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: '/private.png', ownerId: 'other' }),
+  })).status).toBe(400)
+  expect((await fetch(`${base}/api/studio/agent-images?profile=one`, {
+    method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: Buffer.alloc(4 * 1024 * 1024 + 1),
+  })).status).toBe(429)
+  expect(state.uploadImage).not.toHaveBeenCalled()
+  expect((await fetch(`${base}/api/studio/agent-images/image?profile=one`, { method: 'DELETE' })).status).toBe(200)
+  expect(state.removeImage).toHaveBeenCalledWith(expect.objectContaining({ principal: { id: '7', kind: 'user' }, profileId: 'one' }), 'image')
 })

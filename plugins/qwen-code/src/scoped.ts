@@ -9,7 +9,7 @@ export async function scopedQwen(runtime: AgentRuntimeContext, gateway: ModelGat
   await mkdir(home, { recursive: true, mode: 0o700 })
   await mkdir(root, { recursive: true, mode: 0o700 })
   await writeFile(join(root, 'settings.json.tmp'), JSON.stringify({ security: { auth: { selectedType: 'anthropic' } }, model: { name: gateway.model },
-    modelProviders: { anthropic: [{ id: gateway.model, envKey: 'ANTHROPIC_API_KEY', baseUrl }] } }), { mode: 0o600 })
+    modelProviders: { anthropic: [{ id: gateway.model, generationConfig: { modalities: { image: gateway.images === true } }, envKey: 'ANTHROPIC_API_KEY', baseUrl }] } }), { mode: 0o600 })
   await rename(join(root, 'settings.json.tmp'), join(root, 'settings.json'))
   return { args: ['--auth-type', 'anthropic', '--model', gateway.model], env: {
     HOME: home, USERPROFILE: home, QWEN_HOME: root, QWEN_RUNTIME_DIR: join(root, 'runtime'),

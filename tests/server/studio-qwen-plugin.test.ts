@@ -1,3 +1,5 @@
+import sharp from 'sharp'
+import { AgentArtifacts } from '../../packages/server/src/modules/studio/services/agents/artifacts'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -39,7 +41,7 @@ const finish = () => {
 require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
   const r = JSON.parse(line);
   fs.appendFileSync(process.env.TRACE_FILE, JSON.stringify(r) + '\\n');
-  if (r.method === 'initialize') send({ id: r.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true },
+  if (r.method === 'initialize') send({ id: r.id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true, promptCapabilities: { image: true } },
     agentInfo: { name: 'Qwen Code', version: 'fixture', privateField: 'secret' }, authMethods: [{ id: 'qwen-oauth', name: 'Qwen OAuth', env: { KEY: 'secret' } }] } });
   else if (r.method === 'session/new' || r.method === 'session/load') {
     if (r.method === 'session/load') update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'replayed old text' } });
@@ -74,19 +76,22 @@ async function setup(mode: 'global' | 'scoped' = 'global') {
     const dispose = vi.fn(async () => {})
     issued.push({ runId: scope.runId!, ...input, dispose })
     signal.addEventListener('abort', () => { if (!dispose.mock.calls.length) void dispose() }, { once: true })
-    return { baseUrl: `http://127.0.0.1:1/${scope.runId}/v1`, token: `ephemeral-${scope.runId}`, ...input, dispose }
+    return { baseUrl: `http://127.0.0.1:1/${scope.runId}/v1`, token: `ephemeral-${scope.runId}`, ...input, images: true, dispose }
   })
+  const readArtifact = vi.fn(async (scope: ExecutionScope, id: string, offset: number) => artifacts.read(scope, id, offset))
   const context = (scope: ExecutionScope, signal: AbortSignal) => createExecutionContext(scope, signal, logger, {
+    artifacts: { read: readArtifact },
     models: { gateway, list: async () => [], get: async () => { throw new Error('unused') }, stream: async () => { throw new Error('unused') } },
     authorize: async () => {}, agents: { list: async () => [] }, sessions: { get: async () => null },
   })
   const executionStore = new AgentExecutionStore(db)
-  const coordinator = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, context, stateRoot: join(directory, 'state') })
+  const artifacts = new AgentArtifacts(db, executionStore, () => {})
+  const coordinator = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, validateInput: (scope, input) => artifacts.validate(scope, input), context, stateRoot: join(directory, 'state') })
   const host = new PluginHost({ store, registry, events, context, logger, runnerPath: runner, artifactsRoot: join(root, 'installed'),
     eventContext: async (_state, _event, signal) => context(scope, signal), acceptEvents: async batch => { for (const event of batch) events.publish(event) } })
   cleanups.push(async () => { await coordinator.close(); await host.close(); events.close(); db.close() })
   await host.registerSystemArtifact(join(root, 'plugins/qwen-code'))
-  await host.configure({ pluginId: 'studio.agent-qwen', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'processes.spawn', 'models.gateway'] }, 0)
+  await host.configure({ pluginId: 'studio.agent-qwen', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'processes.spawn', 'models.gateway', 'artifacts.read'] }, 0)
   const instance = coordinator.createInstance(scope, { agentTypeId: 'qwen', mode, config: { ...(mode === 'scoped' ? { model: 'fixture/model' } : {}),
     cwd: directory, command: process.execPath, args: [cli], env: { PID_FILE: pidFile, TRACE_FILE: traceFile },
   } })
@@ -94,7 +99,7 @@ async function setup(mode: 'global' | 'scoped' = 'global') {
   const run = async (text: string) => { const r = start(text); await coordinator.wait(r.id); return coordinator.get(scope, r.id) }
   const trace = async () => (await readFile(traceFile, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
   const pid = async () => Number(await readFile(pidFile, 'utf8'))
-  return { gateway, issued, directory, coordinator, host, executionStore, instance, start, run, trace, pid }
+  return { readArtifact, artifacts, gateway, issued, directory, coordinator, host, store, executionStore, instance, start, run, trace, pid }
 }
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
 
@@ -204,4 +209,54 @@ it('does not inspect the global account for a scoped Qwen instance', async () =>
   const f = await setup('scoped')
   await expect(f.coordinator.inspectInstance(scope, f.instance.id)).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
   await expect(f.pid()).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+for (const mode of ['global', 'scoped'] as const) it(`passes owned image bytes through the real worker in ${mode} mode`, async () => {
+  const f = await setup(mode)
+  const bytes = await sharp({ create: { width: 2, height: 2, channels: 3, background: 'red' } }).png().toBuffer()
+  const image = await f.artifacts.create(scope, bytes, new AbortController().signal)
+  const input = { content: [{ type: 'text' as const, text: 'describe image' }, { type: 'image' as const, artifactId: image.id, mediaType: image.mediaType }] }
+  const run = f.coordinator.start(scope, f.instance.id, input, 'image')
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(scope, run.id)).toMatchObject({ status: 'completed' })
+  const requests = await f.trace()
+  expect(requests.find(r => r.method === 'session/prompt').params.prompt).toContainEqual({ type: 'image', mimeType: 'image/png', data: bytes.toString('base64') })
+  expect(JSON.stringify(f.coordinator.output(scope, run.id, -1))).not.toContain(bytes.toString('base64'))
+  expect(await f.run('continue after image')).toMatchObject({ status: 'completed' })
+  expect(() => f.artifacts.read({ ...scope, runId: run.id }, image.id)).toThrow(/live Run/)
+})
+
+it('rejects scoped image input on a model without vision before native admission', async () => {
+  const f = await setup('scoped')
+  const open = f.gateway.getMockImplementation()!
+  f.gateway.mockImplementation(async (...args) => ({ ...await open(...args), images: false }))
+  const bytes = await sharp({ create: { width: 1, height: 1, channels: 3, background: 'red' } }).png().toBuffer()
+  const image = await f.artifacts.create(scope, bytes, new AbortController().signal)
+  const run = f.coordinator.start(scope, f.instance.id, { content: [{ type: 'image', artifactId: image.id, mediaType: image.mediaType }] }, 'no-vision')
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(scope, run.id)).toMatchObject({ status: 'failed', errorCode: 'CAPABILITY_UNSUPPORTED' })
+  expect(f.issued[0].dispose).toHaveBeenCalledOnce()
+  await expect(f.trace()).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('rechecks the image grant after a delayed worker read and never sends revoked bytes to the CLI', async () => {
+  const f = await setup()
+  const bytes = await sharp({ create: { width: 1, height: 1, channels: 3, background: 'red' } }).png().toBuffer()
+  const image = await f.artifacts.create(scope, bytes, new AbortController().signal)
+  let release!: () => void
+  const barrier = new Promise<void>(resolve => { release = resolve })
+  f.readArtifact.mockImplementationOnce(async (scope, id, offset) => {
+    const chunk = f.artifacts.read(scope, id, offset)
+    await barrier
+    return chunk
+  })
+  const run = f.coordinator.start(scope, f.instance.id, { content: [{ type: 'image', artifactId: image.id, mediaType: image.mediaType }] }, 'revoked-image')
+  try {
+    await vi.waitFor(() => expect(f.readArtifact).toHaveBeenCalledOnce())
+    const profile = f.store.profile('studio.agent-qwen', 'one')!
+    f.store.saveProfile({ ...profile, grants: profile.grants.filter(value => value !== 'artifacts.read') }, profile.revision)
+  } finally { release() }
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(scope, run.id)).toMatchObject({ status: 'failed', errorCode: 'FORBIDDEN' })
+  await expect(f.trace()).rejects.toMatchObject({ code: 'ENOENT' })
 })

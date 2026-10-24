@@ -5,10 +5,11 @@ import { parseChatRunStart } from '../chat-run/input'
 import { parseInteractionResponse } from '../agents/coordinator'
 import { parseWorkflowRunStart } from '../workflow/input'
 
-export type ContextOperation = 'models.read' | 'models.stream' | 'models.gateway' | 'sessions.read' | 'sessions.remove' | 'agents.read' | 'runs.read' | 'runs.start' | 'runs.cancel' | 'runs.respond' | 'chat.start' | 'chat.read' | 'chat.cancel' | 'workflows.run' | 'workflows.read' | 'workflows.cancel'
+export type ContextOperation = 'artifacts.read' | 'models.read' | 'models.stream' | 'models.gateway' | 'sessions.read' | 'sessions.remove' | 'agents.read' | 'runs.read' | 'runs.start' | 'runs.cancel' | 'runs.respond' | 'chat.start' | 'chat.read' | 'chat.cancel' | 'workflows.run' | 'workflows.read' | 'workflows.cancel'
 
 export interface ContextServices {
   authorize(scope: ExecutionScope, operation: ContextOperation, resourceId?: string): Promise<void>
+  artifacts?: { read(scope: ExecutionScope, id: string, offset: number): Promise<import('../../contracts/plugins').ArtifactChunk> }
   models?: {
     gateway?(scope: ExecutionScope, input: Parameters<StudioDomainServices['models']['gateway']>[0], signal: AbortSignal): ReturnType<StudioDomainServices['models']['gateway']>
     list(scope: ExecutionScope): ReturnType<StudioDomainServices['models']['list']>
@@ -67,6 +68,13 @@ export function createExecutionContext(
   }
   return Object.freeze({
     scope, signal, logger,
+    artifacts: Object.freeze({
+      read: (id: string, offset = 0) => call('artifacts.read', id, async () => {
+        if (!services.artifacts) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Image artifacts are unavailable')
+        if (!scope.runId) throw new StudioError('FORBIDDEN', 'Artifact reads require a live Run')
+        return services.artifacts.read(scope, id, offset)
+      }),
+    }),
     models: Object.freeze({
       gateway: async (input: Parameters<StudioDomainServices['models']['gateway']>[0]) => {
         if (signal.aborted) throw new StudioError('CANCELLED', 'Execution scope has ended')

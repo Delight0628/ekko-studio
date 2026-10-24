@@ -8,6 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import sharp from "sharp";
 const project = fileURLToPath(new URL("..", import.meta.url));
 async function main() {
   const root = await mkdtemp(join(tmpdir(), "studio-real-plugin-turns-"));
@@ -28,6 +29,9 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
   });
   const { ManagedProcessScope, PluginModelGateways, PluginModelCallStore, AgentRunStateStore, OpenAIResponsesModelClient, AnthropicMessagesModelClient } = createRequire(import.meta.url)(managedModule);
   let calls = 0;
+  const requests = [];
+  const imageData = (await sharp({ create: { width: 32, height: 32, channels: 3, background: 'red' } }).png().toBuffer()).toString('base64');
+  const hasImage = value => value && typeof value === 'object' && (['input_image', 'image'].includes(value.type) || Object.values(value).some(hasImage));
   const server = createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -37,7 +41,7 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
       res.end("{}");
       return;
     }
-    calls++;
+    calls++; requests.push(body);
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
     const send = (type, data) => res.write(`event: ${type}
 data: ${JSON.stringify({ type, ...data })}
@@ -70,7 +74,7 @@ data: ${JSON.stringify({ type, ...data })}
   const gateways = new PluginModelGateways({ store: modelStore, state, authorize() {}, resolve: async (_profile, _model, protocol) => {
     const Client = protocol === 'responses' ? OpenAIResponsesModelClient : AnthropicMessagesModelClient;
     const client = new Client({ id: 'fixture', type: 'custom', defaultModel: 'fixture-model', baseUrl: `${base}/v1`, apiKey: 'host-only-fixture-key' });
-    return { request: (body, signal) => client.nativeRequest(body, { model: 'fixture-model', messages: [], signal }),
+    return { images: true, request: (body, signal) => client.nativeRequest(body, { model: 'fixture-model', messages: [], signal }),
       record: input => input.onRecorded?.({ ...input.usage, isEstimated: input.isEstimated }) };
   } });
   try {
@@ -99,7 +103,7 @@ requires_openai_auth = false
           config.command = process.env.STUDIO_QWEN_COMMAND || "qwen";
           config.args = ["--auth-type", "anthropic", "--model", "fixture-model"];
           Object.assign(config.env, { QWEN_HOME: home, QWEN_RUNTIME_DIR: join(home, "runtime"), ANTHROPIC_API_KEY: "fixture-only", ANTHROPIC_BASE_URL: base, ANTHROPIC_MODEL: "fixture-model" });
-          await writeFile(join(home, "settings.json"), JSON.stringify({ security: { auth: { selectedType: "anthropic" } }, model: { name: "fixture-model" }, modelProviders: { anthropic: [{ id: "fixture-model", envKey: "ANTHROPIC_API_KEY", baseUrl: base, generationConfig: { maxOutputTokens: 256 } }] } }), { mode: 384 });
+          await writeFile(join(home, "settings.json"), JSON.stringify({ security: { auth: { selectedType: "anthropic" } }, model: { name: "fixture-model" }, modelProviders: { anthropic: [{ id: "fixture-model", envKey: "ANTHROPIC_API_KEY", baseUrl: base, generationConfig: { maxOutputTokens: 256, modalities: { image: true } } }] } }), { mode: 384 });
         }
         const plugin = createRequire(import.meta.url)(join(project, "dist/plugins", vendor, "dist/index.cjs"));
         let definition;
@@ -122,20 +126,28 @@ requires_openai_auth = false
           const run = new AbortController(), timer = setTimeout(() => run.abort(), 2e4);
           try {
             const runScope = { scopeId: 'acceptance', principal: { kind: 'user', id: 'fixture-owner' }, profileId: 'fixture-profile', runId: `${vendor}-${mode}-${turn}`, surface: 'api', traceId: 'fixture' };
-            const handle = await runtime.run({ content: [{ type: "text", text: `Respond with a brief greeting. Turn ${turn}.` }] }, { signal: run.signal, models: { gateway: input => gateways.open(runScope, input, run.signal) } });
+            const requestOffset = requests.length;
+            const content = [{ type: "text", text: `Respond with a brief greeting. Turn ${turn}.` },
+              ...(turn ? [{ type: 'image', artifactId: 'native-fixture-image', mediaType: 'image/png' }] : [])];
+            const handle = await runtime.run({ content }, { signal: run.signal, artifacts: { read: async (id, offset) => {
+              if (id !== 'native-fixture-image' || offset !== 0) throw new Error('Invalid native image read');
+              const length = Buffer.from(imageData, 'base64').length;
+              return { id, mediaType: 'image/png', byteLength: length, data: imageData, offset: 0, nextOffset: length, done: true };
+            } }, models: { gateway: input => gateways.open(runScope, input, run.signal) } });
             const output = [];
             const [result] = await Promise.all([handle.result, (async () => {
               for await (const event of handle.events) output.push(event);
             })()]);
             if (turn && JSON.stringify(result.checkpoint) !== JSON.stringify(checkpoint)) throw new Error(vendor + " changed native session between turns");
             checkpoint = result.checkpoint;
+            if (turn && !requests.slice(requestOffset).some(hasImage)) throw new Error(`${vendor} did not forward the image to its model`);
             if (mode === 'scoped') {
               const usage = state.usage(runScope.runId);
               if (!usage.length || usage.some(call => !call.final || call.source !== 'host' || call.inputTokens !== 12 || call.outputTokens !== 5)) throw new Error('Native host accounting failed');
               const records = db.prepare('SELECT record_json FROM studio_plugin_model_calls').all().map(row => JSON.parse(row.record_json));
               if (records.filter(call => call.runId === runScope.runId).some(call => call.status !== 'completed')) throw new Error('Native model call did not complete');
             }
-            console.log(JSON.stringify({ vendor, mode, turn: turn + 1, status: result.status, events: output.length, sameNativeSession: turn ? true : void 0 }));
+            console.log(JSON.stringify({ vendor, mode, turn: turn + 1, status: result.status, events: output.length, sameNativeSession: turn ? true : void 0, imageForwarded: turn ? true : void 0 }));
             if (result.status !== "completed" || !output.some((event) => ["message.delta", "message.snapshot"].includes(event.type) && event.text.includes("Native fixture answer"))) throw new Error(`${vendor} real turn did not complete`);
           } finally {
             clearTimeout(timer); run.abort();

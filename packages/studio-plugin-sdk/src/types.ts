@@ -50,6 +50,10 @@ export interface SessionRemovalResult {
 }
 
 export interface StudioDomainServices {
+  /** Read only image artifacts attached to the current live Run. No paths or URLs. */
+  readonly artifacts: {
+    read(id: string, offset?: number): Promise<ArtifactChunk>
+  }
   readonly models: {
     list(): Promise<ModelSummary[]>
     stream(input: ModelStreamInput): Promise<ModelStreamHandle>
@@ -92,6 +96,8 @@ export interface ModelGatewayHandle {
   readonly token: string
   readonly model: string
   readonly protocol: ModelGatewayInput['protocol']
+  /** Host-resolved model capability; absent means unknown. */
+  readonly images?: boolean
   /** Revoke admission, abort active requests, and await authoritative accounting. */
   dispose(): Promise<void>
 }
@@ -324,6 +330,19 @@ export interface RuntimeCreateInput {
 export type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'image' | 'file'; artifactId: string; mediaType: string }
+
+export interface ImageArtifact {
+  id: string
+  mediaType: string
+  byteLength: number
+}
+export interface ArtifactChunk extends ImageArtifact {
+  offset: number
+  /** Base64 encoded bytes; bounded independently of the full artifact size. */
+  data: string
+  nextOffset: number
+  done: boolean
+}
 
 export interface AgentRunInput {
   content: ContentBlock[]

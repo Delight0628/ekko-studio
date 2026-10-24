@@ -94,7 +94,7 @@ export class AgentExecutionStore {
       this.db.prepare(`INSERT INTO studio_agent_runs
       (id, instance_id, profile_id, owner_id, status, provider_json, config_revision, created_at, updated_at, idempotency_key, input_hash)
       VALUES (?, ?, ?, ?, 'accepted', ?, ?, ?, ?, ?, ?)`).run(id, instance.id, instance.profileId, instance.ownerId, JSON.stringify(provider), instance.revision, now, now, key, hash)
-      if (admission) this.db.prepare('INSERT INTO studio_agent_run_admissions VALUES (?, ?, ?, ?)').run(id, JSON.stringify(original), JSON.stringify(input), JSON.stringify(admission.hooks))
+      this.db.prepare('INSERT INTO studio_agent_run_admissions VALUES (?, ?, ?, ?)').run(id, JSON.stringify(original), JSON.stringify(input), JSON.stringify(admission?.hooks || []))
       this.db.exec('RELEASE studio_agent_admission')
     } catch (error) { this.db.exec('ROLLBACK TO studio_agent_admission; RELEASE studio_agent_admission'); throw error }
     return { run: this.get(id)!, created: true }
@@ -102,6 +102,10 @@ export class AgentExecutionStore {
   get(id: string): AgentExecution | null {
     const row = this.db.prepare('SELECT * FROM studio_agent_runs WHERE id=?').get(id) as unknown as RunRow | undefined
     return row ? this.decode(row) : null
+  }
+  input(id: string): AgentRunInput | null {
+    const row = this.db.prepare('SELECT effective_input_json FROM studio_agent_run_admissions WHERE run_id=?').get(id) as { effective_input_json: string } | undefined
+    return row ? JSON.parse(row.effective_input_json) as AgentRunInput : null
   }
   transition(id: string, from: AgentRunStatus[], to: AgentRunStatus): boolean {
     return this.db.prepare(`UPDATE studio_agent_runs SET status=?, revision=revision+1, updated_at=? WHERE id=? AND status IN (${from.map(() => '?').join(',')})`)

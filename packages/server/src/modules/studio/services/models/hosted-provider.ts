@@ -1,4 +1,5 @@
 import { StudioError } from '../../contracts/plugins'
+import { getModelRuntimeCapabilities } from '../../public/provider-runtime'
 import { recordSessionUsage, type RecordSessionUsageInput } from '../usage/usage-recorder'
 import type { ModelClient } from '../../../../../../ekko-agent/src/model/types'
 import { getSessionAvailableModelGroups } from '../../public/session-agent-runtime'
@@ -95,6 +96,7 @@ export async function resolveNativeModel(profileId: string, modelId: string, pro
     throw new StudioError('CAPABILITY_UNSUPPORTED', 'Model does not support the requested native protocol')
   }
   return {
+    images: resolved.client.capabilities.vision && getModelRuntimeCapabilities({ profile: entry.profile, provider: entry.group.provider, model: entry.model })?.input?.includes('image') === true,
     request: (body: Record<string, unknown>, signal: AbortSignal, sessionId: string) => {
       authorize()
       return resolved.client.nativeRequest!(body, { model: entry.model, messages: [], signal, metadata: { session_id: sessionId } })

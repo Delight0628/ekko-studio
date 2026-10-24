@@ -13,6 +13,7 @@ import { AgentExecutionStore } from '../../repositories/agent-execution-store'
 import { StudioError, type ExecutionScope, type ExecutionContext, type EventEnvelope, type ScopedLogger } from '../../contracts/plugins'
 import { AgentRegistry } from '../agents/registry'
 import { AgentCoordinator } from '../agents/coordinator'
+import { AgentArtifacts } from '../agents/artifacts'
 import { AgentRunAdmission } from '../agents/admission'
 import { createExecutionContext, type ContextOperation } from '../context/execution'
 import { PluginEventBus } from '../events/plugin-events'
@@ -70,6 +71,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
   const modelStore = new PluginModelCallStore(db)
   const context = (scope: ExecutionScope, signal: AbortSignal): ExecutionContext => createExecutionContext(scope, signal, logger, {
     authorize: async (current, operation, resourceId) => authorizePluginScope(current, operation, resourceId),
+    artifacts: { read: async (current, id, offset) => artifacts.read(current, id, offset) },
     agents: { list: async profileId => registry.list(profileId) },
     models: {
       gateway: (current, input, signal) => models.gateway(current, input, signal),
@@ -107,6 +109,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
     } },
   })
   const executionStore = new AgentExecutionStore(db)
+  const artifacts = new AgentArtifacts(db, executionStore, authorizePluginScope)
   executionStore.recover()
   modelStore.recover(record => executionStore.state.recordHostModelUsage(record))
   const models = new PluginModels({ store: modelStore, state: executionStore.state, list: listApiModels, prepare: prepareModelResponse, native: resolveNativeModel,
@@ -123,7 +126,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
     },
   })
   const coordinator: AgentCoordinator = new AgentCoordinator({ store: executionStore, registry, events, logger,
-    stateRoot: resolve(config.appHome, 'plugins', 'state'), authorize: authorizePluginScope, context, settleRun: id => models.settleRun(id) })
+    stateRoot: resolve(config.appHome, 'plugins', 'state'), validateInput: (scope, input) => artifacts.validate(scope, input), authorize: authorizePluginScope, context, settleRun: id => models.settleRun(id) })
   const admission = new AgentRunAdmission(coordinator, hooks, context)
   const removeHook = configureSessionRemovalHook(async ({ scope, profileId, sessionId, signal }) => {
     if (!hooks.has(profileId, 'sessions.remove')) return
@@ -156,7 +159,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
       if (notification) events.publish(notification)
     }
   })
-  return { host, store, eventStore, executionStore, coordinator, registry, events, consumers, hooks, models, context,
+  return { host, store, eventStore, executionStore, artifacts, coordinator, registry, events, consumers, hooks, models, context,
     async close() { unsubscribe(); await removeHook(); chat.close(); await coordinator.close(); await host.close(); await models.close(); await consumers.close(); events.close() } }
 }
 

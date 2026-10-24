@@ -14,6 +14,8 @@ studioPluginRoutes.post('/api/studio/plugins/:id/consumers/:consumerId/retry', r
 studioPluginRoutes.put('/api/studio/plugins/:id/profile', requireSuperAdmin, requireUserProfile, controller.configurePlugin)
 studioPluginRoutes.delete('/api/studio/plugins/:id', requireSuperAdmin, controller.removePlugin)
 studioPluginRoutes.get('/api/studio/agent-types', requireUserProfile, controller.listAgentTypes)
+studioPluginRoutes.post('/api/studio/agent-images', requireUserProfile, controller.uploadAgentImage)
+studioPluginRoutes.delete('/api/studio/agent-images/:id', requireUserProfile, controller.removeAgentImage)
 studioPluginRoutes.get('/api/studio/agent-instances', requireUserProfile, controller.listAgentInstances)
 studioPluginRoutes.post('/api/studio/agent-instances', requireUserProfile, controller.createAgentInstance)
 studioPluginRoutes.put('/api/studio/agent-instances/:id', requireUserProfile, controller.configureAgentInstance)

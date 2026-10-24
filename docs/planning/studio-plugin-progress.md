@@ -17,13 +17,14 @@
 | Agent API 执行 | 实例、接受请求、幂等、启动、流输出、完成屏障、取消、终态与事件事务落库；崩溃恢复标记 interrupted，不自动重放输入 |
 | 原生管理检查 | 通用 `management.inspect`、目录能力发现、独立短期资源和所有者/profile 鉴权；Codex 脱敏账号状态及模型分页，Qwen ACP 信息/认证方式；登录、配置文件等完整管理仍未迁移 |
 | 受管进程 | runtime 租约持有管道进程，宿主签发句柄、用户/profile/runtime 隔离、有界字节读取与写入背压、环境白名单、退出确认和进程树终止；worker 不持有宿主 ChildProcess |
-| 原生模型网关 | Run 绑定 loopback 租约、宿主凭据闭包、Responses/Anthropic 同协议直通、逐调用计量及取消清理；Qwen/Codex scoped 原生目录隔离，跨协议转换仍待完成 |
+| 原生模型网关 | Run 绑定 loopback 租约、宿主凭据闭包、Responses/Anthropic 同协议直通、模型图片能力透传、逐调用计量及取消清理；Qwen/Codex scoped 原生目录隔离，跨协议转换仍待完成 |
+| 图片附件 | 宿主上传/像素校验与配额、owner/profile 隔离、Run 输入绑定、SDK 分块读取、Qwen/Codex 原生图片转发；尚未接入旧聊天 UI，历史附件回收待完成 |
 | MCP 工具 SDK | `runtime.mcp.connect` 支持显式 stdio/HTTP 配置、工具发现/调用、文本/图片/JSON 结果、跨成功轮次连接复用、撤权回收及可等待清理；原生配置注入、统一交互凭据和 resources/prompts 仍未完成 |
 | 协议抽取 | 标准 ACP 连接及事件转换移入独立 `studio-agent-drivers`；旧调用通过兼容入口复用，原有协议测试继续通过 |
 | 旧聊天启动 | 准入已迁为共用服务，HTTP 直接调用；直调入口已绑定宿主 ExecutionScope、复制输入与身份并区分准入前取消和准入后排队；SDK 已通过 `chat.start/get/cancel` 接入已有会话文本运行 |
 | 工程接入 | bootstrap、鉴权 API、生成式 OpenAPI、runner 构建、插件私有导入边界检查、独立 Echo 样例 |
 
-安装策略测试中的 14 条 fixture 只验证保护和幂等规则。**当前没有把这 14 个 Agent 注册成已安装系统插件**，也没有用空壳包代替厂商迁移。已有 Qwen 与 Codex 独立包的 global/scoped 文本运行增量（scoped 目前要求原生协议一致），尚未默认安装或替换旧入口，不能计为完整迁移。旧 Coding Agent 仍使用原执行和管理路径。Hermes/Ekko 仍是原内置模块。
+安装策略测试中的 14 条 fixture 只验证保护和幂等规则。**当前没有把这 14 个 Agent 注册成已安装系统插件**，也没有用空壳包代替厂商迁移。已有 Qwen 与 Codex 独立包的 global/scoped 文本与图片运行增量（scoped 目前要求原生协议一致），尚未默认安装或替换旧入口，不能计为完整迁移。旧 Coding Agent 仍使用原执行和管理路径。Hermes/Ekko 仍是原内置模块。
 
 ## 当前开发接口
 
@@ -42,11 +43,13 @@
 | `PUT /api/studio/plugins/:id/profile` | 配置、授予声明的能力、启停；超级管理员；活动租约阻止切换 |
 | `DELETE /api/studio/plugins/:id` | 卸载用户插件；超级管理员；保留配置及运行历史 |
 | `GET /api/studio/agent-types` | 当前已激活插件提供的目录；尚未合并旧内置目录 |
+| `POST /api/studio/agent-images` | 上传至当前用户/profile 的图片工件，原始字节体，返回 artifact 引用 |
+| `DELETE /api/studio/agent-images/:id` | 删除自有且尚未被已接受 Run 引用的图片 |
 | `GET /api/studio/agent-instances` | 当前用户、当前 profile 的实例 |
 | `POST /api/studio/agent-instances` | 按已注册类型的 schema 创建实例 |
 | `PUT /api/studio/agent-instances/:id` | 按 revision 更新自身实例配置；活动 Run 阻止修改，旧租约确认回收后提交 |
 | `POST /api/studio/agent-instances/:id/inspect` | 检查空闲自有实例的原生元数据；与运行/配置修改互斥，不创建 Run 或聊天历史 |
-| `POST /api/studio/agent-instances/:id/runs` | 接受文本执行及幂等键 |
+| `POST /api/studio/agent-instances/:id/runs` | 接受文本/图片引用及幂等键 |
 | `GET /api/studio/agent-runs/:id` | 读取自身 Run 状态 |
 | `GET /api/studio/agent-runs/:id/output` | 按 `after` 序号读取自身 Run 输出 |
 | `POST /api/studio/agent-runs/:id/cancel` | 请求取消自身 Run |
@@ -72,7 +75,7 @@
 
 后续仍有七大交付块：统一运行与剩余业务入口、插件基础能力收尾、通用 Web/Desktop/App 界面、14 个 Coding Agent 独立插件包、Hermes/Ekko 内置统一接入、安装升级与发布分发、最终迁移验收与旧代码清理。旧聊天 SDK 的已有自有会话文本启动、查询和取消已完成，不再列为待开发项。
 
-推进顺序：收尾 MCP SDK → 打通首个 ACP Agent 与 Codex 的完整迁移 → 接入聊天界面形成可体验闭环 → 扩展到其余 Agent 和业务入口 → 分发与最终验收。Hermes/Ekko 继续保持内置身份；14 个厂商插件须逐个迁移和验收，保留 ID 或 fixture 不计为交付。
+推进顺序：MCP 工具 SDK 已整合并推送 → 补齐首个 ACP Agent 与 Codex 的完整迁移 → 接入聊天界面形成可体验闭环 → 扩展到其余 Agent 和业务入口 → 分发与最终验收。Hermes/Ekko 继续保持内置身份；14 个厂商插件须逐个迁移和验收，保留 ID 或 fixture 不计为交付。
 
 ## T02 进展：会话删除共用领域服务
 
@@ -525,6 +528,26 @@ MCP SDK 已以 `93cc9e9ff` 提交并推送至现有草稿 PR。随后在该提�
 完整 coverage 首轮 916 文件、9,444 项通过，既有 Windows Pi 撤销用例 1 项超时，12 文件/33 项跳过（780.94 秒，与浏览器回归并行）；原失败用例保持默认 5 秒时限，单独复测 1 项通过。完整 coverage 独立重跑全部通过：917 文件、9,445 项通过，12 文件/33 项跳过，305.08 秒（Node 24.22.1、两 worker、默认时限）。最后补充的“解析尚未完成时取消 RPC、仍等待宿主收尾”由网关/桥接 2 文件、25 项专项通过验证。最终完整生产构建、SDK/driver/runner/插件类型检查、生成式 OpenAPI、harness/API 文档和差异检查通过；最终插件工件的真实 CLI 验收再次通过并正常退出。
 
 浏览器首轮 933 项通过、2 项失败（12.6 分钟，无自动重试）：既有动态 GIF 壁纸与 TTS 页面加载遮罩用例。保留首次失败诊断，前端代码、原断言和默认时限均未修改；这两个原用例带 trace 单独复测全部通过（11.6 秒）。不称为浏览器首轮全绿。上一提交 `40fc22e08` 的全部 CI 已通过；当前增量继续由 PR CI 验证。
+
+## T05/T08 进展：Qwen/Codex 图片工件接入
+
+本增量开放新 Agent 实例 API 的图片输入，旧聊天入口与 UI 尚未接管，不计为 Qwen/Codex 完整迁移。
+
+- `POST /api/studio/agent-images` 接收原始字节，宿主识别并解码校验单帧 PNG/JPEG/WebP/GIF，限制单图 4 MiB、四千万像素；调用者不能提供路径、URL 或归属。图片及元数据存入 Studio SQLite，使用同一备份边界。
+- owner/profile 隔离；每用户最多 256 张/64 MiB、宿主 4096 张/256 MiB，同时最多四个上传。每 Run 最多八图/6 MiB；接收和派发均校验引用及媒体类型。未使用的图片可由 owner 删除，已接受 Run 的附件保留用于历史；自动回收尚未实现。
+- SDK `ctx.artifacts.read(id, offset)` 要求 `artifacts.read` grant、当前存活 Run 和有效输入中存在该图片。每次读取最多 192 KiB，RPC 返回前重查授权和取消；跨 owner/profile、非附件、已结束 Run、撤权和非法偏移均拒绝。公共 `readAgentImages` 校验分块身份、编码、连续性、数量和总大小。
+- 两个独立包通过公共 SDK 读取图片，Qwen 发送 ACP 图片块，Codex 发送 data URL；Run/输出 DTO 不持久化 base64 正文。scoped 模式透传宿主解析的图片能力，未声明支持时在原生准入前拒绝；Qwen 原生配置同步该能力，避免限定模型 ID 的名称推断把图片替换成文字。global 模式依赖用户原生模型的视觉配置。
+- 真实 worker 回归覆盖 global/scoped 图片、续聊、无视觉能力拒绝和读取期间撤权；首次边界检查发现跨插件目录导入，最终图片读取 helper 放在公共 SDK。首次真实 Qwen 验收发现模型未声明图片能力，修正宿主能力透传与原生配置后复验。
+
+验证（独立工作树，Node 24.22.1，保持默认测试时限）：
+
+- 最终图片/模型/worker 专项 8 个文件、143 项通过，包含按所选模型元数据而非协议判断视觉能力，以及分块编码、进度、取消和撤权检查；HTTP/协调器/准入/hook 等此前专项 9 文件、125 项通过。
+- `npm run test:coverage -- --maxWorkers=2` 首轮：915 文件、9,455 项通过，14 文件/36 项跳过；2 项旧模型返回字段断言未包含新增 `images` 而失败，432.89 秒。更新契约断言后模型专项 2 文件/69 项通过，随后新增模型元数据与 SDK 分块用例也已包含在上述最终 143 项中；未把专项复测记为全量 coverage 首轮通过。
+- 最终生产构建、SDK/driver/runner/插件类型检查、生成式 OpenAPI、harness/API 文档与差异检查通过。
+- Codex 0.163.0、Qwen Code 0.24.7 的实际 CLI 在隔离目录分别完成 global/scoped 两轮，四种组合均保持原生会话，图片确实到达本地模型端，14 次本地请求及 scoped 计量检查通过。无真实账号登录或远程供应商推理。
+- 完整浏览器回归 `npm run test:e2e -- --workers=2 --reporter=line` 首轮 935 项全部通过，19.7 分钟，无自动重试。原提交 `22556d531` 的全部 CI 已通过，本增量由推送后的 PR CI 继续验证。
+
+真实厂商账号与远程推理、聊天 UI、登录/安装、MCP/Skills 注入、跨协议和完整用量对账仍未验收。
 
 ## CI 修复：JEV harness 重复解析
 

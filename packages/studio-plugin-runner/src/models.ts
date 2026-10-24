@@ -6,7 +6,7 @@ export function remoteModels(call: (method: string, args: JsonValue) => Promise<
       const opened = await call('models.gateway', JSON.parse(JSON.stringify(input))) as JsonObject
       let closing: Promise<void> | undefined
       return Object.freeze({ baseUrl: String(opened.baseUrl), token: String(opened.token), model: String(opened.model),
-        protocol: input.protocol, dispose: () => closing ??= call('models.gateway.close', { handle: opened.handle }).then(() => {}) })
+        protocol: input.protocol, images: opened.images === true, dispose: () => closing ??= call('models.gateway.close', { handle: opened.handle }).then(() => {}) })
     },
     list: async () => await call('models.list', {}) as unknown as Awaited<ReturnType<ExecutionContext['models']['list']>>,
     get: async (id: string) => await call('models.get', { id }) as unknown as Awaited<ReturnType<ExecutionContext['models']['get']>>,

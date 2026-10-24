@@ -10,7 +10,7 @@ requests native interruption in global mode; scoped cancellation closes the
 Run-owned transport immediately. Both wait for confirmed process cleanup. The public
 configuration schema preserves native defaults unless a setting is supplied.
 
-This increment supports global and scoped text execution, command/file approvals, multi-question
+This increment supports global and scoped text/image execution, command/file approvals, multi-question
 native clarification, thread restoration and persistent turns. Choices retain their
 descriptions; only questions that allow other answers accept free text. Native
 request resolution withdraws unanswered Studio interactions and suppresses late
@@ -18,7 +18,7 @@ replies. Cancellation never invents an answer. Secret questions are rejected bef
 any prompt is persisted, pending a dedicated credential interaction channel.
 It is not automatically installed and
 does not replace legacy chat or management. Cross-protocol model adapters, login/configuration
-management, images, MCP elicitation, compaction, global native usage ledger
+management, MCP elicitation, compaction, global native usage ledger
 reconciliation and the full real CLI acceptance matrix remain incomplete. Native
 cumulative counters are not represented as fabricated per-call usage records.
 
@@ -50,3 +50,10 @@ revision, and retained across worker restarts. This is native configuration isol
 not an OS sandbox. Old state reclamation and upgrade migration remain pending.
 Scoped management inspection explicitly returns unsupported until a model-bound
 management context exists; it never falls back to the global account.
+
+Image turns use host-owned artifact references and require the `artifacts.read`
+grant. The SDK reads only images attached to the live Run in bounded chunks and
+sends data URLs to the native turn; paths and remote URLs are not accepted.
+Scoped runs reject image input when the host model does not declare vision.
+The native verifier checks image arrival at the local model endpoint in both
+modes without remote inference or account login.

@@ -5,7 +5,7 @@ through the public SDK. Build it with `node scripts/build-agent-plugins.mjs` fro
 the repository root; the independently loadable artifact is `dist/plugins/qwen-code`.
 The bundle includes the SDK and ACP driver and does not import server code.
 
-This increment supports global and scoped text turns, streamed text/reasoning/tools,
+This increment supports global and scoped text/image turns, streamed text/reasoning/tools,
 host-mediated approvals, native session restoration, cancellation and confirmed
 process cleanup. Configuration requires an absolute `cwd`; optional `command`,
 `args`, `env`, `model`, `reasoningEffort`, `systemPrompt` and explicit `mcpServers`
@@ -21,8 +21,7 @@ model discovery is `unsupported` without creating a session. Inspection creates
 no chat history and does not authenticate or change configuration.
 
 The artifact is not installed automatically and does not replace the existing
-chat path. Cross-protocol provider conversion, host MCP/Skills injection, image artifact
-resolution, native management/login integration, global usage reconciliation and the full real CLI
+chat path. Cross-protocol provider conversion, host MCP/Skills injection, native management/login integration, global usage reconciliation and the full real CLI
 acceptance matrix remain required before complete migration. Missing usage stays unknown.
 Fixture subprocess tests do not establish compatibility with an installed vendor CLI.
 
@@ -40,3 +39,11 @@ Scoped inspection is explicitly unsupported instead of reading the global accoun
 `npm run verify:plugins:native` exercises actual installed Qwen/Codex CLIs in both
 modes, including two-turn continuation and scoped host accounting, using temporary
 homes and local model fixtures. It does not perform account login or paid inference.
+
+Image turns use host-owned artifact references and require the `artifacts.read`
+grant. The SDK reads only images attached to the live Run in bounded chunks;
+paths and remote URLs are not accepted. Scoped runs require the gateway's image
+capability and write it into Qwen's native model configuration. Global models
+must have native vision support configured; ACP image support alone does not
+establish that the selected model can see images. The native verifier checks
+image arrival at the local model endpoint, in addition to turn completion.

@@ -504,3 +504,24 @@ worker 崩溃使租约失效，当前 Run 标记 interrupted，未确认 RPC 明
 每次调用以宿主实际身份解析，不以插件传入的 actor/profile 为准。配置更新使用 revision，保存后对新 Run 生效；当前 Run 的配置和权限快照可审计，但权限撤销仍应立即阻止后续敏感调用。
 
 对本地受信任插件，原生代码的 OS 权限与 Studio API 权限分开说明。没有容器/系统沙箱时，不能宣传“未授予 files 就无法读磁盘”。隔离策略的升级应保留现有 SDK，不要求插件再次改写业务接口。
+
+
+## 图片工件增量契约
+
+`POST /api/studio/agent-images?profile=…` 接收 `application/octet-stream` 原始图片，返回
+`{ ok: true, data: { id, mediaType, byteLength } }`。身份与 profile 来自认证入口，不接受路径、URL、owner 或 provider 覆盖。
+宿主检测类型并实际解码校验像素；目前支持单帧 PNG/JPEG/WebP/GIF，单图最多 4 MiB/4,000 万像素，
+每 Run 最多 8 张、合计 6 MiB。原始字节与元数据写入 SQLite，随数据库备份；用户合计限 64 MiB/256 张，宿主限 256 MiB/4,096 张。
+
+运行输入使用 `{ type: 'image', artifactId, mediaType }`，原始与有效输入随 accepted Run 同事务保存。
+准入和延迟派发均校验所属用户/profile及媒体类型。`DELETE /api/studio/agent-images/:id` 只删除自有未使用上传；
+已被原始或有效 Run 输入引用的工件保留，返回 `REVISION_CONFLICT`。历史清理/发布迁移仍属于后续工作。
+
+`ctx.artifacts.read(id, offset = 0)` 要求 manifest 声明并获授 `artifacts.read`，只允许当前 live Run 有效输入中的图片，
+不赋予任意上传目录或其他 Run 读取权。每次返回最多 192 KiB 的 base64 块和 `offset/nextOffset/done`，
+取消、终态、撤权与 owner/profile 不匹配拒绝；worker RPC 返回前再次检查授权。
+公共 `readAgentImages(content, ctx)` 负责有界分块重组、格式和进度检查，独立 SDK 不依赖宿主或 Node Buffer。
+
+模型网关返回宿主解析的可选 `images` 能力，缺失视为未知。scoped 图片输入只接受 `images: true`；
+Qwen 将其投影到原生 `generationConfig.modalities.image`，Codex 使用原生 image data URL，Qwen 使用 ACP inline image。
+global 模式由原生模型配置决定视觉支持。该能力不等于图片输出、通用文件输入或聊天 UI 已迁移。

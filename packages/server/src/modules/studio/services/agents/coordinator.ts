@@ -52,6 +52,7 @@ export class AgentCoordinator {
     context(scope: ExecutionScope, signal: AbortSignal): ExecutionContext
     stateRoot?: string
     settleRun?(runId: string): Promise<void>
+    validateInput?(scope: ExecutionScope, input: AgentRunInput): void
   }) {}
 
   createInstance(scope: ExecutionScope, input: { agentTypeId: string; config: JsonObject; mode: 'scoped' | 'global' }): AgentInstance {
@@ -139,11 +140,19 @@ export class AgentCoordinator {
     if (!input || typeof input !== 'object' || Object.keys(input).some(key => !['content', 'model', 'timeoutMs'].includes(key))) throw new StudioError('INVALID_ARGUMENT', 'Invalid run input')
     if (!Array.isArray(input.content) || !input.content.length || input.content.length > 100) throw new StudioError('INVALID_ARGUMENT', 'Run content is required')
     for (const block of input.content) {
-      if (!block || typeof block !== 'object' || block.type !== 'text' || typeof block.text !== 'string') throw new StudioError('CAPABILITY_UNSUPPORTED', 'This execution endpoint currently accepts text blocks')
-      if (Object.keys(block).some(key => !['type', 'text'].includes(key))) throw new StudioError('INVALID_ARGUMENT', 'Unknown content property')
+      if (!block || typeof block !== 'object' || Array.isArray(block)) throw new StudioError('INVALID_ARGUMENT', 'Invalid content block')
+      if (block.type === 'text') {
+        if (typeof block.text !== 'string' || Object.keys(block).some(key => !['type', 'text'].includes(key))) throw new StudioError('INVALID_ARGUMENT', 'Invalid text content')
+        if (!definition.capabilities.text) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent does not support text input')
+      } else if (block.type === 'image') {
+        if (typeof block.artifactId !== 'string' || !/^[a-f0-9-]{36}$/.test(block.artifactId)
+          || !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(block.mediaType)
+          || Object.keys(block).some(key => !['type', 'artifactId', 'mediaType'].includes(key))) throw new StudioError('INVALID_ARGUMENT', 'Invalid image content')
+        if (!definition.capabilities.images || !this.options.validateInput) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent image input is unavailable')
+      } else throw new StudioError('CAPABILITY_UNSUPPORTED', 'Unsupported content block')
     }
+    this.options.validateInput?.(scope, input)
     if (input.model !== undefined && (typeof input.model !== 'string' || !input.model.trim() || input.model.length > 256)) throw new StudioError('INVALID_ARGUMENT', 'Invalid model')
-    if (!definition.capabilities.text) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent does not support text input')
     if (input.timeoutMs !== undefined && (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 100 || input.timeoutMs > 3_600_000)) throw new StudioError('INVALID_ARGUMENT', 'Invalid run deadline')
     return { instance, previous: null, provider }
   }
@@ -330,6 +339,7 @@ export class AgentCoordinator {
       if (active.controller.signal.aborted) { this.finish(run.id, 'cancelled', null); return }
       const assertDispatch = () => {
         this.options.authorize(scope)
+        this.options.validateInput?.(scope, input)
         const current = this.options.store.instance(instance.id)
         if (!current || current.ownerId !== scope.principal.id || current.profileId !== scope.profileId || current.revision !== run.configRevision) throw new StudioError('REVISION_CONFLICT', 'Agent instance changed before dispatch')
         const resolved = this.options.registry.resolve(scope.profileId, instance.agentTypeId)

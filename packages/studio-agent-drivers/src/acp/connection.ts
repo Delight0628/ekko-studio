@@ -1,7 +1,7 @@
 import type { AgentProcessIO } from '../process/transport'
 import { StringDecoder } from 'node:string_decoder'
 import { readFileSync } from 'node:fs'
-export interface AcpImageInput { path: string; name?: string; mediaType?: string }
+export type AcpImageInput = ({ path: string; data?: never } | { data: string; path?: never }) & { name?: string; mediaType?: string }
 export interface AcpPermissionRequest {
   sessionId: string
   toolCall: Record<string, unknown>
@@ -194,7 +194,7 @@ export class AcpConnection {
     const prompt: any[] = input.text ? [{ type: 'text', text: input.text }] : []
     for (const image of input.images || []) prompt.push({
       type: 'image', mimeType: image.mediaType === 'image/jpg' ? 'image/jpeg' : image.mediaType || 'image/png',
-      data: readFileSync(image.path).toString('base64'),
+      data: image.data ?? readFileSync(image.path!).toString('base64'),
     })
     const result = await this.request('session/prompt', { sessionId: this.sessionId, prompt }, 0)
     if (this.permissions.size) throw new Error('ACP prompt finished with unresolved permissions')

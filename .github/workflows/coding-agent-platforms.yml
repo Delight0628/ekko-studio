@@ -75,6 +75,7 @@ jobs:
           tests/server/studio-managed-acp.test.ts
           tests/server/studio-native-rpc.test.ts
           tests/server/studio-agent-event-queue.test.ts
+          tests/server/studio-agent-artifacts.test.ts
           tests/server/studio-qwen-plugin.test.ts
           tests/server/studio-codex-plugin.test.ts
           tests/server/studio-managed-mcp.test.ts

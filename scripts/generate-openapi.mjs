@@ -1997,6 +1997,18 @@ openapi.paths['/api/studio/plugins/{id}/profile'].put.requestBody = studioPlugin
     profile: { type: 'string' },
   },
 })
+const agentImageUpload = openapi.paths['/api/studio/agent-images'].post
+agentImageUpload.summary = 'Upload an Agent image artifact'
+agentImageUpload.description += ' Upload raw single-frame PNG, JPEG, WebP or GIF bytes, at most 4 MiB and 40 million pixels. The host detects the media type. Returns an immutable artifact reference owned by the current user/profile; no client path, URL or identity is accepted. Up to 64 MiB/256 images per user and 256 MiB/4096 images per host.'
+agentImageUpload.requestBody = { required: true, content: { 'application/octet-stream': { schema: { type: 'string', format: 'binary' } } } }
+agentImageUpload.responses['429'] = { description: 'Upload concurrency or storage quota exceeded.' }
+agentImageUpload.responses['200'] = { description: 'Image artifact reference.', content: { 'application/json': { schema: {
+  type: 'object', required: ['ok', 'data'], properties: { ok: { type: 'boolean', enum: [true] }, data: {
+    type: 'object', required: ['id', 'mediaType', 'byteLength'], properties: { id: { type: 'string', format: 'uuid' }, mediaType: { type: 'string' }, byteLength: { type: 'integer', minimum: 1, maximum: 4194304 } },
+  } },
+} } } }
+openapi.paths['/api/studio/agent-images/{id}'].delete.summary = 'Remove an unused Agent image'
+openapi.paths['/api/studio/agent-images/{id}'].delete.description += ' Only the owner in the same profile may remove an image. Accepted Run attachments are retained with history and return REVISION_CONFLICT.'
 openapi.paths['/api/studio/agent-instances'].post.requestBody = studioPluginBody({ type: 'object', additionalProperties: false,
   required: ['agentTypeId', 'config', 'mode'], properties: {
     agentTypeId: { type: 'string' }, config: { type: 'object', additionalProperties: true }, mode: { type: 'string', enum: ['scoped', 'global'] }, profile: { type: 'string' },
@@ -2006,7 +2018,13 @@ openapi.paths['/api/studio/agent-instances/{id}/runs'].post.requestBody = studio
   required: ['input', 'idempotencyKey'], properties: {
     idempotencyKey: { type: 'string', minLength: 1, maxLength: 128 }, profile: { type: 'string' },
     input: { type: 'object', additionalProperties: false, required: ['content'], properties: {
-      content: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'object', additionalProperties: false, required: ['type', 'text'], properties: { type: { type: 'string', enum: ['text'] }, text: { type: 'string' } } } },
+      content: { type: 'array', minItems: 1, maxItems: 100, items: { oneOf: [
+        { type: 'object', additionalProperties: false, required: ['type', 'text'], properties: { type: { type: 'string', enum: ['text'] }, text: { type: 'string' } } },
+        { type: 'object', additionalProperties: false, required: ['type', 'artifactId', 'mediaType'], properties: {
+          type: { type: 'string', enum: ['image'] }, artifactId: { type: 'string', format: 'uuid' },
+          mediaType: { type: 'string', enum: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] },
+        } },
+      ] }, description: 'At most eight images and 6 MiB of image bytes per Run. References must belong to this user/profile and match stored media types.' },
       model: { type: 'string' }, timeoutMs: { type: 'integer', minimum: 100, maximum: 3600000 },
     } },
   },

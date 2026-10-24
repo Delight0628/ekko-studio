@@ -1,6 +1,6 @@
 import { isAbsolute } from 'node:path'
 import { AgentEventQueue, NativeRpcConnection } from '@ekko-studio/agent-drivers'
-import { StudioError, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
+import { StudioError, readAgentImages, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
 import { codexEvents } from './events'
 import { codexInteractions } from './interactions'
 import { scopedCodex } from './scoped'
@@ -35,7 +35,7 @@ export const apply: StudioPlugin['apply'] = plugin => {
   plugin.agents.register({
     id: 'codex', name: 'Codex', configSchema: schema,
     management,
-    capabilities: { text: true, streaming: true, reasoning: true, approvals: true, clarifications: true, resume: true, persistentSession: true, modes: ['scoped', 'global'] },
+    capabilities: { text: true, images: true, streaming: true, reasoning: true, approvals: true, clarifications: true, resume: true, persistentSession: true, modes: ['scoped', 'global'] },
     async create(input, runtime) {
       const config = input.config, cwd = String(config.cwd), scoped = input.mode === 'scoped'
       if (scoped && !runtime.stateDirectory) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Scoped Codex requires host-managed storage')
@@ -72,7 +72,6 @@ export const apply: StudioPlugin['apply'] = plugin => {
       return {
         async run(input, ctx) {
           if (ended || current) throw new StudioError('RUNTIME_UNAVAILABLE', 'Codex runtime is unavailable or busy')
-          if (input.content.some(block => block.type !== 'text')) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Codex instance runs currently accept text')
           const events = new AgentEventQueue<AgentOutputEvent>()
           let sequence = 0, ready!: () => void, complete!: (status: string) => void
           const started = new Promise<void>(resolve => { ready = resolve })
@@ -122,10 +121,12 @@ export const apply: StudioPlugin['apply'] = plugin => {
               // Install the handle and cancellation listener before admission.
               await Promise.resolve()
               if (turn.cancelled) return { status: 'cancelled' }
+              const images = await readAgentImages(input.content, ctx)
               if (scoped) {
                 const model = input.model || config.model as string | undefined
                 if (!model) throw new StudioError('INVALID_ARGUMENT', 'Scoped Codex requires a Studio model')
                 gateway = await ctx.models.gateway({ model, protocol: 'responses' })
+                if (gateway && images.size && gateway.images !== true) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Selected Studio model does not support images')
                 const env = await scopedCodex(runtime, gateway)
                 if (turn.cancelled) return { status: 'cancelled' }
                 await open({ ...config.env as Record<string, string>, ...env })
@@ -140,7 +141,11 @@ export const apply: StudioPlugin['apply'] = plugin => {
                 threadId = response.thread.id; resumed = true
               }
               if (turn.cancelled) return { status: 'cancelled' }
-              const response = await rpc.request('turn/start', { threadId, input: input.content,
+              const response = await rpc.request('turn/start', { threadId, input: input.content.map(block => {
+                if (block.type === 'text') return block
+                const image = images.get(block.artifactId)!
+                return { type: 'image', url: `data:${image.mediaType};base64,${image.data}` }
+              }),
                 ...(input.model || config.model ? { model: input.model || config.model } : {}), ...(config.effort ? { effort: config.effort } : {}) })
               if (typeof response?.turn?.id !== 'string' || !response.turn.id || response.turn.id.length > 256) throw new Error('Invalid Codex turn identity')
               turn.id = response.turn.id; ready()
