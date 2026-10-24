@@ -15,7 +15,7 @@ interface ActiveRun {
 }
 interface RuntimeLease {
   id: string; provider: AgentProviderRef; revision: number; controller: AbortController
-  runtime: AgentRuntime; idleTimer?: ReturnType<typeof setTimeout>
+  runtime: Promise<AgentRuntime>; creating: boolean; idleTimer?: ReturnType<typeof setTimeout>; disposing?: Promise<void>
 }
 interface InstanceQueue { current?: string; pending: string[] }
 
@@ -204,13 +204,22 @@ export class AgentCoordinator {
   private async disposeLease(instanceId: string, reason: string): Promise<void> {
     const lease = this.leases.get(instanceId)
     if (!lease) return
-    this.leases.delete(instanceId)
+    if (lease.disposing) return lease.disposing
     if (lease.idleTimer) clearTimeout(lease.idleTimer)
     lease.controller.abort()
-    this.options.store.state.closeLease(lease.id)
     let timer: ReturnType<typeof setTimeout> | undefined
-    await Promise.race([Promise.resolve().then(() => lease.runtime.dispose(reason)).catch(() => {}), new Promise<void>(resolve => { timer = setTimeout(resolve, 5_000) })])
-    if (timer) clearTimeout(timer)
+    // Keep the instance occupied until disposal is confirmed, including a late
+    // factory result. A timeout bounds the caller's wait; it cannot certify exit.
+    const cleanup = lease.runtime.then(runtime => runtime.dispose(reason), () => {})
+      .then(() => {
+        this.options.store.state.closeLease(lease.id)
+        if (this.leases.get(instanceId) === lease) this.leases.delete(instanceId)
+      })
+    lease.disposing = Promise.race([cleanup, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new StudioError('RUNTIME_UNAVAILABLE', 'Previous Agent runtime has not stopped')), 5_000)
+    })]).catch(() => { throw new StudioError('RUNTIME_UNAVAILABLE', 'Previous Agent runtime has not stopped') })
+      .finally(() => { if (timer) clearTimeout(timer) })
+    return lease.disposing
   }
 
   private async execute(run: AgentExecution, instance: AgentInstance, input: AgentRunInput, scope: ExecutionScope, active: ActiveRun): Promise<void> {
@@ -227,18 +236,24 @@ export class AgentCoordinator {
     active.controller.signal.addEventListener('abort', onAbort, { once: true })
     try {
       if (active.controller.signal.aborted) { this.finish(run.id, 'cancelled', null); return }
-      this.options.authorize(scope)
-      const current = this.options.store.instance(instance.id)
-      if (!current || current.ownerId !== scope.principal.id || current.profileId !== scope.profileId || current.revision !== run.configRevision) throw new StudioError('REVISION_CONFLICT', 'Agent instance changed while queued')
+      const assertDispatch = () => {
+        this.options.authorize(scope)
+        const current = this.options.store.instance(instance.id)
+        if (!current || current.ownerId !== scope.principal.id || current.profileId !== scope.profileId || current.revision !== run.configRevision) throw new StudioError('REVISION_CONFLICT', 'Agent instance changed before dispatch')
+        const resolved = this.options.registry.resolve(scope.profileId, instance.agentTypeId)
+        if (JSON.stringify(resolved.provider) !== JSON.stringify(run.provider)) throw new StudioError('REVISION_CONFLICT', 'Agent provider changed before dispatch')
+        return resolved
+      }
+      const resolved = assertDispatch()
       this.options.store.transition(run.id, ['accepted', 'queued'], 'starting')
-      const resolved = this.options.registry.resolve(scope.profileId, instance.agentTypeId)
-      if (JSON.stringify(resolved.provider) !== JSON.stringify(run.provider)) throw new StudioError('REVISION_CONFLICT', 'Agent provider changed while queued')
       let lease = this.leases.get(instance.id)
-      if (lease && (lease.revision !== run.configRevision || JSON.stringify(lease.provider) !== JSON.stringify(run.provider))) {
+      if (lease && (lease.disposing || lease.revision !== run.configRevision || JSON.stringify(lease.provider) !== JSON.stringify(run.provider))) {
         await this.disposeLease(instance.id, 'Provider or configuration changed')
         lease = undefined
       }
       if (lease?.idleTimer) clearTimeout(lease.idleTimer)
+      if (active.controller.signal.aborted) { this.finish(run.id, active.expired ? 'interrupted' : 'cancelled', active.expired ? 'DEADLINE_EXCEEDED' : null); return }
+      assertDispatch()
       if (!lease) {
         const controller = new AbortController()
         const id = this.options.store.state.openLease(instance.id, run.provider, run.configRevision)
@@ -250,19 +265,19 @@ export class AgentCoordinator {
             provider: run.provider, runtimeSessionId: id, profileId: scope.profileId, signal: controller.signal, logger: this.options.logger,
           })
         } catch (error) { controller.abort(); this.options.store.state.closeLease(id); throw error }
-        void creating.then(late => { if (ended) void late.dispose('Runtime creation exceeded deadline').catch(() => {}) }).catch(() => {})
-        try {
-          const runtime = await Promise.race([creating, aborted])
-          lease = { id, provider: run.provider, revision: run.configRevision, controller, runtime }
-          this.leases.set(instance.id, lease)
-        } catch (error) { controller.abort(); this.options.store.state.closeLease(id); throw error }
+        lease = { id, provider: run.provider, revision: run.configRevision, controller, runtime: creating, creating: true }
+        this.leases.set(instance.id, lease)
+        const pending = lease
+        void creating.then(() => { pending.creating = false }, () => { pending.creating = false })
       }
+      const runtime = await Promise.race([lease.runtime, aborted])
       if (active.controller.signal.aborted) { this.finish(run.id, active.expired ? 'interrupted' : 'cancelled', active.expired ? 'DEADLINE_EXCEEDED' : null); return }
+      assertDispatch()
       this.options.store.state.bindLease(run.id, lease.id)
       const context = this.options.context({ ...scope, runId: run.id }, active.controller.signal)
       const runContext: AgentRunContext = { ...context, scope: { ...context.scope, runId: run.id, runtimeSessionId: lease.id } }
       this.options.store.transition(run.id, ['starting'], 'running')
-      const starting = lease.runtime.run(input, runContext)
+      const starting = runtime.run(input, runContext)
       void starting.then(late => { if (ended) { void late.result.catch(() => {}); void late.cancel('Run start exceeded deadline').catch(() => {}) } }).catch(() => {})
       active.handle = await Promise.race([starting, aborted])
       if (active.controller.signal.aborted) void active.handle.cancel('Execution cancelled').catch(() => {})
@@ -296,8 +311,8 @@ export class AgentCoordinator {
         if (tools.size || this.options.store.state.interactions(run.id).some(item => item.status !== 'resolved')) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent ended with unresolved work')
         if (!this.options.store.transition(run.id, ['running', 'waiting_input'], 'finalizing')) throw new StudioError('REVISION_CONFLICT', 'Run cannot finalize')
         if (result.checkpoint !== undefined) checkpoint = jsonCopy(result.checkpoint)
-        if (checkpoint === undefined && resolved.definition.capabilities.resume && lease.runtime.checkpoint) {
-          checkpoint = jsonCopy(await Promise.race([lease.runtime.checkpoint(), aborted]))
+        if (checkpoint === undefined && resolved.definition.capabilities.resume && runtime.checkpoint) {
+          checkpoint = jsonCopy(await Promise.race([runtime.checkpoint(), aborted]))
         }
         this.finish(run.id, 'completed', null, checkpoint)
         retain = !!resolved.definition.capabilities.persistentSession && !this.closed
@@ -310,10 +325,18 @@ export class AgentCoordinator {
       if (deadline) clearTimeout(deadline)
       if (finalizationDeadline) clearTimeout(finalizationDeadline)
       active.controller.abort()
-      if (!retain) await this.disposeLease(instance.id, 'Run ended')
+      const dispose = (reason: string) => this.disposeLease(instance.id, reason)
+        .catch(() => { this.options.logger.warn('Agent runtime disposal is unconfirmed', { instanceId: instance.id }) })
+      if (!retain) {
+        const creating = this.leases.get(instance.id)?.creating
+        const cleanup = dispose('Run ended')
+        // Cancellation already waited for this factory. Keep its lease occupied,
+        // but report the finished Run without waiting through a second timeout.
+        if (!creating) await cleanup
+      }
       else {
         const lease = this.leases.get(instance.id)!
-        lease.idleTimer = setTimeout(() => { void this.disposeLease(instance.id, 'Idle runtime expired') }, 60_000)
+        lease.idleTimer = setTimeout(() => { void dispose('Idle runtime expired') }, 60_000)
         lease.idleTimer.unref()
       }
     }
