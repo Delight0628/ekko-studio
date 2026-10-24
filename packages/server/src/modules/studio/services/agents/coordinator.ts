@@ -19,6 +19,7 @@ import { AgentManagementOperations } from './management-operations'
 import type { AgentManagementStore } from '../../repositories/agent-management-store'
 import { parseAgentLogin } from './login-contract'
 import type { NativeAgentContext } from './native-context'
+import type { AgentRunTarget } from '../../repositories/agent-conversation-store'
 
 interface ActiveRun {
   controller: AbortController; handle?: AgentRunHandle; completed: Promise<void>; resolve(): void
@@ -26,6 +27,7 @@ interface ActiveRun {
   responses: Map<string, Promise<AgentInteraction>>
 }
 interface RuntimeLease {
+  instanceId: string
   id: string; provider: AgentProviderRef; revision: number; controller: AbortController
   runtime: Promise<AgentRuntime>; creating: boolean; idleTimer?: ReturnType<typeof setTimeout>; disposing?: Promise<void>
   processes: ManagedProcessScope
@@ -67,6 +69,7 @@ export class AgentCoordinator {
     authorizeManagement?(scope: ExecutionScope): void
     leaseManagement?(provider: AgentProviderRef, profileId: string, cancel: () => void, completed: Promise<void>): { authorize(): void; release(): void }
     nativeContext?(instance: AgentInstance, scope: ExecutionScope, provider: AgentProviderRef, signal: AbortSignal): NativeAgentContext | undefined
+    authorizeChat?(scope: ExecutionScope, instance: AgentInstance, sessionId: string): void
   }) {
     if (options.managementStore && options.authorizeManagement && options.leaseManagement) this.managementOperations = new AgentManagementOperations(options.managementStore, options.authorizeManagement)
   }
@@ -96,7 +99,7 @@ export class AgentCoordinator {
     this.configuring.add(instanceId)
     try {
       return operations.start({ ownerId: scope.principal.id, profileId: scope.profileId, instanceId, revision, provider, idempotencyKey }, authorize, async control => {
-        await this.disposeLease(instanceId, 'Native login started')
+        await this.disposeInstanceLeases(instanceId, 'Native login started')
         authorize()
         const stateDirectory = instance.mode === 'scoped' && this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, provider,
           this.options.store.state.stateRevision(instance.id, provider, revision)) : undefined
@@ -179,7 +182,7 @@ export class AgentCoordinator {
     if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance is being managed')
     this.configuring.add(instanceId)
     try {
-      await this.disposeLease(instanceId, 'Instance configuration changed')
+      await this.disposeInstanceLeases(instanceId, 'Instance configuration changed')
       const current = inspect()
       if (JSON.stringify(current.provider) !== JSON.stringify(previous.provider)) throw new StudioError('REVISION_CONFLICT', 'Agent provider changed during configuration')
       const compatible = current.definition.capabilities.resumeConfigKeys
@@ -229,7 +232,7 @@ export class AgentCoordinator {
       if (operation.action === 'read') return { file: files.read(operation) }
       if (operation.action !== 'write') throw new StudioError('INVALID_ARGUMENT', 'Invalid resource operation')
       // A retained native runtime may cache configuration. Recreate it on the next Run.
-      await this.disposeLease(instanceId, 'Native resource edited')
+      await this.disposeInstanceLeases(instanceId, 'Native resource edited')
       authorize()
       return { file: files.write(operation, operation.content, operation.etag) }
     }, signal)
@@ -272,16 +275,17 @@ export class AgentCoordinator {
     } finally { if (!this.management.isBlocked(instanceId)) this.configuring.delete(instanceId) }
   }
 
-  inspectStart(scope: ExecutionScope, instanceId: string, input: AgentRunInput, idempotencyKey: string): { instance: AgentInstance; previous: AgentExecution | null; provider?: AgentProviderRef } {
+  /** target is supplied only by a trusted application adapter, never by Run input. */
+  inspectStart(scope: ExecutionScope, instanceId: string, input: AgentRunInput, idempotencyKey: string, target?: AgentRunTarget): { instance: AgentInstance; previous: AgentExecution | null; provider?: AgentProviderRef } {
     if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent coordinator is shutting down')
     this.options.authorize(scope)
     if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim() || idempotencyKey.length > 128) throw new StudioError('INVALID_ARGUMENT', 'An idempotency key is required')
-    if (scope.sessionId !== undefined || scope.runId !== undefined || scope.workspaceId !== undefined) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Independent instance runs require an unbound scope')
     const instance = this.options.store.instance(instanceId)
     if (!instance || instance.ownerId !== scope.principal.id || instance.profileId !== scope.profileId) throw new StudioError('NOT_FOUND', 'Agent instance is unavailable')
+    this.authorizeTarget(scope, instance, target)
     input = jsonCopy(input)
     scope = jsonCopy(scope)
-    const previous = this.options.store.findRequest(instance, input, idempotencyKey)
+    const previous = this.options.store.findRequest(instance, input, idempotencyKey, target)
     if (previous) return { instance, previous }
     if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance is being managed')
     const { definition, provider } = this.options.registry.resolve(scope.profileId, instance.agentTypeId)
@@ -307,17 +311,17 @@ export class AgentCoordinator {
     return { instance, previous: null, provider }
   }
 
-  start(scope: ExecutionScope, instanceId: string, input: AgentRunInput, idempotencyKey: string, admission?: AgentAdmission): AgentExecution {
-    const original = this.inspectStart(scope, instanceId, admission?.originalInput ?? input, idempotencyKey)
+  start(scope: ExecutionScope, instanceId: string, input: AgentRunInput, idempotencyKey: string, admission?: AgentAdmission, target?: AgentRunTarget): AgentExecution {
+    const original = this.inspectStart(scope, instanceId, admission?.originalInput ?? input, idempotencyKey, target)
     if (original.previous) return original.previous
-    const { instance, provider } = admission ? this.inspectStart(scope, instanceId, input, idempotencyKey) : original
+    const { instance, provider } = admission ? this.inspectStart(scope, instanceId, input, idempotencyKey, target) : original
     if (admission && (instance.revision !== admission.expectedRevision || JSON.stringify(provider) !== JSON.stringify(admission.expectedProvider))) {
       throw new StudioError('REVISION_CONFLICT', 'Agent configuration or provider changed during hooks')
     }
-    input = jsonCopy(input); scope = jsonCopy(scope)
+    input = jsonCopy(input); scope = jsonCopy({ ...scope, ...(target ? { sessionId: target.sessionId, surface: 'chat' as const } : {}) })
     const queue = this.queues.get(instance.id) || { pending: [] }
     if (this.active.size + this.leases.size >= 128 || queue.pending.length >= 32) throw new StudioError('RESOURCE_EXHAUSTED', 'Agent run queue is full')
-    const accepted = this.options.store.accept(instance, provider!, input, idempotencyKey, admission)
+    const accepted = this.options.store.accept(instance, provider!, input, idempotencyKey, admission, target)
     if (!accepted.created) return accepted.run
     const id = accepted.run.id
     let resolve!: () => void
@@ -348,12 +352,31 @@ export class AgentCoordinator {
     return this.options.store.get(id)!
   }
 
+  private authorizeTarget(scope: ExecutionScope, instance: AgentInstance, target?: AgentRunTarget): void {
+    if (!target) {
+      if (scope.sessionId !== undefined || scope.runId !== undefined || scope.workspaceId !== undefined) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Independent instance runs require an unbound scope')
+      return
+    }
+    if (scope.runId !== undefined || scope.workspaceId !== undefined) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Run and workspace bindings require a dedicated execution adapter')
+    if (target.kind !== 'chat' || Object.keys(target).some(key => !['kind', 'sessionId'].includes(key))
+      || typeof target.sessionId !== 'string' || !target.sessionId.trim() || target.sessionId.length > 256) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent target')
+    if (scope.sessionId !== undefined && scope.sessionId !== target.sessionId) throw new StudioError('FORBIDDEN', 'Chat is outside the execution scope')
+    if (!this.options.authorizeChat) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Chat-bound Agent runs are unavailable')
+    this.options.authorizeChat(scope, instance, target.sessionId)
+  }
+
   get(scope: ExecutionScope, id: string): AgentExecution {
     this.options.authorize(scope)
     const run = this.options.store.get(id)
     if (!run || run.ownerId !== scope.principal.id || run.profileId !== scope.profileId) throw new StudioError('NOT_FOUND', 'Run is unavailable')
     if (scope.runId && scope.runId !== id) throw new StudioError('FORBIDDEN', 'Run is outside the execution scope')
-    if (scope.sessionId || scope.workspaceId) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Instance runs have no chat or workspace binding')
+    if (scope.workspaceId !== undefined) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Workspace-bound Run access is unavailable')
+    if (scope.sessionId !== undefined && scope.sessionId !== run.sessionId) throw new StudioError('FORBIDDEN', 'Run is outside the chat scope')
+    if (run.sessionId) {
+      const instance = this.options.store.instance(run.instanceId)
+      if (!instance || !this.options.authorizeChat) throw new StudioError('RUNTIME_UNAVAILABLE', 'Chat-bound Agent is unavailable')
+      this.options.authorizeChat(scope, instance, run.sessionId)
+    }
     return run
   }
   output(scope: ExecutionScope, id: string, after: number) {
@@ -445,6 +468,12 @@ export class AgentCoordinator {
     await Promise.allSettled([...this.leases.keys()].map(id => this.disposeLease(id, 'Host shutdown')))
   }
 
+  private async disposeInstanceLeases(instanceId: string, reason: string): Promise<void> {
+    const results = await Promise.allSettled([...this.leases].filter(([, lease]) => lease.instanceId === instanceId).map(([key]) => this.disposeLease(key, reason)))
+    const failed = results.find(result => result.status === 'rejected')
+    if (failed?.status === 'rejected') throw failed.reason
+  }
+
   private async disposeLease(instanceId: string, reason: string): Promise<void> {
     const lease = this.leases.get(instanceId)
     if (!lease) return
@@ -472,6 +501,7 @@ export class AgentCoordinator {
   }
 
   private async execute(run: AgentExecution, instance: AgentInstance, input: AgentRunInput, scope: ExecutionScope, active: ActiveRun): Promise<void> {
+    const leaseKey = run.conversationId ?? instance.id
     let settling: Promise<void> | undefined
     const settle = () => settling ??= Promise.resolve().then(() => this.options.settleRun?.(run.id))
     let deadline: ReturnType<typeof setTimeout> | undefined
@@ -492,15 +522,21 @@ export class AgentCoordinator {
         this.options.validateInput?.(scope, input)
         const current = this.options.store.instance(instance.id)
         if (!current || current.ownerId !== scope.principal.id || current.profileId !== scope.profileId || current.revision !== run.configRevision) throw new StudioError('REVISION_CONFLICT', 'Agent instance changed before dispatch')
+        this.authorizeTarget(scope, current, run.sessionId ? { kind: 'chat', sessionId: run.sessionId } : undefined)
         const resolved = this.options.registry.resolve(scope.profileId, instance.agentTypeId)
         if (JSON.stringify(resolved.provider) !== JSON.stringify(run.provider)) throw new StudioError('REVISION_CONFLICT', 'Agent provider changed before dispatch')
         return resolved
       }
       const resolved = assertDispatch()
       this.options.store.transition(run.id, ['accepted', 'queued'], 'starting')
-      let lease = this.leases.get(instance.id)
+      // An instance-wide management/failed cleanup must finish before another
+      // conversation may create a native runtime. Accepted Runs still get a
+      // durable terminal receipt if that cleanup cannot be confirmed.
+      const disposals = [...this.leases.values()].filter(lease => lease.instanceId === instance.id && lease.disposing).map(lease => lease.disposing)
+      if (disposals.length) await Promise.race([Promise.all(disposals), aborted])
+      let lease = this.leases.get(leaseKey)
       if (lease && (lease.disposing || lease.revision !== run.configRevision || JSON.stringify(lease.provider) !== JSON.stringify(run.provider))) {
-        await this.disposeLease(instance.id, 'Provider or configuration changed')
+        await this.disposeLease(leaseKey, 'Provider or configuration changed')
         lease = undefined
       }
       if (lease?.idleTimer) clearTimeout(lease.idleTimer)
@@ -509,7 +545,7 @@ export class AgentCoordinator {
       if (!lease) {
         const controller = new AbortController()
         const id = this.options.store.state.openLease(instance.id, run.provider, run.configRevision)
-        const resume = resolved.definition.capabilities.resume ? this.options.store.state.checkpoint(instance.id, run.provider, run.configRevision) : undefined
+        const resume = resolved.definition.capabilities.resume ? this.options.store.state.checkpoint(leaseKey, run.provider, run.configRevision) : undefined
         const processes = new ManagedProcessScope(controller.signal, () => { assertDispatch() })
         const mcp = new ManagedMcpScope(controller.signal, () => { assertDispatch() })
         // Install the lease before invoking user code, including factories that
@@ -524,8 +560,8 @@ export class AgentCoordinator {
             ...(stateDirectory ? { stateDirectory } : {}), provider: run.provider, runtimeSessionId: id, profileId: scope.profileId, ownerId: scope.principal.id, signal: controller.signal, logger: this.options.logger, processes: processes.api, mcp: mcp.api,
           })
         })
-        lease = { id, provider: run.provider, revision: run.configRevision, controller, runtime: creating, creating: true, processes, mcp }
-        this.leases.set(instance.id, lease)
+        lease = { id, instanceId: instance.id, provider: run.provider, revision: run.configRevision, controller, runtime: creating, creating: true, processes, mcp }
+        this.leases.set(leaseKey, lease)
         const pending = lease
         void creating.then(() => { pending.creating = false }, () => { pending.creating = false })
       }
@@ -588,21 +624,21 @@ export class AgentCoordinator {
       if (deadline) clearTimeout(deadline)
       if (finalizationDeadline) clearTimeout(finalizationDeadline)
       active.controller.abort()
-      const lease = this.leases.get(instance.id)
+      const lease = this.leases.get(leaseKey)
       try { await lease?.nativeContext?.end() } catch { retain = false }
       if (lease && !lease.disposing) lease.settling = settle()
       try { await settle() } catch { retain = false }
-      const dispose = (reason: string) => this.disposeLease(instance.id, reason)
+      const dispose = (reason: string) => this.disposeLease(leaseKey, reason)
         .catch(() => { this.options.logger.warn('Agent runtime disposal is unconfirmed', { instanceId: instance.id }) })
       if (!retain) {
-        const creating = this.leases.get(instance.id)?.creating
+        const creating = this.leases.get(leaseKey)?.creating
         const cleanup = dispose('Run ended')
         // Cancellation already waited for this factory. Keep its lease occupied,
         // but report the finished Run without waiting through a second timeout.
         if (!creating) await cleanup
       }
       else {
-        const lease = this.leases.get(instance.id)!
+        const lease = this.leases.get(leaseKey)!
         lease.idleTimer = setTimeout(() => { void dispose('Idle runtime expired') }, 60_000)
         lease.idleTimer.unref()
       }

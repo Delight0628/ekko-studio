@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { StudioError, type AgentProviderRef, type JsonObject, type AgentRunInput, type AgentOutputEvent, type EventEnvelope, type AgentRunRecord, type AgentRunStatus, type HookSnapshot } from '../contracts/plugins'
 import { PluginEventStore } from './plugin-event-store'
 import { AgentRunStateStore } from './agent-run-state-store'
+import { AgentConversationStore, type AgentRunTarget } from './agent-conversation-store'
 
 export interface AgentInstance {
   id: string; agentTypeId: string; profileId: string; ownerId: string
@@ -21,15 +22,17 @@ function canonicalJson(value: unknown): string {
   if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`).join(',')}}`
   return JSON.stringify(value)
 }
-export function agentRunRequestHash(instanceId: string, input: AgentRunInput): string {
-  return createHash('sha256').update(canonicalJson({ instanceId, input })).digest('hex')
+export function agentRunRequestHash(instanceId: string, input: AgentRunInput, target?: AgentRunTarget): string {
+  return createHash('sha256').update(canonicalJson({ instanceId, input, ...(target ? { target } : {}) })).digest('hex')
 }
 
 export class AgentExecutionStore {
   readonly state: AgentRunStateStore
+  readonly conversations: AgentConversationStore
   private readonly events: PluginEventStore
   constructor(private readonly db: DatabaseSync) {
     this.state = new AgentRunStateStore(db)
+    this.conversations = new AgentConversationStore(db)
     this.events = new PluginEventStore(db)
     db.exec(`CREATE TABLE IF NOT EXISTS studio_agent_instances (
       id TEXT PRIMARY KEY, agent_type_id TEXT NOT NULL, profile_id TEXT NOT NULL, owner_id TEXT NOT NULL,
@@ -73,14 +76,14 @@ export class AgentExecutionStore {
         AND NOT EXISTS (SELECT 1 FROM studio_agent_runs WHERE instance_id=? AND status NOT IN ('completed','cancelled','failed','interrupted'))`)
         .run(JSON.stringify(input.config), input.mode, instance.id, instance.ownerId, instance.profileId, input.revision, Number.MAX_SAFE_INTEGER, instance.id)
       if (!changed.changes) throw new StudioError('REVISION_CONFLICT', 'Agent instance changed or has active runs')
-      if (preserve) this.state.carryConfiguration(instance.id, preserve, input.revision, input.revision + 1)
+      if (preserve) this.state.carryConfiguration(instance.id, preserve, input.revision, input.revision + 1, this.conversations.ids(instance.id))
       this.db.exec('RELEASE studio_agent_configuration')
       return this.instance(instance.id)!
     } catch (error) { this.db.exec('ROLLBACK TO studio_agent_configuration; RELEASE studio_agent_configuration'); throw error }
   }
 
-  findRequest(instance: AgentInstance, input: AgentRunInput, key: string): AgentExecution | null {
-    const hash = agentRunRequestHash(instance.id, input)
+  findRequest(instance: AgentInstance, input: AgentRunInput, key: string, target?: AgentRunTarget): AgentExecution | null {
+    const hash = agentRunRequestHash(instance.id, input, target)
     const previous = this.db.prepare('SELECT * FROM studio_agent_runs WHERE owner_id=? AND profile_id=? AND idempotency_key=?').get(instance.ownerId, instance.profileId, key) as unknown as RunRow | undefined
     if (previous) {
       if (previous.input_hash !== hash) throw new StudioError('REVISION_CONFLICT', 'Idempotency key already identifies different input')
@@ -88,11 +91,11 @@ export class AgentExecutionStore {
     }
     return null
   }
-  accept(instance: AgentInstance, provider: AgentProviderRef, input: AgentRunInput, key: string, admission?: AgentAdmission): { run: AgentExecution; created: boolean } {
+  accept(instance: AgentInstance, provider: AgentProviderRef, input: AgentRunInput, key: string, admission?: AgentAdmission, target?: AgentRunTarget): { run: AgentExecution; created: boolean } {
     const original = admission?.originalInput ?? input
-    const previous = this.findRequest(instance, original, key)
+    const previous = this.findRequest(instance, original, key, target)
     if (previous) return { run: previous, created: false }
-    const hash = agentRunRequestHash(instance.id, original)
+    const hash = agentRunRequestHash(instance.id, original, target)
     const id = randomUUID(), now = Date.now()
     this.db.exec('SAVEPOINT studio_agent_admission')
     try {
@@ -100,6 +103,7 @@ export class AgentExecutionStore {
       (id, instance_id, profile_id, owner_id, status, provider_json, config_revision, created_at, updated_at, idempotency_key, input_hash)
       VALUES (?, ?, ?, ?, 'accepted', ?, ?, ?, ?, ?, ?)`).run(id, instance.id, instance.profileId, instance.ownerId, JSON.stringify(provider), instance.revision, now, now, key, hash)
       this.db.prepare('INSERT INTO studio_agent_run_admissions VALUES (?, ?, ?, ?)').run(id, JSON.stringify(original), JSON.stringify(input), JSON.stringify(admission?.hooks || []))
+      if (target) this.conversations.bind(id, instance, target)
       this.db.exec('RELEASE studio_agent_admission')
     } catch (error) { this.db.exec('ROLLBACK TO studio_agent_admission; RELEASE studio_agent_admission'); throw error }
     return { run: this.get(id)!, created: true }
@@ -146,11 +150,11 @@ export class AgentExecutionStore {
         WHERE id=? AND revision=?`).run(status, errorCode, Date.now(), id, run.revision)
       if (changed.changes) {
         this.state.endInteractions(id)
-        if (status === 'completed' && checkpoint !== undefined) this.state.saveCheckpoint(run.instanceId, run.provider, run.configRevision, id, checkpoint)
+        if (status === 'completed' && checkpoint !== undefined) this.state.saveCheckpoint(run.conversationId ?? run.instanceId, run.provider, run.configRevision, id, checkpoint)
       }
       const events = changed.changes ? this.events.append([{
         schemaVersion: 1, id: randomUUID(), type, occurredAt: Date.now(), partitionKey: `${run.profileId}:${run.id}`, sequence: 0,
-        subject: { profileId: run.profileId, runId: run.id }, data: { runId: run.id }, correlationId: run.id,
+        subject: { profileId: run.profileId, runId: run.id, ...(run.sessionId ? { sessionId: run.sessionId } : {}) }, data: { runId: run.id }, correlationId: run.id,
       }], run.ownerId) : []
       this.db.exec('RELEASE studio_agent_finish')
       return events
@@ -165,6 +169,7 @@ export class AgentExecutionStore {
   private decode(row: RunRow): AgentExecution {
     const admission = this.db.prepare('SELECT hooks_json FROM studio_agent_run_admissions WHERE run_id=?').get(row.id) as { hooks_json: string } | undefined
     return { id: row.id, instanceId: row.instance_id, profileId: row.profile_id, ownerId: row.owner_id, status: row.status,
+      ...this.conversations.target(row.id),
       provider: JSON.parse(row.provider_json) as AgentProviderRef, configRevision: row.config_revision, revision: row.revision,
       createdAt: row.created_at, updatedAt: row.updated_at, errorCode: row.error_code, ...(admission ? { hooks: JSON.parse(admission.hooks_json) as HookSnapshot[] } : {}) }
   }

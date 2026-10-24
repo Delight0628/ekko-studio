@@ -464,6 +464,9 @@ export interface AgentRunResult { status: 'completed' | 'cancelled'; checkpoint?
 
 export type AgentRunStatus = 'accepted' | 'queued' | 'starting' | 'running' | 'waiting_input' | 'finalizing' | 'cancelling' | 'completed' | 'cancelled' | 'failed' | 'interrupted'
 export interface AgentRunRecord {
+  /** Present only for a host-authorized chat binding; native history is isolated per conversation. */
+  sessionId?: string
+  conversationId?: string
   id: string
   instanceId: string
   profileId: string

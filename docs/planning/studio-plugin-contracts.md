@@ -582,7 +582,15 @@ PTY 与管道共用 `processes.spawn` 权限、runtime 归属、总数配额、�
 
 每个 runtime 最多 16 个连接，宿主最多 64 个；默认单个进行中请求，显式允许并行时最多四个。工具定义最多 256 个，工具输入最多 128 KiB，prompt 参数最多 64 KiB/64 项，DTO 结果最多 512 KiB，stdio 帧和 HTTP 响应流最多 1 MiB。HTTP 不跟随重定向。取消连接、工厂失败、worker 退出和 runtime 清理均等待所持连接及请求结算，未确认的清理保留租约隔离。平台交互凭据绑定、订阅/补全及其他协议操作仍需后续迁移。
 
-### 9.1 原生 Studio MCP 的逐轮注入
+### 9.1 聊天绑定的运行状态基础
+
+可信应用适配器可通过 `AgentRunAdmission.startInChat` 请求聊天绑定运行；该目标不属于公开 `AgentRunStartInput`，也不能通过普通 `ctx.runs.start` 丢弃资源绑定后启动。协调器要求宿主提供 `authorizeChat`，在准入、hook 后、实际派发和读取/控制时重新检查当前用户、profile、实例及目标。缺少宿主适配时返回能力不支持。生产聊天路由、消息投影及客户端接入尚未完成。
+
+`AgentRunRecord.sessionId/conversationId` 是宿主持久化的运行元数据。同一实例的不同聊天及原有独立运行分别缓存物理租约并保存 checkpoint；稳定 conversation ID 不等于物理 runtimeSessionId。实例级配置和资源目录继续共享，配置更新/登录/资源写入排空该实例全部物理租约；不支持复用某个聊天的原生 checkpoint 去启动另一个聊天。兼容 revision 的原子推进覆盖各 conversation；不兼容 revision 不采纳旧 checkpoint。
+
+Run、原始/effective 输入、逻辑 conversation 和目标关联共用接受事务；幂等摘要包括实际聊天目标。公开读取和控制须匹配 scope.sessionId（存在时）及当前宿主授权。一个旧租约清理尚未确认时，另一聊天已接受的 Run 可等待或取得失败回执，不能开启重叠的原生运行。原有独立运行的数据键和准入行为保持兼容。
+
+### 9.2 原生 Studio MCP 的逐轮注入
 
 独立 Agent 实例可显式保存 `studioMcp: { enabled: true, api?, browser?, devices?, use? }`；缺省关闭，启用后各未指定工具集默认开启。准入前检查适配器的 `capabilities.nativeMcp` 及宿主原生上下文工厂；签发、注入和实际请求时另校验插件当前声明并获授的 `mcp.studio`。独立 Run 尚无 Studio 聊天交互上下文，因此此配置不开放任务卡、会话目标或澄清工具集。现有原生 Home 中的历史全局 MCP 配置不在本增量中迁移或删除。
 

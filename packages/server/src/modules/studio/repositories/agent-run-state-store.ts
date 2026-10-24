@@ -158,12 +158,14 @@ export class AgentRunStateStore {
     return row?.state_revision ?? configRevision
   }
   /** Called inside the instance configuration transaction, after the old runtime has drained. */
-  carryConfiguration(instanceId: string, provider: AgentProviderRef, from: number, to: number): void {
+  carryConfiguration(instanceId: string, provider: AgentProviderRef, from: number, to: number, conversationIds: string[] = []): void {
     this.db.prepare('INSERT INTO studio_agent_state_revisions VALUES (?, ?, ?, ?)')
       .run(instanceId, JSON.stringify(provider), to, this.stateRevision(instanceId, provider, from))
-    if (this.checkpoint(instanceId, provider, from) !== undefined) {
-      this.db.prepare('UPDATE studio_agent_checkpoints SET config_revision=?, provider_json=? WHERE instance_id=? AND config_revision=?')
-        .run(to, JSON.stringify(provider), instanceId, from)
+    for (const key of [instanceId, ...conversationIds]) {
+      if (this.checkpoint(key, provider, from) !== undefined) {
+        this.db.prepare('UPDATE studio_agent_checkpoints SET config_revision=?, provider_json=? WHERE instance_id=? AND config_revision=?')
+          .run(to, JSON.stringify(provider), key, from)
+      }
     }
   }
 }

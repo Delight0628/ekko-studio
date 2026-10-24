@@ -52,7 +52,7 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
     logLevel: "silent"
   });
   const { AgentCoordinator, AgentRegistry, PluginEventBus, AgentExecutionStore, ManagedProcessScope, createNativeAgentContext, runMcpCredentials, studioConfig, PluginModelGateways, PluginModelCallStore, OpenAIResponsesModelClient, AnthropicMessagesModelClient, OpenAICompatibleModelClient, translatedNativeRequest } = createRequire(import.meta.url)(managedModule);
-  let calls = 0;
+  let calls = 0, completedTurns = 0;
   let activeTarget = 'native', activeVendor, searchIssued = false;
   let nativeMcpEnabled = false, nativeMcpIssued = false, nativeMcpContext;
   const nativeMcpRequests = [];
@@ -238,6 +238,10 @@ requires_openai_auth = false
         register('first');
         events = new PluginEventBus();
         const options = { store: executionStore, registry, events, stateRoot: join(home, 'state'), logger: { info() {}, warn() {}, error() {} }, authorize() {}, validateInput() {},
+          authorizeChat: (scope, current, sessionId) => {
+            if (scope.principal.id !== caller.principal.id || scope.profileId !== caller.profileId || current.ownerId !== caller.principal.id
+              || ![`fixture:${vendor}:a`, `fixture:${vendor}:b`].includes(sessionId)) throw new Error('Chat is outside the local acceptance fixture');
+          },
           nativeContext: (instance, scope, _provider, signal) => {
             const native = createNativeAgentContext(instance, scope, signal, runId => {
               if (!['starting', 'running', 'waiting_input'].includes(executionStore.get(runId)?.status)) throw new Error('Native turn ended');
@@ -267,8 +271,8 @@ name: studio-resource-check
 description: Skill marker ${marker}_SKILL.
 ---
 Follow fixture instructions.`, etag: 'missing' }, catalog.snapshot);
-        let checkpoint;
-        for (let turn = 0; turn < (target === 'switch' ? 3 : 2); turn++) {
+        const checkpoints = new Map();
+        for (let turn = 0; turn < (nativeMcpEnabled ? 5 : target === 'switch' ? 3 : 2); turn++) {
           searchIssued = false;
           nativeMcpIssued = false;
           if (target === 'switch') activeTarget = turn === 1 ? 'chat' : 'native';
@@ -286,7 +290,8 @@ Follow fixture instructions.`, etag: 'missing' }, catalog.snapshot);
             const mcpTraceOffset = (await readFile(join(root, 'mcp-trace.jsonl'), 'utf8').catch(() => '')).length;
             const content = [{ type: "text", text: `Respond with a brief greeting. Turn ${turn}.` },
               ...(turn ? [{ type: 'image', artifactId: '00000000-0000-0000-0000-000000000001', mediaType: 'image/png' }] : [])];
-            const accepted = coordinator.start(caller, instance.id, { content, timeoutMs: 20000 }, `${vendor}-${mode}-${target}-${turn}`);
+            const chatTarget = nativeMcpEnabled && turn >= 2 ? { kind: 'chat', sessionId: `fixture:${vendor}:${turn === 3 ? 'b' : 'a'}` } : undefined;
+            const accepted = coordinator.start(caller, instance.id, { content, timeoutMs: 20000 }, `${vendor}-${mode}-${target}-${turn}`, undefined, chatTarget);
             let finished = false;
             const answerFixtureApprovals = async () => {
               while (!finished) {
@@ -301,7 +306,8 @@ Follow fixture instructions.`, etag: 'missing' }, catalog.snapshot);
             };
             await Promise.all([coordinator.wait(accepted.id).finally(() => { finished = true; }), answerFixtureApprovals()]);
             const result = coordinator.get(caller, accepted.id), output = coordinator.output(caller, accepted.id, -1);
-            const nextCheckpoint = state.checkpoint(instance.id, result.provider, instance.revision);
+            const conversation = result.conversationId ?? instance.id;
+            const nextCheckpoint = state.checkpoint(conversation, result.provider, instance.revision);
             if (result.status !== 'completed') throw new Error(`${vendor} ${mode} native turn failed: ${result.errorCode}`);
             if (nativeMcpEnabled && !nativeMcpRequests.some(call => call.sessionId === `agent-run:${result.id}` && call.contextId === nativeMcpContext)) {
               const summary = tools => (tools || []).map(tool => ({ type: tool.type, name: tool.name || tool.function?.name, ...(tool.tools ? { tools: summary(tool.tools) } : {}) }));
@@ -319,8 +325,10 @@ Follow fixture instructions.`, etag: 'missing' }, catalog.snapshot);
             console.log(JSON.stringify({ vendor, mode, turn: turn + 1, nativeInstructionsLoaded: nativeInput.includes(marker + '_INSTRUCTION'), nativeSkillDiscovered: nativeInput.includes(marker + '_SKILL') }));
             if (!nativeInput.includes(marker + '_INSTRUCTION') || !nativeInput.includes(marker + '_SKILL')) throw new Error(`${vendor} ${mode} did not consume the declared native resources`);
             if (nextCheckpoint === undefined) throw new Error('Successful native Run did not commit a checkpoint');
-            if (turn && JSON.stringify(nextCheckpoint) !== JSON.stringify(checkpoint)) throw new Error(vendor + " changed native session between turns");
-            checkpoint = nextCheckpoint;
+            const previous = checkpoints.get(conversation);
+            if (previous !== undefined && JSON.stringify(nextCheckpoint) !== JSON.stringify(previous)) throw new Error(vendor + " changed native session between turns of the same conversation");
+            if (previous === undefined && [...checkpoints.values()].some(checkpoint => JSON.stringify(nextCheckpoint) === JSON.stringify(checkpoint))) throw new Error(vendor + ' reused a native session from another conversation');
+            checkpoints.set(conversation, nextCheckpoint);
             if (turn && !requests.slice(requestOffset).some(hasImage)) throw new Error(`${vendor} did not forward the image to its model`);
             if (mode === 'scoped') {
               const usage = state.usage(result.id);
@@ -328,8 +336,10 @@ Follow fixture instructions.`, etag: 'missing' }, catalog.snapshot);
               const records = db.prepare('SELECT record_json FROM studio_plugin_model_calls').all().map(row => JSON.parse(row.record_json));
               if (records.filter(call => call.runId === result.id).some(call => call.status !== 'completed')) throw new Error('Native model call did not complete');
             }
-            console.log(JSON.stringify({ vendor, mode, target, turn: turn + 1, status: result.status, events: output.length, sameNativeSession: turn ? true : void 0, configurationRevision: instance.revision, mcpConfigurationApplied: true, coordinatorRestart: !!turn, providerReactivation: !!turn, imageForwarded: turn ? true : void 0 }));
+            console.log(JSON.stringify({ vendor, mode, target, turn: turn + 1, status: result.status, events: output.length, sameNativeSession: previous !== undefined ? true : void 0,
+              ...(chatTarget ? { chat: chatTarget.sessionId, nativeHistoryIsolated: true } : {}), configurationRevision: instance.revision, mcpConfigurationApplied: true, coordinatorRestart: !!turn, providerReactivation: !!turn, imageForwarded: turn ? true : void 0 }));
             if (result.status !== "completed" || !output.some((event) => ["message.delta", "message.snapshot"].includes(event.type) && event.text.includes("Native fixture answer"))) throw new Error(`${vendor} real turn did not complete`);
+            completedTurns++;
           }
         }
       } finally {
@@ -344,7 +354,7 @@ Follow fixture instructions.`, etag: 'missing' }, catalog.snapshot);
     await new Promise((resolve) => server.close(() => resolve()));
     await rm(root, { recursive: true, force: true });
   }
-  console.log(JSON.stringify({ passed: true, localModelRequests: calls, nativeStudioMcpRequests: nativeMcpRequests.length, remoteProvider: false, accountLogin: false }));
+  console.log(JSON.stringify({ passed: true, turns: completedTurns, localModelRequests: calls, nativeStudioMcpRequests: nativeMcpRequests.length, remoteProvider: false, accountLogin: false }));
 }
 main().catch((error) => {
   console.error(error);

@@ -88,6 +88,7 @@ jobs:
           tests/server/studio-plugin-process-bridge.test.ts
           tests/server/studio-plugin-pty.test.ts
           tests/server/studio-agent-lifecycle.test.ts
+          tests/server/studio-agent-conversations.test.ts
           tests/server/studio-agent-management.test.ts
           tests/server/studio-agent-login.test.ts
           tests/server/studio-mcp-resources.test.ts
