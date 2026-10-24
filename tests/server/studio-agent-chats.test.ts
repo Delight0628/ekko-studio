@@ -17,6 +17,9 @@ import { readAgentChatSummaries, readAgentChatRunSummaries, agentChatOwnerFilter
 import { PluginChatRunStore } from '../../packages/server/src/modules/studio/repositories/plugin-chat-run-store'
 import { PluginChatRuns } from '../../packages/server/src/modules/studio/services/chat-run/plugin'
 import type { DirectChatRunOptions } from '../../packages/server/src/modules/studio/services/chat-run/direct'
+import { PluginCommandStore } from '../../packages/server/src/modules/studio/repositories/plugin-command-store'
+import { CommandExecutionScopes } from '../../packages/server/src/modules/studio/services/commands/scopes'
+import { AgentContextRuns } from '../../packages/server/src/modules/studio/services/agents/context-runs'
 
 const scope: ExecutionScope = { scopeId: 'app', principal: { kind: 'user', id: '7' }, profileId: 'one', surface: 'api', traceId: 'trace' }
 const cleanup: Array<() => Promise<void>> = []
@@ -27,7 +30,7 @@ function setup(interactions?: ConstructorParameters<typeof AgentChats>[0]['inter
   for (const [table, columns] of [['sessions', SESSIONS_SCHEMA], ['messages', MESSAGES_SCHEMA]] as const) db.exec(`CREATE TABLE ${table} (${Object.entries(columns).map(([name, sql]) => `${name} ${sql}`).join(', ')})`)
   const projection = new AgentChatProjection(db), executions = new AgentExecutionStore(db, projection), store = new AgentChatStore(db)
   const registry = new AgentRegistry(), events = new PluginEventBus(), hooks = new PluginHookRegistry(), logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
-  let allowed = true, failCreation = false
+  let allowed = true, failCreation = false, failDisposal = false
   let held: ReturnType<typeof Promise.withResolvers<void>> | undefined
   const authorize = () => { if (!allowed) throw new StudioError('FORBIDDEN', 'Access revoked') }
   const factory = vi.fn(async () => ({ run: async () => {
@@ -36,7 +39,7 @@ function setup(interactions?: ConstructorParameters<typeof AgentChats>[0]['inter
       yield { type: 'message.delta' as const, producerSequence: 0, messageId: 'm', text: 'Native answer' }
       await result
     })(), result, cancel: async () => { held?.resolve() } }
-  }, dispose: async () => {} }))
+  }, dispose: async () => { if (failDisposal) throw new Error('Fixture disposal unconfirmed') } }))
   const registration = registry.stage('one', { kind: 'plugin', pluginId: 'test.chats', version: '1.0.0', generation: 'first' }, ['test.chats/agent'])
   registration.register({ id: 'test.chats/agent', name: 'Owned Agent fixture', configSchema: { type: 'object', properties: { cwd: { type: 'string' }, model: { type: 'string' } } },
     capabilities: { text: true, modes: ['global'] }, create: factory })
@@ -53,11 +56,13 @@ function setup(interactions?: ConstructorParameters<typeof AgentChats>[0]['inter
       input.user_id, input.studio_user_id, input.workspace ?? null, input.model ?? '', 1, 1)
     if (failCreation) throw new Error('fixture session failure')
   })
-  const chats = new AgentChats({ store, projection, executions, coordinator, admission: new AgentRunAdmission(coordinator, hooks, context), registry, authorize, createSession, interactions })
+  const admission = new AgentRunAdmission(coordinator, hooks, context)
+  const chats = new AgentChats({ store, projection, executions, coordinator, admission, registry, authorize, createSession, interactions })
   cleanup.push(async () => { await coordinator.close(); chats.close(); events.close(); db.close() })
   const create = (key = 'create') => chats.create(scope, instance.id, { revision: 1, idempotencyKey: key })
-  return { db, chats, store, projection, executions, coordinator, instance, registration, factory, createSession, create,
+  return { db, chats, store, projection, executions, coordinator, admission, instance, registration, factory, createSession, create,
     revoke() { allowed = false }, fail() { failCreation = true }, recover() { failCreation = false },
+    failDisposal() { failDisposal = true },
     hold() { held = Promise.withResolvers<void>() }, release() { held?.resolve(); held = undefined } }
 }
 
@@ -70,6 +75,81 @@ it('creates one owned chat and binding without starting the native Agent, includ
     agent: f.instance.agentTypeId, agent_mode: 'global', studio_user_id: '7', user_id: '7', workspace: '/owned-workspace', model: 'native-model' }])
   expect(f.chats.isBound(receipt.sessionId)).toBe(true)
   expect(f.chats.ownedBinding(scope, receipt.sessionId).instance.id).toBe(f.instance.id)
+})
+
+it('adopts the authenticated command input in the canonical transaction and rejects a second Run or forged input row', async () => {
+  const f = setup(), chat = f.create(), commands = new PluginCommandStore(f.db), scopes = new CommandExecutionScopes(), controller = new AbortController()
+  const input = { sessionId: chat.sessionId, commandId: 'test.chats/native', text: '/native "original"', revision: 'registered', idempotencyKey: 'command' }
+  const call = commands.accept(scope, input, () => Number(f.db.prepare("INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, 'command', ?, 1)").run(chat.sessionId, input.text).lastInsertRowid))
+  const current = { ...scope, scopeId: call.id, sessionId: chat.sessionId, surface: 'chat' as const }
+  scopes.bind(current, call, controller.signal, { instanceId: f.instance.id, instanceRevision: 1 })
+  const origin = scopes.origin(current, { instanceId: f.instance.id, instanceRevision: 1 })!
+  const follow = vi.fn(), contexts = new AgentContextRuns({ admission: f.admission, chats: f.chats, commands: scopes, executions: f.executions, coordinator: f.coordinator, follow })
+  const request = { instanceId: f.instance.id, input: { content: [{ type: 'text' as const, text: 'Plugin parsed native arguments' }] }, idempotencyKey: 'command-run' }
+  f.hold()
+  const run = await contexts.start(current, request, controller.signal)
+  await vi.waitFor(() => expect(f.projection.message(run.id, 'input', 'input')?.id).toBe(call.inputMessageId))
+  expect(f.db.prepare("SELECT id, role, content, run_marker FROM messages WHERE session_id=? AND role IN ('user','command')").all(chat.sessionId)).toEqual([
+    { id: call.inputMessageId, role: 'command', content: input.text, run_marker: run.id },
+  ])
+  expect((await contexts.start(current, request, controller.signal)).id).toBe(run.id)
+  expect(follow).toHaveBeenCalledWith(expect.objectContaining({ scopeId: call.id, sessionId: chat.sessionId }), chat.sessionId, expect.objectContaining({ id: run.id }), 'command-run')
+  await expect(contexts.start(current, { ...request, instanceId: 'other-instance' }, controller.signal)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  await expect(contexts.start({ ...current, runId: run.id }, request, controller.signal)).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
+  await expect(contexts.start(current, { ...request, commandOrigin: origin } as any, controller.signal)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+  const count = f.db.prepare('SELECT count(*) AS n FROM studio_agent_runs').get()!.n
+  await expect(f.chats.start(current, chat.sessionId, { content: [{ type: 'text', text: 'Second' }] }, 'second-key', controller.signal, origin)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  await expect(f.chats.start(current, chat.sessionId, { content: [{ type: 'text', text: 'Forged' }] }, 'forged', controller.signal, { ...origin, messageId: call.inputMessageId! + 999 })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  expect(f.db.prepare('SELECT count(*) AS n FROM studio_agent_runs').get()!.n).toBe(count)
+  expect(f.executions.commands.runs(call.id)).toEqual([run.id])
+  f.release(); await f.chats.wait(run.id); controller.abort()
+  expect(f.factory).toHaveBeenCalledOnce()
+})
+
+it.each([false, true])('cancels only the command-associated queued Run and preserves another active invocation (separate chat: %s)', async separate => {
+  const f = setup(), chat = f.create(), calls = new PluginCommandStore(f.db), scopes = new CommandExecutionScopes()
+  const contexts = new AgentContextRuns({ admission: f.admission, chats: f.chats, commands: scopes, executions: f.executions, coordinator: f.coordinator })
+  const begin = async (key: string, sessionId = chat.sessionId) => {
+    const call = calls.accept(scope, { sessionId, commandId: 'test.chats/native', revision: '1', text: '/' + key, idempotencyKey: key },
+      () => Number(f.db.prepare("INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, 'command', ?, 1)").run(sessionId, '/' + key).lastInsertRowid))
+    const current = { ...scope, scopeId: call.id, sessionId, surface: 'chat' as const }, controller = new AbortController()
+    scopes.bind(current, call, controller.signal, { instanceId: f.instance.id, instanceRevision: 1 })
+    const run = await contexts.start(current, { instanceId: f.instance.id, input: { content: [{ type: 'text', text: '/' + key }] }, idempotencyKey: key }, controller.signal)
+    return { call, scope: current, run, controller }
+  }
+  f.hold()
+  const first = await begin('first')
+  await vi.waitFor(() => expect(f.coordinator.get(first.scope, first.run.id).status).toBe('running'))
+  calls.finish(first.call.id, 'completed'); first.controller.abort()
+  const second = await begin('second', separate ? f.create('other-chat').sessionId : chat.sessionId)
+  expect(f.coordinator.get(second.scope, second.run.id).status).toBe('queued')
+  await contexts.cancelCommand(second.scope, second.call.id)
+  expect(f.coordinator.get(second.scope, second.run.id).status).toBe('cancelled')
+  expect(f.coordinator.get(first.scope, first.run.id).status).toBe('running')
+  expect(f.db.prepare('SELECT ended_at FROM sessions WHERE id=?').get(chat.sessionId)?.ended_at).toBeNull()
+  expect(f.factory).toHaveBeenCalledOnce()
+  f.release(); await f.chats.wait(first.run.id)
+  first.controller.abort(); second.controller.abort()
+})
+
+it('does not report command cleanup as confirmed while its own native lease remains quarantined', async () => {
+  const f = setup(), chat = f.create(), calls = new PluginCommandStore(f.db), scopes = new CommandExecutionScopes(), controller = new AbortController()
+  const call = calls.accept(scope, { sessionId: chat.sessionId, commandId: 'test.chats/native', revision: '1', text: '/native', idempotencyKey: 'native' },
+    () => Number(f.db.prepare("INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, 'command', '/native', 1)").run(chat.sessionId).lastInsertRowid))
+  const current = { ...scope, scopeId: call.id, sessionId: chat.sessionId, surface: 'chat' as const }
+  scopes.bind(current, call, controller.signal, { instanceId: f.instance.id, instanceRevision: 1 })
+  const contexts = new AgentContextRuns({ admission: f.admission, chats: f.chats, commands: scopes, executions: f.executions, coordinator: f.coordinator })
+  f.hold()
+  const run = await contexts.start(current, { instanceId: f.instance.id, input: { content: [{ type: 'text', text: '/native' }] }, idempotencyKey: 'native' }, controller.signal)
+  await vi.waitFor(() => expect(f.coordinator.get(current, run.id).status).toBe('running'))
+  f.failDisposal()
+  await expect(contexts.cancelCommand(current, call.id)).rejects.toMatchObject({ code: 'RUNTIME_UNAVAILABLE' })
+  expect(f.executions.state.leaseForRun(run.id)).toEqual(expect.any(String))
+  const next = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Next' }] }, 'next', new AbortController().signal)
+  await f.chats.wait(next.id)
+  expect(f.chats.get(scope, chat.sessionId, next.id)).toMatchObject({ status: 'failed', errorCode: 'RUNTIME_UNAVAILABLE' })
+  expect(f.factory).toHaveBeenCalledOnce()
+  f.release(); controller.abort()
 })
 
 it('reads SDK chat receipts from canonical snapshots across retries and reconstruction without another text writer', async () => {
@@ -355,6 +435,9 @@ it('delivers committed rows in Run order with stable ids and queue identity, inc
   expect([...new Map(rows.map(row => [row.id, row])).values()]).toMatchObject([{ role: 'user', content: 'First', run_marker: first.id }, { role: 'assistant', content: 'Native answer', run_marker: first.id }])
   expect(new Set(rows.map(row => row.id)).size).toBe(2)
   expect(rows.at(-1).id).toBe(rows.find(row => row.role === 'assistant').id)
+  const delivered = emitted.length
+  expect(delivery.follow(scope, chat.sessionId, first.id, 'first')).toBe(false)
+  expect(emitted).toHaveLength(delivered)
   delivery.close()
 })
 

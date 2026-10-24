@@ -1390,6 +1390,14 @@ export class ChatRunSocket {
     caller.observeSession(data.session_id)
     const run = await chats.start(scope, data.session_id, input, queueId, new AbortController().signal)
     caller.reply('run.accepted', { event: 'run.accepted', session_id: data.session_id, queue_id: queueId, agent_run_id: run.id, run_id: run.id })
+    const delivery = this.agentChatDelivery(chats)
+    if (['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status)
+      || this.followManagedAgentRun(scope, data.session_id, run, queueId) === false) {
+      await delivery.replay(scope, data.session_id, run.id, queueId, (event, payload) => caller.reply(event, payload))
+    }
+  }
+
+  private agentChatDelivery(chats: NonNullable<ReturnType<typeof getAgentChatService>>): AgentChatDelivery {
     if (!this.managedAgentDelivery) this.managedAgentDelivery = new AgentChatDelivery({ chats,
       emit: (sessionId, event, payload) => {
         const state = this.sessionMap.get(sessionId)
@@ -1405,12 +1413,17 @@ export class ChatRunSocket {
       activity: (sessionId, runs, current) => this.syncManagedAgentActivity(sessionId, runs, current),
       onError: runId => logger.warn({ runId }, '[chat-run-socket] Agent chat delivery unavailable'),
     })
-    if (['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status)) {
-      await this.managedAgentDelivery.replay(scope, data.session_id, run.id, queueId, (event, payload) => caller.reply(event, payload))
-      return
-    }
-    this.syncManagedAgentActivity(data.session_id, chats.activity(scope, data.session_id))
-    this.managedAgentDelivery.follow(scope, data.session_id, run.id, queueId)
+    return this.managedAgentDelivery
+  }
+
+  /** Host SDK entrypoint; it accepts an authorized canonical receipt, never a client target override. */
+  followManagedAgentRun(scope: ExecutionScope, sessionId: string, run: import('../contracts/plugins').AgentRunRecord, queueId: string): boolean {
+    const chats = getAgentChatService()
+    if (!chats) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent chat service is unavailable')
+    chats.get(scope, sessionId, run.id)
+    if (['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status)) return false
+    this.syncManagedAgentActivity(sessionId, chats.activity(scope, sessionId))
+    return this.agentChatDelivery(chats).follow(scope, sessionId, run.id, queueId)
   }
 
   private startRun(socket: ChatRunCallerTarget, data: ChatRunStartRequest, scope: ChatRunStartScope, pushActor: ChatRunStartPorts['pushActor']) {

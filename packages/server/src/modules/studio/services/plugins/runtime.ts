@@ -24,6 +24,7 @@ import { projectPluginBusinessEvent } from '../events/plugin-business-events'
 import { removeStudioSession } from '../sessions/removal'
 import { PluginCommandStore } from '../../repositories/plugin-command-store'
 import { PluginCommands } from '../commands/plugin'
+import { CommandExecutionScopes } from '../commands/scopes'
 import { PluginChatRunStore } from '../../repositories/plugin-chat-run-store'
 import { PluginChatRuns, authorizeOwnedChatSession } from '../chat-run/plugin'
 import { getChatRunServer } from '../chat-run/server-registry'
@@ -41,6 +42,7 @@ import { createNativeAgentContext } from '../agents/native-context'
 import { AgentChatProjection } from '../../repositories/agent-chat-projection'
 import { AgentChatStore } from '../../repositories/agent-chat-store'
 import { AgentChats } from '../agents/chats'
+import { AgentContextRuns } from '../agents/context-runs'
 import { setAgentChatService, getAgentChatService } from '../agents/chat-registry'
 
 const logger: ScopedLogger = {
@@ -85,6 +87,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
     canonical: (scope, sessionId, runId) => agentChats.text(scope, sessionId, runId) })
   const workflows = new PluginWorkflows(authorizePluginScope)
   const modelStore = new PluginModelCallStore(db)
+  const commandScopes = new CommandExecutionScopes()
   const context = (scope: ExecutionScope, signal: AbortSignal): ExecutionContext => createExecutionContext(scope, signal, logger, {
     authorize: async (current, operation, resourceId) => authorizePluginScope(current, operation, resourceId),
     artifacts: { read: async (current, id, offset) => artifacts.read(current, id, offset) },
@@ -106,7 +109,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
       cancel: (current, id) => chat.cancel(current, id),
     },
     runs: {
-      start: (current, input, signal) => admission.start(current, input, signal),
+      start: (current, input, signal) => contextRuns.start(current, input, signal),
       get: async (current, id) => coordinator.get(current, id),
       output: async (current, id, after) => coordinator.output(current, id, after),
       cancel: (current, id) => coordinator.cancel(current, id),
@@ -167,6 +170,8 @@ export function createStudioPluginRuntime(runnerPath: string) {
       if (typeof server?.beginAgentTaskPlanRun !== 'function') throw new StudioError('CAPABILITY_UNSUPPORTED', 'Chat interactions are unavailable')
       return server.beginAgentTaskPlanRun(...args)
     } }, interactionError: runId => logger.warn('Agent chat interaction cleanup failed', { runId }) })
+  const contextRuns = new AgentContextRuns({ admission, chats: agentChats, commands: commandScopes, executions: executionStore, coordinator,
+    follow: (scope, id, run, key) => { getChatRunServer()?.followManagedAgentRun?.(scope, id, run, key) } })
   const removeHook = configureSessionRemovalHook(async ({ scope, profileId, sessionId, signal }) => {
     const managed = agentChats.isBound(sessionId)
     if (!managed && !hooks.has(profileId, 'sessions.remove')) return
@@ -195,13 +200,19 @@ export function createStudioPluginRuntime(runnerPath: string) {
   })
   const commandStore = new PluginCommandStore(db)
   commandStore.recover()
-  const commands = new PluginCommands({ registry: host.commands, store: commandStore, context,
+  const commands = new PluginCommands({ registry: host.commands, store: commandStore,
+    context: (scope, signal, call, target) => {
+      if (call) commandScopes.bind(scope, call, signal, target?.instanceId ? { instanceId: target.instanceId, instanceRevision: target.instanceRevision! } : undefined)
+      return context(scope, signal)
+    },
+    cancelRuns: (scope, callId) => contextRuns.cancelCommand(scope, callId),
     authorize: (scope, id) => {
       const { session } = authorizeOwnedChatSession(scope, id)
       const server = getChatRunServer()
       if (!server?.pluginCommandSessionState) throw new StudioError('RUNTIME_UNAVAILABLE', 'Chat command transport is unavailable')
       return { agentTypeId: session.agent || 'hermes', isWorking: server.pluginCommandSessionState(id).isWorking,
-        fingerprint: JSON.stringify([session.agent, session.agent_mode, session.workspace, session.model, session.provider, session.api_mode]) }
+        ...(session.agent_instance_id ? { instanceId: session.agent_instance_id, instanceRevision: session.agent_instance_revision } : {}),
+        fingerprint: JSON.stringify([session.agent, session.agent_mode, session.workspace, session.model, session.provider, session.api_mode, session.agent_instance_id, session.agent_instance_revision]) }
     },
     persist: (id, text) => {
       const messageId = addMessage({ session_id: id, role: 'command', content: text })

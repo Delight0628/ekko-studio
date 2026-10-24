@@ -325,6 +325,8 @@ Disposer、停用、卸载和 generation/原生租约回收撤销对应注册。
 
 当前 SDK 已开放 `commands.register`、`CommandInput/Result/Context`，manifest 声明命令 ID；Web 输入框消费已激活插件的命令目录，通过带 revision 和幂等键的 HTTP 调用插件 handler，实时事件和轮询回执共用现有结果渲染。激活期注册支持 `id/name/aliases/description/argsHint/agentTypeIds`；暂不支持 examples、实例/入口范围及运行期动态注册。现阶段只面向已有自有直接聊天的文本输入，旧平台命令继续使用固定目录与旧处理链；保留短名称不被插件覆盖，插件始终可用限定名称。插件回执不直接清空聊天、删除消息、终止其他 Run 或跳转到返回数据中的会话；业务变更仍须经获权领域服务。`ctx.chat.start` 当前拒绝斜杠管理命令的限制保持，不能因本节目标契约而视为已开放。完整验收见实施计划 A35–A39。
 
+受管实例聊天的命令上下文包含宿主派生的 `session.instanceId/instanceRevision`，处理器可显式通过 `ctx.runs.start` 启动当前实例 Run。宿主以私有 scope 映射和持久来源表绑定命令回执、输入消息和唯一 Run，来源字段不接受插件请求覆盖。接受事务复核当前所有权、实例 revision 与运行中的命令回执，canonical 投影复用命令输入消息。正常命令完成不取消已接受工作；处理器失败、超时或取消须等待关联 Run 的清理，清理未确认则回执失败并隔离原租约。父 Run/workspace 绑定仍不支持；本接口不自动解释斜杠文本或插件返回动作。
+
 ### 3.5 一个最小插件
 
 以下示例展示入口关系，`createEchoRuntime` 等实现由样例包提供：

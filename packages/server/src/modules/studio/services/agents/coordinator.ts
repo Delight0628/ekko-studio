@@ -361,7 +361,7 @@ export class AgentCoordinator {
     }
     if (this.frozenChats.has(target.sessionId)) throw new StudioError('REVISION_CONFLICT', 'Chat history is being changed')
     if (scope.runId !== undefined || scope.workspaceId !== undefined) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Run and workspace bindings require a dedicated execution adapter')
-    if (target.kind !== 'chat' || Object.keys(target).some(key => !['kind', 'sessionId'].includes(key))
+    if (target.kind !== 'chat' || Object.keys(target).some(key => !['kind', 'sessionId', 'command'].includes(key))
       || typeof target.sessionId !== 'string' || !target.sessionId.trim() || target.sessionId.length > 256) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent target')
     if (scope.sessionId !== undefined && scope.sessionId !== target.sessionId) throw new StudioError('FORBIDDEN', 'Chat is outside the execution scope')
     if (!this.options.authorizeChat) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Chat-bound Agent runs are unavailable')
@@ -463,6 +463,15 @@ export class AgentCoordinator {
   }
 
   async wait(id: string): Promise<void> { await this.active.get(id)?.completed }
+  async waitForCleanup(scope: ExecutionScope, id: string): Promise<AgentExecution> {
+    this.get(scope, id)
+    await this.wait(id)
+    const run = this.get(scope, id), lease = this.leases.get(run.conversationId ?? run.instanceId)
+    // A queued Run never owned a native lease. A later Run may already use a
+    // different lease in the same conversation; neither may be disposed here.
+    if (lease && lease.id === this.options.store.state.leaseForRun(id) && lease.disposing) await lease.disposing
+    return this.get(scope, id)
+  }
 
   /** Trusted lifecycle port. Its caller authorizes the user mutation before
    * acquiring and immediately before applying it. SDK payloads cannot invoke it. */
@@ -588,10 +597,10 @@ export class AgentCoordinator {
         const pending = lease
         void creating.then(() => { pending.creating = false }, () => { pending.creating = false })
       }
+      this.options.store.state.bindLease(run.id, lease.id)
       const runtime = await Promise.race([lease.runtime, aborted])
       if (active.controller.signal.aborted) { this.finish(run.id, active.expired ? 'interrupted' : 'cancelled', active.expired ? 'DEADLINE_EXCEEDED' : null); return }
       assertDispatch()
-      this.options.store.state.bindLease(run.id, lease.id)
       const context = this.options.context({ ...scope, runId: run.id }, active.controller.signal)
       const nativeContext = await Promise.race([lease.nativeContext?.prepare(run.id, active.controller.signal), aborted])
       assertDispatch()

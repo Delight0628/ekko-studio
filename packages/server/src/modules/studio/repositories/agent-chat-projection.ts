@@ -100,7 +100,13 @@ export class AgentChatProjection implements AgentExecutionProjection {
     // Canonical admission already persists queued input. Materialize its chat
     // row only when dispatched, after the previous Run's last assistant row.
     const content = agentChatDisplayContent(run.sessionId, input)
-    this.insert(run, 'input', 'input', 'user', content)
+    const origin = this.db.prepare('SELECT input_message_id FROM studio_agent_run_command_origins WHERE run_id=?').get(run.id)
+    if (origin) {
+      const message = this.db.prepare(`SELECT session_id, role, run_marker FROM ${MESSAGES_TABLE} WHERE id=?`).get(origin.input_message_id)
+      if (message?.session_id !== run.sessionId || message.role !== 'command' || (message.run_marker && message.run_marker !== run.id)) throw new StudioError('FORBIDDEN', 'Command input is outside the Run target')
+      this.db.prepare(`UPDATE ${MESSAGES_TABLE} SET run_marker=? WHERE id=?`).run(run.id, origin.input_message_id)
+      this.db.prepare('INSERT INTO studio_agent_chat_messages VALUES (?, ?, ?, ?)').run(run.id, 'input', 'input', origin.input_message_id)
+    } else this.insert(run, 'input', 'input', 'user', content)
     this.db.prepare(`UPDATE ${SESSIONS_TABLE} SET ended_at=NULL, end_reason=NULL WHERE id=?`).run(run.sessionId)
     this.stats(run.sessionId)
   }
@@ -137,7 +143,10 @@ export class AgentChatProjection implements AgentExecutionProjection {
     // state, and its new owner must not receive the previous owner's metadata.
     try { this.forRun(run) }
     catch (error) { if (error instanceof StudioError && error.code === 'FORBIDDEN') return; throw error }
-    this.db.prepare(`UPDATE ${SESSIONS_TABLE} SET ended_at=?, end_reason=? WHERE id=?`).run(Math.floor(run.updatedAt / 1000), run.status, run.sessionId)
+    const other = this.db.prepare(`SELECT 1 FROM studio_agent_runs r JOIN studio_agent_run_targets t ON t.run_id=r.id
+      WHERE t.session_id=? AND r.status NOT IN ('completed','failed','cancelled','interrupted') LIMIT 1`).get(run.sessionId)
+    if (!other && this.message(run.id, 'input', 'input')) this.db.prepare(`UPDATE ${SESSIONS_TABLE} SET ended_at=?, end_reason=? WHERE id=?`)
+      .run(Math.floor(run.updatedAt / 1000), run.status, run.sessionId)
     this.stats(run.sessionId)
   }
 

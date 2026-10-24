@@ -7,6 +7,7 @@ import type { AgentRunAdmission } from './admission'
 import type { AgentRegistry } from './registry'
 import { jsonCopy } from '../plugins/validation'
 import type { NativeAgentTurnBinding } from './native-context'
+import type { AgentRunCommandOrigin } from '../../repositories/agent-run-command-origin'
 
 export interface AgentChatSessionCreation {
   id: string; profile: string; source: string; agent: string; agent_mode: 'scoped' | 'global'
@@ -73,10 +74,10 @@ export class AgentChats {
     if (current.instance.id !== instance.id) throw new StudioError('FORBIDDEN', 'Chat belongs to another Agent instance')
   }
 
-  start(inputScope: ExecutionScope, sessionId: string, value: AgentRunInput, idempotencyKey: string, signal: AbortSignal) {
+  start(inputScope: ExecutionScope, sessionId: string, value: AgentRunInput, idempotencyKey: string, signal: AbortSignal, command?: AgentRunCommandOrigin) {
     const scope = jsonCopy(inputScope), input = jsonCopy(value)
     const { instance } = this.ownedBinding(scope, sessionId)
-    return this.deps.admission.startInChat(scope, sessionId, { instanceId: instance.id, input, idempotencyKey }, signal)
+    return this.deps.admission.startInChat(scope, sessionId, { instanceId: instance.id, input, idempotencyKey }, signal, command)
   }
 
   async cancel(scope: ExecutionScope, sessionId: string, runId: string) {

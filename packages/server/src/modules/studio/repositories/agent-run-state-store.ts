@@ -137,6 +137,9 @@ export class AgentRunStateStore {
   bindLease(runId: string, leaseId: string): void {
     this.db.prepare('INSERT INTO studio_agent_run_leases VALUES (?, ?)').run(runId, leaseId)
   }
+  leaseForRun(runId: string): string | undefined {
+    return this.db.prepare('SELECT lease_id FROM studio_agent_run_leases WHERE run_id=?').get(runId)?.lease_id as string | undefined
+  }
   closeLease(id: string): void {
     this.db.prepare("UPDATE studio_agent_runtime_leases SET status='closed', updated_at=? WHERE id=?").run(Date.now(), id)
   }

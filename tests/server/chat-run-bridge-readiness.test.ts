@@ -220,7 +220,7 @@ describe('ChatRunSocket global pending interactions', () => {
     const { io, socket } = makeServerHarness(), server = new ChatRunSocket(io as any)
     Object.assign(socket.data, { user: { id: 7, role: 'super_admin' }, profile: 'default' })
     const start = vi.fn(async () => ({ id: 'canonical', status: 'running' })), follow = vi.fn()
-    const service = { isBound: (id: string) => id === 'managed-session', ownedBinding: vi.fn(), start, activity: () => [] }
+    const service = { isBound: (id: string) => id === 'managed-session', ownedBinding: vi.fn(), get: vi.fn(), start, activity: () => [] }
     setAgentChatService(service as any)
     ;(server as any).managedAgentDelivery = { follow }
     const legacyCount = handleCodingAgentRunMock.mock.calls.length, readyCount = ensureReadyMock.mock.calls.length
@@ -242,7 +242,7 @@ describe('ChatRunSocket global pending interactions', () => {
     const { io, socket } = makeServerHarness(), server = new ChatRunSocket(io as any)
     Object.assign(socket.data, { user: { id: 7, role: 'super_admin' }, profile: 'default' })
     const start = vi.fn(async () => ({ id: 'canonical', status: 'running' }))
-    setAgentChatService({ isBound: () => true, ownedBinding: vi.fn(), start, activity: () => [] } as any)
+    setAgentChatService({ isBound: () => true, ownedBinding: vi.fn(), get: vi.fn(), start, activity: () => [] } as any)
     ;(server as any).managedAgentDelivery = { follow: vi.fn() }
     try {
       await expect((server as any).handleRun(socket, { session_id: 'managed-session', input: 'Hello' }, 'default')).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })

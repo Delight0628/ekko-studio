@@ -5,6 +5,7 @@ import { StudioError, type AgentProviderRef, type JsonObject, type AgentRunInput
 import { PluginEventStore } from './plugin-event-store'
 import { AgentRunStateStore } from './agent-run-state-store'
 import { AgentConversationStore, type AgentRunTarget } from './agent-conversation-store'
+import { AgentRunCommandOrigins } from './agent-run-command-origin'
 
 export interface AgentInstance {
   id: string; agentTypeId: string; profileId: string; ownerId: string
@@ -37,10 +38,12 @@ export function agentRunRequestHash(instanceId: string, input: AgentRunInput, ta
 export class AgentExecutionStore {
   readonly state: AgentRunStateStore
   readonly conversations: AgentConversationStore
+  readonly commands: AgentRunCommandOrigins
   private readonly events: PluginEventStore
   constructor(private readonly db: DatabaseSync, private readonly projection?: AgentExecutionProjection) {
     this.state = new AgentRunStateStore(db)
     this.conversations = new AgentConversationStore(db)
+    this.commands = new AgentRunCommandOrigins(db)
     this.events = new PluginEventStore(db)
     db.exec(`CREATE TABLE IF NOT EXISTS studio_agent_instances (
       id TEXT PRIMARY KEY, agent_type_id TEXT NOT NULL, profile_id TEXT NOT NULL, owner_id TEXT NOT NULL,
@@ -115,6 +118,7 @@ export class AgentExecutionStore {
       this.db.prepare('INSERT INTO studio_agent_run_admissions VALUES (?, ?, ?, ?)').run(id, JSON.stringify(original), JSON.stringify(input), JSON.stringify(admission?.hooks || []))
       this.db.prepare('INSERT INTO studio_agent_run_origins VALUES (?, ?)').run(id, surface)
       if (target) this.conversations.bind(id, instance, target)
+      if (target?.command) this.commands.bind(id, instance, target.sessionId, target.command)
       this.projection?.accepted(this.get(id)!, original)
       this.db.exec('RELEASE studio_agent_admission')
     } catch (error) { this.db.exec('ROLLBACK TO studio_agent_admission; RELEASE studio_agent_admission'); throw error }

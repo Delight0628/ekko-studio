@@ -2,9 +2,10 @@ import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentInstance } from './agent-execution-store'
 import { StudioError } from '../contracts/plugins'
+import type { AgentRunCommandOrigin } from './agent-run-command-origin'
 
 /** Trusted application binding, never accepted as part of a plugin Run input. */
-export interface AgentRunTarget { kind: 'chat'; sessionId: string }
+export interface AgentRunTarget { kind: 'chat'; sessionId: string; command?: AgentRunCommandOrigin }
 interface Conversation { id: string; instance_id: string; profile_id: string; owner_id: string; session_id: string }
 
 /** Logical conversations survive physical worker leases and keep native history

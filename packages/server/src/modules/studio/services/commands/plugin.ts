@@ -3,14 +3,15 @@ import { PluginCommandStore, type CommandStart, type CommandCall, type CommandEv
 import { PluginCommandRegistry, parseCommandResult } from '../plugins/commands'
 import { jsonCopy } from '../plugins/validation'
 
-export interface CommandTarget { agentTypeId: string; fingerprint: string; isWorking: boolean }
+export interface CommandTarget { agentTypeId: string; fingerprint: string; isWorking: boolean; instanceId?: string; instanceRevision?: number }
 export class PluginCommands {
   private readonly active = new Map<string, { sessionId: string; controller: AbortController; done: Promise<void> }>()
   private closed = false
   constructor(private readonly deps: {
     registry: PluginCommandRegistry; store: PluginCommandStore
     authorize(scope: ExecutionScope, sessionId: string): CommandTarget
-    context(scope: ExecutionScope, signal: AbortSignal): ExecutionContext
+    context(scope: ExecutionScope, signal: AbortSignal, call?: CommandCall, target?: CommandTarget): ExecutionContext
+    cancelRuns?(scope: ExecutionScope, callId: string): Promise<void>
     persist(sessionId: string, text: string): number | undefined
     committed?(sessionId: string, text: string, messageId: number | undefined): void
     publish(event: CommandEvent): void
@@ -39,8 +40,11 @@ export class PluginCommands {
     const command: CommandInput = { text: input.text, command: match[1], rawArguments: match[2] }
     const snapshot = jsonCopy({ ...scope, sessionId: input.sessionId, surface: 'chat' as const })
     const controller = new AbortController()
-    const execution = this.deps.context(snapshot, controller.signal)
     const record = this.deps.store.accept(snapshot, input, () => this.deps.persist(input.sessionId, input.text))
+    snapshot.scopeId = record.id
+    let execution: ExecutionContext
+    try { execution = this.deps.context(snapshot, controller.signal, record, target) }
+    catch (error) { controller.abort(error); this.deps.store.finish(record.id, 'failed', 'RUNTIME_UNAVAILABLE'); throw error }
     this.deps.committed?.(input.sessionId, input.text, record.inputMessageId)
     const check = () => {
       if (controller.signal.aborted) throw controller.signal.reason
@@ -52,7 +56,8 @@ export class PluginCommands {
     const timer = setTimeout(() => controller.abort(new StudioError('DEADLINE_EXCEEDED', 'Command timed out')), 60_000)
     const watch = setInterval(() => { try { check() } catch (error) { controller.abort(error) } }, 250)
     const ctx: CommandContext = Object.assign({ ...execution }, {
-      session: Object.freeze({ agentTypeId: target.agentTypeId, isWorking: target.isWorking }),
+      session: Object.freeze({ agentTypeId: target.agentTypeId, isWorking: target.isWorking,
+        ...(target.instanceId ? { instanceId: target.instanceId, instanceRevision: target.instanceRevision } : {}) }),
       reply: async (value: unknown) => {
         const current = check(), result = parseCommandResult(value, command)
         if (current.isWorking && (result.terminal === true || result.started === true)) throw new StudioError('REVISION_CONFLICT', 'Command result conflicts with an active chat run')
@@ -66,8 +71,11 @@ export class PluginCommands {
       await entry.invoke(input.commandId, command, ctx)
       check()
       this.deps.store.finish(record.id, 'completed')
-    }).catch(error => {
-      this.deps.store.finish(record.id, controller.signal.aborted && controller.signal.reason?.code === 'CANCELLED' ? 'cancelled' : 'failed', error instanceof StudioError ? error.code : 'RUNTIME_UNAVAILABLE')
+    }).catch(async error => {
+      let cleanupFailed = false
+      try { await this.deps.cancelRuns?.(snapshot, record.id) }
+      catch { cleanupFailed = true; error = new StudioError('RUNTIME_UNAVAILABLE', 'Command Run cleanup could not be confirmed') }
+      this.deps.store.finish(record.id, !cleanupFailed && controller.signal.aborted && controller.signal.reason?.code === 'CANCELLED' ? 'cancelled' : 'failed', error instanceof StudioError ? error.code : 'RUNTIME_UNAVAILABLE')
     }).finally(() => { clearTimeout(timer); clearInterval(watch); controller.abort(); this.active.delete(record.id) })
     this.active.set(record.id, { sessionId: input.sessionId, controller, done })
     return record

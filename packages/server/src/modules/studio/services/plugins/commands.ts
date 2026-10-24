@@ -9,7 +9,7 @@ const validateDefinition = compileSchema({ type: 'object', additionalProperties:
   agentTypeIds: { type: 'array', minItems: 1, maxItems: 64, uniqueItems: true, items: { type: 'string', maxLength: 256 } },
 } })
 // These fields carry transport authority, rather than plugin result data.
-const envelope = new Set(['event', 'session_id', 'sessionId', 'ownerId', 'profileId', 'profile', 'scope', 'providerRef', 'generation', 'runId', 'run_id', 'commandCallId', 'commandSequence', 'messageId'])
+const envelope = new Set(['event', 'session_id', 'sessionId', 'ownerId', 'profileId', 'profile', 'scope', 'providerRef', 'generation', 'runId', 'run_id', 'run_marker', 'agent_run_id', 'queue_id', 'replayed', 'producer_sequence', 'commandCallId', 'commandSequence', 'messageId'])
 export function parseCommandResult(value: unknown, input: CommandInput): CommandResult {
   const result = jsonCopy(value, 32_768) as CommandResult
   if (!result || typeof result !== 'object' || Array.isArray(result) || result.command !== input.command

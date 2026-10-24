@@ -12,6 +12,7 @@ export class AgentChatDelivery {
   private closed = false
   private readonly lanes = new Map<string, Promise<void>>()
   private readonly followed = new Set<string>()
+  private readonly completed = new Set<string>()
   constructor(private readonly deps: {
     chats: AgentChats
     emit(sessionId: string, event: string, payload: Record<string, unknown>): void
@@ -19,14 +20,19 @@ export class AgentChatDelivery {
     onError(runId: string): void
   }) {}
 
-  follow(scope: ExecutionScope, sessionId: string, runId: string, queueId: string): void {
+  follow(scope: ExecutionScope, sessionId: string, runId: string, queueId: string): boolean {
     if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent chat delivery is closed')
     this.deps.chats.get(scope, sessionId, runId)
-    if (this.followed.has(runId)) return
+    if (this.completed.has(runId)) return false
+    if (this.followed.has(runId)) return true
     this.followed.add(runId)
     this.publishQueue(scope, sessionId)
     const previous = this.lanes.get(sessionId) ?? Promise.resolve()
-    const task = previous.catch(() => {}).then(() => this.deliver(scope, sessionId, runId, queueId)).catch(() => {
+    const task = previous.catch(() => {}).then(() => this.deliver(scope, sessionId, runId, queueId)).then(() => {
+      if (this.closed) return
+      this.completed.add(runId)
+      if (this.completed.size > 2048) this.completed.delete(this.completed.values().next().value!)
+    }).catch(() => {
       // Never include native diagnostics, prompt text, or authentication details.
       this.deps.onError(runId)
     }).finally(() => {
@@ -34,6 +40,7 @@ export class AgentChatDelivery {
       if (this.lanes.get(sessionId) === task) this.lanes.delete(sessionId)
     })
     this.lanes.set(sessionId, task)
+    return true
   }
 
   publishQueue(scope: ExecutionScope, sessionId: string): void {

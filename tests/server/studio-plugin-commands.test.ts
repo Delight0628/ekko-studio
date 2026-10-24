@@ -8,6 +8,7 @@ import { PluginHost } from '../../packages/server/src/modules/studio/services/pl
 import { PluginStore } from '../../packages/server/src/modules/studio/repositories/plugin-store'
 import { PluginCommandStore } from '../../packages/server/src/modules/studio/repositories/plugin-command-store'
 import { PluginCommands } from '../../packages/server/src/modules/studio/services/commands/plugin'
+import { CommandExecutionScopes } from '../../packages/server/src/modules/studio/services/commands/scopes'
 import { AgentRegistry } from '../../packages/server/src/modules/studio/services/agents/registry'
 import { PluginEventBus } from '../../packages/server/src/modules/studio/services/events/plugin-events'
 import { createExecutionContext } from '../../packages/server/src/modules/studio/services/context/execution'
@@ -23,18 +24,31 @@ afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await c
 afterAll(async () => { await rm(root, { force: true, recursive: true }) })
 const scope: ExecutionScope = { scopeId: 'scope', traceId: 'trace', profileId: 'one', principal: { kind: 'user', id: 'caller' }, surface: 'api' }
 const definition = { id: 'test.commands/echo', name: 'echo', aliases: ['say'], description: 'Plugin echo', argsHint: '<text>' }
-async function setup(handler: string, options: { definition?: object; extra?: string; grants?: string[] } = {}) {
+async function setup(handler: string, options: { definition?: object; extra?: string; grants?: string[]; cancelRuns?: (scope: ExecutionScope, id: string) => Promise<void> } = {}) {
   const db = new DatabaseSync(':memory:'), store = new PluginStore(db), registry = new AgentRegistry(), events = new PluginEventBus(), calls = new PluginCommandStore(db)
   db.exec('CREATE TABLE command_messages (id INTEGER PRIMARY KEY, session_id TEXT, content TEXT)')
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, publish = vi.fn()
-  const target = { agentTypeId: 'hermes', fingerprint: 'initial', isWorking: false, authorized: true }
+  const target = { agentTypeId: 'hermes', fingerprint: 'initial', isWorking: false, authorized: true,
+    instanceId: undefined as string | undefined, instanceRevision: undefined as number | undefined }
+  const scopes = new CommandExecutionScopes(), origins: unknown[] = []
+  const startRun = vi.fn(async (current: ExecutionScope, input: any) => {
+    origins.push(scopes.origin(current, target.instanceId ? { instanceId: target.instanceId, instanceRevision: target.instanceRevision! } : undefined))
+    return { id: 'native-run', instanceId: input.instanceId, ownerId: current.principal.id, profileId: current.profileId, status: 'accepted',
+      provider: { kind: 'builtin' as const, module: 'hermes' as const, implementationVersion: 'fixture' }, configRevision: 2, revision: 1, createdAt: 1, updatedAt: 1, errorCode: null }
+  })
   const context = (current: ExecutionScope, signal: AbortSignal) => createExecutionContext(current, signal, logger, {
     authorize: async () => { if (!target.authorized) throw new StudioError('FORBIDDEN', 'Revoked') },
     agents: { list: async () => [] }, sessions: { get: async id => ({ id, profileId: current.profileId, title: current.principal.id, agentTypeId: 'hermes', archived: false }) },
+    runs: { start: startRun, get: async () => { throw new StudioError('CAPABILITY_UNSUPPORTED', 'Fixture read') }, output: async () => [] },
   })
   const host = new PluginHost({ store, registry, events, context, logger, runnerPath: runner, artifactsRoot: join(root, 'artifacts'),
     eventContext: async () => context(scope, new AbortController().signal), acceptEvents: async () => {} })
-  const service = new PluginCommands({ registry: host.commands, store: calls, context,
+  const service = new PluginCommands({ registry: host.commands, store: calls,
+    cancelRuns: options.cancelRuns,
+    context: (current, signal, call, selected) => {
+      if (call) scopes.bind(current, call, signal, selected?.instanceId ? { instanceId: selected.instanceId, instanceRevision: selected.instanceRevision! } : undefined)
+      return context(current, signal)
+    },
     authorize: (current, id) => {
       if (!target.authorized || current.principal.id !== 'caller' || current.profileId !== 'one' || id !== 'session' || (current.sessionId && current.sessionId !== id)) throw new StudioError('FORBIDDEN', 'Wrong target')
       return { ...target }
@@ -59,10 +73,24 @@ async function setup(handler: string, options: { definition?: object; extra?: st
     return service.get(scope, id)
   }
   const messages = () => db.prepare('SELECT content FROM command_messages ORDER BY id').all().map(row => row.content)
-  return { db, host, store, calls, service, publish, target, activate, input, finish, messages, state }
+  return { db, host, store, calls, service, publish, target, activate, input, finish, messages, state, startRun, origins }
 }
 const echo = `async (input, ctx) => ({ command: input.command, action: 'echo', ok: true, message: input.rawArguments,
   terminal: !ctx.session.isWorking, caller: ctx.scope.principal.id, profileName: ctx.scope.profileId })`
+
+it('retains private command provenance when the host rebuilds a real worker context and injects the selected instance', async () => {
+  const s = await setup(`async (input, ctx) => {
+    await ctx.runs.start({ instanceId: ctx.session.instanceId, input: { content: [{ type: 'text', text: input.text }] }, idempotencyKey: ctx.scope.scopeId });
+    return { command: input.command, action: 'submitted', ok: true, message: ctx.session.instanceId + ':' + ctx.session.instanceRevision };
+  }`, { grants: ['runs.start'] })
+  Object.assign(s.target, { instanceId: 'selected-instance', instanceRevision: 2 })
+  await s.activate()
+  const call = s.service.start(scope, s.input('/echo native arguments'))
+  expect((await s.finish(call.id)).results[0].message).toBe('selected-instance:2')
+  expect(s.startRun).toHaveBeenCalledWith(expect.objectContaining({ scopeId: call.id, sessionId: 'session', principal: { kind: 'user', id: 'caller' } }),
+    { instanceId: 'selected-instance', input: { content: [{ type: 'text', text: '/echo native arguments' }] }, idempotencyKey: call.id }, expect.any(AbortSignal))
+  expect(s.origins).toEqual([{ callId: call.id, messageId: call.inputMessageId }])
+})
 
 it('dispatches to a real worker with original parameters, host caller and legacy results, with durable idempotency', async () => {
   const s = await setup(echo); await s.activate()
@@ -113,6 +141,7 @@ it('rechecks context grants and never allows the handler to read another session
 it.each([
   `{ command: input.command, action: 'echo', ok: true, message: 'spoof', session_id: 'foreign' }`,
   `{ command: 'other', action: 'echo', ok: true, message: 'spoof' }`,
+  ...['agent_run_id', 'run_marker', 'queue_id', 'replayed', 'producer_sequence'].map(field => `{ command: input.command, action: 'echo', ok: true, message: 'spoof', ${field}: 'forged' }`),
 ])('rejects forged command results before persistence or publication: %s', async payload => {
   const s = await setup(`async input => (${payload})`); await s.activate()
   const result = await s.finish(s.service.start(scope, s.input()).id)
@@ -142,6 +171,25 @@ it('cancels the actual worker handler, blocks configuration while active, and ke
   expect(s.calls.get(record.id)?.results.map(event => event.message)).toEqual(['waiting'])
   await s.host.configure({ ...s.state, enabled: false }, 1)
   expect(s.service.list(scope, 'session')).toEqual([])
+})
+
+it.each([false, true])('waits for linked Agent cleanup before settling command cancellation (cleanup fails: %s)', async fail => {
+  const gate = Promise.withResolvers<void>(), cancelRuns = vi.fn(() => gate.promise)
+  const s = await setup(`async (input, ctx) => {
+    await ctx.reply({ command: input.command, action: 'waiting', ok: true, message: 'accepted', terminal: false });
+    await new Promise(resolve => ctx.signal.addEventListener('abort', resolve, { once: true }));
+  }`, { cancelRuns })
+  await s.activate()
+  const call = s.service.start(scope, s.input())
+  await vi.waitFor(() => expect(s.calls.get(call.id)?.results).toHaveLength(1))
+  const cancelled = s.service.cancel(scope, call.id)
+  try {
+    await vi.waitFor(() => expect(cancelRuns).toHaveBeenCalledWith(expect.objectContaining({ scopeId: call.id, sessionId: 'session' }), call.id))
+    expect(s.calls.get(call.id)?.status).toBe('running')
+    if (fail) gate.reject(new Error('cleanup unconfirmed'))
+    else gate.resolve()
+    expect(await cancelled).toMatchObject(fail ? { status: 'failed', errorCode: 'RUNTIME_UNAVAILABLE' } : { status: 'cancelled' })
+  } finally { gate.resolve(); await cancelled }
 })
 
 it('withdraws registrations on activation rollback and rejects foreign target declarations', async () => {

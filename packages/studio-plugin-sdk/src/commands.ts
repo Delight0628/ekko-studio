@@ -23,7 +23,7 @@ export interface CommandResult {
   [field: string]: JsonValue | undefined
 }
 export interface CommandContext extends ExecutionContext {
-  readonly session: { readonly agentTypeId: string; readonly isWorking: boolean }
+  readonly session: { readonly agentTypeId: string; readonly isWorking: boolean; readonly instanceId?: string; readonly instanceRevision?: number }
   /** Await delivery; late/unawaited replies after handler completion are rejected. */
   reply(result: CommandResult): Promise<void>
 }
