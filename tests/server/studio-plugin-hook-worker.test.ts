@@ -160,3 +160,23 @@ it('routes a real SDK start through a hook in the same worker without deadlock o
   expect(f.inputs).toEqual([{ content: [{ type: 'text', text: 'hook input' }] }])
   expect(f.runStore.get(result.id)?.status).toBe('completed')
 })
+
+it('cannot borrow a live event context to start model work from a read-only hook', async () => {
+  const f = await setup(`module.exports = { apply(plugin) {
+    let captured, release;
+    plugin.on('plugin.ready', async (_event, ctx) => { captured = ctx; plugin.logger.info('captured'); await new Promise(resolve => release = resolve); });
+    plugin.hooks.before('runs.start', async () => {
+      try { await captured.models.stream({ model: 'p/m', input: 'forbidden', idempotencyKey: 'borrowed' }); }
+      catch (error) { plugin.logger.info('borrowed-denied', { code: error.code }); }
+      finally { release(); }
+      return { action: 'continue' };
+    }, { key: 'borrow' });
+  } }`, ['hooks.before:runs.start', 'events.subscribe:plugin.ready', 'models.stream'])
+  await f.host.configure(f.state, 0)
+  await vi.waitFor(() => expect(f.messages()).toContain('captured'))
+  await f.hooks.run('runs.start', request, f.context())
+  await f.events.idle()
+  await vi.waitFor(() => expect(f.messages()).toContain('borrowed-denied'))
+  expect(f.messages()).toContain('FORBIDDEN')
+  expect(f.messages()).not.toContain('CAPABILITY_UNSUPPORTED')
+})

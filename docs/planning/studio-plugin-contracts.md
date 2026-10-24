@@ -143,6 +143,8 @@ interface AgentRunContext extends ExecutionContext {
 | `files.read(ref)` | 文件归属、真实路径校验、尺寸限制、远端文件提供者与取消 |
 | `models.stream(input)` | 授权模型选择、凭据代理、流、用量归属和取消 |
 
+当前 SDK 模型调用提供 `models.list()`、`models.stream(ModelStreamInput)` 和 `models.get(id)`。流返回 `ModelStreamHandle`，通过 `for await (const event of handle.events)` 读取，提前结束迭代或 `await handle.cancel()` 会等待宿主取消；完整回执含输出与可为 null 的用量。`idempotencyKey` 是必填项，终态重试只返回持久回执，活动重试返回冲突而不重复执行。宿主固定 owner/profile/session/Run 归属，插件请求不能覆盖。支持范围、权限、限额与尚未完成的旧入口迁移见[模型调用实施记录](studio-plugin-progress.md#t05t06-进展sdk-受管模型调用)。
+
 当前 T02 已落地 `ctx.sessions.remove(id)`，要求 `sessions.remove` 授权，并与现有 HTTP 单删/批删共用领域服务。返回本地 `deleted` 与独立的 `native` 清理结果；profile 与主体由宿主绑定，不接收调用参数。首个副作用前响应取消，开始变更后返回实际结果。上表的活动 Run 策略 options、hook 和可靠投递仍为目标契约，不能据此假定已实现；详见[实施记录](studio-plugin-progress.md#t02-进展会话删除共用领域服务)。
 
 当前 `ctx.runs.start({ instanceId, input, idempotencyKey })` 与新 Agent 实例 HTTP 启动共用领域服务，返回持久化的 `AgentRunRecord` 回执；随后通过 `runs.get/output` 查询。`input` 沿用当前文本 `AgentRunInput`，不接受主体、profile、provider 或 scope 字段。插件必须声明并获授 `runs.start`，实例须属于当前主体及 profile。带 session/workspace/Run 绑定的 scope 暂返回 `CAPABILITY_UNSUPPORTED`，不通过清除绑定启动独立执行。

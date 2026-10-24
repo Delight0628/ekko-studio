@@ -12,6 +12,7 @@ import { AsyncChannel } from './channel'
 import { authorizeHookOperation, type HookRegistration } from '../events/plugin-hooks'
 import { PluginProcessBridge } from './processes'
 import { managedProcessEnvironment } from '../processes/managed'
+import { PluginModelBridge } from './models'
 
 export interface WorkerActivation {
   agents: Array<Omit<AgentTypeDefinition, 'create'>>
@@ -24,7 +25,7 @@ interface RemoteRun {
   channel: AsyncChannel<AgentOutputEvent>
   resolve(result: AgentRunResult): void
   reject(error: unknown): void
-  release(): void
+  release(): Promise<void>
   sequence: number
 }
 
@@ -47,6 +48,7 @@ export class PluginWorker {
   private closing?: Promise<void>
   private readonly exit: Promise<void>
   private readonly processes: PluginProcessBridge
+  private readonly models: PluginModelBridge
 
   constructor(runnerPath: string, private readonly logger: ScopedLogger, private readonly onExit: () => void, private readonly authorize: (capability: string) => void, timeoutMs = 30_000) {
     this.child = fork(runnerPath, [], {
@@ -70,6 +72,12 @@ export class PluginWorker {
     this.child.stdout?.on('data', (chunk: Buffer) => logger.info('Plugin stdout', { text: chunk.toString('utf8').slice(0, 4096) }))
     this.child.stderr?.on('data', (chunk: Buffer) => logger.warn('Plugin stderr', { text: chunk.toString('utf8').slice(0, 4096) }))
     this.peer.handle('context.call', value => this.contextCall(value))
+    this.models = new PluginModelBridge((handle, capability) => {
+      const ctx = this.scopes.get(handle)
+      if (!ctx || ctx.signal.aborted) throw new StudioError('FORBIDDEN', 'Model caller scope is unavailable')
+      this.authorize(capability); this.authorities.get(handle)?.(capability)
+      return ctx
+    })
     this.processes = new PluginProcessBridge(() => this.authorize('processes.spawn'), (origin, runtimeHandle, runtime) => {
       if (origin === runtimeHandle) {
         // A live factory/background runtime capability remains valid while an
@@ -92,21 +100,23 @@ export class PluginWorker {
       await run.channel.push(event)
       return null
     })
-    this.peer.handle('run.result', value => {
+    this.peer.handle('run.result', async value => {
       const params = value as JsonObject, run = this.runs.get(String(params.runId))
       if (!run) throw new StudioError('NOT_FOUND', 'Run is not active')
       const result = params.result as unknown as AgentRunResult
       if (!result || !['completed', 'cancelled'].includes(result.status)) throw new StudioError('INVALID_ARGUMENT', 'Invalid run result')
-      run.channel.finish(); run.resolve(jsonCopy(result)); run.release(); this.runs.delete(String(params.runId))
+      try { await run.release(); run.channel.finish(); run.resolve(jsonCopy(result)) }
+      catch (error) { run.channel.finish(error); run.reject(error) }
+      this.runs.delete(String(params.runId))
       return null
     })
-    this.peer.handle('run.error', value => {
+    this.peer.handle('run.error', async value => {
       const id = String((value as JsonObject).runId), run = this.runs.get(id)
       if (run) {
         const detail = (value as JsonObject).error as JsonObject | undefined
         const code = typeof detail?.code === 'string' && (STUDIO_ERROR_CODES as readonly string[]).includes(detail.code) ? detail.code as StudioErrorCode : 'RUNTIME_UNAVAILABLE'
         const error = new StudioError(code, 'Plugin Agent run failed')
-        run.channel.finish(error); run.reject(error); run.release(); this.runs.delete(id)
+        try { await run.release() } finally { run.channel.finish(error); run.reject(error); this.runs.delete(id) }
       }
       return null
     })
@@ -159,7 +169,7 @@ export class PluginWorker {
     const handle = randomUUID()
     this.scopes.set(handle, ctx)
     if (authority) this.authorities.set(handle, authority)
-    try { return await action(handle) } finally { this.scopes.delete(handle); this.authorities.delete(handle) }
+    try { return await action(handle) } finally { this.scopes.delete(handle); this.authorities.delete(handle); await this.models.closeScope(handle) }
   }
 
   async invokeService(id: string, method: string, input: JsonValue, ctx: ExecutionContext, authority: ServiceAuthority): Promise<JsonValue> {
@@ -194,7 +204,8 @@ export class PluginWorker {
     let resolve!: (value: AgentRunResult) => void, reject!: (error: unknown) => void
     const result = new Promise<AgentRunResult>((yes, no) => { resolve = yes; reject = no })
     void result.catch(() => {})
-    const release = () => { this.scopes.delete(scopeHandle); ctx.signal.removeEventListener('abort', aborted) }
+    let releasing: Promise<void> | undefined
+    const release = () => releasing ??= (async () => { this.scopes.delete(scopeHandle); ctx.signal.removeEventListener('abort', aborted); await this.models.closeScope(scopeHandle) })()
     this.runs.set(runId, { channel, resolve, reject, release, sequence: -1 })
     ctx.signal.addEventListener('abort', aborted, { once: true })
     let canRespond = false
@@ -202,7 +213,7 @@ export class PluginWorker {
       const response = await this.peer.request('run.start', toJson({ runId, runtimeSessionId, input, scope: ctx.scope, scopeHandle }))
       canRespond = !!(response && typeof response === 'object' && !Array.isArray(response) && response.respond === true)
     }
-    catch (error) { channel.finish(error); reject(error); release(); this.runs.delete(runId); throw error }
+    catch (error) { channel.finish(error); reject(error); await release(); this.runs.delete(runId); throw error }
     return { events: channel, result, cancel,
       ...(canRespond ? { respond: async (input: Parameters<NonNullable<AgentRunHandle['respond']>>[0]) => { await this.peer.request('run.respond', toJson({ runId, input })) } } : {}),
     }
@@ -266,6 +277,7 @@ export class PluginWorker {
       }
       await this.exit
       await this.processes.close()
+      await this.models.close()
     })()
   }
 
@@ -273,8 +285,19 @@ export class PluginWorker {
     const params = value as JsonObject
     const ctx = this.scopes.get(String(params.scopeHandle))
     if (!ctx || ctx.signal.aborted) throw new StudioError('FORBIDDEN', 'Execution scope is unavailable')
+    if (params.origin !== params.scopeHandle) throw new StudioError('FORBIDDEN', 'Context belongs to a different execution callback')
     const authority = this.authorities.get(String(params.scopeHandle))
     const authorize = (capability: string) => { this.authorize(capability); authority?.(capability) }
+    if (['models.open', 'models.next', 'models.close'].includes(String(params.method))) return this.models.call(String(params.scopeHandle), String(params.method), params.args)
+    if (params.method === 'models.list') { authorize('models.read'); const result = await ctx.models.list(); authorize('models.read'); return toJson(result) }
+    if (params.method === 'models.get') {
+      authorize('models.read')
+      const args = params.args as JsonObject
+      if (!args || typeof args.id !== 'string' || Object.keys(args).some(key => key !== 'id')) throw new StudioError('INVALID_ARGUMENT', 'Only a model call id is accepted')
+      const result = await ctx.models.get(args.id)
+      authorize('models.read')
+      return toJson(result)
+    }
     if (params.method === 'services.call') {
       if (!this.callService) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Plugin services are unavailable')
       return this.callService(ctx, params.args as JsonObject, authorize)
@@ -333,9 +356,10 @@ export class PluginWorker {
     this.closed = true
     this.peer.close()
     const error = new StudioError('PLUGIN_UNAVAILABLE', 'Plugin worker exited')
-    for (const run of this.runs.values()) { run.channel.finish(error); run.reject(error); run.release() }
+    for (const run of this.runs.values()) { run.channel.finish(error); run.reject(error); void run.release().catch(() => this.logger.error('Plugin model cleanup failed')) }
     this.runs.clear(); this.runtimes.clear(); this.scopes.clear(); this.authorities.clear()
     void this.processes.close().catch(() => this.logger.error('Plugin process cleanup failed'))
+    void this.models.close().catch(() => this.logger.error('Plugin model cleanup failed'))
     try { this.onExit() } catch { this.logger.error('Plugin cleanup failed') }
   }
 }

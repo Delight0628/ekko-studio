@@ -28,6 +28,9 @@ import { authorizePluginEvent } from '../events/plugin-event-access'
 import { studioSessionAccount } from '../../contracts/runs/usage'
 import { PluginHookRegistry } from '../events/plugin-hooks'
 import { configureSessionRemovalHook } from '../sessions/removal-hook'
+import { PluginModelCallStore } from '../../repositories/plugin-model-call-store'
+import { PluginModels } from '../models/plugin'
+import { listApiModels, prepareModelResponse } from '../model-api/service'
 
 const logger: ScopedLogger = {
   info: (message, data) => applicationLogger.info(data || {}, message),
@@ -63,9 +66,15 @@ export function createStudioPluginRuntime(runnerPath: string) {
   chatStore.recover()
   const chat = new PluginChatRuns({ store: chatStore, server: getChatRunServer, authorize: authorizeOwnedChatSession })
   const workflows = new PluginWorkflows(authorizePluginScope)
+  const modelStore = new PluginModelCallStore(db)
   const context = (scope: ExecutionScope, signal: AbortSignal): ExecutionContext => createExecutionContext(scope, signal, logger, {
     authorize: async (current, operation, resourceId) => authorizePluginScope(current, operation, resourceId),
     agents: { list: async profileId => registry.list(profileId) },
+    models: {
+      list: current => models.list(current),
+      get: async (current, id) => models.get(current, id),
+      stream: (current, input, signal) => models.stream(current, input, signal),
+    },
     workflows: {
       run: (current, input, signal) => workflows.run(current, input, signal),
       get: async (current, id) => workflows.get(current, id),
@@ -97,8 +106,22 @@ export function createStudioPluginRuntime(runnerPath: string) {
   })
   const executionStore = new AgentExecutionStore(db)
   executionStore.recover()
+  modelStore.recover(record => executionStore.state.recordHostModelUsage(record))
+  const models = new PluginModels({ store: modelStore, state: executionStore.state, list: listApiModels, prepare: prepareModelResponse,
+    authorizeStart: current => {
+      if (current.runId && !['running', 'waiting_input'].includes(executionStore.get(current.runId)?.status || '')) throw new StudioError('RUN_FINALIZING', 'Parent run no longer accepts model work')
+    },
+    authorize: current => {
+      authorizePluginScope(current)
+      if (current.sessionId) authorizeOwnedChatSession(current, current.sessionId)
+      if (current.runId) {
+        const run = executionStore.get(current.runId)
+        if (!run || run.ownerId !== current.principal.id || run.profileId !== current.profileId) throw new StudioError('FORBIDDEN', 'Model parent run is unavailable')
+      }
+    },
+  })
   const coordinator: AgentCoordinator = new AgentCoordinator({ store: executionStore, registry, events, logger,
-    authorize: authorizePluginScope, context })
+    authorize: authorizePluginScope, context, settleRun: id => models.settleRun(id) })
   const admission = new AgentRunAdmission(coordinator, hooks, context)
   const removeHook = configureSessionRemovalHook(async ({ scope, profileId, sessionId, signal }) => {
     if (!hooks.has(profileId, 'sessions.remove')) return
@@ -131,8 +154,8 @@ export function createStudioPluginRuntime(runnerPath: string) {
       if (notification) events.publish(notification)
     }
   })
-  return { host, store, eventStore, executionStore, coordinator, registry, events, consumers, hooks, context,
-    async close() { unsubscribe(); await removeHook(); chat.close(); await coordinator.close(); await host.close(); await consumers.close(); events.close() } }
+  return { host, store, eventStore, executionStore, coordinator, registry, events, consumers, hooks, models, context,
+    async close() { unsubscribe(); await removeHook(); chat.close(); await coordinator.close(); await host.close(); await models.close(); await consumers.close(); events.close() } }
 }
 
 export type StudioPluginRuntime = ReturnType<typeof createStudioPluginRuntime>

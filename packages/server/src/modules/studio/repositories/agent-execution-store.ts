@@ -97,6 +97,8 @@ export class AgentExecutionStore {
   appendOutput(id: string, event: AgentOutputEvent): void {
     const run = this.get(id)
     if (!run || !['running', 'waiting_input', 'cancelling'].includes(run.status)) throw new StudioError('REVISION_CONFLICT', 'Run no longer accepts output')
+    // The host already owns both global accounting and the parent Run projection.
+    if (event.type === 'usage.reported' && this.state.isHostModelCall(event.modelCallId)) return
     this.db.exec('SAVEPOINT studio_agent_output')
     try {
       this.db.prepare('INSERT INTO studio_agent_run_outputs (run_id, sequence, event_json) VALUES (?, ?, ?)').run(id, event.producerSequence, JSON.stringify(event))

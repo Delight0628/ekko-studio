@@ -18,6 +18,7 @@ interface RuntimeLease {
   id: string; provider: AgentProviderRef; revision: number; controller: AbortController
   runtime: Promise<AgentRuntime>; creating: boolean; idleTimer?: ReturnType<typeof setTimeout>; disposing?: Promise<void>
   processes: ManagedProcessScope
+  settling?: Promise<void>
 }
 interface InstanceQueue { current?: string; pending: string[] }
 
@@ -43,6 +44,7 @@ export class AgentCoordinator {
     store: AgentExecutionStore; registry: AgentRegistry; events: PluginEventBus; logger: ScopedLogger
     authorize(scope: ExecutionScope): void
     context(scope: ExecutionScope, signal: AbortSignal): ExecutionContext
+    settleRun?(runId: string): Promise<void>
   }) {}
 
   createInstance(scope: ExecutionScope, input: { agentTypeId: string; config: JsonObject; mode: 'scoped' | 'global' }): AgentInstance {
@@ -224,7 +226,11 @@ export class AgentCoordinator {
     // Keep the instance occupied until disposal is confirmed, including a late
     // factory result. A timeout bounds the caller's wait; it cannot certify exit.
     const cleanup = lease.runtime.then(runtime => runtime.dispose(reason), () => {})
-      .finally(() => lease.processes.close())
+      .finally(async () => {
+        const results = await Promise.allSettled([lease.processes.close(), lease.settling])
+        const failed = results.find(result => result.status === 'rejected')
+        if (failed?.status === 'rejected') throw failed.reason
+      })
       .then(() => {
         this.options.store.state.closeLease(lease.id)
         if (this.leases.get(instanceId) === lease) this.leases.delete(instanceId)
@@ -237,6 +243,8 @@ export class AgentCoordinator {
   }
 
   private async execute(run: AgentExecution, instance: AgentInstance, input: AgentRunInput, scope: ExecutionScope, active: ActiveRun): Promise<void> {
+    let settling: Promise<void> | undefined
+    const settle = () => settling ??= Promise.resolve().then(() => this.options.settleRun?.(run.id))
     let deadline: ReturnType<typeof setTimeout> | undefined
     let finalizationDeadline: ReturnType<typeof setTimeout> | undefined
     let ended = false, retain = false
@@ -327,6 +335,7 @@ export class AgentCoordinator {
       if (!cancelling && result.status === 'completed') {
         if (tools.size || this.options.store.state.interactions(run.id).some(item => item.status !== 'resolved')) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent ended with unresolved work')
         if (!this.options.store.transition(run.id, ['running', 'waiting_input'], 'finalizing')) throw new StudioError('REVISION_CONFLICT', 'Run cannot finalize')
+        await Promise.race([settle(), aborted])
         if (result.checkpoint !== undefined) checkpoint = jsonCopy(result.checkpoint)
         if (checkpoint === undefined && resolved.definition.capabilities.resume && runtime.checkpoint) {
           checkpoint = jsonCopy(await Promise.race([runtime.checkpoint(), aborted]))
@@ -342,6 +351,9 @@ export class AgentCoordinator {
       if (deadline) clearTimeout(deadline)
       if (finalizationDeadline) clearTimeout(finalizationDeadline)
       active.controller.abort()
+      const lease = this.leases.get(instance.id)
+      if (lease && !lease.disposing) lease.settling = settle()
+      try { await settle() } catch { retain = false }
       const dispose = (reason: string) => this.disposeLease(instance.id, reason)
         .catch(() => { this.options.logger.warn('Agent runtime disposal is unconfirmed', { instanceId: instance.id }) })
       if (!retain) {

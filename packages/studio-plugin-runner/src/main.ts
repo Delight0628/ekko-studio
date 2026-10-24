@@ -2,6 +2,7 @@ import { pathToFileURL } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { remoteProcesses } from './processes'
+import { remoteModels } from './models'
 import { RpcPeer, type RpcFrame } from '../../studio-plugin-sdk/src/rpc'
 import {
   StudioError, STUDIO_PLUGIN_RPC_VERSION,
@@ -55,10 +56,11 @@ const logger: ScopedLogger = {
 function executionContext(scope: ExecutionScope, scopeHandle: string, signal: AbortSignal): ExecutionContext {
   const call = async (method: string, args: JsonValue) => {
     if (signal.aborted) throw new StudioError('CANCELLED', 'Scope ended')
-    return peer.request('context.call', { scopeHandle, method, args })
+    return peer.request('context.call', { scopeHandle, origin: callbackScope.getStore() || scopeHandle, method, args })
   }
   const context: ExecutionContext = {
     scope: Object.freeze({ ...scope, principal: Object.freeze({ ...scope.principal }) }), signal, logger,
+    models: remoteModels(call),
     workflows: {
       run: async input => await call('workflows.run', json(input)) as unknown as Awaited<ReturnType<ExecutionContext['workflows']['run']>>,
       get: async id => await call('workflows.get', { id }) as unknown as Awaited<ReturnType<ExecutionContext['workflows']['get']>>,
@@ -131,7 +133,7 @@ peer.handle('activate', async value => {
           call: async (context, method, input) => {
             const scopeHandle = contextHandles.get(context)
             if (!scopeHandle || context.signal.aborted) throw new StudioError('FORBIDDEN', 'Service calls require a live host context')
-            return peer.request('context.call', { scopeHandle, method: 'services.call', args: { dependency: token, method, input: json(input) } })
+            return peer.request('context.call', { scopeHandle, origin: callbackScope.getStore() || scopeHandle, method: 'services.call', args: { dependency: token, method, input: json(input) } })
           },
         }
       },
@@ -281,6 +283,7 @@ peer.handle('hook.invoke', async value => {
   const controller = new AbortController(); hookCalls.set(callId, controller)
   const full = executionContext(object(params.scope) as unknown as ExecutionScope, scopeHandle, controller.signal)
   const context: HookContext = Object.freeze({ scope: full.scope, signal: full.signal, logger,
+    models: Object.freeze({ list: full.models.list, get: full.models.get }),
     agents: Object.freeze(full.agents), sessions: Object.freeze({ get: full.sessions.get }),
     runs: Object.freeze({ get: full.runs.get, output: full.runs.output, interactions: full.runs.interactions, usage: full.runs.usage }),
     chat: Object.freeze({ get: full.chat.get }), workflows: Object.freeze({ get: full.workflows.get }),

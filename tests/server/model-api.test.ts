@@ -44,6 +44,33 @@ beforeEach(() => {
 })
 
 describe('public Responses model API', () => {
+  it('binds hosted SDK usage to a stable call and parent Run without exposing provider credentials', async () => {
+    mocks.fetch.mockResolvedValue(sse([
+      { choices: [{ delta: { content: 'hosted' } }] },
+      { choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 12, completion_tokens: 3 } }, '[DONE]',
+    ]))
+    const authorize = vi.fn()
+    const request = await prepareModelResponse({ profiles: ['default'], accountId: '7', body: body({ stream: true }), signal: new AbortController().signal,
+      internal: { id: 'model_stable', sessionId: 'session', parentRunId: 'parent-run', authorize } })
+    const events = []; for await (const event of request.events()) events.push(event)
+    expect(events.at(-1)).toMatchObject({ type: 'response.completed', response: { id: 'model_stable' } })
+    expect(mocks.record).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'session', runId: 'model_stable', parentRunId: 'parent-run',
+      origin: 'internal', accountId: '7', requirePersistence: true, usageScope: 'model_call', apiCalls: 1 }))
+    expect(authorize).toHaveBeenCalled()
+    expect(JSON.stringify(events)).not.toMatch(/upstream-secret|must-not-leak/)
+  })
+
+  it('rechecks hosted authorization before request admission, without billing denied dispatch', async () => {
+    const authorize = vi.fn()
+    const request = await prepareModelResponse({ profiles: ['default'], body: body(), signal: new AbortController().signal,
+      internal: { id: 'denied', authorize } })
+    authorize.mockImplementation(() => { throw new Error('private authorization detail') })
+    const events = []; for await (const event of request.events()) events.push(event)
+    expect(events.at(-1)?.type).toBe('response.failed')
+    expect(mocks.fetch).not.toHaveBeenCalled(); expect(mocks.record).not.toHaveBeenCalled()
+    expect(JSON.stringify(events)).not.toContain('private authorization detail')
+  })
+
   it('filters the directory to the exact key model IDs, including nested and escaped IDs', async () => {
     mocks.groups.mockResolvedValue([
       { provider: 'p', models: ['a', 'vendor/b', 'future'] },

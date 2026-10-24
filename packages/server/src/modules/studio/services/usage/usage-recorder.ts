@@ -21,6 +21,8 @@ export interface RecordedUsage extends NormalizedTokenUsage {
 }
 
 export interface RecordSessionUsageInput {
+  /** Host model calls must not report a successful accounting barrier after a write failure. */
+  requirePersistence?: boolean
   onRecorded?: (usage: RecordedUsage) => void
   sessionId: string
   origin?: 'internal' | 'external'
@@ -202,7 +204,7 @@ export function recordSessionUsage(input: RecordSessionUsageInput): NormalizedTo
       source: input.source,
     }, '[usage-recorder] failed to persist session usage')
     notify()
-    if (input.modelApiKeyId) throw err
+    if (input.modelApiKeyId || input.requirePersistence) throw err
   }
   return usage
 }

@@ -19,20 +19,44 @@ function turn() {
   const cancel = vi.fn(async () => { events.finish(); result.resolve({ status: 'cancelled' }) })
   return { events, result: result.promise, cancel, complete: (checkpoint?: string) => { events.finish(); result.resolve({ status: 'completed', ...(checkpoint ? { checkpoint } : {}) }) } }
 }
-function setup(create: AgentTypeDefinition['create'], capabilities: Partial<AgentCapabilities> = {}) {
+function setup(create: AgentTypeDefinition['create'], capabilities: Partial<AgentCapabilities> = {}, settleRun?: (id: string) => Promise<void>) {
   const db = new DatabaseSync(':memory:'), store = new AgentExecutionStore(db), registry = new AgentRegistry(), events = new PluginEventBus()
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, authorize = vi.fn()
   const registration = registry.stage('*', { kind: 'builtin', module: 'ekko', implementationVersion: 'test' }, ['ekko'])
   const factory = vi.fn(create)
   registration.register({ id: 'ekko', name: 'Fixture', configSchema: {}, capabilities: { text: true, modes: ['scoped'], ...capabilities }, create: factory })
   registration.commit()
-  const coordinator = new AgentCoordinator({ store, registry, events, logger, authorize, context: (scope, signal) => createExecutionContext(scope, signal, logger, {
+  const coordinator = new AgentCoordinator({ store, registry, events, logger, authorize, settleRun, context: (scope, signal) => createExecutionContext(scope, signal, logger, {
     authorize: async () => {}, sessions: { get: async () => null }, agents: { list: async profile => registry.list(profile) },
   }) })
   const instance = coordinator.createInstance(scope, { agentTypeId: 'ekko', config: {}, mode: 'scoped' })
   cleanups.push(async () => { await coordinator.close(); events.close(); db.close() })
   return { coordinator, instance, db, store, factory, registration, authorize, events }
 }
+
+it('keeps a built-in Run finalizing until its host model accounting settles', async () => {
+  const accounting = deferred<void>(), settle = vi.fn(() => accounting.promise)
+  const f = setup(async () => ({ run: async () => { const value = turn(); value.complete(); return value }, dispose: async () => {} }), {}, settle)
+  const run = f.coordinator.start(scope, f.instance.id, input, 'metered')
+  await vi.waitFor(() => expect(settle).toHaveBeenCalledExactlyOnceWith(run.id))
+  expect(f.coordinator.get(scope, run.id).status).toBe('finalizing')
+  accounting.resolve(); await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(scope, run.id).status).toBe('completed')
+  expect(settle).toHaveBeenCalledOnce()
+})
+
+it('keeps the runtime lease quarantined when model cancellation cannot be confirmed', async () => {
+  const settle = vi.fn(async () => { throw new StudioError('DEADLINE_EXCEEDED', 'model still active') }), dispose = vi.fn(async () => {})
+  const f = setup(async () => ({ run: async () => { const value = turn(); value.complete(); return value }, dispose }), {}, settle)
+  const run = f.coordinator.start(scope, f.instance.id, input, 'first')
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(scope, run.id).status).toBe('interrupted')
+  expect(dispose).toHaveBeenCalledOnce()
+  const retry = f.coordinator.start(scope, f.instance.id, input, 'retry')
+  await f.coordinator.wait(retry.id)
+  expect(f.coordinator.get(scope, retry.id)).toMatchObject({ status: 'failed', errorCode: 'RUNTIME_UNAVAILABLE' })
+  expect(f.factory).toHaveBeenCalledOnce()
+})
 
 it('serializes concurrent turns and keeps the runtime signal alive between successful turns', async () => {
   const first = turn(), second = turn(), dispose = vi.fn(async () => {}), contexts: any[] = []

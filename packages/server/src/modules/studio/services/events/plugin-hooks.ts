@@ -18,7 +18,7 @@ export function parseHookRegistration(input: unknown): HookRegistration {
   return { point: value.point, options: { key: value.options.key, priority: value.options.priority ?? 0 } }
 }
 
-export const HOOK_READ_CAPABILITIES = new Set(['agents.read', 'sessions.read', 'runs.read', 'chat.read', 'workflows.read'])
+export const HOOK_READ_CAPABILITIES = new Set(['models.read', 'agents.read', 'sessions.read', 'runs.read', 'chat.read', 'workflows.read'])
 export function authorizeHookOperation(capability: string): void {
   if (!HOOK_READ_CAPABILITIES.has(capability)) throw new StudioError('FORBIDDEN', 'Hook contexts only permit queries')
 }

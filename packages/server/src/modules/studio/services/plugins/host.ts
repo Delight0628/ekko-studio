@@ -44,6 +44,7 @@ const SUPPORTED_CAPABILITIES = new Set([
   ...CORE_EVENTS.map(name => `events.consume:${name}`),
   'hooks.before:runs.start', 'hooks.before:sessions.remove',
   'processes.spawn',
+  'models.read', 'models.stream',
 ])
 
 export class PluginHost {

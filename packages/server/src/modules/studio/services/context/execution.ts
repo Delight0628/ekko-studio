@@ -5,10 +5,15 @@ import { parseChatRunStart } from '../chat-run/input'
 import { parseInteractionResponse } from '../agents/coordinator'
 import { parseWorkflowRunStart } from '../workflow/input'
 
-export type ContextOperation = 'sessions.read' | 'sessions.remove' | 'agents.read' | 'runs.read' | 'runs.start' | 'runs.cancel' | 'runs.respond' | 'chat.start' | 'chat.read' | 'chat.cancel' | 'workflows.run' | 'workflows.read' | 'workflows.cancel'
+export type ContextOperation = 'models.read' | 'models.stream' | 'sessions.read' | 'sessions.remove' | 'agents.read' | 'runs.read' | 'runs.start' | 'runs.cancel' | 'runs.respond' | 'chat.start' | 'chat.read' | 'chat.cancel' | 'workflows.run' | 'workflows.read' | 'workflows.cancel'
 
 export interface ContextServices {
   authorize(scope: ExecutionScope, operation: ContextOperation, resourceId?: string): Promise<void>
+  models?: {
+    list(scope: ExecutionScope): ReturnType<StudioDomainServices['models']['list']>
+    get(scope: ExecutionScope, id: string): ReturnType<StudioDomainServices['models']['get']>
+    stream(scope: ExecutionScope, input: Parameters<StudioDomainServices['models']['stream']>[0], signal: AbortSignal): ReturnType<StudioDomainServices['models']['stream']>
+  }
   workflows?: {
     run(scope: ExecutionScope, input: Parameters<StudioDomainServices['workflows']['run']>[0], signal: AbortSignal): ReturnType<StudioDomainServices['workflows']['run']>
     get(scope: ExecutionScope, id: string): ReturnType<StudioDomainServices['workflows']['get']>
@@ -61,6 +66,24 @@ export function createExecutionContext(
   }
   return Object.freeze({
     scope, signal, logger,
+    models: Object.freeze({
+      list: () => call('models.read', undefined, () => {
+        if (!services.models) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Model services are unavailable')
+        return services.models.list(scope)
+      }),
+      get: (id: string) => call('models.read', id, () => {
+        if (!services.models) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Model services are unavailable')
+        return services.models.get(scope, id)
+      }),
+      stream: async (input: Parameters<StudioDomainServices['models']['stream']>[0]) => {
+        if (signal.aborted) throw new StudioError('CANCELLED', 'Execution scope has ended')
+        const snapshot = jsonCopy(input)
+        await services.authorize(scope, 'models.stream')
+        if (!services.models) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Model services are unavailable')
+        if (signal.aborted) throw new StudioError('CANCELLED', 'Execution scope has ended')
+        return services.models.stream(scope, snapshot, signal)
+      },
+    }),
     workflows: Object.freeze({
       run: async (input: Parameters<StudioDomainServices['workflows']['run']>[0]) => {
         const request = parseWorkflowRunStart(input)

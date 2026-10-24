@@ -50,6 +50,11 @@ export interface SessionRemovalResult {
 }
 
 export interface StudioDomainServices {
+  readonly models: {
+    list(): Promise<ModelSummary[]>
+    stream(input: ModelStreamInput): Promise<ModelStreamHandle>
+    get(id: string): Promise<ModelCallRecord>
+  }
   readonly workflows: {
     run(input: WorkflowRunStartInput): Promise<WorkflowRunReceipt>
     get(id: string): Promise<WorkflowRunReceipt>
@@ -76,6 +81,57 @@ export interface StudioDomainServices {
     respond(id: string, input: AgentInteractionResponse): Promise<AgentInteractionReceipt>
     usage(id: string): Promise<AgentUsage[]>
   }
+}
+
+export interface ModelSummary { id: string; provider: string; callable: boolean }
+/** Full Responses-style history, including images, function results and encrypted reasoning items. */
+export interface ModelStreamInput {
+  idempotencyKey: string
+  model: string
+  input: string | JsonObject[]
+  instructions?: string
+  tools?: Array<{ type: 'function'; name: string; description?: string; parameters?: JsonObject }>
+  toolChoice?: 'auto' | 'none' | 'required'
+  maxOutputTokens?: number
+  temperature?: number
+  reasoning?: { effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'; summary?: 'auto' | 'concise' | 'detailed' }
+  timeoutMs?: number
+}
+export interface ModelCallUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  reasoningTokens: number
+  costUsd?: number
+  costSource?: 'reported' | 'estimated'
+}
+export interface ModelCallRecord {
+  id: string
+  profileId: string
+  ownerId: string
+  sessionId: string | null
+  runId: string | null
+  model: string
+  status: 'running' | 'completed' | 'incomplete' | 'cancelled' | 'failed' | 'interrupted'
+  output: JsonObject[]
+  /** null means unknown, including cancellation before the provider reports counters. */
+  usage: ModelCallUsage | null
+  errorCode: string | null
+  revision: number
+  createdAt: number
+  updatedAt: number
+}
+export type ModelStreamEvent =
+  | { sequence: number; type: 'text.delta' | 'reasoning.delta'; text: string }
+  | { sequence: number; type: 'output.item'; item: JsonObject }
+  | { sequence: number; type: 'call.finished'; call: ModelCallRecord }
+export interface ModelStreamHandle {
+  readonly id: string
+  /** Single reader. A completed idempotent replay yields the durable call.finished snapshot. */
+  readonly events: AsyncIterable<ModelStreamEvent>
+  /** Waits for the provider iterator and accounting to settle. */
+  cancel(): Promise<void>
 }
 
 export interface WorkflowRunStartInput {
@@ -258,9 +314,15 @@ export interface AgentUsage {
   modelCallId: string
   model: string
   revision: number
-  inputTokens: number
-  outputTokens: number
+  inputTokens: number | null
+  outputTokens: number | null
   final: boolean
+  source?: 'host' | 'runtime'
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+  reasoningTokens?: number
+  costUsd?: number
+  costSource?: 'reported' | 'estimated'
 }
 
 export interface AgentRunResult { status: 'completed' | 'cancelled'; checkpoint?: JsonValue }
@@ -355,6 +417,7 @@ export interface HookInputMap {
 }
 export type HookPoint = keyof HookInputMap
 export interface HookContext extends Pick<ExecutionContext, 'scope' | 'signal' | 'logger'> {
+  readonly models: Pick<ExecutionContext['models'], 'list' | 'get'>
   readonly agents: ExecutionContext['agents']
   readonly sessions: Pick<ExecutionContext['sessions'], 'get'>
   readonly runs: Pick<ExecutionContext['runs'], 'get' | 'output' | 'interactions' | 'usage'>

@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
-import { StudioError, type AgentInteraction, type AgentInteractionResponse, type AgentOutputEvent, type AgentUsage, type AgentProviderRef, type JsonValue } from '../contracts/plugins'
+import { StudioError, type AgentInteraction, type AgentInteractionResponse, type AgentOutputEvent, type AgentUsage, type AgentProviderRef, type JsonValue, type ModelCallRecord } from '../contracts/plugins'
 
 /** Projections share the output/terminal transaction owned by AgentExecutionStore. */
 export class AgentRunStateStore {
   constructor(private readonly db: DatabaseSync) {
-    db.exec(`CREATE TABLE IF NOT EXISTS studio_agent_usage (
+    db.exec(`CREATE TABLE IF NOT EXISTS studio_host_model_calls (call_id TEXT PRIMARY KEY, run_id TEXT);
+    CREATE TABLE IF NOT EXISTS studio_agent_usage (
       run_id TEXT NOT NULL, call_id TEXT NOT NULL, value_json TEXT NOT NULL, event_json TEXT NOT NULL,
       PRIMARY KEY(run_id, call_id)
     ); CREATE TABLE IF NOT EXISTS studio_agent_interactions (
@@ -24,6 +25,7 @@ export class AgentRunStateStore {
 
   project(runId: string, event: AgentOutputEvent): void {
     if (event.type === 'usage.reported') {
+      if (this.isHostModelCall(event.modelCallId)) return
       const previous = this.db.prepare('SELECT value_json, event_json FROM studio_agent_usage WHERE run_id=? AND call_id=?')
         .get(runId, event.modelCallId) as { value_json: string; event_json: string } | undefined
       const old = previous ? JSON.parse(previous.value_json) as AgentUsage : undefined
@@ -53,6 +55,25 @@ export class AgentRunStateStore {
       this.db.prepare('INSERT INTO studio_agent_interactions (id, run_id, request_id, value_json) VALUES (?, ?, ?, ?)')
         .run(interaction.id, runId, event.requestId, JSON.stringify(interaction))
     }
+  }
+
+  isHostModelCall(id: string): boolean {
+    return !!this.db.prepare('SELECT 1 FROM studio_host_model_calls WHERE call_id=?').get(id)
+  }
+  claimHostModelCall(record: ModelCallRecord): void {
+    if (this.db.prepare('SELECT 1 FROM studio_agent_usage WHERE call_id=?').get(record.id)) throw new StudioError('REVISION_CONFLICT', 'Model call identity is already reported')
+    this.db.prepare('INSERT INTO studio_host_model_calls VALUES (?, ?)').run(record.id, record.runId)
+    this.recordHostModelUsage(record)
+  }
+  recordHostModelUsage(record: ModelCallRecord): void {
+    const claim = this.db.prepare('SELECT run_id FROM studio_host_model_calls WHERE call_id=?').get(record.id) as { run_id: string | null } | undefined
+    if (!claim || claim.run_id !== record.runId) throw new StudioError('FORBIDDEN', 'Model call accounting binding changed')
+    if (!record.runId) return
+    const usage: AgentUsage = { ...record.usage, modelCallId: record.id, model: record.model, revision: record.revision,
+      inputTokens: record.usage?.inputTokens ?? null, outputTokens: record.usage?.outputTokens ?? null,
+      final: record.status !== 'running', source: 'host' }
+    this.db.prepare('INSERT INTO studio_agent_usage VALUES (?, ?, ?, ?) ON CONFLICT(run_id, call_id) DO UPDATE SET value_json=excluded.value_json, event_json=excluded.event_json')
+      .run(record.runId, record.id, JSON.stringify(usage), JSON.stringify(usage))
   }
 
   usage(runId: string): AgentUsage[] {
