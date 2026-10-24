@@ -1146,8 +1146,21 @@ export async function authenticate(page: Page, accessKey = TEST_ACCESS_KEY, prof
   }, { storedToken: accessKey, storedProfileName: profileName })
 }
 
+// Built-client boundary and Vite's optimized module share the same fixture.
+export const SOCKET_CLIENT_MODULE = /\/(?:__e2e|node_modules\/\.vite\/[^?]+)\/socket__io-client\.js(?:\?|$)/
+
+export async function setDocumentDirection(page: Page, direction: string) {
+  // Match the app's paired lang/dir updates for geometry-only checks. Built CSS
+  // can lower logical properties to :lang() selectors; changing dir alone leaves
+  // an inconsistent document. Real language switching has its own browser tests.
+  await page.evaluate(dir => {
+    document.documentElement.lang = dir === 'rtl' ? 'ar' : 'en'
+    document.documentElement.dir = dir
+  }, direction)
+}
+
 export async function mockChatSocket(page: Page) {
-  await page.route('**/node_modules/.vite/**/socket__io-client.js*', async (route) => {
+  await page.route(SOCKET_CLIENT_MODULE, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/javascript',
