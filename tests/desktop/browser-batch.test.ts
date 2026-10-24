@@ -237,6 +237,13 @@ describe('batch request validation', () => {
   ])('rejects malformed or oversized batches: %j', value => {
     expect(() => parseBrowserBatchActions(value)).toThrow()
   })
+
+  it('accepts hover and select steps with their required fields', () => {
+    expect(parseBrowserBatchActions([{ action: 'hover', ref: '@e1' }, { action: 'select', ref: '@e2', value: 'cn' }]))
+      .toEqual([{ action: 'hover', ref: '@e1' }, { action: 'select', ref: '@e2', value: 'cn' }])
+    expect(() => parseBrowserBatchActions([{ action: 'select', ref: '@e2' }])).toThrow()
+    expect(() => parseBrowserBatchActions([{ action: 'hover', ref: '@e1', text: 'x' }])).toThrow()
+  })
 })
 
 describe('desktop browser editing input', () => {

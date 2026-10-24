@@ -9,11 +9,14 @@ import type {
   BrowserSnapshot,
   BrowserSnapshotNode,
   BrowserSnapshotOptions,
+  BrowserWaitOptions,
+  BrowserWaitResult,
 } from './browser-types'
 import { MAX_BROWSER_TEXT_READ_LIMIT } from './browser-types'
 import { filterSnapshotNodes, snapshotOptions, DEFAULT_SNAPSHOT_LIMIT } from './browser-snapshot'
 import { publicBrowserUrl, redactBrowserContent, redactBrowserText } from './browser-url'
 import type { BrowserObservedState, BrowserObservedTarget } from './browser-observation'
+import { DOWNLOAD_SOURCE_FUNCTION, PAGE_BLOB_FUNCTION, UPLOAD_FUNCTION, type BrowserUploadFile, type BrowserUploadMethod, type BrowserUploadResult } from './browser-files'
 
 interface AxNode {
   nodeId?: string
@@ -44,6 +47,9 @@ interface PreparedBatchAction {
 }
 
 const MAX_SNAPSHOT_TEXT = 24_000
+const REF_ACTIONS = new Set(['click', 'type', 'hover', 'select'])
+const INTERACT_ACTIONS = new Set([...REF_ACTIONS, 'press', 'scroll'])
+const WAIT_POLL_MS = 200
 const MAX_SCREENSHOT_BYTES = 12 * 1024 * 1024
 const CLICKABLE_ANCESTOR_SELECTOR = [
   'button',
@@ -71,9 +77,15 @@ const CLICK_TARGET = `
     ? element.closest(${JSON.stringify(CLICKABLE_ANCESTOR_SELECTOR)}) || element : element;
 `
 
-function clickFailure(response: { exceptionDetails?: { exception?: { description?: string }; text?: string } }): Error {
+type ScriptResponse = { exceptionDetails?: { exception?: { description?: string }; text?: string } }
+
+function scriptFailure(action: string, response: ScriptResponse): Error {
   const detail = response.exceptionDetails?.exception?.description || response.exceptionDetails?.text || ''
-  return new Error(`Unable to click browser element${detail ? `: ${redactBrowserText(detail.split('\n')[0], 200)}` : ''}`)
+  return new Error(`Unable to ${action}${detail ? `: ${redactBrowserText(detail.split('\n')[0], 200)}` : ''}`)
+}
+
+function clickFailure(response: ScriptResponse): Error {
+  return scriptFailure('click browser element', response)
 }
 
 function textValue(value: unknown, limit = 500): string {
@@ -134,7 +146,7 @@ export class BrowserAutomation {
   }
 
   observedTargets(tabId: string, snapshotId: unknown, actions: BrowserBatchAction[]): BrowserObservedTarget[] {
-    return actions.flatMap((action, actionIndex) => action.action === 'click' || action.action === 'type'
+    return actions.flatMap((action, actionIndex) => 'ref' in action
       ? [{ nodeId: this.resolveRef(tabId, String(snapshotId), action.ref).backendDOMNodeId, actionIndex,
         ...(action.action === 'type' ? { text: action.text } : {}) }] : [])
   }
@@ -298,8 +310,8 @@ export class BrowserAutomation {
 
   prepareBatch(tabId: string, snapshotId: unknown, actions: BrowserBatchAction[]): PreparedBatchAction[] {
     return actions.map(action => {
-      if (action.action !== 'click' && action.action !== 'type') return { action }
-      if (typeof snapshotId !== 'string') throw new Error('snapshot_id is required for batch click/type actions')
+      if (!('ref' in action)) return { action }
+      if (typeof snapshotId !== 'string') throw new Error('snapshot_id is required for batch click/type/hover/select actions')
       const target = this.resolveRef(tabId, snapshotId, action.ref)
       return { action, backendDOMNodeId: target.backendDOMNodeId, snapshotOptions: this.snapshotSelection(tabId) }
     })
@@ -307,19 +319,33 @@ export class BrowserAutomation {
 
   async resolveBatchAction(tabId: string, contents: WebContents, prepared: PreparedBatchAction): Promise<BrowserInteractAction> {
     const { action } = prepared
-    if (action.action !== 'click' && action.action !== 'type') return action
+    if (!('ref' in action)) return action
     const snapshot = await this.snapshot(tabId, contents, prepared.snapshotOptions)
     // Ref numbers can shift after each interaction; preserve the original DOM identity.
     const current = this.snapshots.get(tabId)
     const match = [...(current?.refs || [])].find(([, target]) => target.backendDOMNodeId === prepared.backendDOMNodeId)
     if (!match) throw new Error(`Browser batch target ${action.ref} is no longer available; take a new snapshot`)
-    return { ...action, ref: match[0], snapshot_id: snapshot.snapshotId }
+    return { ...action, ref: match[0], snapshot_id: snapshot.snapshotId } as BrowserInteractAction
   }
 
   async interact(tabId: string, contents: WebContents, action: BrowserInteractAction, assertActive: () => void = () => {}): Promise<void> {
-    if (!action || !['click', 'type', 'press', 'scroll'].includes(action.action)) throw new Error('Invalid browser interaction action')
+    if (!action || !INTERACT_ACTIONS.has(action.action)) throw new Error('Invalid browser interaction action')
     await this.ensureAttached(contents)
     assertActive()
+    if (action.action === 'hover' || action.action === 'select') {
+      if (typeof action.snapshot_id !== 'string' || typeof action.ref !== 'string') throw new Error('snapshot_id and ref are required')
+      if (action.action === 'select' && typeof action.value !== 'string') throw new Error('value is required for browser select')
+      const objectId = await this.resolveObject(contents, this.resolveRef(tabId, action.snapshot_id, action.ref).backendDOMNodeId)
+      try {
+        assertActive()
+        if (action.action === 'hover') await this.hover(contents, objectId)
+        else await this.selectOption(contents, objectId, action.value)
+      } finally {
+        await contents.debugger.sendCommand('Runtime.releaseObject', { objectId }).catch(() => undefined)
+      }
+      this.invalidate(tabId)
+      return
+    }
     if (action.action === 'click' || action.action === 'type') {
       if (typeof action.snapshot_id !== 'string' || typeof action.ref !== 'string') throw new Error('snapshot_id and ref are required')
       if (action.action === 'type' && typeof action.text !== 'string') throw new Error('text is required for browser typing')
@@ -422,6 +448,122 @@ export class BrowserAutomation {
     await contents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', modifiers, ...descriptor, windowsVirtualKeyCode: descriptor.keyCode, ...(commands.length ? { commands } : {}) })
     await contents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', modifiers, ...descriptor, windowsVirtualKeyCode: descriptor.keyCode })
     this.invalidate(tabId)
+  }
+
+  private async hover(contents: WebContents, objectId: string): Promise<void> {
+    const response = await contents.debugger.sendCommand('Runtime.callFunctionOn', {
+      objectId, returnByValue: true,
+      functionDeclaration: `function () {
+        const element = this && this.nodeType === 3 ? this.parentElement : this;
+        if (!element || !element.isConnected) throw new Error('Browser element was removed');
+        element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) throw new Error('Element is not visible');
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      }`,
+    }) as { result?: { value?: { x?: number; y?: number } } } & ScriptResponse
+    const point = response.result?.value
+    if (response.exceptionDetails || typeof point?.x !== 'number' || typeof point.y !== 'number') {
+      throw scriptFailure('hover browser element', response)
+    }
+    // A trusted pointer move drives :hover styles and mouseover/mouseenter menus.
+    await contents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y })
+  }
+
+  private async selectOption(contents: WebContents, objectId: string, value: string): Promise<void> {
+    const response = await contents.debugger.sendCommand('Runtime.callFunctionOn', {
+      objectId, returnByValue: true, arguments: [{ value }],
+      functionDeclaration: `function (wanted) {
+        const node = this && this.nodeType === 3 ? this.parentElement : this;
+        const select = node instanceof HTMLSelectElement ? node : node?.closest?.('select') || (node?.control instanceof HTMLSelectElement ? node.control : null);
+        if (!select) throw new Error('Element is not a native select; click the option instead');
+        if (select.disabled) throw new Error('Select is disabled');
+        const options = Array.from(select.options);
+        const option = options.find(item => item.value === wanted) || options.find(item => item.label.trim() === wanted.trim() || item.text.trim() === wanted.trim());
+        if (!option) throw new Error('No option matches the requested value or label');
+        if (option.disabled) throw new Error('Option is disabled');
+        select.focus();
+        option.selected = true;
+        select.dispatchEvent(new Event('input', { bubbles: true }));
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      }`,
+    }) as { result?: { value?: unknown }; exceptionDetails?: { exception?: { description?: string }; text?: string } }
+    if (response.exceptionDetails || response.result?.value !== true) {
+      throw scriptFailure('select browser option', response)
+    }
+  }
+
+  /** Hand files to the page as in-memory File objects; nothing is written to disk. */
+  async upload(tabId: string, contents: WebContents, snapshotId: string, ref: string, files: BrowserUploadFile[], method: BrowserUploadMethod, assertActive: () => void = () => {}): Promise<BrowserUploadResult> {
+    await this.ensureAttached(contents)
+    const objectId = await this.resolveObject(contents, this.resolveRef(tabId, snapshotId, ref).backendDOMNodeId)
+    try {
+      assertActive()
+      const response = await contents.debugger.sendCommand('Runtime.callFunctionOn', {
+        objectId, returnByValue: true, functionDeclaration: UPLOAD_FUNCTION,
+        arguments: [{ value: files }, { value: method }],
+      }) as { result?: { value?: BrowserUploadResult } } & ScriptResponse
+      const result = response.result?.value
+      if (response.exceptionDetails || !result || !Array.isArray(result.files)) {
+        throw scriptFailure('upload files', response)
+      }
+      return result
+    } finally {
+      await contents.debugger.sendCommand('Runtime.releaseObject', { objectId }).catch(() => undefined)
+      this.invalidate(tabId)
+    }
+  }
+
+  async downloadSource(tabId: string, contents: WebContents, snapshotId: string, ref: string): Promise<{ url: string; fileName: string }> {
+    await this.ensureAttached(contents)
+    const objectId = await this.resolveObject(contents, this.resolveRef(tabId, snapshotId, ref).backendDOMNodeId)
+    try {
+      const response = await contents.debugger.sendCommand('Runtime.callFunctionOn', {
+        objectId, returnByValue: true, functionDeclaration: DOWNLOAD_SOURCE_FUNCTION,
+      }) as { result?: { value?: { url?: unknown; fileName?: unknown } } } & ScriptResponse
+      const value = response.result?.value
+      if (response.exceptionDetails || typeof value?.url !== 'string' || !value.url) {
+        throw scriptFailure('find a download URL', response)
+      }
+      return { url: value.url, fileName: typeof value.fileName === 'string' ? value.fileName : '' }
+    } finally {
+      await contents.debugger.sendCommand('Runtime.releaseObject', { objectId }).catch(() => undefined)
+    }
+  }
+
+  async readPageBlob(contents: WebContents, url: string, limit: number): Promise<{ data: Buffer; type: string }> {
+    await this.ensureAttached(contents)
+    const response = await contents.debugger.sendCommand('Runtime.evaluate', {
+      expression: `(${PAGE_BLOB_FUNCTION})(${JSON.stringify(url)}, ${limit})`, awaitPromise: true, returnByValue: true,
+    }) as { result?: { value?: { data?: unknown; type?: unknown } } } & ScriptResponse
+    const value = response.result?.value
+    if (response.exceptionDetails || typeof value?.data !== 'string') {
+      throw scriptFailure('read page blob', response)
+    }
+    return { data: Buffer.from(value.data, 'base64'), type: typeof value.type === 'string' ? value.type : '' }
+  }
+
+  /** Poll rendered text until it appears or disappears; never interacts with the page. */
+  async wait(tabId: string, contents: WebContents, options: BrowserWaitOptions, assertActive: () => void = () => {}): Promise<BrowserWaitResult> {
+    await this.ensureAttached(contents)
+    const started = Date.now()
+    const expression = `(() => { const text = document.body ? document.body.innerText : '';
+      return { has: ${JSON.stringify(options.text ?? null)} === null || text.includes(${JSON.stringify(options.text ?? '')}),
+        gone: ${JSON.stringify(options.textGone ?? null)} === null || !text.includes(${JSON.stringify(options.textGone ?? '')}) } })()`
+    while (true) {
+      assertActive()
+      const response = await contents.debugger.sendCommand('Runtime.evaluate', { expression, returnByValue: true })
+        .catch(() => ({})) as { result?: { value?: { has?: boolean; gone?: boolean } } }
+      const value = response.result?.value
+      const matched = !!value?.has && !!value?.gone
+      const elapsedMs = Date.now() - started
+      if (matched || elapsedMs >= options.timeoutMs) {
+        this.invalidate(tabId)
+        return { tabId, matched, elapsedMs, url: publicBrowserUrl(contents.getURL()) }
+      }
+      await new Promise(resolve => setTimeout(resolve, Math.min(WAIT_POLL_MS, options.timeoutMs - elapsedMs)))
+    }
   }
 
   async screenshot(tabId: string, contents: WebContents, fullPage = false): Promise<BrowserScreenshot> {

@@ -13,16 +13,22 @@ export function parseBrowserBatchActions(value: unknown): BrowserBatchAction[] {
     if (!item || typeof item !== 'object' || Array.isArray(item)) throw invalid()
     const row = item as Record<string, unknown>
     const fields: Record<string, string[]> = {
-      click: ['action', 'ref'], type: ['action', 'ref', 'text'],
+      click: ['action', 'ref'], type: ['action', 'ref', 'text'], hover: ['action', 'ref'], select: ['action', 'ref', 'value'],
       press: ['action', 'key'], scroll: ['action', 'direction', 'pixels'],
     }
     const allowed = typeof row.action === 'string' && Object.hasOwn(fields, row.action) ? fields[row.action] : undefined
     if (!allowed || Object.keys(row).some(key => !allowed.includes(key))) throw invalid()
     switch (row.action) {
       case 'click':
-      case 'type': {
+      case 'type':
+      case 'hover':
+      case 'select': {
         if (typeof row.ref !== 'string' || !/^@e[1-9]\d*$/.test(row.ref) || row.ref.length > 32) throw invalid()
-        if (row.action === 'click') return { action: 'click', ref: row.ref }
+        if (row.action === 'click' || row.action === 'hover') return { action: row.action, ref: row.ref }
+        if (row.action === 'select') {
+          if (typeof row.value !== 'string' || row.value.length > 1000) throw invalid()
+          return { action: 'select', ref: row.ref, value: row.value }
+        }
         if (typeof row.text !== 'string' || row.text.length > 100_000) throw invalid()
         return { action: 'type', ref: row.ref, text: row.text }
       }

@@ -12,6 +12,7 @@ import {
 } from './browser-types'
 import { publicBrowserUrl, redactBrowserText } from './browser-url'
 import { snapshotOptions } from './browser-snapshot'
+import { parseBrowserUploadFiles, parseBrowserUploadMethod } from './browser-files'
 
 interface BrokerRequest {
   method?: unknown
@@ -32,7 +33,9 @@ interface BrokerClient {
   pid?: number
 }
 
-const BODY_LIMIT = 1024 * 1024
+// Uploads carry up to 10 MB of base64 file content; every other request stays small.
+const BODY_LIMIT = 16 * 1024 * 1024
+const MAX_WAIT_MS = 30_000
 const LEASE_TTL_MS = 60_000
 const STOP_TIMEOUT_MS = 2_000
 
@@ -214,7 +217,7 @@ export class BrowserBroker {
     if (tabId && (this.tabGenerations.get(tabId) || 0) !== tabGeneration) {
       throw new Error('Browser operation was cancelled by user takeover')
     }
-    const mutating = !['state', 'tabs.list', 'console.read'].includes(method)
+    const mutating = !['state', 'tabs.list', 'console.read', 'download.read'].includes(method)
     if (tabId && mutating) this.claimLease(tabId, clientId, method)
     if (tabId && mutating && method !== 'lease.release') {
       this.manager.setAgentControl(tabId, 'active', clientId.slice(0, 24), method)
@@ -278,6 +281,35 @@ export class BrowserBroker {
               throw new Error('Browser batch was cancelled or its tab control was revoked')
             }
           })
+        case 'upload': {
+          const uploadTabId = requiredString(params.tab_id, 'tab_id')
+          const tab = await this.manager.upload(uploadTabId, requiredString(params.snapshot_id, 'snapshot_id'), requiredString(params.ref, 'ref'),
+            parseBrowserUploadFiles(params.files), parseBrowserUploadMethod(params.method), () => {
+              if (!this.server || this.leases.get(uploadTabId)?.clientId !== clientId || (this.tabGenerations.get(uploadTabId) || 0) !== tabGeneration) {
+                throw new Error('Browser upload was cancelled or its tab control was revoked')
+              }
+            })
+          return { ...this.publicTab(tab), upload: tab.upload, snapshot: tab.snapshot, snapshotError: tab.snapshotError, observation: tab.observation }
+        }
+        case 'wait': {
+          const waitTabId = requiredString(params.tab_id, 'tab_id')
+          const text = params.text === undefined ? undefined : requiredString(params.text, 'text')
+          const textGone = params.text_gone === undefined ? undefined : requiredString(params.text_gone, 'text_gone')
+          const timeoutMs = boundedInteger(params.timeout_ms, 'timeout_ms', 10_000, 0, MAX_WAIT_MS)
+          if (text === undefined && textGone === undefined && params.timeout_ms === undefined) throw new Error('text, text_gone or timeout_ms is required')
+          return await this.manager.wait(waitTabId, { text, textGone, timeoutMs }, () => {
+            if (!this.server || (this.tabGenerations.get(waitTabId) || 0) !== tabGeneration) throw new Error('Browser wait was cancelled by user takeover')
+          })
+        }
+        case 'download.start':
+          return await this.manager.downloadStart(requiredString(params.tab_id, 'tab_id'), {
+            url: params.url === undefined ? undefined : requiredString(params.url, 'url'),
+            snapshotId: params.snapshot_id === undefined ? undefined : requiredString(params.snapshot_id, 'snapshot_id'),
+            ref: params.ref === undefined ? undefined : requiredString(params.ref, 'ref'),
+          })
+        case 'download.read':
+          return this.manager.downloadRead(requiredString(params.download_id, 'download_id'),
+            boundedInteger(params.offset, 'offset', 0, 0, Number.MAX_SAFE_INTEGER))
         case 'screenshot':
           return await this.manager.screenshot(requiredString(params.tab_id, 'tab_id'), params.full_page === true)
         case 'console.read':
@@ -428,7 +460,7 @@ export class BrowserBroker {
     for await (const chunk of request) {
       const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
       length += data.length
-      if (length > BODY_LIMIT) throw new Error('Request body exceeds 1 MB')
+      if (length > BODY_LIMIT) throw new Error('Request body exceeds 16 MB')
       chunks.push(data)
     }
     const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as BrokerRequest

@@ -7,9 +7,9 @@ import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { createInterface } from 'node:readline'
 import { createHash, randomUUID } from 'node:crypto'
-import { readFileSync, statSync } from 'node:fs'
+import { readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, extname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const DEFAULT_PORT = process.env.HERMES_WEB_UI_PORT || process.env.PORT || '8648'
@@ -723,6 +723,64 @@ function browserScreenshotContent(envelope) {
   }
 }
 
+const BROWSER_MIME_TYPES = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
+  '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
+  '.pdf': 'application/pdf', '.zip': 'application/zip', '.json': 'application/json', '.csv': 'text/csv', '.txt': 'text/plain',
+  '.md': 'text/markdown', '.html': 'text/html', '.xml': 'application/xml',
+  '.doc': 'application/msword', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+}
+const BROWSER_UPLOAD_LIMIT = 10 * 1024 * 1024
+const BROWSER_INLINE_TEXT_LIMIT = 200 * 1024
+
+function browserUploadFile(file) {
+  if (file.path) {
+    const path = resolve(file.path)
+    if (statSync(path).size > BROWSER_UPLOAD_LIMIT) throw new Error(`Upload file exceeds 10 MB: ${basename(path)}`)
+    return {
+      name: file.name || basename(path),
+      type: file.mime_type || BROWSER_MIME_TYPES[extname(path).toLowerCase()] || 'application/octet-stream',
+      data: readFileSync(path).toString('base64'),
+    }
+  }
+  if (!file.data_base64 || !file.name) throw new Error('Each upload file needs path, or name and data_base64')
+  return { name: file.name, type: file.mime_type || BROWSER_MIME_TYPES[extname(file.name).toLowerCase()] || 'application/octet-stream', data: file.data_base64 }
+}
+
+function browserTextual(mimeType) {
+  return /^text\//.test(mimeType) || /^application\/(?:json|xml|javascript|x-ndjson)$/.test(mimeType) || /\+(?:json|xml)$/.test(mimeType)
+}
+
+async function browserDownload(args, signal) {
+  if (!args.url && !(args.snapshot_id && args.ref)) return errorText('Pass url, or snapshot_id and ref of a link, image or media element')
+  const started = await browserRequest('download.start', pickDefined(args, ['tab_id', 'url', 'snapshot_id', 'ref']), signal)
+  const info = started.result
+  const inline = info.mimeType.startsWith('image/') ? 'image' : browserTextual(info.mimeType) && info.size <= BROWSER_INLINE_TEXT_LIMIT ? 'text' : ''
+  if (!args.save_path && !inline) {
+    return jsonText({ operation_id: started.operation_id, ...info, hint: 'This file type is not returned inline. Call again with save_path to store it on the MCP server host.' })
+  }
+  const chunks = []
+  for (let offset = 0, done = false; !done;) {
+    const chunk = (await browserRequest('download.read', { download_id: info.downloadId, offset }, signal)).result
+    chunks.push(Buffer.from(chunk.data, 'base64'))
+    done = chunk.done
+    offset = chunk.nextOffset ?? chunk.size
+  }
+  const data = Buffer.concat(chunks)
+  const metadata = { operation_id: started.operation_id, fileName: info.fileName, mimeType: info.mimeType, size: data.length,
+    sourceUrl: info.sourceUrl, sha256: createHash('sha256').update(data).digest('hex') }
+  if (args.save_path) {
+    const path = resolve(args.save_path)
+    writeFileSync(path, data, { flag: args.overwrite ? 'w' : 'wx' })
+    return jsonText({ ...metadata, savedTo: path })
+  }
+  if (inline === 'image') {
+    return { content: [{ type: 'text', text: JSON.stringify(metadata, null, 2) }, { type: 'image', data: data.toString('base64'), mimeType: info.mimeType }] }
+  }
+  return { content: [{ type: 'text', text: JSON.stringify(metadata, null, 2) }, { type: 'text', text: data.toString('utf8') }] }
+}
+
 function pickDefined(source, keys) {
   const picked = {}
   for (const key of keys) {
@@ -981,23 +1039,24 @@ const tools = [
   {
     name: 'ekko_studio_browser_interact',
     toolset: 'browser',
-    description: 'Click, type, press a key, or scroll in one Desktop browser tab. Click/type require a ref and snapshot_id from the latest snapshot. Returns a fresh snapshot and local observation of target states, changes and openedTabs even without JEV. Use the returned snapshot.tabId (it may be a newly opened destination). Dispatch alone does not prove success; if no change is observed, inspect a relevant region or screenshot instead of blindly repeating. Supply expectation for optional JEV judgment; verification is advisory and never retries the action.',
+    description: 'Click, type, hover, select a native <select> option, press a key, or scroll in one Desktop browser tab. Click/type/hover/select require a ref and snapshot_id from the latest snapshot; select takes the option value or visible label. Returns a fresh snapshot and local observation of target states, changes and openedTabs even without JEV. Use the returned snapshot.tabId (it may be a newly opened destination). Dispatch alone does not prove success; if no change is observed, inspect a relevant region or screenshot instead of blindly repeating. Supply expectation for optional JEV judgment; verification is advisory and never retries the action.',
     inputSchema: browserInputSchema({
       tab_id: { type: 'string' },
       expectation: { type: 'string', minLength: 1, maxLength: 2000, description: 'Expected visible outcome to judge after the action, when enabled in Models > JEV.' },
       include_text: { type: 'boolean', description: 'Include the duplicate text rendering alongside snapshot nodes. Defaults to false.' },
-      action: { type: 'string', enum: ['click', 'type', 'press', 'scroll'] },
+      action: { type: 'string', enum: ['click', 'type', 'hover', 'select', 'press', 'scroll'] },
       ref: { type: 'string' }, snapshot_id: { type: 'string' }, text: { type: 'string' }, key: { type: 'string' },
+      value: { type: 'string', maxLength: 1000, description: 'Option value or visible label for action=select.' },
       direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] }, pixels: { type: 'number' },
     }, ['tab_id', 'action']),
   },
   {
     name: 'ekko_studio_browser_batch',
     toolset: 'browser',
-    description: 'Execute 1-50 click/type/press/scroll actions sequentially in one tab in a single call. For click/type, pass one current snapshot_id and refs from that snapshot; original DOM targets are revalidated before each step. Stops on the first failure, new-document navigation/reload, user takeover, or the 30-second execution budget. Same-document URL/SKU changes can continue when targets remain valid. Returns zero-based per-step completed/failed/skipped results, local observation and a fresh snapshot when available, even without JEV. Completed means dispatched, not a confirmed outcome; completed actions are not rolled back. Inspect target states and use snapshot.tabId if a new tab opened. Supply expectation for optional JEV verification after a fully completed batch; verification does not change completion status or retry actions.',
+    description: 'Execute 1-50 click/type/hover/select/press/scroll actions sequentially in one tab in a single call. For click/type/hover/select, pass one current snapshot_id and refs from that snapshot; original DOM targets are revalidated before each step. Stops on the first failure, new-document navigation/reload, user takeover, or the 30-second execution budget. Same-document URL/SKU changes can continue when targets remain valid. Returns zero-based per-step completed/failed/skipped results, local observation and a fresh snapshot when available, even without JEV. Completed means dispatched, not a confirmed outcome; completed actions are not rolled back. Inspect target states and use snapshot.tabId if a new tab opened. Supply expectation for optional JEV verification after a fully completed batch; verification does not change completion status or retry actions.',
     inputSchema: browserInputSchema({
       tab_id: { type: 'string' },
-      snapshot_id: { type: 'string', description: 'Current snapshot used by all click/type refs; optional for a batch containing only press/scroll.' },
+      snapshot_id: { type: 'string', description: 'Current snapshot used by all click/type/hover/select refs; optional for a batch containing only press/scroll.' },
       include_text: { type: 'boolean', description: 'Include the duplicate text rendering alongside final snapshot nodes. Defaults to false.' },
       expectation: { type: 'string', minLength: 1, maxLength: 2000, description: 'Expected visible outcome after all actions finish. Prefer one batch assessment over assessing every intermediate click.' },
       actions: {
@@ -1006,6 +1065,8 @@ const tools = [
           oneOf: [
             browserInputSchema({ action: { type: 'string', const: 'click' }, ref: { type: 'string' } }, ['action', 'ref']),
             browserInputSchema({ action: { type: 'string', const: 'type' }, ref: { type: 'string' }, text: { type: 'string', maxLength: 100000 } }, ['action', 'ref', 'text']),
+            browserInputSchema({ action: { type: 'string', const: 'hover' }, ref: { type: 'string' } }, ['action', 'ref']),
+            browserInputSchema({ action: { type: 'string', const: 'select' }, ref: { type: 'string' }, value: { type: 'string', maxLength: 1000 } }, ['action', 'ref', 'value']),
             browserInputSchema({ action: { type: 'string', const: 'press' }, key: { type: 'string', minLength: 1, maxLength: 64 } }, ['action', 'key']),
             browserInputSchema({ action: { type: 'string', const: 'scroll' }, direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] }, pixels: { type: 'number', minimum: 1, maximum: 10000 } }, ['action', 'direction']),
           ],
@@ -1018,6 +1079,51 @@ const tools = [
     toolset: 'browser',
     description: 'Capture the visible viewport or bounded full page as a real MCP image content block for visual reasoning.',
     inputSchema: browserInputSchema({ tab_id: { type: 'string' }, full_page: { type: 'boolean' } }, ['tab_id']),
+  },
+  {
+    name: 'ekko_studio_browser_upload',
+    toolset: 'browser',
+    description: 'Give 1-4 files (10 MB total) to a page as if the user picked them, without the OS file dialog and without writing files on the Desktop. ref may be the <input type=file>, its label, or a visible upload button/dropzone near a hidden file input. method=auto uses the nearby file input and otherwise dispatches a drop on the element; use paste for editors that accept pasted images. Each file is either a local path readable by this MCP server or name+data_base64. Returns the local observation and a fresh snapshot; check for the page\'s preview before submitting.',
+    inputSchema: browserInputSchema({
+      tab_id: { type: 'string' },
+      snapshot_id: { type: 'string' },
+      ref: { type: 'string' },
+      method: { type: 'string', enum: ['auto', 'input', 'drop', 'paste'], description: 'Defaults to auto.' },
+      files: {
+        type: 'array', minItems: 1, maxItems: 4,
+        items: browserInputSchema({
+          path: { type: 'string', minLength: 1, maxLength: 4096, description: 'Absolute or working-directory-relative path on the MCP server host.' },
+          name: { type: 'string', minLength: 1, maxLength: 200, description: 'File name shown to the page; defaults to the path basename.' },
+          mime_type: { type: 'string', maxLength: 127, description: 'Defaults from the file extension.' },
+          data_base64: { type: 'string', description: 'File content when no path is given.' },
+        }),
+      },
+      include_text: { type: 'boolean', description: 'Include the duplicate text rendering alongside snapshot nodes. Defaults to false.' },
+    }, ['tab_id', 'snapshot_id', 'ref', 'files']),
+  },
+  {
+    name: 'ekko_studio_browser_download',
+    toolset: 'browser',
+    description: 'Download a file (up to 20 MB) with the tab\'s own cookies and session, held in Desktop memory and streamed back here; nothing is written on the Desktop. Pass url, or snapshot_id+ref of a link, image or media element. With save_path the file is written on the MCP server host; without it images are returned as image content and small text as text, otherwise metadata only (call again with save_path).',
+    inputSchema: browserInputSchema({
+      tab_id: { type: 'string' },
+      url: { type: 'string', minLength: 1, maxLength: 8192, description: 'Absolute or page-relative URL. Omit when using ref.' },
+      snapshot_id: { type: 'string' },
+      ref: { type: 'string' },
+      save_path: { type: 'string', minLength: 1, maxLength: 4096, description: 'Destination on the MCP server host; the parent directory must exist.' },
+      overwrite: { type: 'boolean', description: 'Replace an existing save_path. Defaults to false.' },
+    }, ['tab_id']),
+  },
+  {
+    name: 'ekko_studio_browser_wait',
+    toolset: 'browser',
+    description: 'Wait up to 30 seconds until rendered page text appears (text) and/or disappears (text_gone), or simply pause for timeout_ms. Read-only; never clicks or retries. Returns matched=false on timeout; take a snapshot afterwards to inspect the page.',
+    inputSchema: browserInputSchema({
+      tab_id: { type: 'string' },
+      text: { type: 'string', minLength: 1, maxLength: 1000 },
+      text_gone: { type: 'string', minLength: 1, maxLength: 1000 },
+      timeout_ms: { type: 'number', minimum: 0, maximum: 30000, description: 'Defaults to 10000.' },
+    }, ['tab_id']),
   },
   {
     name: 'ekko_studio_browser_console',
@@ -1709,8 +1815,8 @@ const TOOL_ALIASES = new Map([
 const CATEGORY_TOOLSETS = {
   browser: {
     name: 'ekko_studio_browser_toolset',
-    coverage: 'Ekko Studio Desktop browser tabs and leases; HTTP/HTTPS navigation; accessibility snapshots with stable refs; single or sequential batch click, type, key press, and scroll interaction; viewport or full-page screenshots; bounded console log read and clear.',
-    description: 'Discover and invoke Ekko Studio Desktop browser operations without loading every browser tool schema into the model context. Covers tab list/create/activate/close/release, navigation back/forward/reload/stop/open, accessibility snapshots, single or batch click/type/key/scroll interaction, screenshots, and console logs. Use action=list for the compact operation catalog, action=describe for one full input schema, then action=call with that exact tool name and arguments.',
+    coverage: 'Ekko Studio Desktop browser tabs and leases; HTTP/HTTPS navigation; accessibility snapshots with stable refs; single or sequential batch click, type, hover, select, key press, and scroll interaction; in-memory file upload and download; waiting for page text; viewport or full-page screenshots; bounded console log read and clear.',
+    description: 'Discover and invoke Ekko Studio Desktop browser operations without loading every browser tool schema into the model context. Covers tab list/create/activate/close/release, navigation back/forward/reload/stop/open, accessibility snapshots, single or batch click/type/hover/select/key/scroll interaction, file upload and download, waiting for text, screenshots, and console logs. Use action=list for the compact operation catalog, action=describe for one full input schema, then action=call with that exact tool name and arguments.',
   },
   use: {
     name: 'ekko_studio_use_toolset',
@@ -1887,7 +1993,7 @@ async function callToolInner(name, args = {}, signal) {
     case 'ekko_studio_browser_interact': {
       const expectation = browserIntent(args.expectation, 'expectation')
       const action = { action: args.action }
-      for (const key of ['ref', 'snapshot_id', 'text', 'key', 'direction', 'pixels']) {
+      for (const key of ['ref', 'snapshot_id', 'text', 'key', 'direction', 'pixels', 'value']) {
         if (args[key] !== undefined) action[key] = args[key]
       }
       const envelope = await browserRequest('interact', { tab_id: args.tab_id, action }, signal)
@@ -1912,6 +2018,15 @@ async function callToolInner(name, args = {}, signal) {
         })
       }
     }
+    case 'ekko_studio_browser_upload': {
+      const files = args.files.map(browserUploadFile)
+      const envelope = await browserRequest('upload', { tab_id: args.tab_id, snapshot_id: args.snapshot_id, ref: args.ref, method: args.method, files }, signal)
+      return browserOutput(envelope, args.include_text)
+    }
+    case 'ekko_studio_browser_download':
+      return await browserDownload(args, signal)
+    case 'ekko_studio_browser_wait':
+      return jsonText(await browserRequest('wait', pickDefined(args, ['tab_id', 'text', 'text_gone', 'timeout_ms']), signal))
     case 'ekko_studio_browser_console':
       return jsonText(await browserRequest(args.action === 'clear' ? 'console.clear' : 'console.read', { tab_id: args.tab_id }))
     case 'ekko_studio_api_openapi_get':

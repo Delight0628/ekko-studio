@@ -182,17 +182,17 @@ browser_console
   action: read | clear
 ~~~
 
-选择 1 个类目入口和 8 个内部聚合操作的原因：
+选择 1 个类目入口和 11 个内部聚合操作的原因：
 
 - 常驻上下文只有类目说明和入口 Schema；
 - 模型只在需要时读取一个具体操作的完整 Schema；
-- 8 个语义操作仍比十几个按钮级操作更稳定；
+- 11 个语义操作仍比十几个按钮级操作更稳定；
 - Action 枚举较小，参数校验更明确；
 - 大页面定位、分页和控件操作由本地浏览器完成，不依赖 JEV。
 
 所有页面操作都携带明确的 <code>tab_id</code>，结果也必须返回
 <code>tab_id</code>。创建标签页只能通过 <code>browser_tabs</code>，其他操作不会
-隐式跟随用户当前标签页。Snapshot 返回 <code>snapshot_id</code>，click/type 必须
+隐式跟随用户当前标签页。Snapshot 返回 <code>snapshot_id</code>，click/type/hover/select 必须
 回传该 ID；页面变化后旧引用立即失效。
 
 批量调用使用 `ekko_studio_browser_batch`，一次提交同一标签页的多条指令：
@@ -210,12 +210,20 @@ browser_console
 }
 ~~~
 
-- click/type 的所有 ref 都来自提交时的同一份最新快照。只有按键/滚动时可以省略 snapshot_id。
+- click/type/hover/select 的所有 ref 都来自提交时的同一份最新快照。只有按键/滚动时可以省略 snapshot_id。
 - 执行前验证全部参数和初始引用；每步重新获取快照并按原始 DOM 节点身份定位，不复用可能已变号的 ref，也不猜测替代元素。
 - 整批占用同一标签页的操作队列；其他标签页仍可并发。单步工具保持兼容。
 - 首次失败、目标消失、页面导航/刷新、用户接管或 30 秒执行预算耗尽时，停止后续动作。浏览器不按操作文案进行风险分类或添加确认弹窗；每一步仍检查取消状态与执行预算。
 - 返回 `completed`、`total` 和 `results`；每项带从 0 开始的 `index`、动作类型及 `completed` / `failed` / `skipped` 状态。成功的步骤不会回滚，失败步骤也可能已产生部分效果，请根据结果决定是否重试。
 - 能读取时返回执行后的 `snapshot`；无法读取时返回 `snapshotError`。部分执行会在 MCP 结果标记 `isError: true`，仍保留逐步结果。页面跳转后的操作需要根据新快照再次提交。
+
+hover 用可信鼠标移动（CDP `Input.dispatchMouseEvent`）触发 `:hover` 和悬停菜单；select 只操作原生 `<select>`，按 option value 或可见文字匹配，自定义下拉请点击选项。
+
+文件上传、下载与等待全程不落盘，也不打开系统文件对话框：
+
+- `ekko_studio_browser_upload`：1–4 个文件、合计 10 MB。MCP 读取本机路径（或直接接收 base64），Desktop 在页面里用 `DataTransfer` 构造 `File`；ref 可以是 `<input type=file>`、label、或旁边藏着文件输入框的上传按钮。找不到输入框时默认对元素派发 drop，`method=paste` 用于接受粘贴图片的编辑器。
+- `ekko_studio_browser_download`：最多 20 MB，按 url 或链接/图片/媒体 ref 下载。http(s) 走该标签页的 session（同 Cookie、同代理），每一跳重定向都过地址安全策略；`blob:` 在页面内读取。文件只在 Desktop 内存里保留 5 分钟，按 1 MB 分块读回（远程中继单条消息上限 2 MB），读完即删。给 `save_path` 时写到 MCP 所在主机；不给时图片直接作为图片结果返回、小文本作为文本返回，其余只返回元数据。
+- `ekko_studio_browser_wait`：最长 30 秒等待页面文字出现（text）或消失（text_gone），只读不操作。
 
 ### 6.3 MCP 配置统一注入，能力由桌面 Broker 决定
 

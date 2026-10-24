@@ -235,14 +235,31 @@ export interface BrowserBrokerDescriptor {
 export type BrowserInteractAction =
   | { action: 'click'; ref: string; snapshot_id: string }
   | { action: 'type'; ref: string; snapshot_id: string; text: string }
+  | { action: 'hover'; ref: string; snapshot_id: string }
+  | { action: 'select'; ref: string; snapshot_id: string; value: string }
   | { action: 'press'; key: string }
   | { action: 'scroll'; direction: 'up' | 'down' | 'left' | 'right'; pixels?: number }
 
 export type BrowserBatchAction =
   | { action: 'click'; ref: string }
   | { action: 'type'; ref: string; text: string }
+  | { action: 'hover'; ref: string }
+  | { action: 'select'; ref: string; value: string }
   | { action: 'press'; key: string }
   | { action: 'scroll'; direction: 'up' | 'down' | 'left' | 'right'; pixels?: number }
+
+export interface BrowserWaitOptions {
+  text?: string
+  textGone?: string
+  timeoutMs: number
+}
+
+export interface BrowserWaitResult {
+  tabId: string
+  matched: boolean
+  elapsedMs: number
+  url: string
+}
 
 export interface BrowserBatchResult {
   tabId: string

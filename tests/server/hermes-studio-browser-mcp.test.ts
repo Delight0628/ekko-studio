@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -176,7 +176,7 @@ describe('hermes-studio browser MCP toolset', () => {
     })
     expect(JSON.parse(catalog.result.content[0].text)).toMatchObject({
       toolset: 'browser',
-      operation_count: 8,
+      operation_count: 11,
     })
     const described = await rpc(4, 'tools/call', {
       name: 'ekko_studio_browser_toolset',
@@ -331,5 +331,79 @@ describe('remote Desktop browser transport', () => {
     expect(result.result.isError).not.toBe(true)
     expect(JSON.parse(result.result.content[0].text).result.tabs[0].id).toBe('desktop-tab')
     expect(received).toEqual([{ path: '/api/studio/desktop-browser/request', auth: 'Bearer account-fixture', profile: 'research', body: { method: 'tabs.list', params: {}, client_id: expect.any(String) } }])
+  })
+})
+
+describe('browser file transfer tools', () => {
+  async function startRelay(handle: (method: string, params: any) => unknown) {
+    root = await mkdtemp(join(tmpdir(), 'studio-browser-files-'))
+    const calls: Array<{ method: string; params: any }> = []
+    server = createServer(async (req, res) => {
+      const chunks: Buffer[] = []
+      for await (const chunk of req) chunks.push(Buffer.from(chunk))
+      const body = JSON.parse(Buffer.concat(chunks).toString())
+      calls.push({ method: body.method, params: body.params })
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify({ operation_id: 'op', result: handle(body.method, body.params) }))
+    })
+    await new Promise<void>(resolve => server!.listen(0, '127.0.0.1', resolve))
+    const address = server.address() as { port: number }
+    child = spawn(process.execPath, [join(process.cwd(), 'bin/ekko-studio-mcp.mjs'), 'browser'], {
+      env: { ...process.env, HERMES_WEB_UI_HOME: root, HERMES_WEB_UI_URL: `http://127.0.0.1:${address.port}`, HERMES_WEB_UI_TOKEN: 'account-fixture' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    const rpc = rpcClient(child)
+    let id = 0
+    const call = async (tool: string, args: Record<string, unknown>) => (await rpc(++id, 'tools/call', {
+      name: 'ekko_studio_browser_toolset', arguments: { action: 'call', tool, arguments: args },
+    })).result
+    return { calls, call }
+  }
+
+  it('reads local files into the upload request and validates arguments first', async () => {
+    const { calls, call } = await startRelay(() => ({ tabId: 'tab-1', upload: { method: 'input', files: [{ name: 'a.png', type: 'image/png', size: 3 }] } }))
+    const file = join(root, 'a.png')
+    await writeFile(file, Buffer.from([1, 2, 3]))
+    const result = await call('ekko_studio_browser_upload', { tab_id: 'tab-1', snapshot_id: 's1', ref: '@e2', files: [{ path: file }] })
+    expect(result.isError).not.toBe(true)
+    expect(JSON.parse(result.content[0].text).result.upload.method).toBe('input')
+    expect(calls).toEqual([{ method: 'upload', params: { tab_id: 'tab-1', snapshot_id: 's1', ref: '@e2',
+      files: [{ name: 'a.png', type: 'image/png', data: Buffer.from([1, 2, 3]).toString('base64') }] } }])
+
+    expect((await call('ekko_studio_browser_upload', { tab_id: 'tab-1', snapshot_id: 's1', ref: '@e2', files: [{ name: 'x.txt' }] })).isError).toBe(true)
+    expect((await call('ekko_studio_browser_upload', { tab_id: 'tab-1', snapshot_id: 's1', ref: '@e2', files: [] })).isError).toBe(true)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('assembles chunked downloads into a saved file or inline image', async () => {
+    const bytes = Buffer.from('hello world')
+    let mimeType = 'application/zip'
+    const { calls, call } = await startRelay((method, params) => method === 'download.start'
+      ? { downloadId: 'd1', fileName: 'a.zip', mimeType, size: bytes.length, sourceUrl: 'https://example.com/a.zip', chunkSize: 6 }
+      : params.offset === 0
+        ? { downloadId: 'd1', offset: 0, data: bytes.subarray(0, 6).toString('base64'), returnedBytes: 6, size: bytes.length, done: false, nextOffset: 6 }
+        : { downloadId: 'd1', offset: 6, data: bytes.subarray(6).toString('base64'), returnedBytes: 5, size: bytes.length, done: true })
+
+    const metadataOnly = await call('ekko_studio_browser_download', { tab_id: 'tab-1', url: 'https://example.com/a.zip' })
+    expect(JSON.parse(metadataOnly.content[0].text)).toMatchObject({ downloadId: 'd1', hint: expect.stringContaining('save_path') })
+
+    const target = join(root, 'out.zip')
+    const saved = await call('ekko_studio_browser_download', { tab_id: 'tab-1', url: 'https://example.com/a.zip', save_path: target })
+    expect(JSON.parse(saved.content[0].text)).toMatchObject({ savedTo: target, size: bytes.length })
+    expect(await readFile(target, 'utf8')).toBe('hello world')
+    expect((await call('ekko_studio_browser_download', { tab_id: 'tab-1', url: 'https://example.com/a.zip', save_path: target })).isError).toBe(true)
+
+    mimeType = 'image/png'
+    const image = await call('ekko_studio_browser_download', { tab_id: 'tab-1', snapshot_id: 's1', ref: '@e3' })
+    expect(image.content[1]).toEqual({ type: 'image', data: bytes.toString('base64'), mimeType: 'image/png' })
+    expect(calls.filter(item => item.method === 'download.read').map(item => item.params.offset)).toEqual([0, 6, 0, 6, 0, 6])
+    expect((await call('ekko_studio_browser_download', { tab_id: 'tab-1', ref: '@e3' })).isError).toBe(true)
+  })
+
+  it('forwards wait conditions', async () => {
+    const { calls, call } = await startRelay(() => ({ tabId: 'tab-1', matched: true, elapsedMs: 10, url: 'https://example.com/' }))
+    expect(JSON.parse((await call('ekko_studio_browser_wait', { tab_id: 'tab-1', text: 'Done', timeout_ms: 5000 })).content[0].text).result.matched).toBe(true)
+    expect((await call('ekko_studio_browser_wait', { tab_id: 'tab-1' })).isError).toBe(true)
+    expect(calls).toEqual([{ method: 'wait', params: { tab_id: 'tab-1', text: 'Done', timeout_ms: 5000 } }])
   })
 })
