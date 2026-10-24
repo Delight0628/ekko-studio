@@ -273,6 +273,10 @@ export class NativeDeviceSwitcher {
     try {
       if (newInstance) {
         await this.devices().openInNewInstance(operation.target.id)
+        if (this.disposed) return
+        // End checking before close: the native close guard deliberately blocks
+        // windows while checking, even if busy has already been reset.
+        operation.stage = 'confirm'
         this.busy = false;this.window.setProgressBar(-1)
         this.actionWindow?.close()
         return
