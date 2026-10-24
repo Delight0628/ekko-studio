@@ -75,3 +75,15 @@ configuration and reactivates the provider between turns, and checks directory,
 checkpoint, image, configured MCP-tool discovery and accounting continuity. Qwen deferred tool declarations are checked through a real tool_search call, and each revision must produce a fresh native MCP tools/list request. It also switches scoped sessions
 from native protocol to Chat Completions and back. Codex applies translated
 web-search restrictions as thread overrides, preserving the native config file.
+
+`management.setup` probes only `--version` through host-managed processes and
+returns bounded CLI availability/version metadata plus manual installation and
+login instructions. Installation examples are pinned to the native acceptance
+versions; no installation or login runs automatically. Global login happens in
+the native terminal with the instance's working directory and environment. Scoped
+mode uses Studio credentials and returns no native login command. This probe does
+not establish account authentication, run inference or create a native session.
+The existing configuration page can now create/edit instances from the registered
+schema and display these instructions. A super administrator may explicitly enable
+this implemented bundled artifact through the trusted distribution setup endpoint;
+that endpoint does not replace installed generations or default-install all agents.

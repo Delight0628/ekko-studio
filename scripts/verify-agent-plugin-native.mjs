@@ -190,6 +190,9 @@ requires_openai_auth = false
             } }, models: { gateway: input => gateways.open(scope, input, signal) } }) };
         coordinator = new AgentCoordinator(options);
         let instance = coordinator.createInstance(caller, { agentTypeId: definition.id, mode, config });
+        const setup = await coordinator.setupInstance(caller, instance.id, instance.revision);
+        if (setup.cli.state !== 'available' || !setup.cli.version || setup.authentication.kind !== (mode === 'scoped' ? 'studio' : 'native')) throw new Error('Unexpected native setup probe');
+        console.log(JSON.stringify({ vendor, mode, setup: true, version: setup.cli.version, authentication: setup.authentication.kind }));
         const marker = `STUDIO_RESOURCE_${vendor}_${mode}`;
         const catalog = await coordinator.resourceFiles(caller, instance.id, instance.revision, { action: 'list' });
         await coordinator.resourceFiles(caller, instance.id, instance.revision, { action: 'write', kind: 'configs', locationId: 'native-instructions', path: '', content: `Follow the fixture instruction ${marker}_INSTRUCTION.`, etag: 'missing' }, catalog.snapshot);

@@ -1945,7 +1945,7 @@ for (const action of ['list', 'update']) {
 const studioPluginBody = schema => ({ required: true, content: { 'application/json': { schema } } })
 const studioPluginProfile = { name: 'profile', in: 'query', required: true, schema: { type: 'string', minLength: 1 }, description: 'Authorized Studio profile.' }
 for (const [path, methods] of Object.entries(openapi.paths)) {
-  if (!path.startsWith('/api/studio/plugins') && !path.startsWith('/api/studio/agent-')) continue
+  if (!path.startsWith('/api/studio/plugins') && !path.startsWith('/api/studio/agent-') && !path.startsWith('/api/studio/bundled-agent-plugins')) continue
   for (const operation of Object.values(methods)) {
     operation.tags = ['Studio Plugins']
     operation.security = [{ BearerAuth: [] }]
@@ -1956,7 +1956,7 @@ for (const [path, methods] of Object.entries(openapi.paths)) {
       '401': { $ref: '#/components/responses/Unauthorized' }, '403': { description: 'Access denied or SYSTEM_PLUGIN_PROTECTED; no deletion side effects.' },
       '404': { description: 'Plugin not installed.' }, '409': { description: 'Revision conflict, registration conflict or active runtime leases.' },
       '422': { description: 'Plugin requests unsupported capabilities.' }, '503': { description: 'Plugin host or runtime unavailable.' } }
-    if (path.endsWith('/profile') || path.endsWith('/diagnostic') || path.includes('/consumers') || path.startsWith('/api/studio/agent-')) {
+    if (path.endsWith('/profile') || path.endsWith('/diagnostic') || path.includes('/consumers') || path.startsWith('/api/studio/agent-') || path.startsWith('/api/studio/bundled-agent-plugins')) {
       operation.parameters = [...(operation.parameters || []).filter(parameter => parameter.name !== 'profile'), studioPluginProfile]
     }
   }
@@ -2083,6 +2083,15 @@ openapi.paths['/api/studio/agent-instances/{id}'].put.description += ' Replaces 
 openapi.paths['/api/studio/agent-instances/{id}'].put.summary = 'Update Agent instance configuration'
 openapi.paths['/api/studio/agent-instances/{id}'].put.responses['404'].description = 'Agent instance is unavailable in this owner/profile scope.'
 const agentInspection = openapi.paths['/api/studio/agent-instances/{id}/inspect'].post
+const agentSetup = openapi.paths['/api/studio/agent-instances/{id}/setup'].post
+agentSetup.summary = 'Probe native CLI availability and get manual setup instructions'
+agentSetup.description += ' Requires the owned idle instance and exact revision. Runs only a bounded version probe; does not install, log in, refresh credentials, infer or create native history. Instructions contain executable names and argument arrays for manual use on the Studio host with the configured working directory/environment. CLI availability does not imply account authentication. Scoped mode uses Studio credentials and returns no native login command.'
+agentSetup.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, required: ['revision'], properties: { revision: { type: 'integer', minimum: 1 }, profile: { type: 'string' } } })
+const bundleEnable = openapi.paths['/api/studio/bundled-agent-plugins/{id}/enable'].post
+bundleEnable.summary = 'Explicitly install and enable an implemented bundled Agent plugin'
+bundleEnable.description += ' Only qwen and codex are eligible. Uses trusted distribution paths, never caller paths or arbitrary plugin IDs. Requires the current profile revision (zero when absent); preserves existing settings and grants. This is opt-in setup, not default installation of all reserved agents or installation of native CLIs. Existing installations are not upgraded or replaced by this endpoint.'
+bundleEnable.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, required: ['revision'], properties: { revision: { type: 'integer', minimum: 0 }, profile: { type: 'string' } } })
+openapi.paths['/api/studio/bundled-agent-plugins'].get.summary = 'List implemented bundled Agent plugins and current profile setup state'
 const agentLocations = openapi.paths['/api/studio/agent-instances/{id}/locations'].post
 agentLocations.summary = 'Get native Agent resource locations'
 agentLocations.description += ' Resolves multiple skill roots and multiple configuration files/directories from the owned idle instance and its current revision. The plugin only declares locations; Studio owns scanning and file operations. Does not start a Run or accept caller-selected paths. Omitted categories are unsupported; empty arrays have no configured locations. Stable source IDs distinguish identical names.'

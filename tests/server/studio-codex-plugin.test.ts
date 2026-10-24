@@ -29,6 +29,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 afterAll(async () => { await rm(root, { recursive: true, force: true }) })
 
 const fixture = `const fs = require('node:fs');
+if (process.argv.includes('--version')) { process.stdout.write('native-cli 1.2.3\\n'); process.exit(0); }
 fs.writeFileSync(process.env.PID_FILE, String(process.pid));
 fs.writeFileSync(process.env.PID_FILE + '.home', JSON.stringify({ home: process.env.HOME, codex: process.env.CODEX_HOME, qwen: process.env.QWEN_HOME }));
 const send = data => process.stdout.write(JSON.stringify(data) + '\\n');
@@ -147,7 +148,7 @@ function alive(pid: number) { try { process.kill(pid, 0); return true } catch { 
 
 it('inspects account state and paginated native models through a worker without exposing private fields', async () => {
   const f = await setup()
-  expect(f.registry.list('one')[0].management).toEqual({ inspect: true, locations: true })
+  expect(f.registry.list('one')[0].management).toEqual({ inspect: true, locations: true, setup: true })
   const result = await f.coordinator.inspectInstance(scope, f.instance.id)
   expect(result).toMatchObject({ native: { name: 'Codex' }, authentication: { state: 'authenticated', methods: [] }, models: { status: 'available', items: [
     { id: 'first', name: 'Model first', isDefault: true, reasoningEfforts: ['high'] },
@@ -514,4 +515,15 @@ it('limits translated web search overrides to the native thread without rewritin
   expect(threads[0].params.config.web_search).toBe('disabled')
   expect(threads[1].params.config?.web_search).toBeUndefined()
   expect(await readFile(config.path, 'utf8')).toContain('web_search = "cached"')
+})
+
+
+it.each(['global', 'scoped'] as const)('returns codex setup instructions through a real worker in %s mode', async mode => {
+  const f = await setup({}, mode)
+  const result = await f.coordinator.setupInstance(scope, f.instance.id, 1)
+  expect(result.cli).toEqual({ state: 'available', version: '1.2.3' })
+  expect(result.authentication.kind).toBe(mode === 'scoped' ? 'studio' : 'native')
+  if (mode === 'global') expect(result.authentication).toMatchObject({ command: process.execPath })
+  expect(f.gateway).not.toHaveBeenCalled()
+  await expect(f.trace()).rejects.toMatchObject({ code: 'ENOENT' })
 })

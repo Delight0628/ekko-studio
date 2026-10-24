@@ -1,3 +1,4 @@
+import { agentManagementMessages } from '../agent-management-messages'
 import { remoteDeviceMessages } from '../remote-device-messages'
 import { themePresetMessages } from '../theme-preset-locales'
 import { themeAppearanceMessages } from '../theme-appearance-locales'
@@ -30,6 +31,7 @@ const writeApprovalMessages = {
 }
 
 export default {
+  agentManagement: agentManagementMessages['tr'],
   codingAgents: {
     refresh: 'Yenile',
     defaultConfiguration: 'Varsayılan yapılandırma', resourceInstance: 'Agent örneği', resourceFile: 'Yapılandırma dosyası', resourceReadOnly: 'Salt okunur',

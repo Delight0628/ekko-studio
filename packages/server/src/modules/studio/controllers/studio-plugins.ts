@@ -96,6 +96,19 @@ function executionScope(ctx: Context): ExecutionScope {
   return { scopeId: randomUUID(), principal: { kind: 'user', id: userId(ctx) }, profileId: profile(ctx), surface: 'api', traceId: randomUUID() }
 }
 export const listAgentInstances = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().coordinator.listInstances(executionScope(ctx)))
+export const listBundledAgentPlugins = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().bundledAgents.list(profile(ctx)))
+export const enableBundledAgentPlugin = (ctx: Context) => respond(ctx, () => {
+  const input = body(ctx, ['revision', 'profile'])
+  return getStudioPluginRuntime().bundledAgents.enable(ctx.params.id, profile(ctx), userId(ctx), input.revision as number)
+})
+export const setupAgentInstance = (ctx: Context) => respond(ctx, async () => {
+  const input = body(ctx, ['revision', 'profile'])
+  const controller = new AbortController(), abort = () => controller.abort()
+  ctx.res.once('close', abort)
+  if (ctx.res.destroyed) abort()
+  try { return await getStudioPluginRuntime().coordinator.setupInstance(executionScope(ctx), ctx.params.id, input.revision as number, controller.signal) }
+  finally { ctx.res.removeListener('close', abort) }
+})
 let agentImageUploads = 0
 export const uploadAgentImage = (ctx: Context) => respond(ctx, async () => {
   const scope = executionScope(ctx)

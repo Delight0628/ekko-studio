@@ -83,15 +83,19 @@ export class PluginHost {
     })
   }
 
-  async registerSystemArtifact(source: string): Promise<PluginInstallation> {
+  async registerSystemArtifact(source: string, expectedId?: string, authorize?: () => void): Promise<PluginInstallation> {
+    if (this.closed) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin host is shutting down')
     const inspected = await inspectPluginArtifact(source)
     this.validateDeclarations(inspected.manifest)
     if (!isSystemPluginId(inspected.manifest.id)) throw new StudioError('INVALID_ARGUMENT', 'Not a system plugin')
+    if (expectedId !== undefined && inspected.manifest.id !== expectedId) throw new StudioError('PLUGIN_UNAVAILABLE', 'Bundled Agent artifact identity does not match')
+    authorize?.()
+    if (this.closed) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin host is shutting down')
     return this.options.store.registerSystem({ id: inspected.manifest.id, manifest: inspected.manifest,
       generation: `${inspected.manifest.version}-${inspected.digest}`, artifactPath: source })
   }
 
-  configure(input: Omit<PluginProfileState, 'revision'>, expectedRevision: number): Promise<PluginProfileState> {
+  configure(input: Omit<PluginProfileState, 'revision'>, expectedRevision: number, authorize?: () => void): Promise<PluginProfileState> {
     return this.serial(input.pluginId, async () => {
       const installation = this.requireInstallation(input.pluginId)
       if (!input.profileId.trim() || !input.ownerId.trim()) throw new StudioError('INVALID_ARGUMENT', 'Profile and owner are required')
@@ -103,6 +107,7 @@ export class PluginHost {
         throw new StudioError('REVISION_CONFLICT', 'Disable dependent plugins before changing their service provider')
       }
       // Compare and persist before stopping any healthy activation.
+      authorize?.()
       const wasEnabled = this.options.store.profile(input.pluginId, input.profileId)?.enabled
       const state = this.options.store.saveProfile(jsonCopy(input), expectedRevision)
       await this.stop(input.pluginId, input.profileId, wasEnabled && !state.enabled ? 'disabled' : undefined)

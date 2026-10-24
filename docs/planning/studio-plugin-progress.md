@@ -15,7 +15,8 @@
 | 安装策略 | 14 个系统插件 ID 已保留；用户安装不能覆盖，删除在接触工件/worker 前返回 `SYSTEM_PLUGIN_PROTECTED`；profile 选择不会被重复系统登记覆盖 |
 | 事件 | `ctx.on` / `ctx.once`、profile/owner 授权、每分区有序通知；`ctx.events.consume` 持久化游标、租约、重试/死信和保留期；仅把明确允许的旧业务事件字段投影到公共事件表 |
 | Agent API 执行 | 实例、接受请求、幂等、启动、流输出、完成屏障、取消、终态与事件事务落库；崩溃恢复标记 interrupted，不自动重放输入 |
-| 原生管理检查 | 通用 `management.inspect`、目录能力发现、独立短期资源和所有者/profile 鉴权；Codex 脱敏账号状态及模型分页，Qwen ACP 信息/认证方式；登录等完整管理仍未迁移；资源编辑见下行 |
+| 原生管理检查 | 通用 `management.inspect/setup`、目录能力发现、独立短期资源和所有者/profile 鉴权；CLI 版本探测与手工安装/登录指引、Codex 脱敏账号状态及模型分页，Qwen ACP 信息/认证方式；交互登录等完整管理仍未迁移 |
+| 管理页面 | 现有配置页可创建/修改自有实例，按注册 schema 展示字段，复杂类型使用 JSON；超级管理员可显式安装并启用两个已实现的随包插件，保留现有配置和 grants；不默认登记其余保留 ID |
 | 配置连续性 | 插件声明兼容字段；空闲实例更新原子保留目录关联和成功 checkpoint，完整提供方引用保持匹配；网关逐请求授权并允许协议直通/转换切换。跨模式、工作区或工件升级迁移仍待完成 |
 | 原生资源编辑 | Studio 扫描多个声明位置，现有 Skills/配置页按实例读取和保存；来源与文件版本校验、只读别名保护、运行互斥和下次启动重新加载；导入/删除及完整管理表单待完成 |
 | 受管进程 | runtime 租约持有管道进程，宿主签发句柄、用户/profile/runtime 隔离、有界字节读取与写入背压、环境白名单、退出确认和进程树终止；worker 不持有宿主 ChildProcess |
@@ -50,12 +51,15 @@
 | `GET /api/studio/command-calls/:id` | 查询自有调用状态及有序的现有格式结果 |
 | `POST /api/studio/command-calls/:id/cancel` | 取消调用，等待实际 handler 清理；不合作时关闭该 worker |
 | `GET /api/studio/agent-types` | 当前已激活插件提供的目录；尚未合并旧内置目录 |
+| `GET /api/studio/bundled-agent-plugins` | 两个已实现随包插件及当前 profile 状态；超级管理员 |
+| `POST /api/studio/bundled-agent-plugins/:id/enable` | 按 profile revision 显式登记并启用受信任随包工件；不接受目录、不升级已有工件；超级管理员 |
 | `POST /api/studio/agent-images` | 上传至当前用户/profile 的图片工件，原始字节体，返回 artifact 引用 |
 | `DELETE /api/studio/agent-images/:id` | 删除自有且尚未被已接受 Run 引用的图片 |
 | `GET /api/studio/agent-instances` | 当前用户、当前 profile 的实例 |
 | `POST /api/studio/agent-instances` | 按已注册类型的 schema 创建实例 |
 | `PUT /api/studio/agent-instances/:id` | 按 revision 更新自身实例配置；活动 Run 阻止修改，旧租约确认回收后提交 |
 | `POST /api/studio/agent-instances/:id/inspect` | 检查空闲自有实例的原生元数据；与运行/配置修改互斥，不创建 Run 或聊天历史 |
+| `POST /api/studio/agent-instances/:id/setup` | 带 revision 的 CLI 可用性检查及手工安装/登录指引；不执行安装或登录 |
 | `POST /api/studio/agent-instances/:id/locations` | 空闲自有实例的多个原生资源位置声明，需配置 revision |
 | `POST /api/studio/agent-instances/:id/resources` | Studio 扫描/读取/保存资源；读取和保存需位置 snapshot，保存还需文件 etag |
 | `POST /api/studio/agent-instances/:id/runs` | 接受文本/图片引用及幂等键 |
@@ -85,6 +89,16 @@
 后续仍有七大交付块：统一运行与剩余业务入口、插件基础能力收尾、通用 Web/Desktop/App 界面、14 个 Coding Agent 独立插件包、Hermes/Ekko 内置统一接入、安装升级与发布分发、最终迁移验收与旧代码清理。输入框命令贡献已交付 SDK/宿主与 Web 基础链路，原生适配和跨客户端接入仍未完成，详见下节。旧聊天 SDK 的已有自有会话文本启动、查询和取消已完成，不再列为待开发项。
 
 资源位置/输入框命令契约、命令基础链路、现有 Skills/配置编辑页接入和兼容配置连续性已交付。后续顺序：补齐 Qwen/Codex 管理、Studio MCP 和原生命令 → 接入聊天界面形成可体验闭环 → 扩展到其余 Agent 和业务入口 → 分发与最终验收。MCP 工具 SDK 已整合、提交并推送，原生配置注入等剩余能力随迁移继续推进。Hermes/Ekko 继续保持内置身份；14 个厂商插件须逐个迁移和验收，保留 ID 或 fixture 不计为交付。
+
+### 实例管理页面与原生安装登录指引（2026-10-24）
+
+- 现有 Coding Agent 配置页增加实例管理对话框，可按当前 profile 的动态类型目录创建自有实例、切换模式和修改配置。简单根 schema 使用字段表单，对象/数组使用 JSON 字段；无法表示的 schema 使用完整 JSON 编辑。服务端 schema 与 revision 校验继续作为最终依据，保存冲突保留草稿，模式/工作区等不兼容修改沿用原生会话分离规则。
+- 超级管理员可显式启用 Qwen/Codex 随包插件：仅从宿主受信任构建路径登记两个已实现工件，校验预期 ID，保留现有 profile 配置及 grants，不覆盖已有工件。配置提交和工件登记前重新检查管理员权限；关闭服务等待在途操作退出。此入口不承担默认安装、升级或其余 12 个 Agent 的迁移。
+- 公共 `management.setup` 通过真实 worker 返回 CLI 可用状态、版本、手工安装命令和原生登录指引。仅执行有界 `--version` 探测；命令以 executable/args 展示，Studio 不拼接或执行 shell。stdout/stderr 不进入响应，只有规范版本号可返回；安装示例固定到本阶段验证版本。配置中的自定义启动命令和环境不会因指引而改变。
+- global 模式由用户在 Studio 宿主机的原生终端完成登录；Qwen 提示启动 CLI 后使用 `/auth`，Codex 提供 device-auth 命令。认证状态仍由原生检查单独核实，Qwen 保留 unknown；scoped 模式说明使用 Studio 模型，不显示原生账号登录命令。此增量没有实现原生交互登录句柄、内嵌终端、CLI 自动安装/升级或真实账号验收。
+- 页面具备亮暗主题、壁纸、窄屏、输入框可访问标签及受限尺寸/滚动区域；配置保存后既有 Skills/配置资源页按新实例/revision 刷新。
+
+验证（Node 24.22.1，默认测试时限）：管理服务、HTTP、实例表单、随包启用、真实 worker、配置连续性、宿主及受管进程专项通过；全量 coverage 为 926 文件、9,588 项通过，12 文件/33 项按原条件跳过，266.53 秒、两 worker。浏览器新管理流程 6 项、既有资源编辑 5 项通过，检查过亮暗/壁纸和窄屏截图；新增 Agent 管理首页入口后正在进行完整浏览器回归。真实 Codex 0.163.0 / Qwen 0.24.7 在临时 Home 与本地模型/MCP fixture 上通过 22 轮、55 次模型请求，增加版本探测，原配置/Skills、续聊、图片和协议切换保持通过。未执行真实账号登录或远端厂商推理；全量浏览器结果后续补录。
 
 ### 兼容配置连续性（2026-10-24）
 

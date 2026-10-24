@@ -244,7 +244,9 @@ Hermes/Ekko 使用同一 `AgentTypeDefinition` 与 `AgentRuntime`，由 bootstra
 
 `AgentManagementAdapter` 提供状态探测、安装/更新操作、配置文档、登录流程、模型列表、Skills/MCP 管理等可选能力。操作返回统一 operation/interaction 句柄和 DTO；原生 CLI 密钥、Home、配置覆盖规则由对应内置模块或插件处理。Studio 的共享 Skills 只读约定、global/scoped 边界以及人工安装策略必须保留。这里的原生管理操作不等于 Studio 插件包管理；Hermes/Ekko 继续提供原有引擎管理能力，不显示插件安装或卸载操作。
 
-当前已实现的管理子集是 `management.inspect(input, context): Promise<AgentInspection>`。目录仅公开 `{ management: { inspect: true } }`，不会序列化函数。input 由宿主根据自有实例生成，包含 `instanceId/config/configRevision/mode`；context 使用独立短期资源作用域，没有当前聊天身份或领域服务。HTTP 入口为 `POST /api/studio/agent-instances/:id/inspect`，不接收配置、路径、owner 或 provider 覆盖。要求实例空闲；检查期间拒绝新运行及配置修改，不创建 Run、checkpoint 或原生聊天会话。
+当前已实现 `management.inspect(input, context): Promise<AgentInspection>`、资源位置与 `management.setup(input, context): Promise<AgentSetup>`。目录只公开各能力的 true 标志，不序列化函数。input 由宿主根据自有实例生成，包含 `instanceId/config/configRevision/mode`；context 使用独立短期资源作用域，没有当前聊天身份或领域服务。HTTP 检查入口为 `POST /api/studio/agent-instances/:id/inspect`，不接收配置、路径、owner 或 provider 覆盖。要求实例空闲；检查期间拒绝新运行及配置修改，不创建 Run、checkpoint 或原生聊天会话。
+
+`POST /api/studio/agent-instances/:id/setup` 接受 `{ revision }`，返回宿主绑定的实例/revision/provider、`cli: { state: available|unavailable, version? }`、`installation: { command, args }` 与 `authentication: { kind: native|studio, command?, args?, input? }`。native 必须提供 command/args；studio 不允许附带原生登录字段。输出限 64 KiB，不接受 env、账号标识、凭据或任意附加字段；命令不能含控制字符。Qwen/Codex 仅执行有界版本检查并返回手工操作指引，不自动安装或登录，也不把可用 CLI 当作已认证。scoped 模式不读取全局账号；global 的认证状态另由 inspect 提供。此能力复用管理互斥、授权、25 秒期限与清理屏障。
 
 检查结果仅允许原生名称/版本、认证状态及方法 ID/名称、模型 ID/名称/默认项/推理级别，并附宿主 provider/configRevision 快照。认证状态区分 `authenticated/required/not_required/unknown`；模型发现区分 `available/unsupported`，不会把未知当成未登录或空目录。适配器不得借检查执行登录、刷新凭据、推理或改写配置。结果上限 256 KiB、512 个模型、32 个认证方法；宿主检查字段、重复 ID 和大小。并发上限 16，执行期限 25 秒；撤权、取消、断连和关闭均回收资源。取消后最多等待 5 秒确认回调与受管资源清理，不合作的 worker 会被终止；清理未确认时保留实例占用，不能启动下一轮。
 
@@ -265,7 +267,7 @@ Coding Agent 插件通过 `management.locations(input, context)` 告诉 Studio S
 
 `configSchema` 描述 Studio 保存的实例参数，不等于 Agent 原生配置文件清单。`create({ config }, runtimeCtx)` 的提示词、MCP 等输入也不替代此位置声明。Studio 管理的 MCP 及其运行凭据仍由宿主提供，插件负责原生适配；插件描述的 Skills 与配置位置应对应 Agent 实际使用的范围。模式或工作区改变后重新解析整个位置清单，不能继续使用旧位置缓存。
 
-Qwen/Codex 已实现多个位置声明；现有 Coding Agent 配置页与 Skills 页已消费声明，按自有实例选择来源，保存后下一次运行重新创建原生 runtime。未选择实例时继续使用原管理路径。实例仍通过现有开发 API 创建；完整安装、登录和实例配置表单尚未交付。
+Qwen/Codex 已实现多个位置声明；现有 Coding Agent 配置页与 Skills 页已消费声明，按自有实例选择来源，保存后下一次运行重新创建原生 runtime。未选择实例时继续使用原管理路径。配置页已提供实例 schema 表单与手工安装/登录指引；原生交互登录和完整管理能力仍待完成。
 
 Studio 文件入口为 `POST /api/studio/agent-instances/:id/resources`：`{ action: 'list', revision }` 返回位置、`snapshot` 和文件目录；`read` 使用 `{ revision, snapshot, kind, locationId, path }`，`write` 再带 `content/etag`。相对路径采用 `/` 分隔，文件位置的 path 为空；不接受绝对路径或自报 owner/provider。所有操作在管理锁与取消作用域内重新授权，位置快照包含提供方、配置 revision 与规范化位置。文件版本绑定规范路径和内容；原生文件被外部修改时返回冲突。JSON/TOML 保存前校验语法，原子替换并保留既有文件权限。
 

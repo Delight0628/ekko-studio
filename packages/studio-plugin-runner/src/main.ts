@@ -194,7 +194,7 @@ peer.handle('activate', async value => {
   return json({
     rpc: STUDIO_PLUGIN_RPC_VERSION,
     agents: [...definitions.values()].map(({ create: _create, management, ...definition }) => ({ ...definition,
-      ...(management ? { management: { ...(management.inspect ? { inspect: true } : {}), ...(management.locations ? { locations: true } : {}) } } : {}) })),
+      ...(management ? { management: { ...(management.inspect ? { inspect: true } : {}), ...(management.locations ? { locations: true } : {}), ...(management.setup ? { setup: true } : {}) } } : {}) })),
     subscriptions: [...callbacks].map(([id, { type, once }]) => ({ id, type, once })),
     services: [...services.values()].map(value => value.token),
     commands: [...commands.values()].map(value => value.definition),
@@ -203,7 +203,7 @@ peer.handle('activate', async value => {
   })
 })
 
-for (const method of ['inspect', 'locations'] as const) peer.handle(`management.${method}`, async value => {
+for (const method of ['inspect', 'locations', 'setup'] as const) peer.handle(`management.${method}`, async value => {
   const params = object(value), callId = string(params.callId), definition = definitions.get(string(params.agentTypeId))
   if (!active || !identity || !definition?.management?.[method]) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent management is unavailable')
   if (managementCalls.has(callId) || managementCalls.size >= 16) throw new StudioError('RESOURCE_EXHAUSTED', 'Agent inspection limit reached')
@@ -218,8 +218,7 @@ for (const method of ['inspect', 'locations'] as const) peer.handle(`management.
       mcp: remoteMcp(peer, handle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation),
     }
     const input = object(params.input) as unknown as import('../../studio-plugin-sdk/src').AgentManagementInput
-    return json(await runtimeScope.run(handle, () => method === 'inspect' ? definition.management!.inspect!(input, context)
-      : definition.management!.locations!(input, context)))
+    return json(await runtimeScope.run(handle, () => definition.management![method]!(input, context)))
   } finally { controller.abort(); managementCalls.delete(callId) }
 })
 peer.handle('management.cancel', async value => { managementCalls.get(string(object(value).callId))?.abort(); return null })

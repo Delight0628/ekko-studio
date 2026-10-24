@@ -10,11 +10,12 @@ import { ReliablePluginConsumers } from '../../packages/server/src/modules/studi
 
 const state = vi.hoisted(() => ({ remove: vi.fn(), configure: vi.fn(), install: vi.fn(), diagnostic: vi.fn(), list: vi.fn(() => []),
   commands: { list: vi.fn(() => []), start: vi.fn(), get: vi.fn(), cancel: vi.fn() },
+  bundledAgents: { list: vi.fn(() => []), enable: vi.fn() }, setupInstance: vi.fn(),
   uploadImage: vi.fn(), removeImage: vi.fn(), respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), updateInstance: vi.fn(), inspectInstance: vi.fn(), resourceLocations: vi.fn(), resourceFiles: vi.fn(), role: 'super_admin', consumers: null as unknown as ReliablePluginConsumers }))
 vi.mock('../../packages/server/src/modules/studio/services/plugins/runtime', () => ({
   authorizePluginScope: vi.fn(),
   getStudioPluginRuntime: () => ({ host: { uninstall: state.remove, configure: state.configure, install: state.install, list: state.list, diagnostic: state.diagnostic },
-    commands: state.commands, artifacts: { create: state.uploadImage, remove: state.removeImage }, consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance, resourceLocations: state.resourceLocations, resourceFiles: state.resourceFiles } }),
+    bundledAgents: state.bundledAgents, commands: state.commands, artifacts: { create: state.uploadImage, remove: state.removeImage }, consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { setupInstance: state.setupInstance, respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance, resourceLocations: state.resourceLocations, resourceFiles: state.resourceFiles } }),
 }))
 import { studioPluginRoutes } from '../../packages/server/src/modules/studio/routes/studio-plugins'
 
@@ -263,4 +264,29 @@ it('routes resource IO only by instance, revision and source reference, rejectin
   state.resourceFiles.mockClear()
   for (const value of [{ ...payload, ownerId: 'other' }, { ...payload, absolutePath: '/etc/passwd' }, { ...payload, action: 'list' }, { ...payload, action: 'delete' }]) expect((await post(value)).status).toBe(400)
   expect(state.resourceFiles).not.toHaveBeenCalled()
+})
+
+it('binds manual setup checks to the authenticated owner/profile and rejects configuration overrides', async () => {
+  state.setupInstance.mockResolvedValue({ cli: { state: 'unavailable' } })
+  const request = (body: object) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  expect((await fetch(`${base}/api/studio/agent-instances/instance/setup?profile=one`, request({ revision: 2 }))).status).toBe(200)
+  expect(state.setupInstance).toHaveBeenCalledWith(expect.objectContaining({ principal: { id: '7', kind: 'user' }, profileId: 'one' }), 'instance', 2, expect.any(AbortSignal))
+  state.setupInstance.mockClear()
+  expect((await fetch(`${base}/api/studio/agent-instances/instance/setup?profile=one`, request({ revision: 2, config: { command: 'forged' } }))).status).toBe(400)
+  expect(state.setupInstance).not.toHaveBeenCalled()
+})
+
+it('limits bundled plugin setup to super administrators and passes the exact current profile revision', async () => {
+  state.bundledAgents.enable.mockResolvedValue({ enabled: true, revision: 1 })
+  const request = (body: object) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  state.role = 'admin'
+  try {
+    expect((await fetch(`${base}/api/studio/bundled-agent-plugins?profile=one`)).status).toBe(403)
+    expect((await fetch(`${base}/api/studio/bundled-agent-plugins/qwen/enable?profile=one`, request({ revision: 0 }))).status).toBe(403)
+  } finally { state.role = 'super_admin' }
+  expect(state.bundledAgents.enable).not.toHaveBeenCalled()
+  expect((await fetch(`${base}/api/studio/bundled-agent-plugins`)).status).toBe(400)
+  expect((await fetch(`${base}/api/studio/bundled-agent-plugins/qwen/enable?profile=one`, request({ revision: 0, path: '/untrusted' }))).status).toBe(400)
+  expect((await fetch(`${base}/api/studio/bundled-agent-plugins/qwen/enable?profile=one`, request({ revision: 0 }))).status).toBe(200)
+  expect(state.bundledAgents.enable).toHaveBeenCalledWith('qwen', 'one', '7', 0)
 })

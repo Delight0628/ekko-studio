@@ -18,6 +18,7 @@ import { AgentRunAdmission } from '../agents/admission'
 import { createExecutionContext, type ContextOperation } from '../context/execution'
 import { PluginEventBus } from '../events/plugin-events'
 import { PluginHost } from './host'
+import { BundledAgentPlugins } from './bundled-agents'
 import { businessEvents } from '../webhooks/business-events'
 import { projectPluginBusinessEvent } from '../events/plugin-business-events'
 import { removeStudioSession } from '../sessions/removal'
@@ -179,8 +180,12 @@ export function createStudioPluginRuntime(runnerPath: string) {
       if (notification) events.publish(notification)
     }
   })
-  return { host, commands, store, eventStore, executionStore, artifacts, coordinator, registry, events, consumers, hooks, models, context,
-    async close() { unsubscribe(); await removeHook(); chat.close(); await commands.close(); await coordinator.close(); await host.close(); await models.close(); await consumers.close(); events.close() } }
+  const bundledAgents = new BundledAgentPlugins(host, store, runnerPath, (_profileId, ownerId) => {
+    const user = findUserById(ownerId)
+    if (!user || user.status !== 'active' || user.role !== 'super_admin') throw new StudioError('FORBIDDEN', 'Plugin installation requires a super administrator')
+  })
+  return { host, bundledAgents, commands, store, eventStore, executionStore, artifacts, coordinator, registry, events, consumers, hooks, models, context,
+    async close() { unsubscribe(); await removeHook(); chat.close(); await bundledAgents.close(); await commands.close(); await coordinator.close(); await host.close(); await models.close(); await consumers.close(); events.close() } }
 }
 
 export type StudioPluginRuntime = ReturnType<typeof createStudioPluginRuntime>

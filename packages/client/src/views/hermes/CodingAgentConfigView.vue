@@ -16,6 +16,7 @@ import CodingAgentMcpPanel from '@/components/coding-agents/CodingAgentMcpPanel.
 import CodingAgentSkillsPanel from '@/components/coding-agents/CodingAgentSkillsPanel.vue'
 import DshAgentPresetsPanel from '@/components/coding-agents/dsh/DshAgentPresetsPanel.vue'
 import DshPluginsPanel from '@/components/coding-agents/dsh/DshPluginsPanel.vue'
+import AgentInstanceManager from '@/components/coding-agents/AgentInstanceManager.vue'
 
 import { useAgentResourceEditor } from '@/composables/useAgentResourceEditor'
 const { t } = useI18n()
@@ -33,6 +34,7 @@ const instanceOptions = computed(() => [
 function selectInstance(id: string) {
   void router.replace({ name: 'codingAgent.config', params: { ...route.params, section: ['settings', 'skills'].includes(section.value) ? section.value : 'settings' }, query: { ...route.query, instance: id || undefined } })
 }
+function instanceSaved(id: string) { selectInstance(id); void resources.refresh() }
 async function saveResourceFile() {
   try { await resources.save(); message.success(t('files.saveFile')) }
   catch (err: any) { message.error(err.message || String(err)) }
@@ -169,6 +171,8 @@ watch([agentId, section, resourceInstanceId], loadSettingsFiles, { immediate: tr
       <h2 class="header-title">{{ t('sidebar.settings') }}</h2>
     </header>
     </PageHeader>
+
+    <AgentInstanceManager v-if="section === 'settings'" :instance-id="resourceInstanceId" :agent-type-id="agentId" @saved="instanceSaved" />
 
     <div v-if="instances.length || resourceInstanceId || discoveryError" class="resource-toolbar">
       <NSelect :value="resourceInstanceId" :options="instanceOptions" :disabled="resourceSaving || resourcesLoading" :placeholder="t('codingAgents.resourceInstance')" :aria-label="t('codingAgents.resourceInstance')" @update:value="selectInstance" />

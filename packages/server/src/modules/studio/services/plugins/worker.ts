@@ -8,7 +8,7 @@ import {
   type ExecutionContext, type JsonValue, type JsonObject, type PluginIdentity, type ScopedLogger, type ServiceToken, type EventConsumerSpec, type EventEnvelope, type AgentTypeSummary,
 } from '../../contracts/plugins'
 import type { ServiceAuthority } from './services'
-import { jsonCopy, toJson, parseAgentOutput, parseAgentInspection } from './validation'
+import { jsonCopy, toJson, parseAgentOutput, parseAgentInspection, parseAgentSetup } from './validation'
 import { AsyncChannel } from './channel'
 import { authorizeHookOperation, type HookRegistration } from '../events/plugin-hooks'
 import { PluginProcessBridge } from './processes'
@@ -148,8 +148,8 @@ export class PluginWorker {
   definition(meta: Omit<AgentTypeSummary, 'provider'>): AgentTypeDefinition {
     const { management, ...metadata } = jsonCopy(meta)
     if (management !== undefined && (!management || !Object.keys(management).length
-      || Object.entries(management).some(([key, value]) => !['inspect', 'locations'].includes(key) || value !== true))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent management declaration')
-    const manage = async (input: AgentManagementInput, context: AgentRuntimeContext, method: 'inspect' | 'locations') => {
+      || Object.entries(management).some(([key, value]) => !['inspect', 'locations', 'setup'].includes(key) || value !== true))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent management declaration')
+    const manage = async (input: AgentManagementInput, context: AgentRuntimeContext, method: 'inspect' | 'locations' | 'setup') => {
         if (context.signal.aborted) throw new StudioError('CANCELLED', 'Management scope ended')
         this.authorize('agents.register')
         const processScope = this.processes.mount(context), mcpScope = this.mcp.mount(context, processScope.handle)
@@ -205,6 +205,7 @@ export class PluginWorker {
       ...(management ? { management: {
         ...(management.inspect ? { inspect: async (input, context) => parseAgentInspection(await manage(input, context, 'inspect')) } : {}),
         ...(management.locations ? { locations: async (input, context) => parseAgentResourceLocations(await manage(input, context, 'locations')) } : {}),
+        ...(management.setup ? { setup: async (input, context) => parseAgentSetup(await manage(input, context, 'setup')) } : {}),
       } } : {}),
       create: async (input, context): Promise<AgentRuntime> => {
         const id = context.runtimeSessionId

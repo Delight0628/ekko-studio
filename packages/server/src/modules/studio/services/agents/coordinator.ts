@@ -6,7 +6,7 @@ import {
 import { AgentExecutionStore, type AgentInstance, type AgentInstanceConfiguration, type AgentExecution, type AgentAdmission } from '../../repositories/agent-execution-store'
 import { AgentRegistry } from './registry'
 import { PluginEventBus } from '../events/plugin-events'
-import { compileSchema, jsonCopy, parseAgentOutput } from '../plugins/validation'
+import { compileSchema, jsonCopy, parseAgentOutput, parseAgentSetup } from '../plugins/validation'
 import { ManagedMcpScope } from '../mcp/managed'
 import { ManagedProcessScope } from '../processes/managed'
 import { agentStateDirectory } from './state-directory'
@@ -130,6 +130,31 @@ export class AgentCoordinator {
         && [...keys].every(key => compatible.includes(key) || isDeepStrictEqual(current.instance.config[key], input.config[key]))
       return this.options.store.configureInstance(current.instance, input, preserve ? current.provider : undefined)
     } finally { this.configuring.delete(instanceId) }
+  }
+
+  async setupInstance(scope: ExecutionScope, instanceId: string, revision: number, signal?: AbortSignal) {
+    scope = jsonCopy(scope)
+    if (!Number.isSafeInteger(revision) || revision < 1) throw new StudioError('INVALID_ARGUMENT', 'Configuration revision is required')
+    const inspect = () => {
+      if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent coordinator is shutting down')
+      this.options.authorize(scope)
+      if (scope.sessionId !== undefined || scope.runId !== undefined || scope.workspaceId !== undefined) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent management requires an unbound scope')
+      const instance = this.options.store.instance(instanceId)
+      if (!instance || instance.ownerId !== scope.principal.id || instance.profileId !== scope.profileId) throw new StudioError('NOT_FOUND', 'Agent instance is unavailable')
+      if (instance.revision !== revision || this.queues.has(instanceId) || this.options.store.hasActiveRuns(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance changed or has active runs')
+      return { instance, ...this.options.registry.resolve(scope.profileId, instance.agentTypeId) }
+    }
+    const { instance, provider, definition } = inspect(), adapter = definition.management?.setup
+    if (!adapter) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent setup guidance is unavailable')
+    if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance is being managed')
+    this.configuring.add(instanceId)
+    const authorize = () => { if (!isDeepStrictEqual(inspect().provider, provider)) throw new StudioError('REVISION_CONFLICT', 'Agent provider changed during setup') }
+    try {
+      const input = { instanceId, config: instance.config, configRevision: revision, mode: instance.mode }
+      const result = await this.management.execute(input, scope, provider, async context => parseAgentSetup(await adapter(input, context)), authorize, this.options.logger, signal)
+      authorize()
+      return { instanceId, configRevision: revision, provider, ...result }
+    } finally { if (!this.management.isBlocked(instanceId)) this.configuring.delete(instanceId) }
   }
 
   async resourceLocations(scope: ExecutionScope, instanceId: string, revision: number, signal?: AbortSignal) {

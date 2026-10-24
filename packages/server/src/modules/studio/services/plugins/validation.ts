@@ -2,7 +2,7 @@ import Ajv from 'ajv'
 import { valid, validRange, satisfies, major } from 'semver'
 import {
   StudioError, STUDIO_SDK_VERSION,
-  type JsonValue, type JsonSchema, type PluginManifest, type AgentTypeDefinition, type AgentOutputEvent, type ServiceToken, type AgentInspection,
+  type JsonValue, type JsonSchema, type PluginManifest, type AgentTypeDefinition, type AgentOutputEvent, type ServiceToken, type AgentInspection, type AgentSetup,
 } from '../../contracts/plugins'
 
 const ajv = new Ajv({ allErrors: false, strict: true, validateFormats: false, allowUnionTypes: true })
@@ -129,7 +129,7 @@ export function validateAgentDefinition(definition: AgentTypeDefinition): void {
   }
   const capabilities = definition.capabilities
   if (definition.management !== undefined && (!definition.management || !Object.keys(definition.management).length
-    || Object.entries(definition.management).some(([key, value]) => !['inspect', 'locations'].includes(key) || typeof value !== 'function'))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent management adapter')
+    || Object.entries(definition.management).some(([key, value]) => !['inspect', 'locations', 'setup'].includes(key) || typeof value !== 'function'))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent management adapter')
   if (!capabilities || typeof capabilities.text !== 'boolean' || !Array.isArray(capabilities.modes) || !capabilities.modes.length
     || capabilities.modes.some(mode => mode !== 'scoped' && mode !== 'global')) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent capabilities')
   const flags = ['text', 'images', 'files', 'streaming', 'reasoning', 'resume', 'persistentSession', 'compact', 'approvals', 'clarifications', 'steering']
@@ -148,6 +148,21 @@ export function validateAgentDefinition(definition: AgentTypeDefinition): void {
 }
 
 const managementString = { type: 'string', minLength: 1, maxLength: 256 }
+const setupCommand = { type: 'string', minLength: 1, maxLength: 4096, pattern: '^[^\\u0000-\\u001f\\u007f]+$' }
+const setupArgs = { type: 'array', maxItems: 256, items: { type: 'string', maxLength: 16384, pattern: '^[^\\u0000-\\u001f\\u007f]*$' } }
+export const agentSetupSchema = { type: 'object', additionalProperties: false, required: ['cli', 'installation', 'authentication'], properties: {
+  cli: { type: 'object', additionalProperties: false, required: ['state'], properties: { state: { enum: ['available', 'unavailable'] }, version: managementString } },
+  installation: { type: 'object', additionalProperties: false, required: ['command', 'args'], properties: { command: setupCommand, args: setupArgs } },
+  authentication: { type: 'object', additionalProperties: false, required: ['kind'], properties: { kind: { enum: ['native', 'studio'] }, command: setupCommand, args: setupArgs, input: setupCommand } },
+} }
+const validateSetup = ajv.compile(agentSetupSchema)
+export function parseAgentSetup(value: unknown): AgentSetup {
+  const result = jsonCopy(value, 65_536) as AgentSetup
+  if (!validateSetup(result) || (result.cli.state === 'unavailable' && result.cli.version !== undefined)
+    || (result.authentication.kind === 'native' ? !result.authentication.command || !result.authentication.args
+      : Object.keys(result.authentication).some(key => key !== 'kind'))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent setup instructions')
+  return result
+}
 const validateInspection = ajv.compile({ type: 'object', additionalProperties: false, required: ['native', 'authentication', 'models'], properties: {
   native: { type: 'object', additionalProperties: false, required: ['name'], properties: { name: managementString, version: managementString } },
   authentication: { type: 'object', additionalProperties: false, required: ['state', 'methods'], properties: {

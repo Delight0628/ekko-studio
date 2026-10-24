@@ -1,9 +1,11 @@
+import { agentManagementMessages } from '../agent-management-messages'
 import { remoteDeviceMessages } from '../remote-device-messages'
 import { themePresetMessages } from '../theme-preset-locales'
 import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesAr } from '../social-messages-locales'
 
 export default {
+  agentManagement: agentManagementMessages['ar'],
   sessionTasks: {
       "title": "المهام",
       "task": "المهمة",

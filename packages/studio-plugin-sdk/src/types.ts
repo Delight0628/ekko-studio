@@ -233,7 +233,7 @@ export interface AgentTypeSummary {
   configSchema: JsonSchema
   capabilities: AgentCapabilities
   provider: AgentProviderRef
-  management?: { inspect?: true; locations?: true }
+  management?: { inspect?: true; locations?: true; setup?: true }
 }
 
 /** Native metadata only: never return credentials, config files or account identifiers. */
@@ -246,11 +246,20 @@ export interface AgentInspection {
   models: { status: 'available' | 'unsupported'; items: Array<{ id: string; name: string; isDefault?: boolean; reasoningEfforts?: string[] }> }
 }
 export type AgentManagementInput = Pick<RuntimeCreateInput, 'instanceId' | 'config' | 'configRevision' | 'mode'>
+/** Manual native setup, separate from plugin installation and account verification.
+ * Commands are displayed as argument arrays; the host must not execute them as shell text. */
+export interface AgentSetup {
+  cli: { state: 'available' | 'unavailable'; version?: string }
+  installation: { command: string; args: string[] }
+  authentication: { kind: 'native' | 'studio'; command?: string; args?: string[]; input?: string }
+}
 export interface AgentManagementAdapter {
   /** Short-lived resources; no prompt, login, credential refresh or config mutation. */
   inspect?(input: AgentManagementInput, context: AgentRuntimeContext): Promise<AgentInspection>
   /** Declare all native resource locations. Studio scans, reads and edits their contents. */
   locations?(input: AgentManagementInput, context: AgentRuntimeContext): Promise<import('./agent-resources').AgentResourceLocations>
+  /** Probe the executable and provide manual installation/login instructions; never logs in. */
+  setup?(input: AgentManagementInput, context: AgentRuntimeContext): Promise<AgentSetup>
 }
 
 export interface AgentRuntimeContext {

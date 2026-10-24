@@ -6,19 +6,20 @@ import { AgentRegistry } from '../../packages/server/src/modules/studio/services
 import { PluginEventBus } from '../../packages/server/src/modules/studio/services/events/plugin-events'
 import { createExecutionContext } from '../../packages/server/src/modules/studio/services/context/execution'
 import { ManagedProcessScope } from '../../packages/server/src/modules/studio/services/processes/managed'
-import { StudioError, type AgentInspection, type AgentManagementAdapter, type ExecutionScope } from '../../packages/studio-plugin-sdk/src'
+import { StudioError, nativeAgentSetup, type AgentInspection, type AgentManagementAdapter, type ExecutionScope } from '../../packages/studio-plugin-sdk/src'
+import { parseAgentSetup } from '../../packages/server/src/modules/studio/services/plugins/validation'
 
 const scope: ExecutionScope = { scopeId: 'scope', principal: { kind: 'user', id: 'owner' }, profileId: 'one', surface: 'api', traceId: 'trace' }
 const metadata: AgentInspection = { native: { name: 'Fixture', version: '1' }, authentication: { state: 'unknown', methods: [] }, models: { status: 'available', items: [{ id: 'model', name: 'Model' }] } }
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); vi.useRealTimers() })
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done }); return { resolve, promise } }
-function setup(inspect: AgentManagementAdapter['inspect'] = async () => metadata, supported = true) {
+function setup(inspect: AgentManagementAdapter['inspect'] = async () => metadata, supported = true, nativeSetup?: AgentManagementAdapter['setup']) {
   const db = new DatabaseSync(':memory:'), store = new AgentExecutionStore(db), registry = new AgentRegistry(), events = new PluginEventBus()
   const logger = { info() {}, warn() {}, error() {} }, authorize = vi.fn(), inspector = vi.fn(inspect), create = vi.fn()
   const registration = registry.stage('*', { kind: 'builtin', module: 'ekko', implementationVersion: 'test' }, ['ekko'])
   registration.register({ id: 'ekko', name: 'Fixture', configSchema: { type: 'object' }, capabilities: { text: true, modes: ['global'] },
-    ...(supported ? { management: { inspect: inspector } } : {}), create })
+    ...(supported ? { management: { inspect: inspector, ...(nativeSetup ? { setup: nativeSetup } : {}) } } : {}), create })
   registration.commit()
   const coordinator = new AgentCoordinator({ store, registry, events, logger, authorize, context: (scope, signal) => createExecutionContext(scope, signal, logger, {
     authorize: async () => {}, agents: { list: async () => [] }, sessions: { get: async () => null },
@@ -39,6 +40,56 @@ it('discovers management and inspects without creating a runtime, Run or revisio
   expect(f.db.prepare('SELECT count(*) AS count FROM studio_agent_runs').get()?.count).toBe(0)
   expect(f.store.instance(f.instance.id)).toEqual(f.instance)
   expect(f.inspector.mock.calls[0][1].signal.aborted).toBe(true)
+})
+
+it('probes CLI version with managed resources without logging in or creating runs', async () => {
+  const f = setup(undefined, true, nativeAgentSetup('unused', 'fixture@1.0.0', ['login']))
+  const configured = await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, mode: 'global', config: {
+    cwd: process.cwd(), command: process.execPath, args: ['-e', 'process.stderr.write("private-output"); process.stdout.write("native 1.2.3\\n")', '--'],
+  } })
+  const result = await f.coordinator.setupInstance(scope, f.instance.id, configured.revision)
+  expect(result).toMatchObject({ instanceId: f.instance.id, configRevision: 2, cli: { state: 'available', version: '1.2.3' },
+    installation: { command: 'npm', args: ['install', '--global', 'fixture@1.0.0'] }, authentication: { kind: 'native', command: process.execPath } })
+  expect(JSON.stringify(result.cli)).not.toContain('private-output')
+  expect(result.authentication.args?.at(-1)).toBe('login')
+  expect(f.create).not.toHaveBeenCalled()
+  expect(f.db.prepare('SELECT count(*) AS count FROM studio_agent_runs').get()?.count).toBe(0)
+})
+
+it('reports an unavailable executable without claiming installation or login success', async () => {
+  const f = setup(undefined, true, nativeAgentSetup('/missing/native-cli', 'fixture@1.0.0', ['login']))
+  const configured = await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, mode: 'global', config: { cwd: process.cwd() } })
+  const result = await f.coordinator.setupInstance(scope, f.instance.id, configured.revision)
+  expect(result.cli).toEqual({ state: 'unavailable' })
+  expect(result.authentication).toEqual({ kind: 'native', command: '/missing/native-cli', args: ['login'] })
+})
+
+it('binds setup to owner, profile, revision and exclusive management scope', async () => {
+  const pending = deferred<import('../../packages/studio-plugin-sdk/src').AgentSetup>()
+  const adapter = vi.fn(async () => pending.promise), f = setup(undefined, true, adapter)
+  for (const caller of [{ ...scope, profileId: 'other' }, { ...scope, principal: { kind: 'user' as const, id: 'other' } }]) {
+    await expect(f.coordinator.setupInstance(caller, f.instance.id, 1)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  }
+  await expect(f.coordinator.setupInstance(scope, f.instance.id, 2)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  expect(adapter).not.toHaveBeenCalled()
+  const result = f.coordinator.setupInstance(scope, f.instance.id, 1)
+  await vi.waitFor(() => expect(adapter).toHaveBeenCalledOnce())
+  await expect(f.inspect()).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  await expect(f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, mode: 'global', config: {} })).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  pending.resolve({ cli: { state: 'available' }, installation: { command: 'npm', args: [] }, authentication: { kind: 'studio' } })
+  await result
+  expect(await f.inspect()).toMatchObject(metadata)
+})
+
+it.each([
+  { authentication: { kind: 'studio', command: 'login', args: [] } },
+  { authentication: { kind: 'native' } },
+  { cli: { state: 'unavailable', version: '1.0.0' } },
+  { installation: { command: 'npm\nunsafe', args: [] } },
+  { installation: { command: 'npm', args: [], env: { TOKEN: 'secret' } } },
+])('rejects malformed or private native setup metadata: %j', patch => {
+  expect(() => parseAgentSetup({ cli: { state: 'available' }, installation: { command: 'npm', args: [] }, authentication: { kind: 'studio' }, ...patch }))
+    .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))
 })
 
 it('serializes inspection with configuration and execution, and snapshots caller identity', async () => {

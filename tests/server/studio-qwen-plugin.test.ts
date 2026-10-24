@@ -29,6 +29,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 afterAll(async () => { await rm(root, { recursive: true, force: true }) })
 
 const fixture = `const fs = require('node:fs');
+if (process.argv.includes('--version')) { process.stdout.write('native-cli 1.2.3\\n'); process.exit(0); }
 fs.writeFileSync(process.env.PID_FILE, String(process.pid));
 fs.writeFileSync(process.env.PID_FILE + '.home', JSON.stringify({ home: process.env.HOME, codex: process.env.CODEX_HOME, qwen: process.env.QWEN_HOME }));
 const send = data => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...data }) + '\\n');
@@ -329,4 +330,15 @@ it('keeps scoped resources and native history across compatible configuration re
   expect(changed.configs!.find(file => file.id === 'native-instructions')!.path).not.toBe(next.configs.find((file: any) => file.id === 'native-instructions').path)
   expect(await f.run('after-environment')).toMatchObject({ status: 'completed', configRevision: 3 })
   expect((await f.trace()).filter(frame => frame.method === 'session/load')).toHaveLength(1)
+})
+
+
+it.each(['global', 'scoped'] as const)('returns qwen setup instructions through a real worker in %s mode', async mode => {
+  const f = await setup(mode)
+  const result = await f.coordinator.setupInstance(scope, f.instance.id, 1)
+  expect(result.cli).toEqual({ state: 'available', version: '1.2.3' })
+  expect(result.authentication.kind).toBe(mode === 'scoped' ? 'studio' : 'native')
+  if (mode === 'global') expect(result.authentication).toMatchObject({ command: process.execPath, input: '/auth' })
+  expect(f.gateway).not.toHaveBeenCalled()
+  await expect(f.trace()).rejects.toMatchObject({ code: 'ENOENT' })
 })
