@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
-import { StudioError, type AgentProviderRef, type JsonObject, type AgentRunInput, type AgentOutputEvent, type EventEnvelope, type AgentRunRecord, type AgentRunStatus } from '../contracts/plugins'
+import { StudioError, type AgentProviderRef, type JsonObject, type AgentRunInput, type AgentOutputEvent, type EventEnvelope, type AgentRunRecord, type AgentRunStatus, type HookSnapshot } from '../contracts/plugins'
 import { PluginEventStore } from './plugin-event-store'
 import { AgentRunStateStore } from './agent-run-state-store'
 
@@ -10,12 +10,18 @@ export interface AgentInstance {
 }
 export type { AgentRunStatus } from '../contracts/plugins'
 export type AgentExecution = AgentRunRecord
+export interface AgentAdmission {
+  originalInput: AgentRunInput; hooks: HookSnapshot[]; expectedProvider: AgentProviderRef; expectedRevision: number
+}
 interface RunRow { id: string; instance_id: string; profile_id: string; owner_id: string; status: AgentRunStatus; provider_json: string; config_revision: number; revision: number; created_at: number; updated_at: number; error_code: string | null; input_hash: string }
 
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
   if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`).join(',')}}`
   return JSON.stringify(value)
+}
+export function agentRunRequestHash(instanceId: string, input: AgentRunInput): string {
+  return createHash('sha256').update(canonicalJson({ instanceId, input })).digest('hex')
 }
 
 export class AgentExecutionStore {
@@ -36,6 +42,8 @@ export class AgentExecutionStore {
     ); CREATE TABLE IF NOT EXISTS studio_agent_run_outputs (
       run_id TEXT NOT NULL, sequence INTEGER NOT NULL, event_json TEXT NOT NULL,
       PRIMARY KEY(run_id, sequence)
+    ); CREATE TABLE IF NOT EXISTS studio_agent_run_admissions (
+      run_id TEXT PRIMARY KEY, original_input_json TEXT NOT NULL, effective_input_json TEXT NOT NULL, hooks_json TEXT NOT NULL
     );`)
   }
 
@@ -54,7 +62,7 @@ export class AgentExecutionStore {
   }
 
   findRequest(instance: AgentInstance, input: AgentRunInput, key: string): AgentExecution | null {
-    const hash = this.inputHash(instance.id, input)
+    const hash = agentRunRequestHash(instance.id, input)
     const previous = this.db.prepare('SELECT * FROM studio_agent_runs WHERE owner_id=? AND profile_id=? AND idempotency_key=?').get(instance.ownerId, instance.profileId, key) as unknown as RunRow | undefined
     if (previous) {
       if (previous.input_hash !== hash) throw new StudioError('REVISION_CONFLICT', 'Idempotency key already identifies different input')
@@ -62,14 +70,20 @@ export class AgentExecutionStore {
     }
     return null
   }
-  accept(instance: AgentInstance, provider: AgentProviderRef, input: AgentRunInput, key: string): { run: AgentExecution; created: boolean } {
-    const previous = this.findRequest(instance, input, key)
+  accept(instance: AgentInstance, provider: AgentProviderRef, input: AgentRunInput, key: string, admission?: AgentAdmission): { run: AgentExecution; created: boolean } {
+    const original = admission?.originalInput ?? input
+    const previous = this.findRequest(instance, original, key)
     if (previous) return { run: previous, created: false }
-    const hash = this.inputHash(instance.id, input)
+    const hash = agentRunRequestHash(instance.id, original)
     const id = randomUUID(), now = Date.now()
-    this.db.prepare(`INSERT INTO studio_agent_runs
+    this.db.exec('SAVEPOINT studio_agent_admission')
+    try {
+      this.db.prepare(`INSERT INTO studio_agent_runs
       (id, instance_id, profile_id, owner_id, status, provider_json, config_revision, created_at, updated_at, idempotency_key, input_hash)
       VALUES (?, ?, ?, ?, 'accepted', ?, ?, ?, ?, ?, ?)`).run(id, instance.id, instance.profileId, instance.ownerId, JSON.stringify(provider), instance.revision, now, now, key, hash)
+      if (admission) this.db.prepare('INSERT INTO studio_agent_run_admissions VALUES (?, ?, ?, ?)').run(id, JSON.stringify(original), JSON.stringify(input), JSON.stringify(admission.hooks))
+      this.db.exec('RELEASE studio_agent_admission')
+    } catch (error) { this.db.exec('ROLLBACK TO studio_agent_admission; RELEASE studio_agent_admission'); throw error }
     return { run: this.get(id)!, created: true }
   }
   get(id: string): AgentExecution | null {
@@ -122,11 +136,9 @@ export class AgentExecutionStore {
     return rows.length
   }
   private decode(row: RunRow): AgentExecution {
+    const admission = this.db.prepare('SELECT hooks_json FROM studio_agent_run_admissions WHERE run_id=?').get(row.id) as { hooks_json: string } | undefined
     return { id: row.id, instanceId: row.instance_id, profileId: row.profile_id, ownerId: row.owner_id, status: row.status,
       provider: JSON.parse(row.provider_json) as AgentProviderRef, configRevision: row.config_revision, revision: row.revision,
-      createdAt: row.created_at, updatedAt: row.updated_at, errorCode: row.error_code }
-  }
-  private inputHash(instanceId: string, input: AgentRunInput): string {
-    return createHash('sha256').update(canonicalJson({ instanceId, input })).digest('hex')
+      createdAt: row.created_at, updatedAt: row.updated_at, errorCode: row.error_code, ...(admission ? { hooks: JSON.parse(admission.hooks_json) as HookSnapshot[] } : {}) }
   }
 }

@@ -3,7 +3,7 @@ import {
   type ExecutionScope, type ExecutionContext, type JsonObject, type JsonValue, type ScopedLogger,
   type AgentProviderRef, type AgentInteractionResponse, type AgentInteraction, type AgentInteractionReceipt,
 } from '../../contracts/plugins'
-import { AgentExecutionStore, type AgentInstance, type AgentExecution } from '../../repositories/agent-execution-store'
+import { AgentExecutionStore, type AgentInstance, type AgentExecution, type AgentAdmission } from '../../repositories/agent-execution-store'
 import { AgentRegistry } from './registry'
 import { PluginEventBus } from '../events/plugin-events'
 import { compileSchema, jsonCopy, parseAgentOutput } from '../plugins/validation'
@@ -56,7 +56,7 @@ export class AgentCoordinator {
     return this.options.store.instances(scope.principal.id, scope.profileId)
   }
 
-  start(scope: ExecutionScope, instanceId: string, input: AgentRunInput, idempotencyKey: string): AgentExecution {
+  inspectStart(scope: ExecutionScope, instanceId: string, input: AgentRunInput, idempotencyKey: string): { instance: AgentInstance; previous: AgentExecution | null; provider?: AgentProviderRef } {
     if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent coordinator is shutting down')
     this.options.authorize(scope)
     if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim() || idempotencyKey.length > 128) throw new StudioError('INVALID_ARGUMENT', 'An idempotency key is required')
@@ -66,7 +66,7 @@ export class AgentCoordinator {
     input = jsonCopy(input)
     scope = jsonCopy(scope)
     const previous = this.options.store.findRequest(instance, input, idempotencyKey)
-    if (previous) return previous
+    if (previous) return { instance, previous }
     const { definition, provider } = this.options.registry.resolve(scope.profileId, instance.agentTypeId)
     if (!input || typeof input !== 'object' || Object.keys(input).some(key => !['content', 'model', 'timeoutMs'].includes(key))) throw new StudioError('INVALID_ARGUMENT', 'Invalid run input')
     if (!Array.isArray(input.content) || !input.content.length || input.content.length > 100) throw new StudioError('INVALID_ARGUMENT', 'Run content is required')
@@ -77,9 +77,20 @@ export class AgentCoordinator {
     if (input.model !== undefined && (typeof input.model !== 'string' || !input.model.trim() || input.model.length > 256)) throw new StudioError('INVALID_ARGUMENT', 'Invalid model')
     if (!definition.capabilities.text) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent does not support text input')
     if (input.timeoutMs !== undefined && (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 100 || input.timeoutMs > 3_600_000)) throw new StudioError('INVALID_ARGUMENT', 'Invalid run deadline')
+    return { instance, previous: null, provider }
+  }
+
+  start(scope: ExecutionScope, instanceId: string, input: AgentRunInput, idempotencyKey: string, admission?: AgentAdmission): AgentExecution {
+    const original = this.inspectStart(scope, instanceId, admission?.originalInput ?? input, idempotencyKey)
+    if (original.previous) return original.previous
+    const { instance, provider } = admission ? this.inspectStart(scope, instanceId, input, idempotencyKey) : original
+    if (admission && (instance.revision !== admission.expectedRevision || JSON.stringify(provider) !== JSON.stringify(admission.expectedProvider))) {
+      throw new StudioError('REVISION_CONFLICT', 'Agent configuration or provider changed during hooks')
+    }
+    input = jsonCopy(input); scope = jsonCopy(scope)
     const queue = this.queues.get(instance.id) || { pending: [] }
     if (this.active.size + this.leases.size >= 128 || queue.pending.length >= 32) throw new StudioError('RESOURCE_EXHAUSTED', 'Agent run queue is full')
-    const accepted = this.options.store.accept(instance, provider, input, idempotencyKey)
+    const accepted = this.options.store.accept(instance, provider!, input, idempotencyKey, admission)
     if (!accepted.created) return accepted.run
     const id = accepted.run.id
     let resolve!: () => void

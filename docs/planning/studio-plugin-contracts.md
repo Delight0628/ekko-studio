@@ -245,12 +245,12 @@ export function apply(ctx: PluginContext) {
   })
 
   ctx.on('run.completed', async (event, eventCtx) => {
-    eventCtx.logger.info({ runId: event.subject.runId }, '执行完成')
+    eventCtx.logger.info('执行完成', { runId: event.subject.runId })
   })
 
   ctx.hooks.before('runs.start', async (input, hookCtx) => {
-    return { kind: 'continue' }
-  })
+    return { action: 'continue' }
+  }, { key: 'run-policy', priority: 0 })
 }
 ```
 
@@ -361,8 +361,8 @@ manifest 中声明 `acme.research:report.created` 一类命名空间及 schema�
 ## 6 可改变流程的钩子
 
 ```ts
-ctx.hooks.before('runs.start', handler, { priority: 0 })
-ctx.hooks.before('sessions.remove', handler, { priority: 0 })
+ctx.hooks.before('runs.start', handler, { key: 'run-policy', priority: 0 })
+ctx.hooks.before('sessions.remove', handler, { key: 'delete-policy', priority: 0 })
 ```
 
 首批仅开放两个明确节点。hook 按 priority 降序、plugin ID、声明 key 排序，串行执行，顺序进入运行快照。输入是只读快照；返回值为 `continue`、`reject` 或该节点允许的 `patch`。
@@ -372,6 +372,8 @@ ctx.hooks.before('sessions.remove', handler, { priority: 0 })
 hook context 只提供只读领域查询和日志。处理器不能经 SDK 启动 Run、删除数据或发送外部消息。worker 本身是受信任代码，不能据此承诺约束其所有 OS 副作用。
 
 每个 hook 默认 2 秒，总链 5 秒；超时或异常使当前操作明确失败。自动重试仅在尚未发生业务副作用且调用方使用幂等键时允许。系统授权、校验和预算规则始终执行，插件 hook 不能代替或绕过它们。
+
+当前 SDK 返回 `{ action: 'continue' }`、`{ action: 'reject' }`，或仅对 runs.start 返回 `{ action: 'patch', patch: { content?, timeoutMs? } }`。content 暂为文本块；预算只能在前序已收紧预算内继续缩小。实例执行准入以原始请求计算幂等身份，实际输入和已执行 hook 顺序随接受记录同事务保存；重试已接受请求不重新执行 hooks。旧聊天及其他运行引擎尚未切到此准入链，不能据此宣称所有内置入口的 runs.start hook 已覆盖。HTTP/SDK 的现有会话删除共用删除 hook；内部仓储清理不作为新的用户删除请求再次执行 hook。
 
 hook 可按授权作用于内置 Agent 的 Run。插件停用或故障清理时撤销其 hook；已在执行的 hook 失败按上述规则结束当前请求，后续请求使用更新后的 hook 快照。核心授权规则不依赖插件 hook，不能因插件故障失效。
 

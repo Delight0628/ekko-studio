@@ -13,7 +13,7 @@ import { AgentExecutionStore } from '../../repositories/agent-execution-store'
 import { StudioError, type ExecutionScope, type ExecutionContext, type EventEnvelope, type ScopedLogger } from '../../contracts/plugins'
 import { AgentRegistry } from '../agents/registry'
 import { AgentCoordinator } from '../agents/coordinator'
-import { startStudioAgentRun } from '../agents/start'
+import { AgentRunAdmission } from '../agents/admission'
 import { createExecutionContext, type ContextOperation } from '../context/execution'
 import { PluginEventBus } from '../events/plugin-events'
 import { PluginHost } from './host'
@@ -26,6 +26,8 @@ import { getChatRunServer } from '../chat-run/server-registry'
 import { PluginWorkflows } from '../workflow/plugin'
 import { authorizePluginEvent } from '../events/plugin-event-access'
 import { studioSessionAccount } from '../../contracts/runs/usage'
+import { PluginHookRegistry } from '../events/plugin-hooks'
+import { configureSessionRemovalHook } from '../sessions/removal-hook'
 
 const logger: ScopedLogger = {
   info: (message, data) => applicationLogger.info(data || {}, message),
@@ -54,6 +56,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
   const store = new PluginStore(db)
   const eventStore = new PluginEventStore(db)
   const consumers = new ReliablePluginConsumers(new PluginConsumerStore(db), { onError: () => logger.warn('Plugin consumer delivery failed') })
+  const hooks = new PluginHookRegistry()
   const registry = new AgentRegistry()
   const events = new PluginEventBus({ onError: () => logger.warn('Plugin event callback failed') })
   const chatStore = new PluginChatRunStore(db)
@@ -74,7 +77,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
       cancel: (current, id) => chat.cancel(current, id),
     },
     runs: {
-      start: async (current, input, signal) => startStudioAgentRun(current, input, signal, coordinator),
+      start: (current, input, signal) => admission.start(current, input, signal),
       get: async (current, id) => coordinator.get(current, id),
       output: async (current, id, after) => coordinator.output(current, id, after),
       cancel: (current, id) => coordinator.cancel(current, id),
@@ -84,6 +87,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
     },
     sessions: { remove: (current, id, signal) => removeStudioSession({ id, profileId: current.profileId }, {
       signal, sessionId: current.sessionId,
+      scope: () => current,
       authorize: () => authorizePluginScope(current, 'sessions.remove', id),
     }), get: async id => {
       const session = getSessionMetadata(id)
@@ -95,7 +99,13 @@ export function createStudioPluginRuntime(runnerPath: string) {
   executionStore.recover()
   const coordinator: AgentCoordinator = new AgentCoordinator({ store: executionStore, registry, events, logger,
     authorize: authorizePluginScope, context })
-  const host = new PluginHost({ store, registry, events, consumers, runnerPath, artifactsRoot: resolve(config.appHome, 'plugins', 'artifacts'), logger, context,
+  const admission = new AgentRunAdmission(coordinator, hooks, context)
+  const removeHook = configureSessionRemovalHook(async ({ scope, profileId, sessionId, signal }) => {
+    if (!hooks.has(profileId, 'sessions.remove')) return
+    if (!scope || scope.profileId !== profileId || (scope.sessionId && scope.sessionId !== sessionId)) throw new StudioError('FORBIDDEN', 'Session hook requires the authorized caller scope')
+    await hooks.run('sessions.remove', { sessionId }, context({ ...scope, sessionId }, signal))
+  })
+  const host = new PluginHost({ store, registry, events, consumers, hooks, runnerPath, artifactsRoot: resolve(config.appHome, 'plugins', 'artifacts'), logger, context,
     eventContext: async (state, event, signal) => {
       const run = event.subject.runId ? executionStore.get(event.subject.runId) : null
       const session = event.subject.sessionId ? getSessionMetadata(event.subject.sessionId) : null
@@ -121,8 +131,8 @@ export function createStudioPluginRuntime(runnerPath: string) {
       if (notification) events.publish(notification)
     }
   })
-  return { host, store, eventStore, executionStore, coordinator, registry, events, consumers, context,
-    async close() { unsubscribe(); chat.close(); await coordinator.close(); await host.close(); await consumers.close(); events.close() } }
+  return { host, store, eventStore, executionStore, coordinator, registry, events, consumers, hooks, context,
+    async close() { unsubscribe(); await removeHook(); chat.close(); await coordinator.close(); await host.close(); await consumers.close(); events.close() } }
 }
 
 export type StudioPluginRuntime = ReturnType<typeof createStudioPluginRuntime>

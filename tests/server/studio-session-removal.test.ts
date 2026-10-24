@@ -18,6 +18,7 @@ let service: typeof import('../../packages/server/src/modules/studio/services/se
 let createContext: typeof import('../../packages/server/src/modules/studio/services/context/execution').createExecutionContext
 let StudioError: typeof import('../../packages/studio-plugin-sdk/src').StudioError
 let received: unknown[], unsubscribe: () => void
+let configureHook: typeof import('../../packages/server/src/modules/studio/services/sessions/removal-hook').configureSessionRemovalHook
 
 beforeEach(async () => {
   vi.resetModules()
@@ -30,6 +31,7 @@ beforeEach(async () => {
   schema.initAllHermesTables()
   sessions = await import('../../packages/server/src/modules/studio/repositories/session-store')
   service = await import('../../packages/server/src/modules/studio/services/sessions/removal')
+  ;({ configureSessionRemovalHook: configureHook } = await import('../../packages/server/src/modules/studio/services/sessions/removal-hook'))
   ;({ createExecutionContext: createContext } = await import('../../packages/server/src/modules/studio/services/context/execution'))
   ;({ StudioError } = await import('../../packages/studio-plugin-sdk/src'))
   received = []
@@ -58,6 +60,33 @@ function context(controller = new AbortController(), authorize = vi.fn(async () 
 }
 
 describe('shared session removal use case', () => {
+  it('rejects a deletion hook before native or local side effects and rechecks permission after hooks', async () => {
+    seed()
+    const scope = { scopeId: 'scope', traceId: 'trace', profileId: 'default', principal: { kind: 'user' as const, id: '1' }, surface: 'api' as const }
+    const hook = vi.fn(async input => {
+      expect(input).toMatchObject({ scope, profileId: 'default', sessionId: 'session' })
+      throw new StudioError('FORBIDDEN', 'Hook rejected deletion')
+    })
+    const dispose = configureHook(hook)
+    await expect(service.removeStudioSession({ id: 'session' }, { ...allowed, scope: () => scope })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(native.stop).not.toHaveBeenCalled(); expect(native.inspect).not.toHaveBeenCalled(); expect(sessions.getSession('session')).not.toBeNull()
+    expect(received).toEqual([]); await dispose()
+    let permitted = true
+    const revoke = configureHook(async () => { permitted = false })
+    await expect(service.removeStudioSession({ id: 'session' }, { scope: () => scope, authorize: async () => { if (!permitted) throw new StudioError('FORBIDDEN', 'Revoked') } })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(native.stop).not.toHaveBeenCalled(); expect(sessions.getSession('session')).not.toBeNull(); await revoke()
+  })
+
+  it('checks cancellation and the target again after a deletion hook waits', async () => {
+    seed()
+    const controller = new AbortController(), dispose = configureHook(async () => { controller.abort() })
+    await expect(service.removeStudioSession({ id: 'session' }, { ...allowed, signal: controller.signal })).rejects.toMatchObject({ code: 'CANCELLED' })
+    expect(native.stop).not.toHaveBeenCalled(); await dispose()
+    const move = configureHook(async () => { db.prepare("UPDATE sessions SET profile='other' WHERE id='session'").run() })
+    await expect(service.removeStudioSession({ id: 'session', profileId: 'default' }, allowed)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+    expect(sessions.getSession('session')?.profile).toBe('other'); expect(native.stop).not.toHaveBeenCalled(); await move()
+  })
+
   it('removes local records transactionally and publishes one event across concurrent callers', async () => {
     seed()
     const [first, second] = await Promise.all([context().sessions.remove('session'), service.removeStudioSession({ id: 'session' }, allowed)])

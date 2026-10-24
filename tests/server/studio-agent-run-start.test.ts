@@ -5,7 +5,8 @@ import { DatabaseSync } from 'node:sqlite'
 import type { Server } from 'node:http'
 import { afterEach, expect, it, vi } from 'vitest'
 import { AgentCoordinator } from '../../packages/server/src/modules/studio/services/agents/coordinator'
-import { startStudioAgentRun } from '../../packages/server/src/modules/studio/services/agents/start'
+import { AgentRunAdmission } from '../../packages/server/src/modules/studio/services/agents/admission'
+import { PluginHookRegistry } from '../../packages/server/src/modules/studio/services/events/plugin-hooks'
 import { AgentRegistry } from '../../packages/server/src/modules/studio/services/agents/registry'
 import { AgentExecutionStore } from '../../packages/server/src/modules/studio/repositories/agent-execution-store'
 import { PluginEventStore } from '../../packages/server/src/modules/studio/repositories/plugin-event-store'
@@ -41,16 +42,17 @@ function setup() {
   const context = (current = scope, signal = new AbortController().signal): ExecutionContext => createExecutionContext(current, signal, logger, {
     authorize: async () => { await beforeAuthorize(); authorize() }, sessions: { get: async () => null }, agents: { list: async () => [] },
     runs: {
-      start: async (current, input, signal) => startStudioAgentRun(current, input, signal, coordinator),
+      start: (current, input, signal) => admission.start(current, input, signal),
       get: async (current, id) => coordinator.get(current, id), output: async (current, id, after) => coordinator.output(current, id, after),
     },
   })
   const coordinator: AgentCoordinator = new AgentCoordinator({ store, registry, events, logger, authorize, context })
+  const hooks = new PluginHookRegistry(), admission = new AgentRunAdmission(coordinator, hooks, context)
   const instance = coordinator.createInstance(scope, { agentTypeId: 'ekko', config: {}, mode: 'scoped' })
   const request = (): AgentRunStartInput => ({ instanceId: instance.id, input: { content: [{ type: 'text', text: 'hello' }] }, idempotencyKey: 'request' })
   cleanup.push(async () => { await coordinator.close(); events.close(); db.close() })
   http.runtime = { context, coordinator }
-  return { db, store, context, coordinator, factory, request, beforeAuthorize, registration, revoke: () => { allowed = false } }
+  return { db, store, context, coordinator, hooks, factory, request, beforeAuthorize, registration, revoke: () => { allowed = false } }
 }
 
 async function serve(): Promise<string> {
@@ -69,7 +71,9 @@ async function serve(): Promise<string> {
 }
 
 it('deduplicates concurrent SDK and HTTP starts and commits one result and completion event', async () => {
-  const { db, context, coordinator, factory, request } = setup()
+  const { db, context, coordinator, hooks, factory, request } = setup()
+  const hook = vi.fn(async () => ({ action: 'patch', patch: { content: [{ type: 'text', text: 'hook approved' }] } }))
+  hooks.register('one', 'test.policy', 'generation', { point: 'runs.start', options: { key: 'policy', priority: 0 } }, hook)
   const base = await serve(), input = request()
   const response = fetch(`${base}/api/studio/agent-instances/${input.instanceId}/runs`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ input: input.input, idempotencyKey: input.idempotencyKey }),
@@ -80,6 +84,9 @@ it('deduplicates concurrent SDK and HTTP starts and commits one result and compl
   expect(b.id).toBe(a.id)
   await coordinator.wait(a.id)
   expect(factory).toHaveBeenCalledOnce()
+  expect(hook).toHaveBeenCalledOnce()
+  expect(coordinator.get(scope, a.id).hooks).toEqual([{ point: 'runs.start', pluginId: 'test.policy', generation: 'generation', key: 'policy', priority: 0 }])
+  expect((db.prepare('SELECT effective_input_json FROM studio_agent_run_admissions WHERE run_id=?').get(a.id) as { effective_input_json: string }).effective_input_json).toContain('hook approved')
   expect(await context().runs.get(a.id)).toMatchObject({ status: 'completed' })
   expect(await context().runs.output(a.id)).toMatchObject([{ text: 'done' }])
   expect(new PluginEventStore(db).read('one').map(row => row.event.type)).toEqual(['run.completed'])

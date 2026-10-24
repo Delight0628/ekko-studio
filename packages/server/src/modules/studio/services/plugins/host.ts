@@ -15,6 +15,7 @@ import { pluginActivationOrder, requiredServiceDependents } from './dependencies
 import { PluginServiceRegistry } from './services'
 import { ReliablePluginConsumers } from '../events/reliable-consumers'
 import { parseConsumerSpec } from '../../repositories/plugin-consumer-store'
+import { PluginHookRegistry } from '../events/plugin-hooks'
 
 interface ActivePlugin { worker: PluginWorker; resources: ResourceScope; generation: string }
 export interface PluginHostOptions {
@@ -22,6 +23,7 @@ export interface PluginHostOptions {
   registry: AgentRegistry
   events: PluginEventBus
   consumers?: ReliablePluginConsumers
+  hooks?: PluginHookRegistry
   artifactsRoot: string
   runnerPath: string
   logger: ScopedLogger
@@ -39,6 +41,7 @@ const SUPPORTED_CAPABILITIES = new Set([
   'agents.register', 'agents.read', 'sessions.read', 'sessions.remove', 'runs.read', 'runs.start', 'runs.cancel', 'runs.respond', 'chat.start', 'chat.read', 'chat.cancel',
   ...CORE_EVENTS.map(name => `events.subscribe:${name}`),
   ...CORE_EVENTS.map(name => `events.consume:${name}`),
+  'hooks.before:runs.start', 'hooks.before:sessions.remove',
 ])
 
 export class PluginHost {
@@ -218,6 +221,7 @@ export class PluginHost {
       return this.services.call(ctx, target, args.method, args.input, authority)
     }
     worker.peer.handle('service.remove', value => {
+      if (worker.isExecutingHook()) throw new StudioError('FORBIDDEN', 'Hook cannot alter contributions')
       const id = String((value as JsonObject).id)
       if (!manifest.contributes.services?.some(token => token.id === id)) throw new StudioError('FORBIDDEN', 'Service was not provided by this plugin')
       serviceRegistration.remove(id)
@@ -227,14 +231,17 @@ export class PluginHost {
     const removers = new Map<string, Disposer>()
     const subscriptions = new Map<string, Disposer>()
     const consumers = new Map<string, Disposer>()
+    const hooks = new Map<string, Disposer>()
     const pendingEvents: EventEnvelope[] = []
     let committed = false
-    worker.peer.handle('agent.remove', value => { const dispose = removers.get(String((value as JsonObject).id)); if (dispose) void dispose(); return null })
-    worker.peer.handle('subscription.remove', value => { const dispose = subscriptions.get(String((value as JsonObject).id)); if (dispose) void dispose(); return null })
-    worker.peer.handle('consumer.remove', async value => { await consumers.get(String((value as JsonObject).name))?.(); return null })
+    worker.peer.handle('agent.remove', value => { if (worker.isExecutingHook()) throw new StudioError('FORBIDDEN', 'Hook cannot alter contributions'); const dispose = removers.get(String((value as JsonObject).id)); if (dispose) void dispose(); return null })
+    worker.peer.handle('subscription.remove', value => { if (worker.isExecutingHook()) throw new StudioError('FORBIDDEN', 'Hook cannot alter contributions'); const dispose = subscriptions.get(String((value as JsonObject).id)); if (dispose) void dispose(); return null })
+    worker.peer.handle('consumer.remove', async value => { if (worker.isExecutingHook()) throw new StudioError('FORBIDDEN', 'Hook cannot alter contributions'); await consumers.get(String((value as JsonObject).name))?.(); return null })
+    worker.peer.handle('hook.remove', async value => { if (worker.isExecutingHook()) throw new StudioError('FORBIDDEN', 'Hook cannot alter contributions'); await hooks.get(String((value as JsonObject).key))?.(); return null })
     worker.peer.handle('event.emit', async value => {
-      const { type, data } = value as JsonObject
+      const { type, data, scopeHandle } = value as JsonObject
       if (typeof type !== 'string' || !Object.hasOwn(manifest.contributes.events || {}, type)) throw new StudioError('FORBIDDEN', 'Undeclared plugin event')
+      worker.authorizeEmission(scopeHandle, type)
       authorize(`events.emit:${type}`)
       compileSchema(manifest.contributes.events![type])(data)
       const event = this.event(type, { profileId: state.profileId, pluginId: manifest.id }, data as JsonObject)
@@ -281,6 +288,9 @@ export class PluginHost {
         }
         return { identity: { pluginId: manifest.id, profileId: state.profileId, ownerId: state.ownerId, name }, spec }
       })
+      if (activated.hooks.length && !this.options.hooks) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Hooks are unavailable')
+      const stagedHooks = this.options.hooks?.validate(state.profileId, manifest.id, activated.hooks) || []
+      for (const hook of stagedHooks) authorize(`hooks.before:${hook.point}`)
       if (resources.signal.aborted) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin exited during activation')
       for (const required of manifest.requires.services || []) {
         if (!required.optional && !this.services.status(state.profileId, required).available) throw new StudioError('PLUGIN_UNAVAILABLE', 'Required service disappeared during activation')
@@ -301,6 +311,15 @@ export class PluginHost {
           available: () => worker.isAvailable(),
         })
         consumers.set(consumer.name, resources.add(dispose))
+      }
+      for (const hook of stagedHooks) {
+        const dispose = this.options.hooks!.register(state.profileId, manifest.id, installation.generation, hook, async (input, ctx) => {
+          authorize(`hooks.before:${hook.point}`)
+          const result = await worker.invokeHook(hook, input, this.options.context(ctx.scope, AbortSignal.any([ctx.signal, resources.signal])))
+          authorize(`hooks.before:${hook.point}`)
+          return result
+        })
+        hooks.set(JSON.stringify([hook.point, hook.options.key]), resources.add(dispose))
       }
       this.active.set(key, { worker, resources, generation: installation.generation })
       this.options.store.recordDiagnostic(installation.id, state.profileId, 'ready')

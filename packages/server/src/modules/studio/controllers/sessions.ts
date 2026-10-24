@@ -1,4 +1,5 @@
 import { StudioError, type SessionRemovalResult } from '../contracts/plugins'
+import { randomUUID } from 'node:crypto'
 import { isProviderAgentSession, removeStudioSession, SessionRemovalError, type SessionRemovalAccess } from '../services/sessions/removal'
 import { withRunUsage } from '../public/usage'
 import { businessEvents } from '../services/webhooks/business-events'
@@ -1366,7 +1367,11 @@ export async function deleteMessages(ctx: any) {
 }
 
 function sessionRemovalAccess(ctx: any): SessionRemovalAccess {
-  return { authorize: profile => {
+  const traceId = randomUUID()
+  const user = ctx.state?.user
+  return { scope: profileId => ({ scopeId: randomUUID(), traceId, profileId, surface: 'api',
+    principal: user ? { kind: 'user', id: String(user.id) } : { kind: 'service', id: 'studio-http' },
+  }), authorize: profile => {
     if (!canAccessProfile(ctx, profile)) throw new StudioError('FORBIDDEN', `Profile "${profile}" is not available for this user`)
   } }
 }
@@ -1384,7 +1389,9 @@ export async function remove(ctx: any) {
     ctx.body = { ok: true, deleted: result.deleted, hermes: hermesRemovalResult(result.native) }
   } catch (error) {
     if (!(error instanceof StudioError)) throw error
-    ctx.status = error.code === 'FORBIDDEN' ? 403 : error.code === 'INVALID_ARGUMENT' ? 400 : error.code === 'REVISION_CONFLICT' ? 409 : 500
+    ctx.status = error.code === 'FORBIDDEN' ? 403 : error.code === 'INVALID_ARGUMENT' ? 400
+      : error.code === 'REVISION_CONFLICT' || error.code === 'CANCELLED' ? 409 : error.code === 'DEADLINE_EXCEEDED' ? 504
+        : error.code === 'PLUGIN_UNAVAILABLE' ? 503 : error.code === 'CAPABILITY_UNSUPPORTED' ? 422 : 500
     ctx.body = { error: error.message }
   }
 }

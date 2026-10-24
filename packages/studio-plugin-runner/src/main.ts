@@ -1,5 +1,6 @@
 import { pathToFileURL } from 'node:url'
 import { randomUUID } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { RpcPeer, type RpcFrame } from '../../studio-plugin-sdk/src/rpc'
 import {
   StudioError, STUDIO_PLUGIN_RPC_VERSION,
@@ -8,6 +9,7 @@ import {
   type JsonObject, type JsonValue, type PluginContext, type StudioPlugin, type Disposer,
   type ScopedLogger, type RuntimeCreateInput, type AgentRunInput, type AgentProviderRef, type EventEnvelope,
   type ServiceToken, type ServiceImplementation, type EventConsumerSpec, type ReliableEventHandler,
+  type HookPoint, type HookOptions, type HookHandler, type HookContext,
 } from '../../studio-plugin-sdk/src'
 
 const peer = new RpcPeer({ send: frame => new Promise((resolve, reject) => {
@@ -22,7 +24,12 @@ const services = new Map<string, { token: ServiceToken; implementation: ServiceI
 const serviceCalls = new Map<string, AbortController>()
 const consumers = new Map<string, { spec: EventConsumerSpec; handler: ReliableEventHandler }>()
 const deliveries = new Map<string, AbortController>()
-const contextHandles = new WeakMap<ExecutionContext, string>()
+const contextHandles = new WeakMap<object, string>()
+const hooks = new Map<string, { point: HookPoint; options: HookOptions; handler: HookHandler<HookPoint> }>()
+const hookCalls = new Map<string, AbortController>()
+const hookScope = new AsyncLocalStorage<boolean>()
+const callbackScope = new AsyncLocalStorage<string>()
+const assertContributionMutation = () => { if (hookScope.getStore()) throw new StudioError('FORBIDDEN', 'Hooks cannot mutate contributions or emit events') }
 const disposers: Disposer[] = []
 let identity: PluginIdentity | undefined
 let active = false
@@ -86,8 +93,9 @@ peer.handle('activate', async value => {
   if (params.rpc !== STUDIO_PLUGIN_RPC_VERSION) throw new StudioError('PLUGIN_VERSION_INCOMPATIBLE', 'RPC version mismatch')
   identity = object(params.identity) as unknown as PluginIdentity
   const registerDisposer = (dispose: Disposer): Disposer => {
+    assertContributionMutation()
     let result: Promise<void> | undefined
-    const once = () => result ??= Promise.resolve().then(dispose)
+    const once = () => { assertContributionMutation(); return result ??= Promise.resolve().then(dispose) }
     disposers.push(once)
     return once
   }
@@ -144,9 +152,21 @@ peer.handle('activate', async value => {
         if (active) await peer.request('consumer.remove', { name })
       })
     } },
+    hooks: { before: (point, handler, options) => {
+      if (!options || typeof options !== 'object' || Array.isArray(options)) throw new StudioError('INVALID_ARGUMENT', 'Hook options are required')
+      const key = JSON.stringify([point, options.key])
+      if (active || hooks.has(key)) throw new StudioError('REGISTRATION_CONFLICT', 'Hook already registered or activation ended')
+      if (typeof handler !== 'function' || hooks.size >= 32) throw new StudioError('INVALID_ARGUMENT', 'Invalid hook handler or registration limit')
+      hooks.set(key, { point, options: json(options) as unknown as HookOptions, handler: handler as HookHandler<HookPoint> })
+      return registerDisposer(async () => { hooks.delete(key); if (active) await peer.request('hook.remove', { key }) })
+    } },
     on: (type, handler) => subscribe(type, handler, false),
     once: (type, handler) => subscribe(type, handler, true),
-    emit: async (type, data) => object(await peer.request('event.emit', { type, data })) as unknown as { id: string },
+    emit: async (type, data) => {
+      assertContributionMutation()
+      const scopeHandle = callbackScope.getStore()
+      return object(await peer.request('event.emit', { type, data, ...(scopeHandle ? { scopeHandle } : {}) })) as unknown as { id: string }
+    },
   }
   const imported = await import(pathToFileURL(string(params.entry)).href)
   const plugin = (imported.default || imported) as StudioPlugin
@@ -159,6 +179,7 @@ peer.handle('activate', async value => {
     subscriptions: [...callbacks].map(([id, { type, once }]) => ({ id, type, once })),
     services: [...services.values()].map(value => value.token),
     consumers: [...consumers].map(([name, { spec }]) => ({ name, spec })),
+    hooks: [...hooks.values()].map(({ point, options }) => ({ point, options })),
   })
 })
 
@@ -184,9 +205,9 @@ peer.handle('run.start', async value => {
   if (runs.has(runId)) throw new StudioError('REGISTRATION_CONFLICT', 'Run already exists')
   const controller = new AbortController()
   const ctx = executionContext(object(params.scope) as unknown as ExecutionScope, string(params.scopeHandle), controller.signal) as AgentRunContext
-  const handle = await runtime.runtime.run(object(params.input) as unknown as AgentRunInput, ctx)
+  const handle = await callbackScope.run(string(params.scopeHandle), () => runtime.runtime.run(object(params.input) as unknown as AgentRunInput, ctx))
   runs.set(runId, { handle, controller })
-  void (async () => {
+  void callbackScope.run(string(params.scopeHandle), async () => {
     let timer: ReturnType<typeof setTimeout> | undefined
     let ended = false
     try {
@@ -202,7 +223,7 @@ peer.handle('run.start', async value => {
       const safe = error instanceof StudioError ? error.toJSON() : new StudioError('INTERNAL', 'Agent run failed').toJSON()
       await peer.request('run.error', { runId, error: json(safe) }).catch(() => {})
     } finally { ended = true; if (timer) clearTimeout(timer); runs.delete(runId); controller.abort() }
-  })()
+  })
   return { respond: typeof handle.respond === 'function' }
 })
 
@@ -235,7 +256,7 @@ peer.handle('service.invoke', async value => {
   const controller = new AbortController()
   serviceCalls.set(callId, controller)
   try {
-    return json(await service.implementation[method](params.input, executionContext(object(params.scope) as unknown as ExecutionScope, string(params.scopeHandle), controller.signal)))
+    return json(await callbackScope.run(string(params.scopeHandle), () => service.implementation[method](params.input, executionContext(object(params.scope) as unknown as ExecutionScope, string(params.scopeHandle), controller.signal))))
   } finally { controller.abort(); serviceCalls.delete(callId) }
 })
 peer.handle('service.cancel', value => { serviceCalls.get(string(object(value).callId))?.abort(); return null })
@@ -244,20 +265,39 @@ peer.handle('consumer.deliver', async value => {
   if (!active || !consumer) throw new StudioError('PLUGIN_UNAVAILABLE', 'Consumer is unavailable')
   if (deliveries.has(id)) throw new StudioError('REGISTRATION_CONFLICT', 'Delivery is already active')
   const controller = new AbortController(); deliveries.set(id, controller)
-  try { await consumer.handler(object(params.event) as unknown as EventEnvelope,
-    executionContext(object(params.scope) as unknown as ExecutionScope, string(params.scopeHandle), controller.signal)) }
+  try { await callbackScope.run(string(params.scopeHandle), () => consumer.handler(object(params.event) as unknown as EventEnvelope,
+    executionContext(object(params.scope) as unknown as ExecutionScope, string(params.scopeHandle), controller.signal))) }
   finally { controller.abort(); deliveries.delete(id) }
   return null
 })
 peer.handle('consumer.cancel', value => { deliveries.get(string(object(value).deliveryId))?.abort(); return null })
+peer.handle('hook.invoke', async value => {
+  const params = object(value), hook = hooks.get(string(params.key)), callId = string(params.callId), scopeHandle = string(params.scopeHandle)
+  if (!active || !hook) throw new StudioError('PLUGIN_UNAVAILABLE', 'Hook is unavailable')
+  const controller = new AbortController(); hookCalls.set(callId, controller)
+  const full = executionContext(object(params.scope) as unknown as ExecutionScope, scopeHandle, controller.signal)
+  const context: HookContext = Object.freeze({ scope: full.scope, signal: full.signal, logger,
+    agents: Object.freeze(full.agents), sessions: Object.freeze({ get: full.sessions.get }),
+    runs: Object.freeze({ get: full.runs.get, output: full.runs.output, interactions: full.runs.interactions, usage: full.runs.usage }),
+    chat: Object.freeze({ get: full.chat.get }), workflows: Object.freeze({ get: full.workflows.get }),
+  })
+  contextHandles.set(context, scopeHandle)
+  const freeze = <T>(value: T): T => { if (value && typeof value === 'object') { for (const item of Object.values(value)) freeze(item); Object.freeze(value) }; return value }
+  try { return await callbackScope.run(scopeHandle, () => hookScope.run(true, async () => {
+    const result = await hook.handler(freeze(object(params.input)) as unknown as Parameters<typeof hook.handler>[0], context)
+    return result === undefined ? null : json(result)
+  })) }
+  finally { controller.abort(); hookCalls.delete(callId) }
+})
+peer.handle('hook.cancel', value => { hookCalls.get(string(object(value).callId))?.abort(); return null })
 peer.handle('event.deliver', async value => {
   const params = object(value), id = string(params.id), subscription = callbacks.get(id)
   if (!subscription) return null
   if (subscription.once) callbacks.delete(id)
   const controller = new AbortController()
   try {
-    await subscription.handler(object(params.event) as unknown as EventEnvelope,
-      executionContext(object(params.scope) as unknown as ExecutionScope, string(params.scopeHandle), controller.signal))
+    await callbackScope.run(string(params.scopeHandle), () => subscription.handler(object(params.event) as unknown as EventEnvelope,
+      executionContext(object(params.scope) as unknown as ExecutionScope, string(params.scopeHandle), controller.signal)))
   } finally { controller.abort() }
   return null
 })
@@ -266,11 +306,13 @@ async function dispose(): Promise<void> {
   active = false
   for (const controller of serviceCalls.values()) controller.abort()
   for (const controller of deliveries.values()) controller.abort()
+  for (const controller of hookCalls.values()) controller.abort()
   for (const { handle, controller } of runs.values()) { controller.abort(); await handle.cancel('Plugin shutdown').catch(() => {}) }
   for (const { runtime, controller } of runtimes.values()) { controller.abort(); await runtime.dispose('Plugin shutdown').catch(() => {}) }
   for (const dispose of disposers.reverse()) { try { await dispose() } catch { /* Host also owns process cleanup. */ } }
   runs.clear(); runtimes.clear(); definitions.clear(); callbacks.clear(); services.clear(); serviceCalls.clear()
   consumers.clear(); deliveries.clear()
+  hooks.clear(); hookCalls.clear()
 }
 peer.handle('dispose', async () => { await dispose(); return null })
 process.on('message', message => { void peer.receive(message).catch(() => { peer.close(); if (process.connected) process.disconnect() }) })

@@ -248,6 +248,7 @@ export interface AgentRunRecord {
   createdAt: number
   updatedAt: number
   errorCode: string | null
+  hooks?: HookSnapshot[]
 }
 
 export interface AgentRunHandle {
@@ -316,6 +317,26 @@ export interface EventConsumerSpec {
 }
 export type ReliableEventHandler = (event: EventEnvelope, ctx: ExecutionContext) => void | Promise<void>
 
+export interface HookInputMap {
+  'runs.start': AgentRunStartInput
+  'sessions.remove': { sessionId: string }
+}
+export type HookPoint = keyof HookInputMap
+export interface HookContext extends Pick<ExecutionContext, 'scope' | 'signal' | 'logger'> {
+  readonly agents: ExecutionContext['agents']
+  readonly sessions: Pick<ExecutionContext['sessions'], 'get'>
+  readonly runs: Pick<ExecutionContext['runs'], 'get' | 'output' | 'interactions' | 'usage'>
+  readonly chat: Pick<ExecutionContext['chat'], 'get'>
+  readonly workflows: Pick<ExecutionContext['workflows'], 'get'>
+}
+export interface RunHookPatch { content?: Array<{ type: 'text'; text: string }>; timeoutMs?: number }
+export type HookDecision = { action: 'continue' } | { action: 'reject' }
+export type HookResult<K extends HookPoint> = HookDecision | (K extends 'runs.start' ? { action: 'patch'; patch: RunHookPatch } : never)
+export interface HookOptions { key: string; priority?: number }
+export interface HookSnapshot { point: HookPoint; pluginId: string; generation: string; key: string; priority: number }
+export type DeepReadonly<T> = T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T
+export type HookHandler<K extends HookPoint> = (input: DeepReadonly<HookInputMap[K]>, context: HookContext) => HookResult<K> | Promise<HookResult<K>>
+
 export interface ServiceToken {
   /** Publisher namespace plus service name and major, e.g. acme.search/index@1. */
   id: string
@@ -353,6 +374,7 @@ export interface PluginContext {
   }
   readonly lifecycle: { onDispose(dispose: Disposer): Disposer }
   readonly events: { consume(name: string, spec: EventConsumerSpec, handler: ReliableEventHandler): Disposer }
+  readonly hooks: { before<K extends HookPoint>(point: K, handler: HookHandler<K>, options: HookOptions): Disposer }
   on<K extends keyof StudioEventMap>(type: K, handler: EventHandler<K>): Disposer
   once<K extends keyof StudioEventMap>(type: K, handler: EventHandler<K>): Disposer
   emit(type: string, data: JsonObject): Promise<{ id: string }>

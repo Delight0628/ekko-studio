@@ -9,12 +9,14 @@ import {
 import type { ServiceAuthority } from './services'
 import { jsonCopy, toJson, parseAgentOutput } from './validation'
 import { AsyncChannel } from './channel'
+import { authorizeHookOperation, type HookRegistration } from '../events/plugin-hooks'
 
 export interface WorkerActivation {
   agents: Array<Omit<AgentTypeDefinition, 'create'>>
   subscriptions: Array<{ id: string; type: string; once: boolean }>
   services: ServiceToken[]
   consumers: Array<{ name: string; spec: EventConsumerSpec }>
+  hooks: HookRegistration[]
 }
 interface RemoteRun {
   channel: AsyncChannel<AgentOutputEvent>
@@ -39,6 +41,7 @@ export class PluginWorker {
   private readonly authorities = new Map<string, ServiceAuthority>()
   private serviceCalls = 0
   private consumerCalls = 0
+  private hookCalls = 0
   callService?: (context: ExecutionContext, args: JsonObject, authority: ServiceAuthority) => Promise<JsonValue>
   private readonly runs = new Map<string, RemoteRun>()
   private readonly runtimes = new Set<string>()
@@ -99,7 +102,7 @@ export class PluginWorker {
 
   async activate(entry: string, identity: PluginIdentity, config: JsonObject): Promise<WorkerActivation> {
     const result = await this.peer.request('activate', toJson({ entry, identity, config, rpc: STUDIO_PLUGIN_RPC_VERSION })) as JsonObject
-    if (!result || result.rpc !== STUDIO_PLUGIN_RPC_VERSION || !Array.isArray(result.agents) || !Array.isArray(result.subscriptions) || !Array.isArray(result.services) || !Array.isArray(result.consumers)) {
+    if (!result || result.rpc !== STUDIO_PLUGIN_RPC_VERSION || !Array.isArray(result.agents) || !Array.isArray(result.subscriptions) || !Array.isArray(result.services) || !Array.isArray(result.consumers) || !Array.isArray(result.hooks)) {
       throw new StudioError('INVALID_ARGUMENT', 'Invalid plugin activation response')
     }
     return result as unknown as WorkerActivation
@@ -201,7 +204,36 @@ export class PluginWorker {
     } finally { this.consumerCalls-- }
   }
 
-  hasLeases(): boolean { return this.runtimes.size > 0 || this.runs.size > 0 || this.serviceCalls > 0 || this.consumerCalls > 0 }
+  async invokeHook(declaration: HookRegistration, input: JsonValue, ctx: ExecutionContext): Promise<JsonValue> {
+    if (ctx.signal.aborted) throw new StudioError('CANCELLED', 'Hook caller ended')
+    const callId = randomUUID(), capability = `hooks.before:${declaration.point}`
+    this.authorize(capability); this.hookCalls++
+    try {
+      return await this.withContext(ctx, async scopeHandle => {
+        let abort!: () => void
+        const cancelled = new Promise<never>((_, reject) => {
+          abort = () => { void this.peer.request('hook.cancel', { callId }, 1_000).catch(() => {}); reject(ctx.signal.reason instanceof StudioError ? ctx.signal.reason : new StudioError('CANCELLED', 'Hook caller ended')) }
+          ctx.signal.addEventListener('abort', abort, { once: true })
+        })
+        try { return await Promise.race([this.peer.request('hook.invoke', toJson({ key: JSON.stringify([declaration.point, declaration.options.key]), callId, input, scopeHandle, scope: ctx.scope }), 2_000), cancelled]) }
+        finally { ctx.signal.removeEventListener('abort', abort) }
+      }, operation => { this.authorize(capability); authorizeHookOperation(operation) })
+    } catch (error) {
+      if (error instanceof StudioError && error.code === 'DEADLINE_EXCEEDED') void this.close()
+      throw error
+    } finally { this.hookCalls-- }
+  }
+
+  isExecutingHook(): boolean { return this.hookCalls > 0 }
+  authorizeEmission(scopeHandle: JsonValue | undefined, type: string): void {
+    if (scopeHandle === undefined) {
+      if (this.isExecutingHook()) throw new StudioError('FORBIDDEN', 'Hook cannot emit events')
+      return
+    }
+    if (typeof scopeHandle !== 'string' || !this.scopes.has(scopeHandle) || this.scopes.get(scopeHandle)!.signal.aborted) throw new StudioError('FORBIDDEN', 'Event caller scope is unavailable')
+    this.authorities.get(scopeHandle)?.(`events.emit:${type}`)
+  }
+  hasLeases(): boolean { return this.runtimes.size > 0 || this.runs.size > 0 || this.serviceCalls > 0 || this.consumerCalls > 0 || this.hookCalls > 0 }
   isAvailable(): boolean { return !this.closed }
 
   close(): Promise<void> {

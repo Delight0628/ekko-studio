@@ -1,4 +1,4 @@
-import { StudioError, type SessionRemovalResult } from '../../contracts/plugins'
+import { StudioError, type SessionRemovalResult, type ExecutionScope } from '../../contracts/plugins'
 import { isNativeCodingAgent } from '../../contracts/agents/native-coding-agents'
 import { isBuiltinEkkoAgent } from '../../contracts/history-source'
 import { getSession, deleteSession } from '../../public/sessions'
@@ -8,6 +8,7 @@ import { isHermesAgentAvailable } from '../../public/agent-status-registry'
 import { logger } from '../../public/logging'
 import { publishSessionRemoval } from '../notifications/session-removal'
 import { randomUUID } from 'node:crypto'
+import { beforeSessionRemoval } from './removal-hook'
 
 /** Supplied by a trusted HTTP entrypoint or execution-context factory, never by a plugin. */
 export interface SessionRemovalAccess {
@@ -15,6 +16,7 @@ export interface SessionRemovalAccess {
   signal?: AbortSignal
   sessionId?: string
   fallbackProfile?: string
+  scope?(profileId: string): ExecutionScope
 }
 
 export class SessionRemovalError extends StudioError {
@@ -69,6 +71,10 @@ async function remove(input: { id: string; profileId?: string }, access: Session
     if (access.signal?.aborted) throw new StudioError('CANCELLED', 'Session removal was cancelled')
   }
   await check()
+  checkLocal()
+  await beforeSessionRemoval({ scope: access.scope?.(profileId), profileId, sessionId: input.id, signal: access.signal || new AbortController().signal })
+  await check()
+  checkLocal()
   const native: SessionRemovalResult['native'] = { attempted: false, deleted: false, profileId }
   const providerSession = isProviderAgentSession(local)
   let nativePresent = false
