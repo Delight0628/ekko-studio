@@ -110,7 +110,7 @@ export class AgentExecutionStore {
       const events = changed.changes ? this.events.append([{
         schemaVersion: 1, id: randomUUID(), type, occurredAt: Date.now(), partitionKey: `${run.profileId}:${run.id}`, sequence: 0,
         subject: { profileId: run.profileId, runId: run.id }, data: { runId: run.id }, correlationId: run.id,
-      }]) : []
+      }], run.ownerId) : []
       this.db.exec('RELEASE studio_agent_finish')
       return events
     } catch (error) { this.db.exec('ROLLBACK TO studio_agent_finish; RELEASE studio_agent_finish'); throw error }

@@ -2697,7 +2697,7 @@ describe('session conversations controller', () => {
     expect(codingAgentRunManagerMock.stop).toHaveBeenCalledWith('codex-session', { reportClosed: false })
     expect(getExactSessionDetailFromDbWithProfileMock).not.toHaveBeenCalled()
     expect(deleteHermesSessionForProfileMock).not.toHaveBeenCalled()
-    expect(localDeleteSessionMock).toHaveBeenCalledWith('codex-session')
+    expect(localDeleteSessionMock).toHaveBeenCalledWith('codex-session', { id: expect.any(String), occurredAt: expect.any(Number) })
     expect(ctx.body).toEqual({
       ok: true,
       deleted: true,
@@ -2736,8 +2736,8 @@ describe('session conversations controller', () => {
     expect(getExactSessionDetailFromDbWithProfileMock).toHaveBeenCalledWith('travel-session', 'travel')
     expect(deleteHermesSessionForProfileMock).toHaveBeenCalledWith('default-session', 'default')
     expect(deleteHermesSessionForProfileMock).toHaveBeenCalledWith('travel-session', 'travel')
-    expect(localDeleteSessionMock).toHaveBeenCalledWith('default-session')
-    expect(localDeleteSessionMock).toHaveBeenCalledWith('travel-session')
+    expect(localDeleteSessionMock).toHaveBeenCalledWith('default-session', { id: expect.any(String), occurredAt: expect.any(Number) })
+    expect(localDeleteSessionMock).toHaveBeenCalledWith('travel-session', { id: expect.any(String), occurredAt: expect.any(Number) })
     expect(ctx.body).toMatchObject({ ok: true, deleted: 2, failed: 0, hermesDeleted: 2 })
   })
 
@@ -2763,7 +2763,7 @@ describe('session conversations controller', () => {
     expect(codingAgentRunManagerMock.stop).toHaveBeenCalledWith('codex-session', { reportClosed: false })
     expect(getExactSessionDetailFromDbWithProfileMock).not.toHaveBeenCalled()
     expect(deleteHermesSessionForProfileMock).not.toHaveBeenCalled()
-    expect(localDeleteSessionMock).toHaveBeenCalledWith('codex-session')
+    expect(localDeleteSessionMock).toHaveBeenCalledWith('codex-session', { id: expect.any(String), occurredAt: expect.any(Number) })
     expect(ctx.body).toMatchObject({ ok: true, deleted: 1, failed: 0, hermesDeleted: 0 })
   })
 

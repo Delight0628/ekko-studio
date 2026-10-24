@@ -7,6 +7,7 @@ import { listProfileNamesFromDisk } from '../../public/profile-config'
 import { isHermesAgentAvailable } from '../../public/agent-status-registry'
 import { logger } from '../../public/logging'
 import { publishSessionRemoval } from '../notifications/session-removal'
+import { randomUUID } from 'node:crypto'
 
 /** Supplied by a trusted HTTP entrypoint or execution-context factory, never by a plugin. */
 export interface SessionRemovalAccess {
@@ -97,13 +98,14 @@ async function remove(input: { id: string; profileId?: string }, access: Session
   // Native state and Studio SQLite cannot share a transaction; native failures remain explicit.
   if (local) {
     checkLocal()
+    const notification = { id: randomUUID(), occurredAt: Date.now() }
     try {
-      if (!deleteSession(input.id)) throw new Error('Session was not removed')
+      if (!deleteSession(input.id, notification)) throw new Error('Session was not removed')
     } catch (err) {
       logger.warn({ err, sessionId: input.id, profile: profileId }, 'Studio Session: deletion failed')
       throw new SessionRemovalError('Failed to delete session', native)
     }
-    publishSessionRemoval(local, 'deleted')
+    publishSessionRemoval(local, 'deleted', notification)
   }
   return { deleted: Boolean(local), native }
 }

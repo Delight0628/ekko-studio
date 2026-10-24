@@ -41,6 +41,8 @@ it('uses one execution for duplicate requests and commits output before one comp
   expect(coordinator.get(scope, run.id).status).toBe('completed')
   expect(coordinator.output(scope, run.id, -1)).toMatchObject([{ type: 'message.delta', text: 'hello' }])
   expect(new PluginEventStore(db).read('one').map(row => row.event.type)).toEqual(['run.completed'])
+  const eventStore = new PluginEventStore(db)
+  expect(eventStore.owner(eventStore.read('one')[0].event.id)).toBe(scope.principal.id)
   expect(() => coordinator.start(scope, instance.id, { content: [{ type: 'text', text: 'changed' }] }, 'request')).toThrow('different input')
 })
 

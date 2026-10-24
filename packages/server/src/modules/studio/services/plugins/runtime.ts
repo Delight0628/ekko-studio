@@ -24,6 +24,8 @@ import { PluginChatRunStore } from '../../repositories/plugin-chat-run-store'
 import { PluginChatRuns, authorizeOwnedChatSession } from '../chat-run/plugin'
 import { getChatRunServer } from '../chat-run/server-registry'
 import { PluginWorkflows } from '../workflow/plugin'
+import { authorizePluginEvent } from '../events/plugin-event-access'
+import { studioSessionAccount } from '../../contracts/runs/usage'
 
 const logger: ScopedLogger = {
   info: (message, data) => applicationLogger.info(data || {}, message),
@@ -96,7 +98,8 @@ export function createStudioPluginRuntime(runnerPath: string) {
   const host = new PluginHost({ store, registry, events, consumers, runnerPath, artifactsRoot: resolve(config.appHome, 'plugins', 'artifacts'), logger, context,
     eventContext: async (state, event, signal) => {
       const run = event.subject.runId ? executionStore.get(event.subject.runId) : null
-      if (run && run.ownerId !== state.ownerId) throw new StudioError('FORBIDDEN', 'Run is outside the subscription owner scope')
+      const session = event.subject.sessionId ? getSessionMetadata(event.subject.sessionId) : null
+      authorizePluginEvent(state, event, { recordedOwner: eventStore.owner(event.id), run, session })
       const scope: ExecutionScope = {
         scopeId: randomUUID(), principal: { kind: 'user', id: state.ownerId }, profileId: state.profileId,
         ...(event.subject.sessionId ? { sessionId: event.subject.sessionId } : {}),
@@ -110,7 +113,13 @@ export function createStudioPluginRuntime(runnerPath: string) {
   let notificationSequence = 0
   const unsubscribe = businessEvents.subscribe('studio-plugin-notifications', event => {
     const projected = projectPluginBusinessEvent(event, ++notificationSequence)
-    if (projected) for (const accepted of eventStore.append([projected])) events.publish(accepted)
+    if (projected) {
+      const session = event.subject.session_id ? getSessionMetadata(event.subject.session_id) : null
+      const historicalOwner = typeof event.payload.studio_owner_id === 'string' && /^[1-9]\d*$/.test(event.payload.studio_owner_id) ? event.payload.studio_owner_id : undefined
+      eventStore.append([projected], session ? studioSessionAccount(session) : event.type === 'chat.session.removed' ? historicalOwner : undefined)
+      const notification = eventStore.claimNotification(projected.id)
+      if (notification) events.publish(notification)
+    }
   })
   return { host, store, eventStore, executionStore, coordinator, registry, events, consumers, context,
     async close() { unsubscribe(); chat.close(); await coordinator.close(); await host.close(); await consumers.close(); events.close() } }

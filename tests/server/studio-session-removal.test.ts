@@ -1,5 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { PluginEventStore } from '../../packages/server/src/modules/studio/repositories/plugin-event-store'
+import { PluginConsumerStore } from '../../packages/server/src/modules/studio/repositories/plugin-consumer-store'
 
 const native = vi.hoisted(() => ({ inspect: vi.fn(), remove: vi.fn(), stop: vi.fn() }))
 vi.mock('../../packages/server/src/modules/studio/public/session-agent-runtime', () => ({
@@ -66,6 +68,10 @@ describe('shared session removal use case', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM workspace_run_change_files').get()).toMatchObject({ n: 0 })
     expect(received).toHaveLength(1)
     expect(received[0]).toMatchObject({ type: 'chat.session.removed', payload: { reason: 'deleted', owner_user_id: 1 } })
+    const events = new PluginEventStore(db), committed = events.read('default')
+    expect(committed).toHaveLength(1)
+    expect(committed[0].event).toMatchObject({ id: (received[0] as { id: string }).id, type: 'session.deleted', data: { sessionId: 'session' } })
+    expect(events.owner(committed[0].event.id)).toBe('1')
     expect(native.stop).toHaveBeenCalledOnce()
   })
 
@@ -78,6 +84,36 @@ describe('shared session removal use case', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM workspace_run_changes').get()).toMatchObject({ n: 1 })
     expect(db.prepare('SELECT COUNT(*) AS n FROM workspace_run_change_files').get()).toMatchObject({ n: 1 })
     expect(received).toEqual([])
+    expect(new PluginEventStore(db).read('default')).toEqual([])
+  })
+
+  it('rolls back local deletion when the public event cannot commit', async () => {
+    seed(); const events = new PluginEventStore(db)
+    db.exec("CREATE TRIGGER deny_event BEFORE INSERT ON studio_plugin_events BEGIN SELECT RAISE(ABORT, 'event failure'); END")
+    await expect(context().sessions.remove('session')).rejects.toMatchObject({ code: 'INTERNAL' })
+    expect(sessions.getSessionDetail('session')?.messages).toHaveLength(1)
+    expect(events.read('default')).toEqual([]); expect(received).toEqual([])
+    expect(db.prepare('SELECT COUNT(*) AS n FROM studio_plugin_event_owners').get()).toMatchObject({ n: 0 })
+  })
+
+  it('replays a committed deletion even when the process never publishes its notification', () => {
+    seed()
+    expect(sessions.deleteSession('session')).toBe(true)
+    expect(received).toEqual([])
+    const restarted = new PluginConsumerStore(db)
+    const record = restarted.register({ pluginId: 'test.consumer', profileId: 'default', ownerId: '1', name: 'deletions' }, { types: ['session.deleted'], start: 'earliest', resume: 'continue' })
+    restarted.fill(record.id)
+    const delivery = restarted.claim(record.id, Date.now())!
+    expect(delivery.event).toMatchObject({ type: 'session.deleted', subject: { sessionId: 'session' } })
+    expect(restarted.events.owner(delivery.event.id)).toBe('1')
+    expect(JSON.stringify(delivery.event)).not.toContain('owner')
+  })
+
+  it('does not associate imported gateway identities with a Studio event owner', () => {
+    seed('session', 'cli')
+    expect(sessions.deleteSession('session')).toBe(true)
+    const events = new PluginEventStore(db), event = events.read('default')[0].event
+    expect(events.owner(event.id)).toBeNull()
   })
 
   it('removes native-only history without touching a same-ID local session in another profile', async () => {
