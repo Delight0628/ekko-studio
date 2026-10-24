@@ -54,6 +54,7 @@ import FolderPicker from "./FolderPicker.vue";
 import StarIcon from "@/components/common/StarIcon.vue";
 import SessionTaskIcon from '@/components/common/SessionTaskIcon.vue';
 import ChatInput from "./ChatInput.vue";
+import AgentInstanceManager from '@/components/coding-agents/AgentInstanceManager.vue';
 import NewChatAgentCards from "./NewChatAgentCards.vue";
 import { prepareAgentDeployment, type AgentDeploymentController } from "./agentDeployment.mjs";
 import RealtimeVoiceStage from "./RealtimeVoiceStage.vue";
@@ -825,11 +826,12 @@ const activeSessionTitle = computed(
 
 const activeSessionUsesGlobalCodingAgentConfig = computed(() => {
   const session = chatStore.activeSession;
-  return session?.codingAgentMode === "global" && Boolean(session.codingAgentId || session.source === "coding_agent");
+  return !session?.agentInstanceId && session?.codingAgentMode === "global" && Boolean(session.codingAgentId || session.source === "coding_agent");
 });
 
 const activeSessionModelLabel = computed(() => {
   const session = chatStore.activeSession;
+  if (session?.agentInstanceId) return session.model || t('codingAgents.nativeModelDefault');
   if (activeSessionUsesGlobalCodingAgentConfig.value) {
     return nativeModelLabel(activeSessionNativeCatalog.value?.models, session?.model || "", t("codingAgents.nativeModelDefault"));
   }
@@ -2209,7 +2211,7 @@ function openNewChatWorkspace() {
 
 function openActiveSessionWorkspace() {
   const session = chatStore.activeSession;
-  if (!session?.id) return;
+  if (!session?.id || session.agentInstanceId) return;
   workspaceIsDraft.value = false;
   workspaceSessionId.value = session.id;
   workspaceValue.value = session.workspace || "";
@@ -2333,6 +2335,7 @@ const sessionCanUseMoa = computed(() =>
 );
 
 async function openSessionModelPicker(sessionId: string | null, event?: MouseEvent) {
+  if (sessionId && chatStore.sessions.find(session => session.id === sessionId)?.agentInstanceId) return;
   sessionModelTrigger.value = event?.currentTarget instanceof HTMLElement ? event.currentTarget : null;
   const isDraft = sessionId === null;
   const draftSequence = newChatOptionsLoadSequence;
@@ -3073,6 +3076,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
             size="small"
             circle
             :title="chatStore.activeSession.workspace"
+            :disabled="!!chatStore.activeSession.agentInstanceId"
             :aria-label="t('chat.setWorkspace')"
             @click="openActiveSessionWorkspace"
           >
@@ -3082,6 +3086,9 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
               </svg>
             </template>
           </NButton>
+          <AgentInstanceManager v-if="!showNewChatPage && chatStore.activeSession?.agentInstanceId"
+            :instance-id="chatStore.activeSession.agentInstanceId" :agent-type-id="chatStore.activeSession.agent || ''"
+            @saved="chatStore.refreshActiveSession()" />
           <!-- chat/live mode toggle hidden -->
           <template v-if="currentMode === 'chat' && !showNewChatPage">
             <NTooltip v-if="isSuperAdmin" trigger="hover">
@@ -3269,7 +3276,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
             <ChatInput
               ref="chatInputRef"
               :model-label="activeSessionModelLabel"
-              :model-disabled="activeSessionUsesGlobalCodingAgentConfig"
+              :model-disabled="!!chatStore.activeSession?.agentInstanceId || activeSessionUsesGlobalCodingAgentConfig"
               :native-reasoning-efforts="activeSessionUsesGlobalCodingAgentConfig ? activeSessionNativeReasoningEfforts : undefined"
               :native-effort-choices="activeSessionUsesGlobalCodingAgentConfig ? activeSessionNativeEffortChoices : undefined"
               :model-expanded="showSessionModelPicker && !sessionModelIsDraft && sessionModelSessionId === chatStore.activeSessionId"

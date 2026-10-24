@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { agentChatDisplayContent } from './agent-chat-content'
 import { StudioError, type AgentOutputEvent, type AgentRunInput } from '../contracts/plugins'
 import type { AgentExecution, AgentExecutionProjection, AgentInstance } from './agent-execution-store'
 import { normalizeMessageContentForStorageRole, parseStoredToolCalls } from './message-content'
@@ -6,7 +7,7 @@ import type { SessionMessage } from '../contracts/runs/session'
 import { MESSAGES_TABLE, SESSIONS_TABLE } from '../infrastructure/database/schemas'
 import { BUILTIN_HISTORY_SOURCES } from '../contracts/history-source'
 import { recordSkillUsageMessage } from './skill-usage-store'
-import { readAgentChatRunSummaries } from './agent-chat-summary'
+import { readAgentChatRunSummaries, readAgentChatSummaries } from './agent-chat-summary'
 
 type Source = typeof BUILTIN_HISTORY_SOURCES[number]
 export interface AgentChatBinding { sessionId: string; instanceId: string; ownerId: string; profileId: string; source: Source }
@@ -33,6 +34,7 @@ export class AgentChatProjection implements AgentExecutionProjection {
     return row ? { sessionId, instanceId: row.instance_id, ownerId: row.owner_id, profileId: row.profile_id, source: row.source } : undefined
   }
   hasSession(sessionId: string): boolean { return !!this.db.prepare(`SELECT 1 FROM ${SESSIONS_TABLE} WHERE id=?`).get(sessionId) }
+  summary(sessionId: string) { return readAgentChatSummaries(this.db, [sessionId])[sessionId] }
 
   assertBinding(sessionId: string, instance: AgentInstance): AgentChatBinding {
     const binding = this.binding(sessionId)
@@ -75,7 +77,7 @@ export class AgentChatProjection implements AgentExecutionProjection {
     if (this.message(run.id, 'input', 'input')) return
     // Canonical admission already persists queued input. Materialize its chat
     // row only when dispatched, after the previous Run's last assistant row.
-    const content = input.content.every(block => block.type === 'text') ? input.content.map(block => block.type === 'text' ? block.text : '').join('\n') : JSON.stringify(input.content)
+    const content = agentChatDisplayContent(run.sessionId, input)
     this.insert(run, 'input', 'input', 'user', content)
     this.db.prepare(`UPDATE ${SESSIONS_TABLE} SET ended_at=NULL, end_reason=NULL WHERE id=?`).run(run.sessionId)
     this.stats(run.sessionId)

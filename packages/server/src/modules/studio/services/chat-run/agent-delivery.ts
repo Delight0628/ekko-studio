@@ -1,5 +1,6 @@
 import { StudioError, type ExecutionScope } from '../../contracts/plugins'
 import type { AgentChats } from '../agents/chats'
+import { agentChatDisplayContent } from '../../repositories/agent-chat-content'
 
 const terminal = new Set(['completed', 'failed', 'cancelled', 'interrupted'])
 export type AgentChatActivity = ReturnType<AgentChats['activity']>
@@ -40,7 +41,7 @@ export class AgentChatDelivery {
     const queued = runs.filter(({ run }) => ['accepted', 'queued'].includes(run.status))
     this.deps.emit(sessionId, 'run.queued', { event: 'run.queued', session_id: sessionId,
       queue_length: queued.length, queued_messages: queued.map(({ queueId, input }) => ({
-        id: queueId, role: 'user', content: input.content.filter(block => block.type === 'text').map(block => block.text).join('\n'),
+        id: queueId, role: 'user', content: agentChatDisplayContent(sessionId, input),
         timestamp: Math.floor(Date.now() / 1000), queued: true,
       })) })
   }
@@ -80,10 +81,13 @@ export class AgentChatDelivery {
         const settledRows = this.deps.chats.rows(scope, sessionId, runId, [], !inputDelivered, true)
         if (settledRows.length) emit('message.persisted', { messages: settledRows, producer_sequence: cursor })
         const remaining = this.deps.chats.activity(scope, sessionId)
+        const usage = this.deps.chats.summary(scope, sessionId).agent_usage
         this.deps.activity(sessionId, remaining)
         emit(final.status === 'completed' ? 'run.completed' : final.status === 'cancelled' ? 'abort.completed' : 'run.failed', {
           status: final.status, error_code: final.errorCode, ...(final.status === 'failed' || final.status === 'interrupted' ? { error: final.errorCode || 'RUNTIME_UNAVAILABLE' } : {}),
           queue_remaining: remaining.length, queue_length: remaining.length,
+          agent_usage: usage, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
+          cacheReadTokens: usage.cacheReadTokens, cacheWriteTokens: usage.cacheWriteTokens,
         })
         return
       }

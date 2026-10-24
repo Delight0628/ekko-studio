@@ -170,6 +170,11 @@ export interface RunEvent {
 
 export interface ResumeSessionPayload {
   managed_agent_protocol?: number
+  agent_instance_id?: string
+  agent_instance_revision?: number
+  agent_usage?: import('./sessions').ManagedAgentUsage
+  agent_mode?: string
+  agentInteractions?: import('../../../../studio-plugin-sdk/src/types').AgentInteraction[]
   taskPlans?: TaskPlanSnapshot[]
   session_id: string
   messages: any[]

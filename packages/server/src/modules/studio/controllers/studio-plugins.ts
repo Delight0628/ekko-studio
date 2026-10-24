@@ -5,6 +5,7 @@ import { getStudioPluginRuntime, authorizePluginScope } from '../services/plugin
 import { jsonCopy } from '../services/plugins/validation'
 import { MAX_AGENT_IMAGE_BYTES } from '../services/agents/artifacts'
 import { drainRejectedRequest, nonDestroyingRequestBody } from '../http/request-body'
+import { getRunRequestContext } from '../services/auth/run-request-context'
 
 const statusFor = (code: string): number => ({ INVALID_ARGUMENT: 400, FORBIDDEN: 403, NOT_FOUND: 404,
   SYSTEM_PLUGIN_PROTECTED: 403, REVISION_CONFLICT: 409, REGISTRATION_CONFLICT: 409,
@@ -93,9 +94,17 @@ export const listAgentTypes = (ctx: Context) => respond(ctx, () => ({
 }))
 
 export function executionScope(ctx: Context): ExecutionScope {
-  return { scopeId: randomUUID(), principal: { kind: 'user', id: userId(ctx) }, profileId: profile(ctx), surface: 'api', traceId: randomUUID() }
+  const profileId = profile(ctx), run = getRunRequestContext(ctx)
+  if (run && run.profile !== profileId) throw new StudioError('FORBIDDEN', 'Profile is outside the authenticated Run')
+  return { scopeId: randomUUID(), principal: { kind: 'user', id: userId(ctx) }, profileId, surface: 'api', traceId: randomUUID(),
+    ...(run ? { sessionId: run.sessionId, ...(run.runId ? { runId: run.runId } : {}) } : {}) }
 }
 export const listAgentInstances = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().coordinator.listInstances(executionScope(ctx)))
+export const createAgentChat = (ctx: Context) => respond(ctx, () => {
+  const input = body(ctx, ['revision', 'idempotencyKey', 'profile'])
+  return getStudioPluginRuntime().agentChats.create(executionScope(ctx), ctx.params.id,
+    { revision: input.revision as number, idempotencyKey: input.idempotencyKey as string })
+})
 export const listBundledAgentPlugins = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().bundledAgents.list(profile(ctx)))
 export const enableBundledAgentPlugin = (ctx: Context) => respond(ctx, () => {
   const input = body(ctx, ['revision', 'profile'])
@@ -137,6 +146,20 @@ export const removeAgentImage = (ctx: Context) => respond(ctx, () => {
   getStudioPluginRuntime().artifacts.remove(executionScope(ctx), ctx.params.id)
   return { removed: true }
 })
+export const readAgentChatImage = async (ctx: Context) => {
+  let image: { mediaType: string; bytes: Buffer } | undefined
+  await respond(ctx, () => {
+    const runtime = getStudioPluginRuntime(), scope = executionScope(ctx)
+    runtime.agentChats.ownedBinding(scope, ctx.params.sessionId)
+    image = runtime.artifacts.readForChat(scope, ctx.params.sessionId, ctx.params.id)
+    return null
+  })
+  if (image) {
+    ctx.set('X-Content-Type-Options', 'nosniff')
+    ctx.type = image.mediaType
+    ctx.body = image.bytes
+  }
+}
 export const inspectAgentInstance = (ctx: Context) => respond(ctx, async () => {
   body(ctx, ['profile'])
   const controller = new AbortController(), abort = () => controller.abort()

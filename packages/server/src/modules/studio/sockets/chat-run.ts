@@ -2,6 +2,8 @@ import { chatRunCaller, isDirectChatRunCaller, type ChatRunCaller, type ChatRunC
 import type { DirectChatRunOptions, DirectChatRunHandle } from '../services/chat-run/direct'
 import { StudioError, type ExecutionScope } from '../contracts/plugins'
 import { getAgentChatService, isManagedAgentChat } from '../services/agents/chat-registry'
+import { managedAgentChatInput } from '../services/agents/chat-input'
+import { agentChatDisplayContent } from '../repositories/agent-chat-content'
 import { AgentChatDelivery, type AgentChatActivity } from '../services/chat-run/agent-delivery'
 import { createChatRunInvocation } from '../services/chat-run/invocation'
 import { startChatRun, requireChatRunSessionAccess, type ChatRunStartRequest, type ChatRunStartScope, type ChatRunStartPorts } from '../services/chat-run/start'
@@ -1381,16 +1383,12 @@ export class ChatRunSocket {
     // Configuration belongs to the selected instance. Legacy model/provider
     // request fields are not used to choose or configure a native runtime.
     chats.ownedBinding(scope, data.session_id)
-    const content = typeof data.input === 'string' ? [{ type: 'text' as const, text: data.input }]
-      : data.input.map(block => {
-        if (block.type !== 'text') throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent chat attachments require the owned artifact adapter')
-        return { type: 'text' as const, text: block.text }
-      })
+    const input = managedAgentChatInput(data.session_id, data.input)
     const queueId = data.queue_id || randomUUID()
     const caller = chatRunCaller(socket)
     caller.assertCanStart?.()
     caller.observeSession(data.session_id)
-    const run = await chats.start(scope, data.session_id, { content }, queueId, new AbortController().signal)
+    const run = await chats.start(scope, data.session_id, input, queueId, new AbortController().signal)
     caller.reply('run.accepted', { event: 'run.accepted', session_id: data.session_id, queue_id: queueId, agent_run_id: run.id, run_id: run.id })
     if (!this.managedAgentDelivery) this.managedAgentDelivery = new AgentChatDelivery({ chats,
       emit: (sessionId, event, payload) => {
@@ -2128,13 +2126,16 @@ export class ChatRunSocket {
       this.sessionMap.set(sid, state)
     }
     let managedQueue: Array<Record<string, unknown>> | undefined
+    let agentInteractions: import('../contracts/plugins').AgentInteraction[] | undefined
     if (managed && !socket.data?.sessionShare) {
       try {
         const profile = getSession(sid)?.profile || 'default', scope = this.managedAgentScope(socket, profile, sid)
         const activity = managedChats!.activity(scope, sid)
+        agentInteractions = activity.flatMap(({ run }) => managedChats!.interactions(scope, sid, run.id))
+          .filter(interaction => ['pending', 'responding'].includes(interaction.status))
         this.syncManagedAgentActivity(sid, activity)
         managedQueue = activity.filter(({ run }) => ['accepted', 'queued'].includes(run.status)).map(({ run, queueId, input }) => ({
-          id: queueId, role: 'user', content: input.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), timestamp: Math.floor(run.createdAt / 1000), queued: true,
+          id: queueId, role: 'user', content: agentChatDisplayContent(sid, input), timestamp: Math.floor(run.createdAt / 1000), queued: true,
         }))
       } catch (error) {
         socket.emit('run.failed', { event: 'run.failed', session_id: sid, error: error instanceof Error ? error.message : String(error) })
@@ -2177,6 +2178,8 @@ export class ChatRunSocket {
       parentLastMessage: socket.data?.sessionShare ? null : sessionDetail?.parent_last_message || null,
       parentLastMessageRole: socket.data?.sessionShare ? null : sessionDetail?.parent_last_message_role || null,
       workspace: sessionDetail?.workspace || null,
+      ...(managed ? { agent_instance_id: sessionDetail?.agent_instance_id, agent_instance_revision: sessionDetail?.agent_instance_revision,
+        agent_usage: sessionDetail?.agent_usage, agent_mode: sessionDetail?.agent_mode, agentInteractions } : {}),
       model: sessionDetail?.model || '',
       provider: sessionDetail?.provider || '',
       api_mode: sessionDetail?.api_mode || '',
@@ -2186,8 +2189,9 @@ export class ChatRunSocket {
       runStartedAt: state.runStartedAt,
       isAborting: state.isAborting || false,
       events: buildResumeEvents(resumeEvents.filter(entry =>
+        !(managed && entry.event === 'agent.interaction.updated') && (
         !['calendar.requested', 'reminder.requested', 'calendar.resolved', 'reminder.resolved', 'health.requested', 'health.resolved'].includes(entry.event)
-        || mobileEventAllowed(entry.data, socket.data.mobileDeviceTarget))),
+        || mobileEventAllowed(entry.data, socket.data.mobileDeviceTarget)))),
       inputTokens: state.inputTokens,
       outputTokens: state.outputTokens,
       cacheReadTokens: state.cacheReadTokens,

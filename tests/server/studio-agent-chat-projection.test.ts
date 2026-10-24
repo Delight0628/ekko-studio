@@ -4,6 +4,7 @@ import { AgentExecutionStore } from '../../packages/server/src/modules/studio/re
 import { AgentChatProjection } from '../../packages/server/src/modules/studio/repositories/agent-chat-projection'
 import { PluginEventStore } from '../../packages/server/src/modules/studio/repositories/plugin-event-store'
 import type { AgentOutputEvent, AgentProviderRef } from '../../packages/studio-plugin-sdk/src'
+import { agentChatArtifactPath } from '../../packages/shared/agent-chat-artifact'
 import { SKILL_USAGE_EVENTS_SCHEMA, SKILL_USAGE_EVENTS_INDEXES } from '../../packages/server/src/modules/studio/infrastructure/database/schemas'
 
 const cleanup: Array<() => void> = []
@@ -49,6 +50,19 @@ it('writes one user message and updates the same assistant rows across deltas, s
   expect(f.store.output(run.id)).toHaveLength(5)
   expect(() => f.store.appendOutput(run.id, output[4])).toThrow()
   expect(f.messages('a')).toHaveLength(2)
+})
+
+it('keeps image references renderable in historical rows without copying bytes or changing admission input', () => {
+  const f = setup(), artifactId = 'ab012345-6789-0123-4567-0123456789ab'
+  const input = { content: [{ type: 'text' as const, text: 'Describe' }, { type: 'image' as const, artifactId, mediaType: 'image/png' }] }
+  const { run } = f.store.accept(f.instance, provider, input, 'image-request', undefined, { kind: 'chat', sessionId: 'a' })
+  f.store.transition(run.id, ['accepted'], 'running')
+  expect(JSON.parse(String(f.messages('a')[0].content))).toEqual([
+    { type: 'text', text: 'Describe' }, { type: 'image', path: agentChatArtifactPath('a', artifactId), media_type: 'image/png', name: 'image.png' },
+  ])
+  expect(f.store.originalInput(run.id)).toEqual(input)
+  expect(f.store.accept(f.instance, provider, input, 'image-request', undefined, { kind: 'chat', sessionId: 'a' }).created).toBe(false)
+  expect(f.messages('a')).toHaveLength(1)
 })
 
 it('projects existing tool-call/result fields, preserves unknown usage, and finishes once without another history write', () => {

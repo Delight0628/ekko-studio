@@ -11,14 +11,19 @@ import { ReliablePluginConsumers } from '../../packages/server/src/modules/studi
 const state = vi.hoisted(() => ({ remove: vi.fn(), configure: vi.fn(), install: vi.fn(), diagnostic: vi.fn(), list: vi.fn(() => []),
   commands: { list: vi.fn(() => []), start: vi.fn(), get: vi.fn(), cancel: vi.fn() },
   bundledAgents: { list: vi.fn(() => []), enable: vi.fn() }, setupInstance: vi.fn(),
+  createChat: vi.fn(),
+  ownedChat: vi.fn(), readChatImage: vi.fn(),
   startLogin: vi.fn(), management: { list: vi.fn(() => []), get: vi.fn(), output: vi.fn(), input: vi.fn(), resize: vi.fn(), cancel: vi.fn() },
   uploadImage: vi.fn(), removeImage: vi.fn(), respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), updateInstance: vi.fn(), inspectInstance: vi.fn(), resourceLocations: vi.fn(), resourceFiles: vi.fn(), role: 'super_admin', consumers: null as unknown as ReliablePluginConsumers }))
 vi.mock('../../packages/server/src/modules/studio/services/plugins/runtime', () => ({
   authorizePluginScope: vi.fn(),
   getStudioPluginRuntime: () => ({ host: { uninstall: state.remove, configure: state.configure, install: state.install, list: state.list, diagnostic: state.diagnostic },
-    bundledAgents: state.bundledAgents, commands: state.commands, artifacts: { create: state.uploadImage, remove: state.removeImage }, consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { startLogin: state.startLogin, managementOperations: state.management, setupInstance: state.setupInstance, respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance, resourceLocations: state.resourceLocations, resourceFiles: state.resourceFiles } }),
+    agentChats: { create: state.createChat, ownedBinding: state.ownedChat },
+    bundledAgents: state.bundledAgents, commands: state.commands, artifacts: { create: state.uploadImage, remove: state.removeImage, readForChat: state.readChatImage }, consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { startLogin: state.startLogin, managementOperations: state.management, setupInstance: state.setupInstance, respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance, resourceLocations: state.resourceLocations, resourceFiles: state.resourceFiles } }),
 }))
 import { studioPluginRoutes } from '../../packages/server/src/modules/studio/routes/studio-plugins'
+import { executionScope } from '../../packages/server/src/modules/studio/controllers/studio-plugins'
+import { bindRunRequestContext } from '../../packages/server/src/modules/studio/services/auth/run-request-context'
 
 let server: Server, base: string, db: DatabaseSync
 beforeAll(async () => {
@@ -36,6 +41,51 @@ beforeAll(async () => {
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
 })
 afterAll(async () => { server.close(); await once(server, 'close'); await state.consumers.close(); db.close() })
+
+it('preserves authentication-owned Run bindings instead of granting native credentials an unbound management scope', () => {
+  const ctx: any = { state: { user: { id: 7 }, profile: { name: 'one' } }, get: () => 'forged', request: { body: { runId: 'forged' } } }
+  expect(executionScope(ctx)).not.toHaveProperty('runId')
+  const release = bindRunRequestContext(ctx, { runId: 'canonical', sessionId: 'owned-chat', profile: 'one' })
+  try {
+    expect(executionScope(ctx)).toMatchObject({ runId: 'canonical', sessionId: 'owned-chat', profileId: 'one', principal: { kind: 'user', id: '7' } })
+    ctx.state.profile.name = 'other'
+    expect(() => executionScope(ctx)).toThrow(/authenticated Run/)
+  } finally { release() }
+})
+
+it('creates an owned chat using only a saved instance revision and retry key', async () => {
+  const input = { revision: 3, idempotencyKey: 'chat-create' }
+  const receipt = { sessionId: 'owned-chat', instanceId: 'instance', profileId: 'one', configurationRevision: 3, createdAt: 1 }
+  state.createChat.mockReturnValue(receipt)
+  const request = (body: unknown, profile = '?profile=one') => fetch(`${base}/api/studio/agent-instances/instance/chats${profile}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+  expect((await request(input, '')).status).toBe(400)
+  for (const extra of [{ ownerId: 'other' }, { sessionId: 'other' }, { config: {} }, { scope: {} }]) expect((await request({ ...input, ...extra })).status).toBe(400)
+  expect(state.createChat).not.toHaveBeenCalled()
+  const response = await request(input)
+  expect(response.status).toBe(200)
+  expect(response.headers.get('cache-control')).toBe('no-store')
+  expect(await response.json()).toEqual({ ok: true, data: receipt })
+  expect(state.createChat).toHaveBeenCalledWith(expect.objectContaining({ principal: { kind: 'user', id: '7' }, profileId: 'one' }), 'instance', input)
+  state.createChat.mockImplementationOnce(() => { throw new StudioError('REVISION_CONFLICT', 'Instance changed') })
+  expect((await request(input)).status).toBe(409)
+})
+
+it('authorizes the live chat before serving historical image bytes with detected media type', async () => {
+  state.ownedChat.mockImplementationOnce(() => { throw new StudioError('NOT_FOUND', 'Chat unavailable') })
+  const path = `${base}/api/studio/agent-chats/chat/images/image?profile=one`
+  expect((await fetch(path)).status).toBe(404)
+  expect(state.readChatImage).not.toHaveBeenCalled()
+  state.readChatImage.mockReturnValue({ mediaType: 'image/png', bytes: Buffer.from('fixture bytes') })
+  const response = await fetch(path)
+  expect(response.status).toBe(200)
+  expect(response.headers.get('cache-control')).toBe('no-store')
+  expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+  expect(response.headers.get('content-type')).toBe('image/png')
+  expect(await response.text()).toBe('fixture bytes')
+  expect(state.readChatImage).toHaveBeenCalledWith(expect.objectContaining({ principal: { kind: 'user', id: '7' }, profileId: 'one' }), 'chat', 'image')
+})
 
 it('returns a stable protection error for system deletion', async () => {
   state.remove.mockImplementation(() => { throw new StudioError('SYSTEM_PLUGIN_PROTECTED', 'System plugins cannot be uninstalled') })

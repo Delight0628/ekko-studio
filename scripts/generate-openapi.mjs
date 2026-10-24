@@ -2058,6 +2058,23 @@ openapi.paths['/api/studio/agent-instances'].post.requestBody = studioPluginBody
     agentTypeId: { type: 'string' }, config: { type: 'object', additionalProperties: true }, mode: { type: 'string', enum: ['scoped', 'global'] }, profile: { type: 'string' },
   },
 })
+const agentChatCreate = openapi.paths['/api/studio/agent-instances/{id}/chats'].post
+agentChatCreate.summary = 'Create a chat from an owned Agent instance'
+agentChatCreate.description += ' Atomically creates an empty owned chat, instance binding and creation receipt without starting a CLI, probing login or sending a model request. Requires the saved configuration revision. An identical owner/profile retry returns the same chat; changing the request under the same key returns REVISION_CONFLICT. Existing chats require explicit migration.'
+agentChatCreate.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, required: ['revision', 'idempotencyKey'], properties: {
+  revision: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER }, idempotencyKey: { type: 'string', minLength: 1, maxLength: 128 }, profile: { type: 'string' },
+} })
+agentChatCreate.responses['200'] = { description: 'Owned chat creation receipt.', content: { 'application/json': { schema: {
+  type: 'object', required: ['ok', 'data'], properties: { ok: { type: 'boolean', enum: [true] }, data: {
+    type: 'object', required: ['sessionId', 'instanceId', 'profileId', 'configurationRevision', 'createdAt'], properties: {
+      sessionId: { type: 'string' }, instanceId: { type: 'string' }, profileId: { type: 'string' }, configurationRevision: { type: 'integer', minimum: 1 }, createdAt: { type: 'integer' },
+    },
+  } },
+} } } }
+const agentChatImage = openapi.paths['/api/studio/agent-chats/{sessionId}/images/{id}'].get
+agentChatImage.summary = 'Read an owned Agent chat image'
+agentChatImage.description += ' Authorizes the current chat and instance owner/profile, then reads immutable image bytes referenced by an accepted Run in this chat. Completed native runs remain readable. Unattached, foreign-chat or removed-chat references cannot be read. Responses disable caching and MIME sniffing.'
+agentChatImage.responses['200'] = { description: 'Verified single-frame image bytes.', content: Object.fromEntries(['image/png', 'image/jpeg', 'image/webp', 'image/gif'].map(type => [type, { schema: { type: 'string', format: 'binary' } }])) }
 openapi.paths['/api/studio/agent-instances/{id}/runs'].post.requestBody = studioPluginBody({ type: 'object', additionalProperties: false,
   required: ['input', 'idempotencyKey'], properties: {
     idempotencyKey: { type: 'string', minLength: 1, maxLength: 128 }, profile: { type: 'string' },

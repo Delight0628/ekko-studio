@@ -74,6 +74,16 @@ export class AgentArtifacts {
     this.store.removeUnused(id)
   }
 
+  /** Caller must first authorize the current owned chat binding. Accepted
+   * original/effective references survive native completion and SQLite restore. */
+  readForChat(scope: ExecutionScope, sessionId: string, id: string): { mediaType: string; bytes: Buffer } {
+    this.authorize(scope)
+    if (scope.sessionId !== undefined && scope.sessionId !== sessionId) throw new StudioError('FORBIDDEN', 'Image is outside the execution scope')
+    const image = this.metadata(scope, id)
+    if (!this.store.referencedByChat(scope.principal.id, scope.profileId, sessionId, id)) throw new StudioError('NOT_FOUND', 'Image is not attached to this chat')
+    return { mediaType: image.mediaType, bytes: this.store.chunk(id, 0, image.byteLength) }
+  }
+
   private metadata(scope: ExecutionScope, id: string): ImageArtifact {
     this.authorize(scope)
     if (typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id)) throw new StudioError('INVALID_ARGUMENT', 'Invalid image artifact id')

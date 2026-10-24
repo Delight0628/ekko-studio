@@ -167,6 +167,25 @@ function makeServerHarness() {
 }
 
 describe('ChatRunSocket global pending interactions', () => {
+  it('restores canonical pending interactions even when their request event fell outside the replay cache', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { setAgentChatService } = await import('../../packages/server/src/modules/studio/services/agents/chat-registry')
+    const { io, socket } = makeServerHarness(), server = new ChatRunSocket(io as any)
+    Object.assign(socket.data, { user: { id: 7, role: 'super_admin' }, profile: 'default' })
+    const pending = { id: 'current-question', runId: 'canonical', requestId: 'native', kind: 'approval', prompt: 'Fresh question', choices: [{ id: 'yes-native', label: 'Allow' }], status: 'pending', expiresAt: null }
+    const interactions = vi.fn(() => [{ ...pending, id: 'resolved-old', status: 'resolved' }, pending])
+    setAgentChatService({ isBound: () => true, ownedBinding: vi.fn(), activity: () => [{ run: { id: 'canonical', status: 'waiting_input', createdAt: 1 }, queueId: 'request', input: { content: [{ type: 'text', text: 'Question' }] } }], interactions } as any)
+    ;(server as any).sessionMap.set('managed-session', { messages: [], isWorking: true, runId: 'canonical', events: [{ event: 'agent.interaction.updated', data: { interaction: { ...pending, id: 'resolved-old', status: 'pending' } } }] })
+    loadSessionStateFromDbMock.mockResolvedValueOnce({ messages: [], isWorking: false, events: [], queue: [] })
+    try {
+      await (server as any).resumeSession(socket, 'managed-session')
+      const resumed = socket.emit.mock.calls.find(([event]) => event === 'resumed')![1]
+      expect(resumed).toMatchObject({ managed_agent_protocol: 1, isWorking: true, agentInteractions: [pending] })
+      expect(resumed.events).toEqual([])
+      expect(interactions).toHaveBeenCalledWith(expect.objectContaining({ principal: { kind: 'user', id: '7' } }), 'managed-session', 'canonical')
+    } finally { setAgentChatService(undefined) }
+  })
+
   it('publishes managed questions only to the owning account pending room', async () => {
     const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
     const { setAgentChatService } = await import('../../packages/server/src/modules/studio/services/agents/chat-registry')

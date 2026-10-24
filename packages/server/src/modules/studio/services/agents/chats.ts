@@ -97,6 +97,10 @@ export class AgentChats {
     return this.deps.executions.activeForChat(sessionId).map(run => ({ run,
       queueId: this.deps.executions.requestKey(run.id)!, input: this.deps.executions.originalInput(run.id)! }))
   }
+  summary(scope: ExecutionScope, sessionId: string) {
+    this.ownedBinding(scope, sessionId)
+    return this.deps.projection.summary(sessionId)
+  }
 
   output(scope: ExecutionScope, sessionId: string, runId: string, after: number) {
     this.get(scope, sessionId, runId)

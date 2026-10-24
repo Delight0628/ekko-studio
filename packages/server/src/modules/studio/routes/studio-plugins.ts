@@ -22,6 +22,8 @@ studioPluginRoutes.delete('/api/studio/agent-images/:id', requireUserProfile, co
 studioPluginRoutes.get('/api/studio/agent-instances', requireUserProfile, controller.listAgentInstances)
 studioPluginRoutes.post('/api/studio/agent-instances', requireUserProfile, controller.createAgentInstance)
 studioPluginRoutes.put('/api/studio/agent-instances/:id', requireUserProfile, controller.configureAgentInstance)
+studioPluginRoutes.post('/api/studio/agent-instances/:id/chats', requireUserProfile, controller.createAgentChat)
+studioPluginRoutes.get('/api/studio/agent-chats/:sessionId/images/:id', requireUserProfile, controller.readAgentChatImage)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/inspect', requireUserProfile, controller.inspectAgentInstance)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/setup', requireUserProfile, controller.setupAgentInstance)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/login', requireInteractiveSuperAdmin, requireUserProfile, management.startAgentLogin)

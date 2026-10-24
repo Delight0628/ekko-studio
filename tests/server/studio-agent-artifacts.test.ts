@@ -24,8 +24,22 @@ function setup() {
     runs.transition(run.id, ['accepted'], 'running')
     return { ...scope, runId: run.id }
   }
-  return { db, runs, artifacts, createRun, revoke: () => { allowed = false } }
+  return { db, runs, artifacts, instance, createRun, revoke: () => { allowed = false } }
 }
+it('reads accepted chat images after completion and rejects drafts, other chats, owners and profiles', async () => {
+  const f = setup(), data = await png(), image = await f.artifacts.create(scope, data, new AbortController().signal)
+  expect(() => f.artifacts.readForChat(scope, 'chat', image.id)).toThrow(/attached/)
+  const input = { content: [{ type: 'image' as const, artifactId: image.id, mediaType: image.mediaType }] }
+  const { run } = f.runs.accept(f.instance, { kind: 'builtin', module: 'ekko', implementationVersion: 'test' }, input, 'chat-image', undefined, { kind: 'chat', sessionId: 'chat' })
+  f.runs.finish(run.id, 'completed', null)
+  expect(f.artifacts.readForChat(scope, 'chat', image.id).bytes.equals(data)).toBe(true)
+  expect(f.artifacts.readForChat(scope, 'chat', image.id).mediaType).toBe('image/png')
+  for (const current of [{ ...scope, profileId: 'two' }, { ...scope, principal: { kind: 'user' as const, id: 'bob' } }]) expect(() => f.artifacts.readForChat(current, 'chat', image.id)).toThrow(/unavailable/)
+  expect(() => f.artifacts.readForChat(scope, 'other-chat', image.id)).toThrow(/attached/)
+  expect(() => f.artifacts.readForChat({ ...scope, sessionId: 'other-chat' }, 'chat', image.id)).toThrow(/scope/)
+  f.revoke()
+  expect(() => f.artifacts.readForChat(scope, 'chat', image.id)).toThrow(/revoked/)
+})
 it('detects image type and reads bounded chunks only from the current accepted Run', async () => {
   // Encoding is fixture preparation. An uncompressed PNG keeps the same
   // multi-chunk payload without spending the CI deadline on compression.

@@ -12290,6 +12290,101 @@
         }
       }
     },
+    "/api/studio/agent-chats/{sessionId}/images/{id}": {
+      "get": {
+        "tags": [
+          "Studio Plugins"
+        ],
+        "summary": "Read an owned Agent chat image",
+        "description": "Operates on registered Agent types and owner-bound instances/runs in the authorized profile. Plugin migration is in progress; existing native Agent execution remains separate until migration completes. Authorizes the current chat and instance owner/profile, then reads immutable image bytes referenced by an accepted Run in this chat. Completed native runs remain readable. Unattached, foreign-chat or removed-chat references cannot be read. Responses disable caching and MIME sniffing.",
+        "operationId": "readAgentChatImage",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verified single-frame image bytes.",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or manifest."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Access denied or SYSTEM_PLUGIN_PROTECTED; no deletion side effects."
+          },
+          "404": {
+            "description": "Plugin not installed."
+          },
+          "409": {
+            "description": "Revision conflict, registration conflict or active runtime leases."
+          },
+          "422": {
+            "description": "Plugin requests unsupported capabilities."
+          },
+          "503": {
+            "description": "Plugin host or runtime unavailable."
+          }
+        },
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "profile",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Authorized Studio profile."
+          }
+        ]
+      }
+    },
     "/api/studio/agent-images": {
       "post": {
         "tags": [
@@ -12685,6 +12780,144 @@
                       "scoped",
                       "global"
                     ]
+                  },
+                  "profile": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/agent-instances/{id}/chats": {
+      "post": {
+        "tags": [
+          "Studio Plugins"
+        ],
+        "summary": "Create a chat from an owned Agent instance",
+        "description": "Operates on registered Agent types and owner-bound instances/runs in the authorized profile. Plugin migration is in progress; existing native Agent execution remains separate until migration completes. Atomically creates an empty owned chat, instance binding and creation receipt without starting a CLI, probing login or sending a model request. Requires the saved configuration revision. An identical owner/profile retry returns the same chat; changing the request under the same key returns REVISION_CONFLICT. Existing chats require explicit migration.",
+        "operationId": "createAgentChat",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owned chat creation receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "sessionId",
+                        "instanceId",
+                        "profileId",
+                        "configurationRevision",
+                        "createdAt"
+                      ],
+                      "properties": {
+                        "sessionId": {
+                          "type": "string"
+                        },
+                        "instanceId": {
+                          "type": "string"
+                        },
+                        "profileId": {
+                          "type": "string"
+                        },
+                        "configurationRevision": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "createdAt": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or manifest."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Access denied or SYSTEM_PLUGIN_PROTECTED; no deletion side effects."
+          },
+          "404": {
+            "description": "Plugin not installed."
+          },
+          "409": {
+            "description": "Revision conflict, registration conflict or active runtime leases."
+          },
+          "422": {
+            "description": "Plugin requests unsupported capabilities."
+          },
+          "503": {
+            "description": "Plugin host or runtime unavailable."
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "profile",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Authorized Studio profile."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "revision",
+                  "idempotencyKey"
+                ],
+                "properties": {
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
                   },
                   "profile": {
                     "type": "string"

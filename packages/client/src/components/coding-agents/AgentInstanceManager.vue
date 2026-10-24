@@ -1,23 +1,27 @@
 <script setup lang="ts">
 import { computed, onUnmounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
+import { generateClientUuid } from '@/utils/client-random'
 import { NAlert, NButton, NEmpty, NForm, NFormItem, NInput, NModal, NSelect, NSpin, NTag } from 'naive-ui'
 import { isStoredSuperAdmin } from '@/api/client'
 import { useProfilesStore } from '@/stores/hermes/profiles'
 import { fetchAgentTypes, fetchManagedAgentInstances, saveManagedAgentInstance, fetchBundledAgentPlugins, enableBundledAgentPlugin,
-  fetchAgentSetup, inspectManagedAgent, type AgentTypeSummary, type ManagedAgentInstance, type BundledAgentPlugin, type AgentSetup, type AgentInspection, type JsonObject } from '@/api/studio/agent-management'
+  fetchAgentSetup, inspectManagedAgent, createManagedAgentChat, type AgentTypeSummary, type ManagedAgentInstance, type BundledAgentPlugin, type AgentSetup, type AgentInspection, type JsonObject } from '@/api/studio/agent-management'
 import { agentConfigFields, parseAgentConfigFields } from '@/utils/agent-instance-form'
 import AgentLoginTerminal from './AgentLoginTerminal.vue'
 
 const props = defineProps<{ instanceId: string; agentTypeId: string }>()
 const emit = defineEmits<{ saved: [id: string, agentTypeId: string] }>()
 const { t } = useI18n(), profiles = useProfilesStore()
+const router = useRouter()
 const show = ref(false), loading = ref(false), saving = ref(false), checking = ref(false), error = ref(''), inspectError = ref('')
 const types = shallowRef<AgentTypeSummary[]>([]), instances = shallowRef<ManagedAgentInstance[]>([]), bundles = shallowRef<BundledAgentPlugin[]>([])
 const selectedId = ref(''), typeId = ref(''), mode = ref<'scoped' | 'global'>('scoped'), raw = ref('{}'), drafts = reactive<Record<string, string>>(Object.create(null))
 const setup = shallowRef<AgentSetup | null>(null), inspection = shallowRef<AgentInspection | null>(null)
 const loginActive = ref(false)
 let generation = 0
+let chatRequest: { target: string; key: string } | undefined
 const selected = computed(() => instances.value.find(item => item.id === selectedId.value))
 const type = computed(() => types.value.find(item => item.id === typeId.value))
 const fields = computed(() => type.value ? agentConfigFields(type.value.configSchema) : null)
@@ -109,6 +113,20 @@ async function checkSetup() {
   } catch (err: any) { if (current === generation) error.value = err.message || String(err) }
   finally { if (current === generation) checking.value = false }
 }
+async function openChat() {
+  const item = selected.value, profile = profiles.activeProfileName, current = generation
+  if (!item || !profile || busy.value || loginActive.value || dirty.value) return
+  const target = JSON.stringify([profile, item.id, item.revision])
+  if (chatRequest?.target !== target) chatRequest = { target, key: generateClientUuid() }
+  saving.value = true; error.value = ''
+  try {
+    const chat = await createManagedAgentChat(profile, item, chatRequest.key)
+    if (current !== generation || profiles.activeProfileName !== profile) return
+    await router.push({ name: 'hermes.session', params: { sessionId: chat.sessionId }, query: { profile } })
+    chatRequest = undefined; show.value = false
+  } catch (err: any) { if (current === generation) error.value = err.message || String(err) }
+  finally { saving.value = false }
+}
 watch(show, value => { if (value) void load(); else { ++generation; loading.value = false; checking.value = false } })
 watch(() => profiles.activeProfileName, () => { if (show.value) void load() })
 watch(() => props.agentTypeId, () => { show.value = false })
@@ -150,6 +168,7 @@ onUnmounted(() => { ++generation })
         <div class="instance-actions">
           <NButton :disabled="busy" @click="load">{{ t('codingAgents.refresh') }}</NButton>
           <NButton v-if="selected && type?.management?.setup" :loading="checking" :disabled="busy || loginActive || dirty" @click="checkSetup">{{ t('agentManagement.checkSetup') }}</NButton>
+          <NButton v-if="selected" :disabled="busy || loginActive || dirty" @click="openChat">{{ t('chat.newChat') }}</NButton>
           <NButton type="primary" :loading="saving" :disabled="busy || loginActive || !type || !dirty" @click="save">{{ t(selected ? 'common.save' : 'common.create') }}</NButton>
         </div>
         <section v-if="setup" class="native-setup" data-theme-surface="card">

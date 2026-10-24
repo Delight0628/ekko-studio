@@ -3,6 +3,7 @@ import type { AgentSetup, AgentInspection, AgentTypeSummary, JsonObject, AgentMa
 
 export type { AgentSetup, AgentInspection, AgentTypeSummary, JsonObject, AgentManagementOperation }
 export interface ManagedAgentInstance { id: string; agentTypeId: string; revision: number; mode: 'scoped' | 'global'; config: JsonObject }
+export interface ManagedAgentChat { sessionId: string; instanceId: string; profileId: string; configurationRevision: number; createdAt: number }
 export interface BundledAgentPlugin { id: string; name: string; pluginId: string; installed: boolean; enabled: boolean; revision: number; state: string; requiredCapabilities: string[] }
 const query = (profile: string) => `?${new URLSearchParams({ profile })}`
 async function data<T>(path: string, profile: string, method = 'GET', body?: unknown): Promise<T> {
@@ -10,6 +11,14 @@ async function data<T>(path: string, profile: string, method = 'GET', body?: unk
 }
 export async function fetchAgentTypes(profile: string) { return (await data<{ agents: AgentTypeSummary[] }>('agent-types', profile)).agents }
 export function fetchManagedAgentInstances(profile: string) { return data<ManagedAgentInstance[]>('agent-instances', profile) }
+export function createManagedAgentChat(profile: string, instance: ManagedAgentInstance, idempotencyKey: string) {
+  return data<ManagedAgentChat>(`agent-instances/${encodeURIComponent(instance.id)}/chats`, profile, 'POST', { revision: instance.revision, idempotencyKey })
+}
+export async function uploadManagedAgentImage(profile: string, bytes: Blob) {
+  return (await request<{ data: { id: string; mediaType: string; byteLength: number } }>(`/api/studio/agent-images${query(profile)}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: bytes })).data
+}
+export function removeManagedAgentImage(profile: string, id: string) { return data(`agent-images/${encodeURIComponent(id)}`, profile, 'DELETE') }
 export function saveManagedAgentInstance(profile: string, agentTypeId: string, config: JsonObject, mode: 'scoped' | 'global', existing?: ManagedAgentInstance) {
   return existing ? data<ManagedAgentInstance>(`agent-instances/${encodeURIComponent(existing.id)}`, profile, 'PUT', { config, mode, revision: existing.revision })
     : data<ManagedAgentInstance>('agent-instances', profile, 'POST', { agentTypeId, config, mode })

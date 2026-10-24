@@ -76,7 +76,7 @@ const defaultReasoningEffortLabel = computed(() => t(isHermesSession(reasoningSe
   ? 'chat.reasoningEffort.options.default' : 'chat.reasoningEffort.options.none'))
 const isMoaSession = computed(() => reasoningSession.value?.provider === 'moa')
 const isGlobalCodingAgentSession = computed(() => reasoningSession.value?.codingAgentMode === 'global')
-const isReadOnlyCodingAgentEffort = computed(() => !props.draft && isGlobalCodingAgentSession.value && isExternalCodingAgentSession(composerSession.value))
+const isReadOnlyCodingAgentEffort = computed(() => !!composerSession.value?.agentInstanceId || (!props.draft && isGlobalCodingAgentSession.value && isExternalCodingAgentSession(composerSession.value)))
 function effortLabel(value: string) {
   return DEFAULT_REASONING_EFFORTS.includes(value) || ['ultra', 'disabled', 'enabled'].includes(value) ? t(`chat.reasoningEffort.options.${value}`) : value
 }
@@ -269,7 +269,7 @@ const pluginCommandsLoading = ref(false)
 const selectedPluginCommand = ref<{ command: PluginCommand; target: string } | null>(null)
 const pluginTarget = computed(() => {
   const session = composerSession.value
-  return session && !props.submit ? JSON.stringify([session.id, session.profile || profilesStore.activeProfileName || 'default', session.agent, session.model, session.provider, session.codingAgentMode, session.workspace]) : ''
+  return session && !props.submit ? JSON.stringify([session.id, session.profile || profilesStore.activeProfileName || 'default', session.agentInstanceId, session.agentInstanceRevision, session.agent, session.model, session.provider, session.codingAgentMode, session.workspace]) : ''
 })
 let commandsRequest = 0
 let commandsLoadedTarget = ''
@@ -316,13 +316,14 @@ let bundlesLoadRequestKey = ''
 const isBridgeSession = computed(() => {
   if (props.draft) return false
   const session = composerSession.value
+  if (session?.agentInstanceId) return false
   if (!session) return chatStore.runtimeMode !== 'global_agent'
   return session.source === 'cli' && !isBuiltinEkkoSession(session)
 })
-const isEkkoSession = computed(() => isBuiltinEkkoSession(composerSession.value))
+const isEkkoSession = computed(() => !composerSession.value?.agentInstanceId && isBuiltinEkkoSession(composerSession.value))
 const isCodingAgentSession = computed(() => isExternalCodingAgentSession(composerSession.value))
 const isCursorSession = computed(() => (composerSession.value?.codingAgentId === 'cursor' || composerSession.value?.codingAgentId === 'antigravity') || (composerSession.value?.agent === 'cursor' || composerSession.value?.agent === 'antigravity'))
-const showSessionUsage = computed(() => isCodingAgentSession.value)
+const showSessionUsage = computed(() => !!composerSession.value?.agentInstanceId || isCodingAgentSession.value)
 const isForkCommandSession = computed(() => !!composerSession.value && !isEkkoSession.value && !isCodingAgentSession.value)
 const skillPickerItems = computed(() => {
   const byName = new Map<string, SkillInfo>()
@@ -344,7 +345,7 @@ const skillPickerItems = computed(() => {
 })
 const filteredBridgeCommands = computed(() => {
   const query = slashQuery.value.trim().toLowerCase()
-  const legacyCommands: SlashCommandOption[] = isEkkoSession.value
+  const legacyCommands: SlashCommandOption[] = composerSession.value?.agentInstanceId ? [] : isEkkoSession.value
     ? EKKO_SESSION_COMMAND_DEFINITIONS.map(command => ({ ...command, args: command.args || '', description: t(command.descriptionKey) }))
     : isBridgeSession.value
     ? bridgeCommands.value
@@ -913,6 +914,11 @@ watch(
 
 const cumulativeTokens = computed(() => {
   const session = composerSession.value
+  if (session?.agentInstanceId) {
+    // Canonical input already includes cache buckets. Missing counters remain unknown.
+    if (session.inputTokens == null || session.outputTokens == null) return null
+    return session.inputTokens + session.outputTokens
+  }
   return (session?.inputTokens ?? 0) + (session?.outputTokens ?? 0)
     + (session?.cacheReadTokens ?? 0) + (session?.cacheWriteTokens ?? 0)
 })
@@ -1067,6 +1073,12 @@ async function handleSend() {
   }
   const text = inputText.value.trim()
   if (!text && attachments.value.length === 0) return
+  if (composerSession.value?.agentInstanceId && (attachments.value.length > 8
+    || attachments.value.reduce((sum, att) => sum + (att.file?.size || att.size), 0) > 6 * 1024 * 1024
+    || attachments.value.some(att => !att.file || att.file.size > 4 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(att.type)))) {
+    message.error(t('agentManagement.imageInputLimit'))
+    return
+  }
   if (isBridgeSession.value && text === '/skill' && attachments.value.length === 0) {
     void openSkillPicker()
     return
@@ -1084,7 +1096,7 @@ async function handleSend() {
   const submissionTarget = pluginTarget.value
   let pluginHandled = false
   // Existing platform commands keep their short names until their providers migrate.
-  const reservedCommand = BRIDGE_SESSION_COMMAND_DEFINITIONS.some(command => command.name === /^\/([^\s]+)/.exec(text)?.[1]?.toLowerCase()) || /^\/reload_skills(?:\s|$)/i.test(text)
+  const reservedCommand = !composerSession.value?.agentInstanceId && (BRIDGE_SESSION_COMMAND_DEFINITIONS.some(command => command.name === /^\/([^\s]+)/.exec(text)?.[1]?.toLowerCase()) || /^\/reload_skills(?:\s|$)/i.test(text))
   if (text.startsWith('/') && pluginTarget.value && !props.submit && !reservedCommand) {
     submitting.value = true
     try {

@@ -38,6 +38,15 @@ export class AgentArtifactStore {
     return Buffer.from(row.chunk)
   }
 
+  referencedByChat(ownerId: string, profileId: string, sessionId: string, artifactId: string): boolean {
+    return !!this.db.prepare(`SELECT 1 FROM studio_agent_runs r JOIN studio_agent_run_targets t ON t.run_id=r.id
+      JOIN studio_agent_run_admissions a ON a.run_id=r.id
+      WHERE r.owner_id=? AND r.profile_id=? AND t.session_id=? AND (
+        EXISTS (SELECT 1 FROM json_each(a.original_input_json,'$.content') b WHERE json_extract(b.value,'$.type')='image' AND json_extract(b.value,'$.artifactId')=?)
+        OR EXISTS (SELECT 1 FROM json_each(a.effective_input_json,'$.content') b WHERE json_extract(b.value,'$.type')='image' AND json_extract(b.value,'$.artifactId')=?)) LIMIT 1`)
+      .get(ownerId, profileId, sessionId, artifactId, artifactId)
+  }
+
   removeUnused(id: string): void {
     const used = this.db.prepare(`SELECT 1 FROM studio_agent_run_admissions, json_each(effective_input_json, '$.content') AS block
       WHERE json_extract(block.value, '$.artifactId')=?
