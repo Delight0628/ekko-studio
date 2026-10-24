@@ -4,6 +4,7 @@ import { isAbsolute } from 'node:path'
 import { StudioError, type ProcessSpawnInput, type ProcessHandle, type ProcessReadResult, type ProcessExit, type RuntimeProcesses } from '../../contracts/plugins'
 import { windowsCommandNeedsShell, windowsCmdShimExecution } from '../../public/windows-command'
 import { jsonCopy } from '../plugins/validation'
+import { ManagedPtyProcess, parseTerminalSize } from './pty'
 
 const CHUNK_BYTES = 16_384, BUFFER_BYTES = 262_144, WRITE_BYTES = 65_536
 let liveProcesses = 0
@@ -22,7 +23,7 @@ export function parseProcessSpawn(value: unknown, platform = process.platform): 
   const input = jsonCopy(value, 262_144) as ProcessSpawnInput
   const string = (value: unknown, max: number): value is string => typeof value === 'string' && value.length <= max && !value.includes('\0')
   if (!input || typeof input !== 'object' || Array.isArray(input)
-    || Object.keys(input).some(key => !['command', 'args', 'cwd', 'env'].includes(key))
+    || Object.keys(input).some(key => !['command', 'args', 'cwd', 'env', 'terminal'].includes(key))
     || !string(input.command, 4096) || !input.command.trim()
     || !string(input.cwd, 4096) || !isAbsolute(input.cwd)
     || !Array.isArray(input.args) || input.args.length > 256 || input.args.some(arg => !string(arg, 65_536))
@@ -33,6 +34,7 @@ export function parseProcessSpawn(value: unknown, platform = process.platform): 
   if (platform === 'win32' && windowsCommandNeedsShell(input.command) && [input.command, ...input.args].some(value => /[\r\n]/.test(value))) {
     throw new StudioError('CAPABILITY_UNSUPPORTED', 'Multiline Windows shim arguments require stdin or a prompt file')
   }
+  if (input.terminal !== undefined) parseTerminalSize(input.terminal)
   return input
 }
 
@@ -168,7 +170,7 @@ class ManagedProcess {
 
 /** Shared by builtins and worker proxies; identity and authority stay in this closure. */
 export class ManagedProcessScope {
-  private readonly entries = new Map<string, ManagedProcess>()
+  private readonly entries = new Map<string, ManagedProcess | ManagedPtyProcess>()
   private closing?: Promise<void>
   private ended = false
   readonly api: RuntimeProcesses = Object.freeze({ spawn: (input: ProcessSpawnInput) => this.spawn(input) })
@@ -189,9 +191,10 @@ export class ManagedProcessScope {
     const input = parseProcessSpawn(value)
     if (liveProcesses >= 128 || this.entries.size >= 64) throw new StudioError('RESOURCE_EXHAUSTED', 'Managed process limit reached')
     liveProcesses++
-    let entry: ManagedProcess
-    try { entry = new ManagedProcess(input, () => this.check(), () => { liveProcesses-- }) }
-    catch { liveProcesses--; throw new StudioError('RUNTIME_UNAVAILABLE', 'Managed process could not start') }
+    let entry: ManagedProcess | ManagedPtyProcess
+    try { entry = input.terminal ? new ManagedPtyProcess({ ...input, terminal: input.terminal }, managedProcessEnvironment(process.env, input.env), () => this.check(), () => { liveProcesses-- })
+      : new ManagedProcess(input, () => this.check(), () => { liveProcesses-- }) }
+    catch (error) { liveProcesses--; if (error instanceof StudioError) throw error; throw new StudioError('RUNTIME_UNAVAILABLE', 'Managed process could not start') }
     this.entries.set(entry.id, entry)
     try { await entry.spawned; this.check() }
     catch (error) { await entry.dispose(); this.entries.delete(entry.id); throw error }

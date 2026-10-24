@@ -564,7 +564,9 @@ worker 崩溃使租约失效，当前 Run 标记 interrupted，未确认 RPC 明
 
 协议驱动依赖 SDK 的 ProcessHandle、字节流和取消接口。宿主的原始 ChildProcess/PTY 对象不跨 RPC；stdout、stdin、resize、exit 等映射为句柄操作。厂商必须写入原生 auth 配置时，插件提交受控配置模板与 secret reference，由获准的宿主执行环境注入；确需明文秘密的插件能力单独授予，不能借运行准备读取整个平台凭据。
 
-当前已实现 runtime `processes.spawn` 和管道 `ProcessHandle.read/write/end/stop/dispose`；读取为有界长轮询，返回 stdout/stderr 字节、截断标志与退出结果，空批次不表示 EOF。身份、runtime 生命周期和能力来自宿主；PTY/resize、秘密注入及厂商驱动切换仍为后续范围。实现限制和退出语义见[受管进程实施记录](studio-plugin-progress.md#t05-进展runtime-受管管道进程)。
+当前已实现 runtime `processes.spawn` 和 `ProcessHandle.read/write/end/stop/dispose`；读取为有界长轮询，返回 stdout/stderr 字节、截断标志与退出结果，空批次不表示 EOF。`spawn` 可显式指定 `terminal: { cols, rows }` 分配 PTY，随后 `resize(cols, rows)` 改变尺寸（各维 2–1,000）；管道实例拒绝 resize。PTY 合并 stdout/stderr 到 stdout 字节块，单次读取最多四个 16 KiB 块，输出缓冲最多 256 KiB 并暂停原生读取。PTY 不支持单独关闭 stdin，调用 end 明确返回不支持；停止使用 stop/dispose，不猜测 EOF 控制字符。
+
+PTY 与管道共用 `processes.spawn` 权限、runtime 归属、总数配额、环境白名单、取消与进程树清理；宿主不选择 shell。每次写入最多 64 KiB；node-pty 无原生写入 drain 回执，因此每个 PTY 累计最多接纳 1 MiB 输入，超过返回 `RESOURCE_EXHAUSTED`，不能把写入接纳视为原生命令完成。没有可用原生 PTY 模块时返回 `CAPABILITY_UNSUPPORTED`。stdio MCP 继续只使用管道。当前真实验收为 macOS/arm64；Windows/Linux 实机矩阵、秘密注入及旧厂商驱动切换仍需后续验收。实现限制和退出语义见[受管进程实施记录](studio-plugin-progress.md#t05-进展runtime-受管管道进程)。
 
 当前 runtime 还提供 `mcp.connect(McpConnectInput)`，插件须声明并获授 `mcp.connect`。此权限包含启动 MCP 子进程或连接显式 HTTP 端点、调用工具和访问该服务声明的 resources/prompts；不自动扩展账户或 profile 凭据。stdio 使用 `{ type: 'stdio', command, args, cwd, env? }`，HTTP 使用 `{ type: 'streamable_http', url, headers? }`，可选 `timeoutMs`（100 ms–300 秒，默认 30 秒）和 `supportsParallelToolCalls`。
 

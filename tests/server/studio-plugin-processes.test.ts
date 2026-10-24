@@ -26,7 +26,7 @@ afterAll(async () => { await rm(root, { recursive: true, force: true }) })
 const scope: ExecutionScope = { scopeId: 'scope', principal: { kind: 'user', id: 'caller' }, profileId: 'one', surface: 'api', traceId: 'trace' }
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
 
-async function setup(options: { granted?: boolean; crash?: boolean; shared?: boolean; hook?: boolean; acp?: boolean; mcp?: boolean; mcpSdk?: boolean; mcpRead?: boolean } = {}) {
+async function setup(options: { granted?: boolean; crash?: boolean; shared?: boolean; hook?: boolean; acp?: boolean; mcp?: boolean; mcpSdk?: boolean; mcpRead?: boolean; pty?: boolean } = {}) {
   const directory = await mkdtemp(join(root, 'artifact-')), pidPath = join(directory, 'pid')
   const db = new DatabaseSync(':memory:'), store = new PluginStore(db), registry = new AgentRegistry(), events = new PluginEventBus(), hooks = new PluginHookRegistry()
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -40,11 +40,13 @@ async function setup(options: { granted?: boolean; crash?: boolean; shared?: boo
     contributes: { agents: ['test.process/agent'] }, requires: { capabilities }, configSchema: {} }
   await writeFile(join(directory, 'studio-plugin.json'), JSON.stringify(manifest))
   const childCode = `require('node:fs').writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));
-    process.on('SIGTERM', () => {}); require('node:readline').createInterface({ input: process.stdin }).on('line', line => process.stdout.write(JSON.stringify({ pid: process.pid, text: line }) + '\\n'));`
+    ${options.pty ? `process.stdin.setRawMode(true); process.stdout.write('PTY_READY\\n');` : ''}
+    process.on('SIGTERM', () => {}); require('node:readline').createInterface({ input: process.stdin }).on('line', line => process.stdout.write(JSON.stringify({ pid: process.pid, text: line${options.pty ? ', tty: !!process.stdin.isTTY, cols: process.stdout.columns, rows: process.stdout.rows' : ''} }) + '\\n'));`
   await writeFile(join(directory, 'index.cjs'), `let shared; module.exports = { apply(plugin) {
     ${options.hook ? `plugin.hooks.before('sessions.remove', async () => { try { await shared.write(Buffer.from('forbidden\\n')); return { action: 'continue' } } catch(error) { plugin.logger.info('hook-process', { code: error.code }); return { action: 'reject' } } }, { key: 'readonly' });` : ''}
     plugin.agents.register({ id: 'test.process/agent', name: 'Managed process', configSchema: {}, capabilities: { text: true, persistentSession: true, modes: ['scoped'] }, create: async (_input, ctx) => {
-      const child = ${options.shared ? 'shared ||' : ''} await ctx.processes.spawn({ command: ${JSON.stringify(process.execPath)}, args: ['-e', ${JSON.stringify(childCode)}], cwd: ${JSON.stringify(directory)} });
+      const child = ${options.shared ? 'shared ||' : ''} await ctx.processes.spawn({ command: ${JSON.stringify(process.execPath)}, args: ['-e', ${JSON.stringify(childCode)}], cwd: ${JSON.stringify(directory)}${options.pty ? ', terminal: { cols: 80, rows: 24 }' : ''} });
+      ${options.pty ? `await child.resize(100, 40); let ready = ''; while (!ready.includes('PTY_READY')) { const batch = await child.read(); for (const chunk of batch.chunks) ready += Buffer.from(chunk.data).toString('utf8'); if (batch.exit) throw new Error('PTY exited before readiness'); }` : ''}
       shared = child;
       return { run: async input => {
         let resolve, reject; const result = new Promise((yes, no) => { resolve = yes; reject = no });
@@ -264,4 +266,21 @@ it('reads native resources and expands prompts through real worker RPC on the re
   expect(JSON.stringify(output(first.id))).not.toContain('private')
   const pid = output(first.id).pid
   await f.coordinator.close(); expect(alive(pid)).toBe(false)
+})
+
+it('owns and resizes a real PTY through worker RPC across successful turns', async () => {
+  const f = await setup({ pty: true }), instance = f.instance()
+  const first = await f.run(instance.id, '中文😀 first'), second = await f.run(instance.id, 'second')
+  expect(first.status).toBe('completed'); expect(second.status).toBe('completed')
+  const output = (id: string) => JSON.parse((f.coordinator.output(scope, id, -1)[0] as { text: string }).text)
+  expect(output(first.id)).toEqual({ pid: output(second.id).pid, text: '中文😀 first', tty: true, cols: 100, rows: 40 })
+  const pid = output(first.id).pid
+  await f.coordinator.close(); expect(alive(pid)).toBe(false)
+})
+
+it('reaps a hosted PTY when its worker crashes', async () => {
+  const f = await setup({ pty: true, crash: true })
+  expect(await f.run(f.instance().id, 'crash')).toMatchObject({ status: 'interrupted' })
+  const pid = Number(await readFile(f.pidPath, 'utf8'))
+  await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 2000 })
 })

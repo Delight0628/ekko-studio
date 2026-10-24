@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { StudioError, type AgentRuntimeContext, type JsonValue, type ProcessHandle, type ProcessSpawnInput } from '../../contracts/plugins'
 import { toJson } from './validation'
+import { parseTerminalSize } from '../processes/pty'
 
 interface Binding {
   context: AgentRuntimeContext
@@ -48,8 +49,8 @@ export class PluginProcessBridge {
     const { runtimeHandle, originHandle, method, id, input, data } = value
     if (typeof runtimeHandle !== 'string' || typeof method !== 'string'
       || Object.keys(value).some(key => !['runtimeHandle', 'originHandle', 'method', 'id', 'input', 'data'].includes(key))
-      || !['spawn', 'read', 'write', 'end', 'stop', 'dispose'].includes(method)
-      || (method === 'spawn' ? id !== undefined || data !== undefined : typeof id !== 'string' || input !== undefined)
+      || !['spawn', 'read', 'write', 'end', 'resize', 'stop', 'dispose'].includes(method)
+      || (method === 'spawn' ? id !== undefined || data !== undefined : typeof id !== 'string' || (method !== 'resize' && input !== undefined))
       || (method !== 'write' && data !== undefined)) throw new StudioError('INVALID_ARGUMENT', 'Invalid process request')
     const binding = this.bindings.get(runtimeHandle)
     if (!binding) {
@@ -87,7 +88,11 @@ export class PluginProcessBridge {
       authorize(); this.origin(originHandle, runtimeHandle, binding.context)
       return toJson({ ...result, chunks: result.chunks.map(chunk => ({ stream: chunk.stream, data: Buffer.from(chunk.data).toString('base64') })) })
     }
-    if (method === 'write') {
+    if (method === 'resize') {
+      const size = parseTerminalSize(input)
+      if (!handle.resize) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Process is not a terminal')
+      await handle.resize(size.cols, size.rows)
+    } else if (method === 'write') {
       if (typeof data !== 'string' || data.length > 87_384 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) throw new StudioError('INVALID_ARGUMENT', 'Invalid process byte frame')
       const bytes = Buffer.from(data, 'base64')
       if (bytes.length > 65_536 || bytes.toString('base64') !== data) throw new StudioError('INVALID_ARGUMENT', 'Invalid process byte frame')

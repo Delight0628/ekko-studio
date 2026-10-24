@@ -276,13 +276,15 @@ export interface AgentRuntimeContext {
   readonly mcp: RuntimeMcp
 }
 
-/** Pipe processes belong to the runtime lease, not a single turn or HTTP request. */
+/** Managed processes belong to the runtime lease, not a single turn or HTTP request. */
 export interface ProcessSpawnInput {
   command: string
   args: string[]
   cwd: string
   /** Literal additions to a minimal host environment; no implicit provider credentials. */
   env?: Record<string, string>
+  /** Explicit PTY allocation; stdout/stderr are merged into stdout byte chunks. */
+  terminal?: { cols: number; rows: number }
 }
 export interface ProcessExit { code: number | null; signal: string | null }
 export interface ProcessReadResult {
@@ -297,6 +299,8 @@ export interface ProcessHandle {
   read(): Promise<ProcessReadResult>
   write(data: Uint8Array): Promise<void>
   end(): Promise<void>
+  /** Available on PTYs. Pipe handles reject resizing; PTYs cannot half-close stdin. */
+  resize?(cols: number, rows: number): Promise<void>
   /** Wait for confirmed exit, escalating termination when needed. */
   stop(): Promise<void>
   /** Stop and release the handle; repeated disposal is harmless. */
@@ -306,7 +310,7 @@ export interface RuntimeProcesses { spawn(input: ProcessSpawnInput): Promise<Pro
 
 /** Explicit plugin-owned configuration; host profile secrets are never expanded into this DTO. */
 export type McpConnectInput = (
-  | ({ type: 'stdio' } & ProcessSpawnInput)
+  | ({ type: 'stdio' } & Omit<ProcessSpawnInput, 'terminal'>)
   | { type: 'streamable_http'; url: string; headers?: Record<string, string> }
 ) & { timeoutMs?: number; supportsParallelToolCalls?: boolean }
 export interface McpToolDefinition {

@@ -21,6 +21,7 @@ export function remoteProcesses(peer: RpcPeer, runtimeHandle: string, signal: Ab
         await call('write', { id: handle.id, data: Buffer.from(data).toString('base64') })
       },
       end: async () => { await call('end', { id: handle.id }) },
+      resize: async (cols, rows) => { await call('resize', { id: handle.id, input: { cols, rows } }) },
       stop: async () => { await call('stop', { id: handle.id }) },
       dispose: () => {
         assertMutation()
