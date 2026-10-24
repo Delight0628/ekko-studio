@@ -1767,24 +1767,20 @@ export class ChatRunSocket {
     }
   }
 
-  private socketForBackgroundRun(sessionId: string): Socket {
-    const room = this.nsp.adapter.rooms.get(`session:${sessionId}`)
-    if (room) {
-      for (const socketId of room) {
-        const socket = this.nsp.sockets.get(socketId)
-        if (socket) return socket
-      }
-    }
+  private callerForBackgroundRun(sessionId: string, profileId: string): ChatRunCaller {
+    // A resumed task belongs to the host, never to an arbitrary room viewer.
+    // Runtime events already broadcast to the room; reply is only for direct errors.
     return {
-      id: `background-run-${sessionId}`,
-      connected: false,
-      data: {},
-      join: () => {},
-      emit: (event: string, payload: any) => this.nsp.to(`session:${sessionId}`).emit(event, payload),
-      to: (roomName: string) => ({
-        emit: (event: string, payload: any) => this.nsp.to(roomName).emit(event, payload),
+      kind: 'background', originId: `background-run-${randomUUID()}`,
+      executionScope: Object.freeze({
+        scopeId: randomUUID(), traceId: randomUUID(), profileId, sessionId, surface: 'job',
+        principal: Object.freeze({ kind: 'service', id: 'studio-background-continuation' }),
       }),
-    } as unknown as Socket
+      isActive: () => false,
+      observeSession: () => {},
+      reply: (event, payload) => { this.nsp.to(`session:${sessionId}`).emit(event, payload) },
+      publishToPeers: (id, event, payload) => { this.nsp.to(`session:${id}`).emit(event, payload) },
+    }
   }
 
   private async scheduleBackgroundNotification(notification: AgentBridgeBackgroundNotification) {
@@ -1866,6 +1862,7 @@ export class ChatRunSocket {
       backgroundDelegationId: delegationId,
       backgroundClaimId: claimId,
       autonomous: true,
+      directCaller: this.callerForBackgroundRun(sessionId, notification.profile || session.profile || 'default'),
     }
 
     if (state.isWorking) {
@@ -1877,7 +1874,7 @@ export class ChatRunSocket {
     state.isWorking = true
     state.profile = next.profile
     state.source = next.source
-    this.runQueuedItem(this.socketForBackgroundRun(sessionId), sessionId, next, next.profile)
+    this.runQueuedItem(next.directCaller!, sessionId, next, next.profile)
   }
 
   private needsBackgroundPoll(): boolean {

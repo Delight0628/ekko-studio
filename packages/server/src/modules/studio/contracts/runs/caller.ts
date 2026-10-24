@@ -3,7 +3,7 @@ import type { ExecutionScope } from '../plugins'
 
 /** Internal invocation identity and delivery port. Never accepted from a client payload. */
 export interface ChatRunCaller {
-  readonly kind: 'direct' | 'socket'
+  readonly kind: 'direct' | 'socket' | 'background'
   readonly originId: string
   readonly user?: AuthenticatedUser
   readonly executionScope?: ExecutionScope

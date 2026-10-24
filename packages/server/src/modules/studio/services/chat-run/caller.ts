@@ -10,7 +10,7 @@ export function isDirectChatRunCaller(target: ChatRunCallerTarget): target is Ch
 }
 
 export function chatRunCaller(target: ChatRunCallerTarget): ChatRunCaller {
-  if ('kind' in target && (target.kind === 'direct' || target.kind === 'socket')) return target
+  if ('kind' in target && (target.kind === 'direct' || target.kind === 'socket' || target.kind === 'background')) return target
   const socket = target as Socket
   return {
     kind: 'socket',

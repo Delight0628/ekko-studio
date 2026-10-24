@@ -384,6 +384,53 @@ describe('ChatRunSocket queued bridge runs', () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it.each([false, true])('keeps host identity for background continuation with a busy parent: %s', async busy => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io, socket } = makeServerHarness()
+    socket.data = { user: { id: 'unrelated-viewer', role: 'super_admin' } } as any
+    const server: any = new ChatRunSocket(io as any)
+    server.sessionMap.set('session-1', { messages: [], events: [], queue: [], isWorking: busy })
+    const run = vi.spyOn(server, 'handleRun').mockResolvedValue(undefined)
+    await server.scheduleBackgroundNotification({
+      session_id: 'session-1', delegation_id: 'd', claim_id: 'c', profile: 'default', message: 'wake',
+    })
+    if (busy) {
+      expect(run).not.toHaveBeenCalled()
+      const queued = server.sessionMap.get('session-1').queue.shift()
+      server.runQueuedItem(socket, 'session-1', queued)
+    }
+    expect(run).toHaveBeenCalledTimes(1)
+    const caller = run.mock.calls[0][0] as any
+    expect(caller).toMatchObject({ kind: 'background', executionScope: {
+      principal: { kind: 'service', id: 'studio-background-continuation' }, profileId: 'default', sessionId: 'session-1', surface: 'job',
+    } })
+    expect(caller.user).toBeUndefined()
+    expect(caller.emit).toBeUndefined()
+    expect(Object.isFrozen(caller.executionScope)).toBe(true)
+  })
+
+  it.each([false, true])('broadcasts background output and failures once with connected viewers: %s', async connected => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { chatRunCaller } = await import('../../packages/server/src/modules/studio/services/chat-run/caller')
+    const { io, namespace, roomEmit, socket } = makeServerHarness()
+    if (!connected) { namespace.sockets.clear(); namespace.adapter.rooms.clear() }
+    const server: any = new ChatRunSocket(io as any)
+    const caller = server.callerForBackgroundRun('session-1', 'default')
+    expect(chatRunCaller(caller)).toBe(caller)
+    handleBridgeRunMock.mockImplementationOnce(async (nsp: any, _caller: any, data: any) => {
+      const payload = { event: 'message.delta', session_id: 'session-1', text: 'once' }
+      nsp.to('session:session-1').emit('message.delta', payload)
+      data.onEvent('message.delta', payload)
+    })
+    await server.handleRun(caller, { input: 'wake', session_id: 'session-1', source: 'cli', autonomous: true }, 'default')
+    expect(roomEmit.mock.calls.filter(([event]) => event === 'message.delta')).toHaveLength(1)
+    expect(socket.emit).not.toHaveBeenCalled()
+    roomEmit.mockClear()
+    caller.reply('run.failed', { event: 'run.failed', error: 'unavailable' })
+    expect(roomEmit).toHaveBeenCalledTimes(1)
+    expect(roomEmit).toHaveBeenCalledWith('run.failed', { event: 'run.failed', error: 'unavailable' })
+  })
+
   it('tags a Bridge run.failed terminal event as an intentional queue insertion stop', async () => {
     const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
     const { io } = makeServerHarness()
