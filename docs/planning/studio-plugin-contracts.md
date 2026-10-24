@@ -387,6 +387,8 @@ hook 可按授权作用于内置 Agent 的 Run。插件停用或故障清理时�
 
 服务依赖在激活前形成 DAG，缺依赖或版本冲突时 blocked，循环依赖直接拒绝。可选依赖通过显式可用状态与服务变更通知处理，不能启动后无限等待注入。跨服务 RPC 传递收窄后的调用上下文、trace、deadline 和取消，禁止凭 service token 增权。核心服务名不可覆盖。
 
+开发版已实现 `PluginContext.services.provide(ServiceToken, implementation)` 与 `use(ServiceDependency)`。token 包含带 major 的 namespaced ID、精确版本和方法 schema；dependency 包含同一 ID、semver 范围及可选标记。`use` 返回 `status()` 与 `call(executionContext, method, input)`；后者只接受宿主发给该 worker 的存活上下文。跨服务转发保留主体与资源绑定，领域能力取调用链 grants 的交集。状态诊断和当前范围见[服务实施记录](studio-plugin-progress.md#t03-进展服务依赖rpc-与激活诊断)；服务变更通知尚未实现。
+
 插件路由统一位于 `/api/studio/plugins/{pluginId}/...`，由宿主先认证再路由；插件只能提交相对路径。公开 Webhook 等入口需要单独声明及宿主验证策略，不能自行移除认证。请求体、流长度和并发受限，禁止把 Koa 实例交给插件。路由 schema 汇入 OpenAPI 与 MCP 发现；未声明的插件方法不自动全部暴露给模型。
 
 管理接口拟采用 `/api/studio/plugins` 和 `/api/studio/agent-types`、`/api/studio/agent-instances`；接口定义由 schema 生成，后续实施按现有 OpenAPI 流程维护。已有 `/api/coding-agents/*` 继续作为协议适配，调用同一管理服务。

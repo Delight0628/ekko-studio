@@ -5,11 +5,11 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest'
 import type { Server } from 'node:http'
 import { StudioError } from '../../packages/studio-plugin-sdk/src'
 
-const state = vi.hoisted(() => ({ remove: vi.fn(), configure: vi.fn(), install: vi.fn(), list: vi.fn(() => []),
+const state = vi.hoisted(() => ({ remove: vi.fn(), configure: vi.fn(), install: vi.fn(), diagnostic: vi.fn(), list: vi.fn(() => []),
   respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), role: 'super_admin' }))
 vi.mock('../../packages/server/src/modules/studio/services/plugins/runtime', () => ({
   authorizePluginScope: vi.fn(),
-  getStudioPluginRuntime: () => ({ host: { uninstall: state.remove, configure: state.configure, install: state.install, list: state.list },
+  getStudioPluginRuntime: () => ({ host: { uninstall: state.remove, configure: state.configure, install: state.install, list: state.list, diagnostic: state.diagnostic },
     registry: { list: () => [], getRevision: () => 1 }, coordinator: { respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel } }),
 }))
 import { studioPluginRoutes } from '../../packages/server/src/modules/studio/routes/studio-plugins'
@@ -35,6 +35,19 @@ it('returns a stable protection error for system deletion', async () => {
   const response = await fetch(`${base}/api/studio/plugins/studio.agent-codex`, { method: 'DELETE' })
   expect(response.status).toBe(403)
   expect(await response.json()).toMatchObject({ ok: false, error: { code: 'SYSTEM_PLUGIN_PROTECTED', retryable: false } })
+})
+
+it('restricts diagnostics to an authorized administrator and profile', async () => {
+  state.diagnostic.mockReturnValue({ state: 'blocked', errorCode: 'PLUGIN_UNAVAILABLE' })
+  expect((await fetch(`${base}/api/studio/plugins/test.provider/diagnostic`)).status).toBe(400)
+  state.role = 'admin'
+  try { expect((await fetch(`${base}/api/studio/plugins/test.provider/diagnostic?profile=one`)).status).toBe(403) }
+  finally { state.role = 'super_admin' }
+  expect(state.diagnostic).not.toHaveBeenCalled()
+  const response = await fetch(`${base}/api/studio/plugins/test.provider/diagnostic?profile=one`)
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual({ ok: true, data: { state: 'blocked', errorCode: 'PLUGIN_UNAVAILABLE' } })
+  expect(state.diagnostic).toHaveBeenCalledWith('test.provider', 'one')
 })
 
 it('rejects non-super-admin plugin management before invoking services', async () => {

@@ -81,7 +81,7 @@ function setup(sessions: ContextServices['sessions'] = { get: async () => null }
   const ctx = (signal: AbortSignal) => createExecutionContext({
     scopeId: 'scope', principal: { id: '1', kind: 'user' }, profileId: 'default', surface: 'api', traceId: 'trace', runId: 'run',
   }, signal, logger, { authorize: async () => {}, sessions, agents: { list: async profile => registry.list(profile) } })
-  const host = new PluginHost({ store, registry, events, runnerPath: runner, artifactsRoot: join(root, 'artifacts'), logger,
+  const host = new PluginHost({ store, registry, events, runnerPath: runner, artifactsRoot: join(root, 'artifacts'), logger, context,
     eventContext: async (state, event, signal) => context({
       scopeId: 'event', principal: { kind: 'user', id: state.ownerId }, profileId: state.profileId, surface: 'event', traceId: event.correlationId,
       ...(event.subject.runId ? { runId: event.subject.runId } : {}), ...(event.subject.sessionId ? { sessionId: event.subject.sessionId } : {}),

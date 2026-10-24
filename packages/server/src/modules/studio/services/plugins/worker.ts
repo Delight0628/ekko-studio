@@ -4,14 +4,16 @@ import { RpcPeer, type RpcFrame } from '../../../../../../studio-plugin-sdk/src/
 import {
   StudioError, STUDIO_ERROR_CODES, STUDIO_PLUGIN_RPC_VERSION, type StudioErrorCode, type AgentTypeDefinition, type AgentRuntime,
   type AgentRunContext, type AgentRunHandle, type AgentOutputEvent, type AgentRunResult,
-  type ExecutionContext, type JsonValue, type JsonObject, type PluginIdentity, type ScopedLogger,
+  type ExecutionContext, type JsonValue, type JsonObject, type PluginIdentity, type ScopedLogger, type ServiceToken,
 } from '../../contracts/plugins'
+import type { ServiceAuthority } from './services'
 import { jsonCopy, toJson, parseAgentOutput } from './validation'
 import { AsyncChannel } from './channel'
 
 export interface WorkerActivation {
   agents: Array<Omit<AgentTypeDefinition, 'create'>>
   subscriptions: Array<{ id: string; type: string; once: boolean }>
+  services: ServiceToken[]
 }
 interface RemoteRun {
   channel: AsyncChannel<AgentOutputEvent>
@@ -33,6 +35,9 @@ export class PluginWorker {
   readonly peer: RpcPeer
   private readonly child: ChildProcess
   private readonly scopes = new Map<string, ExecutionContext>()
+  private readonly authorities = new Map<string, ServiceAuthority>()
+  private serviceCalls = 0
+  callService?: (context: ExecutionContext, args: JsonObject, authority: ServiceAuthority) => Promise<JsonValue>
   private readonly runs = new Map<string, RemoteRun>()
   private readonly runtimes = new Set<string>()
   private closed = false
@@ -92,7 +97,7 @@ export class PluginWorker {
 
   async activate(entry: string, identity: PluginIdentity, config: JsonObject): Promise<WorkerActivation> {
     const result = await this.peer.request('activate', toJson({ entry, identity, config, rpc: STUDIO_PLUGIN_RPC_VERSION })) as JsonObject
-    if (!result || result.rpc !== STUDIO_PLUGIN_RPC_VERSION || !Array.isArray(result.agents) || !Array.isArray(result.subscriptions)) {
+    if (!result || result.rpc !== STUDIO_PLUGIN_RPC_VERSION || !Array.isArray(result.agents) || !Array.isArray(result.subscriptions) || !Array.isArray(result.services)) {
       throw new StudioError('INVALID_ARGUMENT', 'Invalid plugin activation response')
     }
     return result as unknown as WorkerActivation
@@ -128,10 +133,31 @@ export class PluginWorker {
     }
   }
 
-  async withContext<T>(ctx: ExecutionContext, action: (handle: string) => Promise<T>): Promise<T> {
+  async withContext<T>(ctx: ExecutionContext, action: (handle: string) => Promise<T>, authority?: ServiceAuthority): Promise<T> {
     const handle = randomUUID()
     this.scopes.set(handle, ctx)
-    try { return await action(handle) } finally { this.scopes.delete(handle) }
+    if (authority) this.authorities.set(handle, authority)
+    try { return await action(handle) } finally { this.scopes.delete(handle); this.authorities.delete(handle) }
+  }
+
+  async invokeService(id: string, method: string, input: JsonValue, ctx: ExecutionContext, authority: ServiceAuthority): Promise<JsonValue> {
+    if (ctx.signal.aborted) throw new StudioError('CANCELLED', 'Service caller ended')
+    const callId = randomUUID()
+    this.serviceCalls++
+    try {
+      return await this.withContext(ctx, async scopeHandle => {
+        let cancel!: () => void
+        const cancelled = new Promise<never>((_, reject) => {
+          cancel = () => {
+            void this.peer.request('service.cancel', { callId }, 1_000).catch(() => {})
+            reject(ctx.signal.reason instanceof StudioError ? ctx.signal.reason : new StudioError('CANCELLED', 'Service caller ended'))
+          }
+          ctx.signal.addEventListener('abort', cancel, { once: true })
+        })
+        try { return await Promise.race([this.peer.request('service.invoke', toJson({ callId, id, method, input, scope: ctx.scope, scopeHandle }), 5_000), cancelled]) }
+        finally { ctx.signal.removeEventListener('abort', cancel) }
+      }, authority)
+    } finally { this.serviceCalls-- }
   }
 
   private async startRun(runtimeSessionId: string, input: Parameters<AgentRuntime['run']>[0], ctx: AgentRunContext): Promise<AgentRunHandle> {
@@ -160,7 +186,7 @@ export class PluginWorker {
     }
   }
 
-  hasLeases(): boolean { return this.runtimes.size > 0 || this.runs.size > 0 }
+  hasLeases(): boolean { return this.runtimes.size > 0 || this.runs.size > 0 || this.serviceCalls > 0 }
 
   close(): Promise<void> {
     return this.closing ??= (async () => {
@@ -181,39 +207,45 @@ export class PluginWorker {
     const params = value as JsonObject
     const ctx = this.scopes.get(String(params.scopeHandle))
     if (!ctx || ctx.signal.aborted) throw new StudioError('FORBIDDEN', 'Execution scope is unavailable')
+    const authority = this.authorities.get(String(params.scopeHandle))
+    const authorize = (capability: string) => { this.authorize(capability); authority?.(capability) }
+    if (params.method === 'services.call') {
+      if (!this.callService) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Plugin services are unavailable')
+      return this.callService(ctx, params.args as JsonObject, authorize)
+    }
     if (params.method === 'workflows.run') {
-      this.authorize('workflows.run')
+      authorize('workflows.run')
       return toJson(await ctx.workflows.run(params.args as unknown as Parameters<ExecutionContext['workflows']['run']>[0]))
     }
     if (params.method === 'workflows.get' || params.method === 'workflows.cancel') {
-      this.authorize(params.method === 'workflows.get' ? 'workflows.read' : 'workflows.cancel')
+      authorize(params.method === 'workflows.get' ? 'workflows.read' : 'workflows.cancel')
       const args = params.args as JsonObject
       if (!args || typeof args.id !== 'string' || Object.keys(args).some(key => key !== 'id')) throw new StudioError('INVALID_ARGUMENT', 'Only a workflow run id is accepted')
       return toJson(params.method === 'workflows.get' ? await ctx.workflows.get(args.id) : await ctx.workflows.cancel(args.id))
     }
     if (params.method === 'chat.start') {
-      this.authorize('chat.start')
+      authorize('chat.start')
       return toJson(await ctx.chat.start(params.args as unknown as Parameters<ExecutionContext['chat']['start']>[0]))
     }
     if (params.method === 'chat.get' || params.method === 'chat.cancel') {
-      this.authorize(params.method === 'chat.get' ? 'chat.read' : 'chat.cancel')
+      authorize(params.method === 'chat.get' ? 'chat.read' : 'chat.cancel')
       const args = params.args as JsonObject
       if (!args || typeof args.id !== 'string' || Object.keys(args).some(key => key !== 'id')) throw new StudioError('INVALID_ARGUMENT', 'Only a chat receipt id is accepted')
       return toJson(params.method === 'chat.get' ? await ctx.chat.get(args.id) : await ctx.chat.cancel(args.id))
     }
     if (params.method === 'sessions.get' || params.method === 'sessions.remove') {
-      this.authorize(params.method === 'sessions.get' ? 'sessions.read' : 'sessions.remove')
+      authorize(params.method === 'sessions.get' ? 'sessions.read' : 'sessions.remove')
       const args = params.args as JsonObject
       if (!args || typeof args.id !== 'string' || Object.keys(args).some(key => key !== 'id')) throw new StudioError('INVALID_ARGUMENT', 'Only a session id is accepted')
       return toJson(params.method === 'sessions.get' ? await ctx.sessions.get(args.id) : await ctx.sessions.remove(args.id))
     }
-    if (params.method === 'agents.list') { this.authorize('agents.read'); return jsonCopy(await ctx.agents.list()) as unknown as JsonValue }
+    if (params.method === 'agents.list') { authorize('agents.read'); return jsonCopy(await ctx.agents.list()) as unknown as JsonValue }
     if (params.method === 'runs.start') {
-      this.authorize('runs.start')
+      authorize('runs.start')
       return toJson(await ctx.runs.start(params.args as unknown as Parameters<ExecutionContext['runs']['start']>[0]))
     }
     if (['runs.cancel', 'runs.interactions', 'runs.respond', 'runs.usage'].includes(String(params.method))) {
-      this.authorize(params.method === 'runs.cancel' ? 'runs.cancel' : params.method === 'runs.respond' ? 'runs.respond' : 'runs.read')
+      authorize(params.method === 'runs.cancel' ? 'runs.cancel' : params.method === 'runs.respond' ? 'runs.respond' : 'runs.read')
       const args = params.args as JsonObject
       if (!args || typeof args.id !== 'string' || Object.keys(args).some(key => key !== 'id' && !(params.method === 'runs.respond' && key === 'input'))) throw new StudioError('INVALID_ARGUMENT', 'Invalid run operation')
       if (params.method === 'runs.cancel') return toJson(await ctx.runs.cancel(args.id))
@@ -222,7 +254,7 @@ export class PluginWorker {
       return toJson(await ctx.runs.respond(args.id, args.input as unknown as Parameters<ExecutionContext['runs']['respond']>[1]))
     }
     if (params.method === 'runs.get' || params.method === 'runs.output') {
-      this.authorize('runs.read')
+      authorize('runs.read')
       const args = params.args as JsonObject
       if (!args || typeof args.id !== 'string') throw new StudioError('INVALID_ARGUMENT', 'Run id is required')
       return toJson(params.method === 'runs.get' ? await ctx.runs.get(args.id) : await ctx.runs.output(args.id, args.after === undefined ? -1 : Number(args.after)))
@@ -236,7 +268,7 @@ export class PluginWorker {
     this.peer.close()
     const error = new StudioError('PLUGIN_UNAVAILABLE', 'Plugin worker exited')
     for (const run of this.runs.values()) { run.channel.finish(error); run.reject(error); run.release() }
-    this.runs.clear(); this.runtimes.clear(); this.scopes.clear()
+    this.runs.clear(); this.runtimes.clear(); this.scopes.clear(); this.authorities.clear()
     try { this.onExit() } catch { this.logger.error('Plugin cleanup failed') }
   }
 }

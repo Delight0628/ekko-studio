@@ -308,6 +308,20 @@ export interface EventEnvelope<T = JsonObject> {
 export type EventHandler<K extends keyof StudioEventMap> =
   (event: EventEnvelope<StudioEventMap[K]>, ctx: ExecutionContext) => void | Promise<void>
 
+export interface ServiceToken {
+  /** Publisher namespace plus service name and major, e.g. acme.search/index@1. */
+  id: string
+  version: string
+  methods: Record<string, { input: JsonSchema; output: JsonSchema }>
+}
+export interface ServiceDependency { id: string; version: string; optional?: boolean }
+export type ServiceImplementation = Record<string, (input: JsonValue, context: ExecutionContext) => JsonValue | Promise<JsonValue>>
+export interface ServiceClient {
+  status(): Promise<{ available: boolean; version?: string }>
+  /** Must receive a live context issued by the host, never caller-created identity. */
+  call(context: ExecutionContext, method: string, input: JsonValue): Promise<JsonValue>
+}
+
 export interface PluginManifest {
   schemaVersion: 1
   id: string
@@ -315,8 +329,8 @@ export interface PluginManifest {
   engines: { studioSdk: string; rpc: 1 }
   backend: string
   activation: 'profile'
-  contributes: { agents: string[]; events?: Record<string, JsonSchema> }
-  requires: { capabilities: string[] }
+  contributes: { agents: string[]; events?: Record<string, JsonSchema>; services?: ServiceToken[] }
+  requires: { capabilities: string[]; services?: ServiceDependency[] }
   configSchema?: JsonSchema
 }
 
@@ -325,6 +339,10 @@ export interface PluginContext {
   readonly config: Readonly<JsonObject>
   readonly logger: ScopedLogger
   readonly agents: { register(definition: AgentTypeDefinition): Disposer }
+  readonly services: {
+    provide(token: ServiceToken, implementation: ServiceImplementation): Disposer
+    use(dependency: ServiceDependency): ServiceClient
+  }
   readonly lifecycle: { onDispose(dispose: Disposer): Disposer }
   on<K extends keyof StudioEventMap>(type: K, handler: EventHandler<K>): Disposer
   once<K extends keyof StudioEventMap>(type: K, handler: EventHandler<K>): Disposer

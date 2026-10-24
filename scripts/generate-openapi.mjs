@@ -1956,7 +1956,7 @@ for (const [path, methods] of Object.entries(openapi.paths)) {
       '401': { $ref: '#/components/responses/Unauthorized' }, '403': { description: 'Access denied or SYSTEM_PLUGIN_PROTECTED; no deletion side effects.' },
       '404': { description: 'Plugin not installed.' }, '409': { description: 'Revision conflict, registration conflict or active runtime leases.' },
       '422': { description: 'Plugin requests unsupported capabilities.' }, '503': { description: 'Plugin host or runtime unavailable.' } }
-    if (path.endsWith('/profile') || path.startsWith('/api/studio/agent-')) {
+    if (path.endsWith('/profile') || path.endsWith('/diagnostic') || path.startsWith('/api/studio/agent-')) {
       operation.parameters = [...(operation.parameters || []).filter(parameter => parameter.name !== 'profile'), studioPluginProfile]
     }
   }
@@ -1964,6 +1964,18 @@ for (const [path, methods] of Object.entries(openapi.paths)) {
 openapi.paths['/api/studio/plugins'].post.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, required: ['path'], properties: {
   path: { type: 'string', minLength: 1, description: 'Local trusted plugin directory containing studio-plugin.json and compiled backend entry. Installation copies an immutable artifact without executing package scripts.' },
 } })
+openapi.paths['/api/studio/plugins/{id}/diagnostic'].get.responses['200'] = {
+  description: 'Profile activation state and stable error code. Does not expose configuration, credentials, paths or raw worker errors.',
+  content: { 'application/json': { schema: { type: 'object', required: ['ok', 'data'], properties: {
+    ok: { type: 'boolean', enum: [true] }, data: { type: 'object', additionalProperties: false,
+      required: ['pluginId', 'profileId', 'generation', 'configurationRevision', 'state', 'errorCode', 'updatedAt', 'hasActiveLeases'], properties: {
+        pluginId: { type: 'string' }, profileId: { type: 'string' }, generation: { type: 'string' }, configurationRevision: { type: 'integer', minimum: 0 },
+        state: { type: 'string', enum: ['disabled', 'inactive', 'activating', 'ready', 'blocked', 'failed'] },
+        errorCode: { type: 'string', nullable: true }, updatedAt: { type: 'integer', nullable: true }, hasActiveLeases: { type: 'boolean' },
+      },
+    },
+  } } } },
+}
 openapi.paths['/api/studio/plugins/{id}/profile'].put.requestBody = studioPluginBody({ type: 'object', additionalProperties: false,
   required: ['enabled', 'config', 'grants', 'revision'], properties: {
     enabled: { type: 'boolean' }, config: { type: 'object', additionalProperties: true },

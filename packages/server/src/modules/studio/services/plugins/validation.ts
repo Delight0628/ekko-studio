@@ -1,8 +1,8 @@
 import Ajv from 'ajv'
-import { valid, validRange, satisfies } from 'semver'
+import { valid, validRange, satisfies, major } from 'semver'
 import {
   StudioError, STUDIO_SDK_VERSION,
-  type JsonValue, type JsonSchema, type PluginManifest, type AgentTypeDefinition, type AgentOutputEvent,
+  type JsonValue, type JsonSchema, type PluginManifest, type AgentTypeDefinition, type AgentOutputEvent, type ServiceToken,
 } from '../../contracts/plugins'
 
 const ajv = new Ajv({ allErrors: false, strict: true, validateFormats: false, allowUnionTypes: true })
@@ -50,6 +50,21 @@ export function compileSchema(schema: JsonSchema): (value: JsonValue) => void {
   }
 }
 
+const serviceId = { type: 'string', maxLength: 256, pattern: '^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+/[a-z][a-z0-9-]*@[1-9][0-9]*$' }
+const serviceSchema = { type: 'object', additionalProperties: false, required: ['id', 'version', 'methods'], properties: {
+  id: serviceId, version: { type: 'string', maxLength: 64 },
+  methods: { type: 'object', minProperties: 1, maxProperties: 32, propertyNames: { pattern: '^[a-z][a-zA-Z0-9]*$', maxLength: 128, not: { enum: ['constructor', 'prototype'] } }, additionalProperties: {
+    type: 'object', additionalProperties: false, required: ['input', 'output'], properties: { input: { type: ['object', 'boolean'] }, output: { type: ['object', 'boolean'] } },
+  } },
+} }
+const validateService = ajv.compile(serviceSchema)
+export function parseServiceToken(value: unknown): ServiceToken {
+  const token = jsonCopy(value) as ServiceToken
+  if (!validateService(token) || !valid(token.version) || major(token.version) !== Number(token.id.split('@').at(-1))) throw new StudioError('INVALID_ARGUMENT', 'Invalid service token')
+  for (const method of Object.values(token.methods)) { compileSchema(method.input); compileSchema(method.output) }
+  return token
+}
+
 const manifestSchema = {
   type: 'object', additionalProperties: false,
   required: ['schemaVersion', 'id', 'version', 'engines', 'backend', 'activation', 'contributes', 'requires'],
@@ -60,9 +75,13 @@ const manifestSchema = {
     contributes: { type: 'object', additionalProperties: false, required: ['agents'], properties: {
       agents: { type: 'array', maxItems: 64, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 256 } },
       events: { type: 'object', maxProperties: 64, additionalProperties: { type: ['object', 'boolean'] } },
+      services: { type: 'array', maxItems: 64, items: serviceSchema },
     } },
     requires: { type: 'object', additionalProperties: false, required: ['capabilities'], properties: {
       capabilities: { type: 'array', maxItems: 128, uniqueItems: true, items: { type: 'string', maxLength: 256 } },
+      services: { type: 'array', maxItems: 64, items: { type: 'object', additionalProperties: false, required: ['id', 'version'], properties: {
+        id: serviceId, version: { type: 'string', maxLength: 128 }, optional: { type: 'boolean' },
+      } } },
     } },
     configSchema: { type: ['object', 'boolean'] },
   },
@@ -80,6 +99,16 @@ export function parseManifest(value: unknown): PluginManifest {
     throw new StudioError('INVALID_ARGUMENT', 'Plugin entry must be a relative path inside its artifact')
   }
   if (result.configSchema !== undefined) compileSchema(result.configSchema)
+  const provided = new Set<string>(), required = new Set<string>()
+  for (const value of result.contributes.services || []) {
+    const token = parseServiceToken(value)
+    if (!token.id.startsWith(`${result.id}/`) || provided.has(token.id)) throw new StudioError('INVALID_ARGUMENT', 'Invalid or duplicate service publisher')
+    provided.add(token.id)
+  }
+  for (const dependency of result.requires.services || []) {
+    if (!validRange(dependency.version) || required.has(dependency.id)) throw new StudioError('INVALID_ARGUMENT', 'Invalid or duplicate service dependency')
+    required.add(dependency.id)
+  }
   for (const [name, schema] of Object.entries(result.contributes.events || {})) {
     if (!name.startsWith(`${result.id}:`) || !/^[a-z0-9.-]+:[a-z][a-z0-9.-]*$/.test(name)) throw new StudioError('INVALID_ARGUMENT', 'Invalid plugin event namespace')
     compileSchema(schema)

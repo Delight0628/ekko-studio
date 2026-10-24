@@ -90,7 +90,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
   executionStore.recover()
   const coordinator: AgentCoordinator = new AgentCoordinator({ store: executionStore, registry, events, logger,
     authorize: authorizePluginScope, context })
-  const host = new PluginHost({ store, registry, events, runnerPath, artifactsRoot: resolve(config.appHome, 'plugins', 'artifacts'), logger,
+  const host = new PluginHost({ store, registry, events, runnerPath, artifactsRoot: resolve(config.appHome, 'plugins', 'artifacts'), logger, context,
     eventContext: async (state, event, signal) => {
       const run = event.subject.runId ? executionStore.get(event.subject.runId) : null
       if (run && run.ownerId !== state.ownerId) throw new StudioError('FORBIDDEN', 'Run is outside the subscription owner scope')

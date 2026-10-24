@@ -11,7 +11,7 @@
 | 公共 SDK | 独立 TypeScript 包、JSON DTO、manifest、Agent 工厂、作用域、输出事件、错误码、注册/通知回调/清理入口；SDK/RPC 版本检查 |
 | 上下文 | 宿主签发不可变身份与 profile；当前有 `sessions.get/remove`、`agents.list`、`runs.start/get/output/cancel/interactions/respond/usage`、`chat.start/get/cancel` 和 `workflows.run/get/cancel`；每次调用重新授权并校验取消状态，RPC 使用宿主句柄。独立实例/工作流要求无资源绑定；聊天支持绑定自身会话 |
 | 注册 | profile 隔离、内置/插件提供方联合类型、激活阶段暂存、完整声明及冲突校验、事务发布、generation 资源释放 |
-| 插件宿主 | 本地目录校验、摘要工件、独立子进程、有限 RPC 并发、请求超时、输出背压、进程树清理、配置 revision、运行时租约 |
+| 插件宿主 | 本地目录校验、摘要工件、独立子进程、有限 RPC 并发、请求超时、输出背压、进程树清理、配置 revision、运行时租约；profile 服务依赖图、schema RPC 和持久化激活诊断 |
 | 安装策略 | 14 个系统插件 ID 已保留；用户安装不能覆盖，删除在接触工件/worker 前返回 `SYSTEM_PLUGIN_PROTECTED`；profile 选择不会被重复系统登记覆盖 |
 | 事件 | `ctx.on` / `ctx.once`、profile/owner 授权、每分区有序通知、队列及超时上限；仅把明确允许的旧业务事件字段投影到公共事件表 |
 | Agent API 执行 | 实例、接受请求、幂等、启动、流输出、完成屏障、取消、终态与事件事务落库；崩溃恢复标记 interrupted，不自动重放输入 |
@@ -30,6 +30,7 @@
 | `GET /api/studio/plugins` | 已安装插件与宿主决定的安装策略；超级管理员 |
 | `POST /api/studio/plugins` | 从服务器本地目录安装；超级管理员；不自动启用 |
 | `GET /api/studio/plugins/:id/profile` | 读取 profile 配置及 revision；超级管理员 |
+| `GET /api/studio/plugins/:id/diagnostic` | 读取当前 profile 的激活状态、公共错误码和租约占用；超级管理员 |
 | `PUT /api/studio/plugins/:id/profile` | 配置、授予声明的能力、启停；超级管理员；活动租约阻止切换 |
 | `DELETE /api/studio/plugins/:id` | 卸载用户插件；超级管理员；保留配置及运行历史 |
 | `GET /api/studio/agent-types` | 当前已激活插件提供的目录；尚未合并旧内置目录 |
@@ -49,7 +50,7 @@
 | T00 | 已完成源码清单及部分原测试基线；真实 CLI/平台矩阵、协议录制、数据副本和性能基线尚未齐全 |
 | T01 | SDK 和边界检查已有实现；仍需与完整契约对齐，包括交互、管理、可靠消费等 |
 | T02 | 会话删除、Agent 实例启动、旧聊天准入及工作流启动已与 SDK 共用服务；已覆盖作用域、幂等与真实 worker RPC。群聊、全局任务及其余领域仍未完成；工作流原引擎尚未统一 |
-| T03 | 进程、RPC、注册回滚和资源回收已有实现；服务依赖图及完整诊断尚未完成 |
+| T03 | 进程、RPC、注册回滚、资源回收、profile 服务 DAG 与调用、激活诊断已有实现；服务变更通知、完整运行诊断和限额验收仍未完成 |
 | T04 | 通知与持久化事件已有实现；可靠消费者、重试/死信、保留期、hooks 和旧投影的事务统一未完成 |
 | T05 | ACP 驱动已抽取；受管进程/MCP/模型、其他协议驱动仍需迁移 |
 | T06 | 实例 API 已有多轮租约、交互、取消、token 归并和成功 checkpoint；模型服务计量关联、父子 Run、原聊天及其他入口统一写入未完成 |
@@ -247,6 +248,25 @@ HTTP `runNow` 与 `ctx.workflows.run` 共用图预检、模型/节点能力检�
 - `get/cancel` 复用现有工作流记录与停止服务；`canceled` 表示原调度器已取消。原停止服务会记录原生中止失败，因此不能用该回执证明所有原生进程均已停止；完整取消屏障仍属 T06/T11。
 
 验证：4 个文件、197 项通过，覆盖真实 worker 授权/撤权、SDK/HTTP 兼容、并发幂等、原调度器、末次授权、定义变更和数据库故障回滚；生产构建通过。该增量不增加第二个工作流输出写入者，也未把原引擎迁为新实例协调器；工作流的统一父子 Run、预算与实际用量仍需继续实现。
+
+## T03 进展：服务依赖、RPC 与激活诊断
+
+manifest 可声明 `contributes.services` 的版本和方法输入/输出 schema，以及 `requires.services` 的版本范围和可选标记。服务 ID 必须属于提供插件的命名空间并携带 major，例如 `acme.search/index@1`；不能覆盖核心服务。
+
+- `ctx.services.provide(token, implementation)` 仅在激活时登记完整声明。Agent/服务先暂存并校验，再同步发布；缺方法、版本/schema 不符、冲突或初始化失败都会回收该代贡献。
+- 宿主在导入代码前构建当前 profile 的依赖图，按提供者优先激活；缺失、禁用或不兼容的必需依赖阻止激活，循环依赖拒绝。可选依赖不会无限等待，`ctx.services.use(dependency).status()` 返回当前可用状态。
+- `client.call(executionContext, method, input)` 必须使用宿主签发的存活上下文。RPC 不接受自报身份，保留原主体、profile、资源绑定和 trace。方法输入/输出均在宿主校验，单次调用有 5 秒边界，取消信号会传到提供方。
+- 服务调用分别要求 `services.use:<id>`、`services.provide:<id>`。提供方通过转发上下文调用 Studio 领域 API 时，必须同时满足提供方和整条调用链的当前 grants；不能借服务 token 扩大权限。
+- 必需消费者仍启用时拒绝卸载提供者；活动消费者存在时拒绝切换其提供者配置。提供者崩溃或主动撤销服务会撤下必需消费者，保留无关健康插件；可选消费者继续存在并观察 unavailable。
+- 激活状态与配置分开持久化。诊断接口返回 `disabled/inactive/activating/ready/blocked/failed`、公共错误码、配置 revision 与租约状态，不返回原生错误、配置、路径或凭据。宿主退出后不将持久化的旧 ready 当作当前可用。
+
+真实 worker、依赖图/schema、撤权/取消、崩溃级联、注册回滚、诊断 HTTP 与 RPC 专项：5 个文件、49 项通过；生产构建、harness、规划链接与差异检查通过。服务变更订阅、完整诊断视图、可靠事件、hooks 和共享进程/MCP/模型仍属于未完成范围；本节不代表 T03–T05 整体完成。
+
+## 本轮运行与工作流增量的完整回归
+
+服务增量之前的完整 coverage 复验为 892 个文件、9,149 项通过，12 个文件/32 项跳过，573.48 秒；保留仓库默认时限。此前全量中失败的路由注册用例把整个应用导入耗时计入行为断言，现将导入移至 fixture 初始化，仍执行原路由及顺序断言；单文件 coverage 的 24 项通过。
+
+浏览器首轮为 1,021 项通过、3 项失败，未记为全绿。空缓存复现定位到 XLSX worker 的 `read-excel-file/web-worker` 未被初始依赖扫描覆盖，运行中补打包导致页面重载并关闭同时打开的 DOCX；已加入 Vite 预构建，空缓存预览/侧栏专项 12 项通过。侧栏几何断言改为等待路由初始化后的稳定位置，保持原尺寸条件与默认时限。完整浏览器矩阵正在复验，服务增量也须以其自身后续全量结果为准。
 
 ## CI 修复：JEV harness 重复解析
 

@@ -60,6 +60,7 @@ export const configurePlugin = (ctx: Context) => respond(ctx, async () => {
 })
 
 export const getPluginProfile = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().store.profile(ctx.params.id, profile(ctx)))
+export const getPluginDiagnostic = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().host.diagnostic(ctx.params.id, profile(ctx)))
 export const removePlugin = (ctx: Context) => respond(ctx, async () => {
   await getStudioPluginRuntime().host.uninstall(ctx.params.id)
   return { removed: true }

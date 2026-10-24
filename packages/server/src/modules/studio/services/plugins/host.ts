@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   StudioError, type EventEnvelope, type ExecutionContext, type JsonObject, type JsonValue,
-  type ScopedLogger, type StudioEventMap, type Disposer,
+  type ScopedLogger, type StudioEventMap, type Disposer, type ExecutionScope, type ServiceDependency,
 } from '../../contracts/plugins'
 import { SYSTEM_CODING_PLUGINS, isSystemPluginId } from '../../contracts/system-plugins'
 import { PluginStore, type PluginInstallation, type PluginProfileState } from '../../repositories/plugin-store'
@@ -11,6 +11,8 @@ import { inspectPluginArtifact, stagePluginArtifact } from './artifacts'
 import { compileSchema, jsonCopy, parseManifest, toJson } from './validation'
 import { ResourceScope } from './resources'
 import { PluginWorker } from './worker'
+import { pluginActivationOrder, requiredServiceDependents } from './dependencies'
+import { PluginServiceRegistry } from './services'
 
 interface ActivePlugin { worker: PluginWorker; resources: ResourceScope; generation: string }
 export interface PluginHostOptions {
@@ -21,6 +23,7 @@ export interface PluginHostOptions {
   runnerPath: string
   logger: ScopedLogger
   eventContext(state: PluginProfileState, event: EventEnvelope, signal: AbortSignal): Promise<ExecutionContext>
+  context(scope: ExecutionScope, signal: AbortSignal): ExecutionContext
   acceptEvents(events: EventEnvelope[]): Promise<void>
 }
 
@@ -37,11 +40,23 @@ const SUPPORTED_CAPABILITIES = new Set([
 export class PluginHost {
   private readonly active = new Map<string, ActivePlugin>()
   private readonly operations = new Map<string, Promise<unknown>>()
+  private readonly services = new PluginServiceRegistry()
+  private readonly cleanups = new Set<Promise<void>>()
   private closed = false
 
   constructor(private readonly options: PluginHostOptions) {}
 
   list(): PluginInstallation[] { return this.options.store.list() }
+
+  diagnostic(pluginId: string, profileId: string) {
+    const installation = this.requireInstallation(pluginId), profile = this.options.store.profile(pluginId, profileId)
+    const saved = this.options.store.diagnostic(pluginId, profileId), active = this.active.get(this.key(pluginId, profileId))
+    const current = saved?.configurationRevision === (profile?.revision || 0) ? saved : null
+    const state = !profile?.enabled ? 'disabled' : active ? 'ready' : current?.state === 'ready' ? 'inactive' : current?.state || 'inactive'
+    return { pluginId, profileId, generation: installation.generation, configurationRevision: profile?.revision || 0,
+      state, errorCode: state === 'blocked' || state === 'failed' ? current?.errorCode || null : null,
+      updatedAt: current?.updatedAt || null, hasActiveLeases: !!active?.worker.hasLeases() }
+  }
 
   install(source: string): Promise<PluginInstallation> {
     return this.serial('install', async () => {
@@ -72,6 +87,9 @@ export class PluginHost {
       if (input.grants.some(grant => !installation.manifest.requires.capabilities.includes(grant))) throw new StudioError('INVALID_ARGUMENT', 'Grant was not declared by plugin')
       const active = this.active.get(this.key(input.pluginId, input.profileId))
       if (active?.worker.hasLeases()) throw new StudioError('REVISION_CONFLICT', 'Drain Agent sessions before changing plugin configuration')
+      if (active && requiredServiceDependents(this.options.store, input.pluginId, input.profileId).some(state => this.active.has(this.key(state.pluginId, state.profileId)))) {
+        throw new StudioError('REVISION_CONFLICT', 'Disable dependent plugins before changing their service provider')
+      }
       // Compare and persist before stopping any healthy activation.
       const state = this.options.store.saveProfile(jsonCopy(input), expectedRevision)
       await this.stop(input.pluginId, input.profileId)
@@ -94,6 +112,7 @@ export class PluginHost {
     this.options.store.assertRemovable(pluginId)
     return this.serial(pluginId, async () => {
       this.options.store.assertRemovable(pluginId)
+      if (requiredServiceDependents(this.options.store, pluginId).length) throw new StudioError('REVISION_CONFLICT', 'Plugin is required by enabled service consumers')
       const entries = [...this.active].filter(([key]) => key.startsWith(`${pluginId}:`))
       if (entries.some(([, value]) => value.worker.hasLeases())) throw new StudioError('REVISION_CONFLICT', 'Plugin still has active runtime leases')
       for (const [key, active] of entries) { this.active.delete(key); await active.resources.close() }
@@ -113,11 +132,29 @@ export class PluginHost {
     this.closed = true
     await Promise.allSettled([...this.operations.values()])
     const active = [...this.active.values()]
+    for (const state of this.options.store.enabledProfiles()) {
+      if (this.active.has(this.key(state.pluginId, state.profileId))) this.options.store.recordDiagnostic(state.pluginId, state.profileId, 'inactive')
+    }
     this.active.clear()
     await Promise.all(active.map(entry => entry.resources.close()))
+    await Promise.allSettled([...this.cleanups])
   }
 
   private async activateState(installation: PluginInstallation, state: PluginProfileState): Promise<void> {
+    this.options.store.recordDiagnostic(installation.id, state.profileId, 'activating')
+    try {
+      const order = pluginActivationOrder(this.options.store, installation.id, state.profileId)
+      for (const id of order) if (id !== installation.id) await this.activate(id, state.profileId)
+      await this.activateWorker(installation, state)
+    } catch (error) {
+      const code = error instanceof StudioError ? error.code : 'INTERNAL'
+      this.options.store.recordDiagnostic(installation.id, state.profileId,
+        ['FORBIDDEN', 'PLUGIN_UNAVAILABLE', 'PLUGIN_VERSION_INCOMPATIBLE', 'REGISTRATION_CONFLICT'].includes(code) ? 'blocked' : 'failed', code)
+      throw error
+    }
+  }
+
+  private async activateWorker(installation: PluginInstallation, state: PluginProfileState): Promise<void> {
     const manifest = parseManifest(installation.manifest)
     this.validateDeclarations(manifest)
     if (manifest.requires.capabilities.some(capability => !state.grants.includes(capability))) throw new StudioError('FORBIDDEN', 'Plugin capabilities have not been granted')
@@ -136,11 +173,53 @@ export class PluginHost {
     }
     let worker: PluginWorker
     worker = new PluginWorker(this.options.runnerPath, this.options.logger, () => {
-      if (this.active.get(key)?.worker === worker) this.active.delete(key)
-      void resources.close()
+      if (this.active.get(key)?.worker === worker) {
+        this.active.delete(key)
+        this.options.store.recordDiagnostic(installation.id, state.profileId, 'failed', 'PLUGIN_UNAVAILABLE')
+        this.trackCleanup(this.invalidateDependents(installation.id, state.profileId))
+      }
+      this.trackCleanup(resources.close())
     }, authorize)
     resources.add(() => worker.close())
     resources.add(() => registration.dispose())
+    const serviceRegistration = this.services.stage(state.profileId, manifest.contributes.services || [], async (id, ctx, method, input, authority) => {
+      authorize(`services.provide:${id}`)
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(new StudioError('DEADLINE_EXCEEDED', 'Service deadline exceeded')), 5_000)
+      const forwarded = this.options.context(ctx.scope, AbortSignal.any([ctx.signal, resources.signal, controller.signal]))
+      try { return await worker.invokeService(id, method, input, forwarded, authority) }
+      finally { clearTimeout(timer); controller.abort() }
+    }, () => {
+      const current = this.options.store.profile(installation.id, state.profileId)
+      return !this.closed && this.active.get(key)?.worker === worker && !!current?.enabled && manifest.requires.capabilities.every(capability => current.grants.includes(capability))
+    })
+    resources.add(() => serviceRegistration.dispose())
+    const dependency = (value: JsonValue): ServiceDependency => {
+      if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['id', 'version', 'optional'].includes(key))) throw new StudioError('INVALID_ARGUMENT', 'Invalid service dependency')
+      const declared = manifest.requires.services?.find(item => item.id === value.id && item.version === value.version)
+      if (!declared) throw new StudioError('FORBIDDEN', 'Service dependency was not declared')
+      authorize(`services.use:${declared.id}`)
+      return declared
+    }
+    worker.peer.handle('service.status', value => {
+      const params = value as JsonObject
+      if (!params || Object.keys(params).some(key => key !== 'dependency')) throw new StudioError('INVALID_ARGUMENT', 'Invalid service status request')
+      return toJson(this.services.status(state.profileId, dependency(params.dependency)))
+    })
+    worker.callService = async (ctx, args, authority) => {
+      if (!args || typeof args !== 'object' || Array.isArray(args) || typeof args.method !== 'string'
+        || Object.keys(args).some(key => !['dependency', 'method', 'input'].includes(key))) throw new StudioError('INVALID_ARGUMENT', 'Invalid service call')
+      const target = dependency(args.dependency)
+      authority(`services.use:${target.id}`)
+      return this.services.call(ctx, target, args.method, args.input, authority)
+    }
+    worker.peer.handle('service.remove', value => {
+      const id = String((value as JsonObject).id)
+      if (!manifest.contributes.services?.some(token => token.id === id)) throw new StudioError('FORBIDDEN', 'Service was not provided by this plugin')
+      serviceRegistration.remove(id)
+      this.trackCleanup(this.invalidateDependents(installation.id, state.profileId))
+      return null
+    })
     const removers = new Map<string, Disposer>()
     const subscriptions = new Map<string, Disposer>()
     const pendingEvents: EventEnvelope[] = []
@@ -161,6 +240,8 @@ export class PluginHost {
     })
     try {
       const activated = await worker.activate(artifact.entry, { id: manifest.id, version: manifest.version, generation: installation.generation, profileId: state.profileId }, state.config)
+      for (const service of activated.services) authorize(`services.provide:${service.id}`)
+      serviceRegistration.validate(activated.services)
       if (activated.agents.length) authorize('agents.register')
       for (const meta of activated.agents) removers.set(meta.id, registration.register(worker.definition(meta)))
       const stagedSubscriptions: Array<() => void> = []
@@ -182,9 +263,14 @@ export class PluginHost {
         })
       }
       if (resources.signal.aborted) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin exited during activation')
+      for (const required of manifest.requires.services || []) {
+        if (!required.optional && !this.services.status(state.profileId, required).available) throw new StudioError('PLUGIN_UNAVAILABLE', 'Required service disappeared during activation')
+      }
       registration.commit()
+      serviceRegistration.commit()
       stagedSubscriptions.forEach(subscribe => subscribe())
       this.active.set(key, { worker, resources, generation: installation.generation })
+      this.options.store.recordDiagnostic(installation.id, state.profileId, 'ready')
       committed = true
       await this.options.acceptEvents([...pendingEvents, this.event('plugin.ready', { profileId: state.profileId, pluginId: manifest.id }, { pluginId: manifest.id, generation: installation.generation })])
     } catch (error) { if (this.active.get(key)?.worker === worker) this.active.delete(key); await resources.close(); throw error }
@@ -204,6 +290,8 @@ export class PluginHost {
     for (const capability of manifest.requires.capabilities) {
       if (SUPPORTED_CAPABILITIES.has(capability)) continue
       if (capability.startsWith('events.emit:') && Object.hasOwn(manifest.contributes.events || {}, capability.slice('events.emit:'.length))) continue
+      if (capability.startsWith('services.provide:') && manifest.contributes.services?.some(service => capability === `services.provide:${service.id}`)) continue
+      if (capability.startsWith('services.use:') && manifest.requires.services?.some(service => capability === `services.use:${service.id}`)) continue
       throw new StudioError('CAPABILITY_UNSUPPORTED', 'Plugin requests an unsupported capability')
     }
   }
@@ -214,8 +302,24 @@ export class PluginHost {
     return installation
   }
 
+  private async invalidateDependents(pluginId: string, profileId: string): Promise<void> {
+    for (const dependent of requiredServiceDependents(this.options.store, pluginId, profileId)) {
+      if (!this.active.has(this.key(dependent.pluginId, profileId))) continue
+      await this.stop(dependent.pluginId, profileId)
+      this.options.store.recordDiagnostic(dependent.pluginId, profileId, 'blocked', 'PLUGIN_UNAVAILABLE')
+      await this.invalidateDependents(dependent.pluginId, profileId)
+    }
+  }
+
+  private trackCleanup(pending: Promise<void>): void {
+    this.cleanups.add(pending)
+    void pending.catch(() => this.options.logger.warn('Plugin dependency cleanup failed'))
+      .finally(() => this.cleanups.delete(pending))
+  }
+
   private async stop(pluginId: string, profileId: string): Promise<void> {
     const key = this.key(pluginId, profileId), active = this.active.get(key)
+    this.options.store.recordDiagnostic(pluginId, profileId, this.options.store.profile(pluginId, profileId)?.enabled ? 'inactive' : 'disabled')
     if (!active) return
     this.active.delete(key)
     await active.resources.close()
