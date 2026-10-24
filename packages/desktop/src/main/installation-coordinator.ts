@@ -1,65 +1,68 @@
-import { mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync, rmdirSync, realpathSync } from 'node:fs'
+import { mkdirSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
+import { DatabaseSync } from 'node:sqlite'
 
 const alive = (pid: number) => {
   if (!Number.isSafeInteger(pid) || pid < 1) return true
   try { process.kill(pid, 0); return true } catch (e) { return (e as NodeJS.ErrnoException).code !== 'ESRCH' }
 }
-/** One application installation, not one device/home. No process is force-closed. */
+/** SQLite owns the short transaction lock; killed processes cannot strand it. */
 export class InstallationCoordinator {
-  private readonly root: string
+  private readonly db: DatabaseSync
   private installing = false
   constructor(executable: string, root = join(homedir(), '.ekko-desktop-installations')) {
     const canonical = realpathSync(executable)
-    this.root = join(root, createHash('sha256').update(canonical).digest('hex'))
-    mkdirSync(this.root, { recursive: true, mode: 0o700 })
+    const directory = join(root, createHash('sha256').update(canonical).digest('hex'))
+    mkdirSync(directory, { recursive: true, mode: 0o700 })
+    this.db = new DatabaseSync(join(directory, 'coordination.sqlite'))
+    this.db.exec('PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS members(pid INTEGER PRIMARY KEY); CREATE TABLE IF NOT EXISTS installation(id INTEGER PRIMARY KEY CHECK(id=1), pid INTEGER NOT NULL, version TEXT NOT NULL);')
   }
   private transaction<T>(operation: () => T): T {
-    const gate = join(this.root, 'gate')
-    const deadline = Date.now() + 1000
-    for (;;) {
-      try { mkdirSync(gate, { mode: 0o700 }); break } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
-        if (Date.now() >= deadline) throw new Error('Desktop installation coordination is busy; retry')
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
-      }
-    }
-    try { return operation() } finally { rmdirSync(gate) }
+    this.db.exec('BEGIN IMMEDIATE')
+    try { const value = operation(); this.db.exec('COMMIT'); return value }
+    catch (error) { this.db.exec('ROLLBACK'); throw error }
   }
   private members(): number[] {
-    return readdirSync(this.root).filter(n => /^\d+\.json$/.test(n)).flatMap(n => {
-      const pid = Number(n.slice(0, -5))
+    return this.db.prepare('SELECT pid FROM members').all().flatMap(row => {
+      const pid = Number(row.pid)
       if (alive(pid)) return [pid]
-      unlinkSync(join(this.root, n)); return []
+      this.db.prepare('DELETE FROM members WHERE pid=?').run(pid); return []
     })
   }
   register(installedVersion: string): void {
     this.transaction(() => {
-      const pending = join(this.root, 'installing.json')
-      try {
-        const record = JSON.parse(readFileSync(pending, 'utf8'))
-        if (record.version === installedVersion && !alive(record.pid)) unlinkSync(pending)
-        else throw new Error('Another Desktop update is in progress; finish the update before opening a device')
-      } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e }
+      const record = this.db.prepare('SELECT pid,version FROM installation WHERE id=1').get()
+      if (record) {
+        if (record.version === installedVersion && !alive(Number(record.pid))) this.db.exec('DELETE FROM installation')
+        else throw new Error('DESKTOP_INSTALLATION_IN_PROGRESS')
+      }
       this.members()
-      writeFileSync(join(this.root, `${process.pid}.json`), '{}', { mode: 0o600 })
+      this.db.prepare('INSERT OR IGNORE INTO members VALUES(?)').run(process.pid)
+    })
+  }
+  /** Only call following explicit user confirmation; never time out an installer. */
+  recoverInterruptedInstall(): void {
+    this.transaction(() => {
+      const record = this.db.prepare('SELECT pid FROM installation WHERE id=1').get()
+      if (record && alive(Number(record.pid))) throw new Error('DESKTOP_INSTALLATION_IN_PROGRESS')
+      this.db.exec('DELETE FROM installation')
     })
   }
   beginInstall(targetVersion: string): () => void {
     this.transaction(() => {
       if (this.members().some(pid => pid !== process.pid)) throw new Error('DESKTOP_OTHER_DEVICE_WINDOWS_OPEN')
-      writeFileSync(join(this.root, 'installing.json'), JSON.stringify({ pid: process.pid, version: targetVersion }), { flag: 'wx', mode: 0o600 })
+      this.db.prepare('INSERT INTO installation VALUES(1,?,?)').run(process.pid, targetVersion)
       this.installing = true
     })
     return () => this.transaction(() => {
-      if (this.installing) { unlinkSync(join(this.root, 'installing.json')); this.installing = false }
+      if (this.installing) { this.db.exec('DELETE FROM installation'); this.installing = false }
     })
   }
+  close(): void { this.db.close() }
   release(): void {
-    // Installation marker survives app exit: new starts stay blocked until the
-    // new version is running. Failed installs explicitly cancel it.
-    try { unlinkSync(join(this.root, `${process.pid}.json`)) } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e }
+    this.db.prepare('DELETE FROM members WHERE pid=?').run(process.pid)
+    this.db.close()
   }
 }

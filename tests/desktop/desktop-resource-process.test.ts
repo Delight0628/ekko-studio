@@ -9,7 +9,7 @@ import { expect, it } from 'vitest'
 it('protects profiles and install handoff between real processes', async () => {
  const root=mkdtempSync(join(tmpdir(),'desktop-resources-'))
  const dist=join(root,'dist');mkdirSync(join(dist,'browser'),{recursive:true})
- for(const file of ['installation-coordinator','browser/browser-profile-lease']){
+ for(const file of ['installation-coordinator','browser/browser-profile-lease','device-window-owner']){
   buildSync({entryPoints:[resolve(`packages/desktop/src/main/${file}.ts`)],outfile:join(dist,`${file}.js`),bundle:true,platform:'node',format:'cjs',external:['electron'],logLevel:'silent'})
  }
  const children:ChildProcessWithoutNullStreams[]=[]
@@ -35,6 +35,19 @@ it('protects profiles and install handoff between real processes', async () => {
   const b=launch({PROBE_PROFILE:alias});expect((await b.receive()).event).toBe('blocked')
   await exit(a)
   const c=launch({PROBE_PROFILE:profile});expect((await c.receive()).event).toBe('profile-owned');await exit(c)
+  const { deviceWindowEndpoint } = await import('../../packages/desktop/src/main/device-window-owner')
+  const endpoint=deviceWindowEndpoint(root,'https://stress.test')
+  const owner=launch({PROBE_DEVICE:endpoint});expect((await owner.receive()).event).toBe('device-owned')
+  const duplicates=Array.from({length:6},()=>launch({PROBE_DEVICE:endpoint}))
+  for(const duplicate of duplicates)expect((await duplicate.receive()).event).toBe('reused')
+  // Crash, then simultaneous reopen: exactly one owner, others reuse it.
+  const died=new Promise<void>(resolve=>owner.child.once('close',()=>resolve()))
+  owner.child.kill('SIGKILL');await died
+  const reopened=Array.from({length:4},()=>launch({PROBE_DEVICE:endpoint}))
+  const outcomes=await Promise.all(reopened.map(worker=>worker.receive()))
+  expect(outcomes.filter(result=>result.event==='device-owned')).toHaveLength(1)
+  expect(outcomes.filter(result=>result.event==='reused')).toHaveLength(3)
+  await exit(reopened[outcomes.findIndex(result=>result.event==='device-owned')])
   const registry=join(root,'registry')
   const first=launch({PROBE_REGISTRY:registry}),second=launch({PROBE_REGISTRY:registry})
   expect((await first.receive()).event).toBe('registered');expect((await second.receive()).event).toBe('registered')

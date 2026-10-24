@@ -527,6 +527,10 @@ export async function bootstrap() {
   // Start server using the configured bind host. Default is IPv4 for WSL stability.
   const listenResult = await listenWithFallback(app, config.port, config.host)
   server = listenResult.primary
+  if (isDesktopRuntime() && typeof process.send === 'function' && process.connected) {
+    const address = server.address()
+    if (address && typeof address === 'object') process.send({ type: 'hermes-desktop:listening', port: address.port })
+  }
   servers.splice(0, servers.length, ...listenResult.servers)
   console.log('[bootstrap] app.listen called')
   // The Desktop shell only needs registered HTTP routes and static assets before

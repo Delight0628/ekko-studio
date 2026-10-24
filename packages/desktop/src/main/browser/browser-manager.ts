@@ -1,3 +1,6 @@
+import { t } from '../desktop-i18n'
+import { realpathSync, mkdirSync } from 'node:fs'
+import { isAbsolute, relative } from 'node:path'
 import { BrowserProfileLeases } from './browser-profile-lease'
 import { applyBrowserColorScheme, browserBackground, type BrowserColorScheme } from './browser-theme'
 import { randomUUID } from 'node:crypto'
@@ -273,6 +276,7 @@ export class BrowserManager {
   }
 
   async createProfile(input: BrowserProfileCreateInput): Promise<DesktopBrowserProfile> {
+    if (input.rootDirectory) this.validateSessionScope(join(input.rootDirectory, 'data'))
     const profile = await this.profileStore.create(input)
     this.emitState()
     return profile
@@ -327,6 +331,7 @@ export class BrowserManager {
       : ''
     const rootChanged = resolve(nextRoot) !== resolve(previous.rootPath)
     if (rootChanged) {
+      this.validateSessionScope(join(nextRoot, 'data'))
       await this.profileLeases.acquire(previous.sessionPath)
       await this.profileLeases.acquire(join(nextRoot, 'data'))
     }
@@ -890,7 +895,20 @@ export class BrowserManager {
     return record
   }
 
+  private validateSessionScope(sessionPath: string): void {
+    if (process.platform === 'darwin') {
+      const root = realpathSync(app.getPath('sessionData'))
+      let parent = resolve(sessionPath)
+      const suffix: string[] = []
+      while (!existsSync(parent)) { suffix.unshift(basename(parent));parent = dirname(parent) }
+      const candidate = resolve(realpathSync(parent), ...suffix)
+      const subpath = relative(root, candidate)
+      if (subpath === '..' || subpath.startsWith('../') || isAbsolute(subpath)) throw new Error(t('browser.profileOutsideStorage', { root }))
+    }
+  }
+
   private async profileSession(profile: DesktopBrowserProfile): Promise<Session> {
+    this.validateSessionScope(profile.sessionPath)
     await this.profileLeases.acquire(profile.sessionPath)
     const existing = this.browserSessions.get(profile.sessionPath)
     if (existing) return existing

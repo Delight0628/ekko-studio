@@ -37,5 +37,8 @@ export function prepareDeviceInstance(launch: ReturnType<typeof deviceInstanceLa
   mkdirSync(launch.home, { recursive: true })
   mkdirSync(launch.userData, { recursive: true })
   const file = join(launch.home, 'desktop-remote-server.json')
-  if (!existsSync(file)) writeFileSync(file, JSON.stringify(launch.settings), { mode: 0o600, flag: 'wx' })
+  if (!existsSync(file)) {
+    try { writeFileSync(file, JSON.stringify(launch.settings), { mode: 0o600, flag: 'wx' }) }
+    catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e }
+  }
 }

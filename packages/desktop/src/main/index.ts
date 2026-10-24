@@ -2,7 +2,6 @@ import './desktop-storage-bootstrap'
 import { InstallationCoordinator } from './installation-coordinator'
 import { deviceWindowEndpoint, focusDeviceWindow, ownDeviceWindow } from './device-window-owner'
 import { spawn } from 'node:child_process'
-import { createServer } from 'node:net'
 import { deviceInstanceLaunch, prepareDeviceInstance, DEVICE_INSTANCE_ENV } from './device-instance'
 import { revokesRemoteBrowserGrant } from './browser-remote-navigation'
 import {
@@ -72,7 +71,7 @@ import { getOpenAtLogin as readOpenAtLogin, setOpenAtLogin as writeOpenAtLogin, 
 import { PROVIDER_IMPORT_SCHEME, providerImportPayload, providerImportFromArgs, providerImportTarget } from './provider-import'
 
 configureDesktopIdentity(app)
-const PORT = Number(process.env.HERMES_DESKTOP_PORT) || 8748
+const PORT = process.env.HERMES_DESKTOP_PORT === '0' ? 0 : Number(process.env.HERMES_DESKTOP_PORT) || 8748
 const START_HIDDEN = process.argv.includes('--hidden')
 const QUIT_EXISTING = process.argv.includes('--quit')
 const APP_USER_MODEL_ID = 'com.hermeswebui.studio'
@@ -218,16 +217,8 @@ function desktopRemoteDevices(): DesktopRemoteDevices {
       if (await focusDeviceWindow(deviceWindowEndpoint(process.env.EKKO_STUDIO_DEVICE_ROOT || webUiHome(), serverUrl))) return
       const launch = deviceInstanceLaunch({ home: webUiHome(), userData: app.getPath('userData'),
         serverUrl, devices, env: process.env, argv: process.argv, packaged: app.isPackaged })
-      // A local child needs its own server port even while the original stays alive.
-      const port = await new Promise<number>((resolve, reject) => {
-        const probe = createServer();probe.once('error', reject)
-        probe.listen(0, '127.0.0.1', () => {
-          const address = probe.address()
-          if (!address || typeof address === 'string') { probe.close();reject(new Error('No instance port'));return }
-          probe.close(error => error ? reject(error) : resolve(address.port))
-        })
-      })
-      launch.env.HERMES_DESKTOP_PORT = String(port)
+      // Let the child HTTP server bind port zero itself (no probe/close race).
+      launch.env.HERMES_DESKTOP_PORT = '0'
       prepareDeviceInstance(launch)
       await new Promise<void>((resolve, reject) => {
         const child = spawn(process.execPath, launch.args, { env: launch.env, detached: true, stdio: 'ignore' })
@@ -1645,7 +1636,15 @@ ipcMain.handle('hermes-desktop:retry-bootstrap', async (_event, source?: Runtime
 let installationCoordinator: InstallationCoordinator | null = null
 async function runDesktopApp() {
   installationCoordinator = new InstallationCoordinator(process.execPath)
-  installationCoordinator.register(app.getVersion())
+  try { installationCoordinator.register(app.getVersion()) } catch (error) {
+    if (!(error instanceof Error) || error.message !== 'DESKTOP_INSTALLATION_IN_PROGRESS') throw error
+    await app.whenReady()
+    const choice = await dialog.showMessageBox({ type: 'warning', title: 'Ekko Studio',
+      message: t('update.interrupted'), buttons: [t('common.cancel'), t('update.recoverInterrupted')], defaultId: 0, cancelId: 0 })
+    if (choice.response !== 1) { app.quit(); return }
+    installationCoordinator.recoverInterruptedInstall()
+    installationCoordinator.register(app.getVersion())
+  }
   app.once('will-quit', () => installationCoordinator?.release())
   const releaseDevice = await ownDeviceWindow(
     deviceWindowEndpoint(process.env.EKKO_STUDIO_DEVICE_ROOT || webUiHome(), activeRemoteServerUrl),

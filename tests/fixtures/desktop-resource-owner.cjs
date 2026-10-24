@@ -8,7 +8,12 @@ let coordinator
 const releases=[]
 const send=value=>console.log(JSON.stringify(value))
 async function run() {
- if(process.env.PROBE_PROFILE){
+ if(process.env.PROBE_DEVICE){
+  const {ownDeviceWindow}=require(join(process.env.PROBE_DIST,'device-window-owner.js'))
+  const release=await ownDeviceWindow(process.env.PROBE_DEVICE,()=>send({event:'focused'}))
+  if(!release){send({event:'reused'});return}
+  releases.push(release);send({event:'device-owned'})
+ }else if(process.env.PROBE_PROFILE){
   const leases=new BrowserProfileLeases(release=>releases.push(release))
   await leases.acquire(process.env.PROBE_PROFILE);send({event:'profile-owned'})
  }else{
