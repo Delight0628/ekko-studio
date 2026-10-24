@@ -270,6 +270,9 @@ export class NativeDeviceSwitcher {
     operation.stage = 'checking';operation.startedAt = Date.now();operation.error = null
     this.window.setProgressBar(2)
     this.refresh()
+    // The confirmation dialog must relinquish focus before another process is
+    // activated. Closing it afterwards would reactivate its parent over the target.
+    this.actionWindow?.hide()
     try {
       if (newInstance) {
         await this.devices().openInNewInstance(operation.target.id)
@@ -290,6 +293,7 @@ export class NativeDeviceSwitcher {
     } catch (error) {
       if (this.disposed) return
       operation.stage = 'error';operation.error = this.errorCode(error)
+      this.actionWindow?.show();this.actionWindow?.focus()
       this.busy = false
       this.window.setProgressBar(-1)
     }

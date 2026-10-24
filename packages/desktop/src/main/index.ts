@@ -1,4 +1,5 @@
 import './desktop-storage-bootstrap'
+import { activateDeviceWindow } from './device-window-activation'
 import { InstallationCoordinator } from './installation-coordinator'
 import { deviceWindowEndpoint, focusDeviceWindow, ownDeviceWindow } from './device-window-owner'
 import { spawn } from 'node:child_process'
@@ -165,7 +166,7 @@ function showWindowWithFade(focus = true) {
   if (process.platform !== 'win32' || mainWindow.isVisible()) {
     mainWindow.setOpacity(1)
     mainWindow.show()
-    if (focus) mainWindow.focus()
+    if (focus) activateDeviceWindow(mainWindow)
     return
   }
 
@@ -173,7 +174,7 @@ function showWindowWithFade(focus = true) {
   const startedAt = Date.now()
   mainWindow.setOpacity(0)
   mainWindow.show()
-  if (focus) mainWindow.focus()
+  if (focus) activateDeviceWindow(mainWindow)
   windowFadeTimer = setInterval(() => {
     if (!mainWindow || mainWindow.isDestroyed()) {
       cancelWindowFade()
@@ -194,6 +195,13 @@ function showMainWindow() {
   }
   if (!mainWindow) return
   showWindowWithFade(true)
+  // Cross-process focus requests can precede the sender closing its owned
+  // confirmation dialog. Activate again after that native focus transfer.
+  const requestedWindow = mainWindow
+  const timer = setTimeout(() => {
+    if (mainWindow === requestedWindow && !requestedWindow.isDestroyed()) activateDeviceWindow(requestedWindow)
+  }, 150)
+  timer.unref?.()
 }
 
 function quitApp() {
@@ -1077,6 +1085,7 @@ async function bootstrap(source?: RuntimeDownloadSource) {
       serverUrl = remoteUrl
       updateTrayMenu()
       if (mainWindow) await mainWindow.loadURL(mainRouteUrl() || remoteUrl)
+      if (!START_HIDDEN) showMainWindow()
       await openPendingProviderImport(true)
       await loadPetWindowRoute()
     } catch (err) {
@@ -1129,6 +1138,7 @@ async function bootstrap(source?: RuntimeDownloadSource) {
     serverUrl = url
     updateTrayMenu()
     if (mainWindow) await mainWindow.loadURL(mainRouteUrl() || url)
+    if (!START_HIDDEN) showMainWindow()
     await openPendingProviderImport(true)
     await loadPetWindowRoute()
   } catch (err) {

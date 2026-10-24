@@ -30,6 +30,7 @@ vi.mock('electron', async () => {
       this.emit('close', event)
       if (!event.prevented) this.emit('closed')
     })
+    hide = vi.fn()
     show = vi.fn()
     focus = vi.fn()
     constructor() { super();mock.windows.push(this) }
@@ -200,6 +201,10 @@ it('closes successful new-instance confirmation and allows another launch', asyn
     await mock.handlers.get('studio-native-devices:confirm')!(fromWindow(action), token, 'new')
     expect(call('state').operation).toBeNull()
     expect(call('state').busy).toBe(false)
+  }
+  for (const action of mock.windows.slice(1)) {
+    expect(action.hide).toHaveBeenCalled()
+    expect(action.hide.mock.invocationCallOrder[0]).toBeLessThan(action.close.mock.invocationCallOrder[0])
   }
   expect(manager.openInNewInstance).toHaveBeenCalledTimes(2)
   expect(manager.switchTo).not.toHaveBeenCalled()
