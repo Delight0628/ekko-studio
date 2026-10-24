@@ -195,7 +195,7 @@ peer.handle('activate', async value => {
   return json({
     rpc: STUDIO_PLUGIN_RPC_VERSION,
     agents: [...definitions.values()].map(({ create: _create, management, ...definition }) => ({ ...definition,
-      ...(management ? { management: { ...(management.inspect ? { inspect: true } : {}), ...(management.locations ? { locations: true } : {}), ...(management.setup ? { setup: true } : {}), ...(management.prepareLogin ? { prepareLogin: true } : {}) } } : {}) })),
+      ...(management ? { management: { ...(management.inspect ? { inspect: true } : {}), ...(management.locations ? { locations: true } : {}), ...(management.setup ? { setup: true } : {}), ...(management.prepareLogin ? { prepareLogin: true } : {}), ...(management.prepareInstall ? { prepareInstall: true } : {}) } } : {}) })),
     subscriptions: [...callbacks].map(([id, { type, once }]) => ({ id, type, once })),
     services: [...services.values()].map(value => value.token),
     commands: [...commands.values()].map(value => value.definition),
@@ -204,7 +204,7 @@ peer.handle('activate', async value => {
   })
 })
 
-for (const method of ['inspect', 'locations', 'setup', 'prepareLogin'] as const) peer.handle(`management.${method}`, async value => {
+for (const method of ['inspect', 'locations', 'setup', 'prepareLogin', 'prepareInstall'] as const) peer.handle(`management.${method}`, async value => {
   const params = object(value), callId = string(params.callId), definition = definitions.get(string(params.agentTypeId))
   if (!active || !identity || !definition?.management?.[method]) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent management is unavailable')
   if (managementCalls.has(callId) || managementCalls.size >= 16) throw new StudioError('RESOURCE_EXHAUSTED', 'Agent inspection limit reached')
@@ -212,6 +212,7 @@ for (const method of ['inspect', 'locations', 'setup', 'prepareLogin'] as const)
   managementCalls.set(callId, controller)
   try {
     const context: import('../../studio-plugin-sdk/src').AgentRuntimeContext = {
+      ...(params.nativeCli ? { nativeCli: params.nativeCli as unknown as AgentRuntimeContext['nativeCli'] } : {}),
       ...(params.stateDirectory ? { stateDirectory: string(params.stateDirectory) } : {}),
       provider: { kind: 'plugin', pluginId: identity!.id, generation: identity!.generation, version: identity!.version },
       runtimeSessionId: callId, profileId: identity!.profileId, ownerId: string(params.ownerId), logger, signal: controller.signal,
@@ -257,7 +258,7 @@ peer.handle('runtime.create', async value => {
     finally { replacing = false }
   }
   if (params.commands === true) runtimeCommands.set(id, catalog)
-  const ctx: AgentRuntimeContext = { ...(typeof params.stateDirectory === 'string' ? { stateDirectory: params.stateDirectory } : {}), provider, profileId: identity.profileId, ownerId: string(params.ownerId), runtimeSessionId: id, logger, signal: controller.signal,
+  const ctx: AgentRuntimeContext = { ...(params.nativeCli ? { nativeCli: params.nativeCli as unknown as AgentRuntimeContext['nativeCli'] } : {}), ...(typeof params.stateDirectory === 'string' ? { stateDirectory: params.stateDirectory } : {}), provider, profileId: identity.profileId, ownerId: string(params.ownerId), runtimeSessionId: id, logger, signal: controller.signal,
     ...(params.commands === true ? { commands: { replace } } : {}),
     processes: remoteProcesses(peer, runtimeHandle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation),
     mcp: remoteMcp(peer, runtimeHandle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation) }

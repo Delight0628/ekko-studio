@@ -19,7 +19,8 @@ const show = ref(false), loading = ref(false), saving = ref(false), checking = r
 const types = shallowRef<AgentTypeSummary[]>([]), instances = shallowRef<ManagedAgentInstance[]>([]), bundles = shallowRef<BundledAgentPlugin[]>([])
 const selectedId = ref(''), typeId = ref(''), mode = ref<'scoped' | 'global'>('scoped'), raw = ref('{}'), drafts = reactive<Record<string, string>>(Object.create(null))
 const setup = shallowRef<AgentSetup | null>(null), inspection = shallowRef<AgentInspection | null>(null)
-const loginActive = ref(false)
+const loginActive = ref(false), installActive = ref(false)
+const managementActive = computed(() => loginActive.value || installActive.value)
 let generation = 0
 let chatRequest: { target: string; key: string } | undefined
 const selected = computed(() => instances.value.find(item => item.id === selectedId.value))
@@ -49,7 +50,7 @@ function resetDraft() {
   for (const [key, value] of Object.entries(config)) drafts[key] = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
   setup.value = null; inspection.value = null; error.value = ''; inspectError.value = ''
 }
-function selectInstance(id: string) { ++generation; checking.value = false; loginActive.value = false; selectedId.value = id; resetDraft() }
+function selectInstance(id: string) { ++generation; checking.value = false; loginActive.value = false; installActive.value = false; selectedId.value = id; resetDraft() }
 function selectType(id: string) { typeId.value = id; for (const key of Object.keys(drafts)) delete drafts[key]; raw.value = '{}'; mode.value = type.value?.capabilities.modes.includes('scoped') ? 'scoped' : 'global' }
 async function load() {
   const current = ++generation
@@ -115,7 +116,7 @@ async function checkSetup() {
 }
 async function openChat() {
   const item = selected.value, profile = profiles.activeProfileName, current = generation
-  if (!item || !profile || busy.value || loginActive.value || dirty.value) return
+  if (!item || !profile || busy.value || managementActive.value || dirty.value) return
   const target = JSON.stringify([profile, item.id, item.revision])
   if (chatRequest?.target !== target) chatRequest = { target, key: generateClientUuid() }
   saving.value = true; error.value = ''
@@ -147,7 +148,7 @@ onUnmounted(() => { ++generation })
         </div>
         <NAlert v-if="!types.length && !loading" type="info" :bordered="false">{{ t('agentManagement.noTypes') }}</NAlert>
         <NSelect :value="selectedId" :options="instanceOptions" :disabled="busy" :aria-label="t('codingAgents.resourceInstance')" @update:value="selectInstance" />
-        <NForm label-placement="top" :disabled="busy || loginActive" @submit.prevent="save">
+        <NForm label-placement="top" :disabled="busy || managementActive" @submit.prevent="save">
           <NFormItem :label="t('agentManagement.type')">
             <NSelect :value="typeId" :options="typeOptions" :disabled="busy || !!selected" :aria-label="t('agentManagement.type')" @update:value="selectType" />
           </NFormItem>
@@ -167,9 +168,9 @@ onUnmounted(() => { ++generation })
         </NForm>
         <div class="instance-actions">
           <NButton :disabled="busy" @click="load">{{ t('codingAgents.refresh') }}</NButton>
-          <NButton v-if="selected && type?.management?.setup" :loading="checking" :disabled="busy || loginActive || dirty" @click="checkSetup">{{ t('agentManagement.checkSetup') }}</NButton>
-          <NButton v-if="selected" :disabled="busy || loginActive || dirty" @click="openChat">{{ t('chat.newChat') }}</NButton>
-          <NButton type="primary" :loading="saving" :disabled="busy || loginActive || !type || !dirty" @click="save">{{ t(selected ? 'common.save' : 'common.create') }}</NButton>
+          <NButton v-if="selected && type?.management?.setup" :loading="checking" :disabled="busy || managementActive || dirty" @click="checkSetup">{{ t('agentManagement.checkSetup') }}</NButton>
+          <NButton v-if="selected" :disabled="busy || managementActive || dirty" @click="openChat">{{ t('chat.newChat') }}</NButton>
+          <NButton type="primary" :loading="saving" :disabled="busy || managementActive || !type || !dirty" @click="save">{{ t(selected ? 'common.save' : 'common.create') }}</NButton>
         </div>
         <section v-if="setup" class="native-setup" data-theme-surface="card">
           <NTag :type="setup.cli.state === 'available' ? 'success' : 'warning'">{{ t(`agentManagement.${setup.cli.state}`) }} {{ setup.cli.version }}</NTag>
@@ -185,8 +186,11 @@ onUnmounted(() => { ++generation })
           </template>
           <NAlert v-if="inspectError" type="warning" :bordered="false">{{ inspectError }}</NAlert>
         </section>
+        <AgentLoginTerminal v-if="show && profiles.activeProfileName && selected && !dirty && type?.management?.prepareInstall && isStoredSuperAdmin()"
+          :key="`install:${profiles.activeProfileName}:${selected.id}:${selected.revision}`" :profile="profiles.activeProfileName" :instance="selected" action="install" :disabled="busy || loginActive"
+          @busy="installActive = $event" @ended="checkSetup" />
         <AgentLoginTerminal v-if="show && profiles.activeProfileName && selected && !dirty && selected.mode === 'global' && type?.management?.prepareLogin && isStoredSuperAdmin()"
-          :key="`${profiles.activeProfileName}:${selected.id}:${selected.revision}`" :profile="profiles.activeProfileName" :instance="selected"
+          :key="`${profiles.activeProfileName}:${selected.id}:${selected.revision}`" :profile="profiles.activeProfileName" :instance="selected" :disabled="busy || installActive"
           @busy="loginActive = $event" @ended="checkSetup" />
       </div>
     </NSpin>

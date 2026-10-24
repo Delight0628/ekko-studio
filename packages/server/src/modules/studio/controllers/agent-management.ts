@@ -12,6 +12,10 @@ export const startAgentLogin = (ctx: Context) => respond(ctx, () => {
   const input = body(ctx, ['revision', 'idempotencyKey', 'profile'])
   return getStudioPluginRuntime().coordinator.startLogin(executionScope(ctx), ctx.params.id, input.revision as number, input.idempotencyKey as string)
 })
+export const startAgentInstall = (ctx: Context) => respond(ctx, () => {
+  const input = body(ctx, ['revision', 'idempotencyKey', 'profile'])
+  return getStudioPluginRuntime().coordinator.startInstall(executionScope(ctx), ctx.params.id, input.revision as number, input.idempotencyKey as string)
+})
 export const listAgentManagementOperations = (ctx: Context) => respond(ctx, () => operations().list(executionScope(ctx), ctx.params.id))
 export const getAgentManagementOperation = (ctx: Context) => respond(ctx, () => operations().get(executionScope(ctx), ctx.params.id))
 export const getAgentManagementOutput = (ctx: Context) => respond(ctx, () => {

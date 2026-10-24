@@ -28,6 +28,7 @@ export function enableBundledAgentPlugin(profile: string, plugin: BundledAgentPl
 export function fetchAgentSetup(profile: string, instance: ManagedAgentInstance) { return data<AgentSetup>(`agent-instances/${encodeURIComponent(instance.id)}/setup`, profile, 'POST', { revision: instance.revision }) }
 export function inspectManagedAgent(profile: string, instance: ManagedAgentInstance) { return data<AgentInspection>(`agent-instances/${encodeURIComponent(instance.id)}/inspect`, profile, 'POST', {}) }
 export function startAgentLogin(profile: string, instance: ManagedAgentInstance, idempotencyKey: string) { return data<AgentManagementOperation>(`agent-instances/${encodeURIComponent(instance.id)}/login`, profile, 'POST', { revision: instance.revision, idempotencyKey }) }
+export function startAgentInstall(profile: string, instance: ManagedAgentInstance, idempotencyKey: string) { return data<AgentManagementOperation>(`agent-instances/${encodeURIComponent(instance.id)}/install`, profile, 'POST', { revision: instance.revision, idempotencyKey }) }
 export function fetchAgentManagementOperations(profile: string, instanceId: string) { return data<AgentManagementOperation[]>(`agent-instances/${encodeURIComponent(instanceId)}/operations`, profile) }
 export function fetchAgentManagementOperation(profile: string, id: string) { return data<AgentManagementOperation>(`agent-management-operations/${encodeURIComponent(id)}`, profile) }
 export async function fetchAgentManagementOutput(profile: string, id: string, after: number) {

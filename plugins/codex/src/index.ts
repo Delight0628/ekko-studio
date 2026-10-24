@@ -1,6 +1,6 @@
 import { isAbsolute } from 'node:path'
 import { AgentEventQueue, NativeRpcConnection } from '@ekko-studio/agent-drivers'
-import { StudioError, readAgentImages, agentContextConfigurationProperties, mergeAgentContextConfiguration, type AgentContextConfiguration, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
+import { StudioError, nativeAgentLaunch, readAgentImages, agentContextConfigurationProperties, mergeAgentContextConfiguration, type AgentContextConfiguration, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
 import { codexEvents } from './events'
 import { codexInteractions } from './interactions'
 import { scopedCodex } from './scoped'
@@ -59,8 +59,8 @@ export const apply: StudioPlugin['apply'] = plugin => {
       }
       let current: Turn | undefined, ended = false, rpc: NativeRpcConnection
       const open = async (env = config.env as Record<string, string> | undefined) => {
-        const process = await runtime.processes.spawn({ command: String(config.command || 'codex'),
-          args: [...(config.args as string[] || []), 'app-server', '--listen', 'stdio://'], cwd, env })
+        const process = await runtime.processes.spawn({ command: nativeAgentLaunch('codex', config, runtime).command,
+          args: [...nativeAgentLaunch('codex', config, runtime).args, 'app-server', '--listen', 'stdio://'], cwd, env })
         rpc = new NativeRpcConnection(process, {
           notification(method, params) { current?.notification(method, params) },
           async request(method, params, signal, id) {

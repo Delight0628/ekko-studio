@@ -23,6 +23,8 @@ import { parseAgentLogin } from './login-contract'
 import type { NativeAgentContext } from './native-context'
 import type { AgentRunTarget } from '../../repositories/agent-conversation-store'
 import { bindRuntimeCommandTarget } from './command-target'
+import { AgentCliInstallations, type CliInstallStage } from './cli-installations'
+import { parseAgentCliInstall } from './cli-install-contract'
 
 interface ActiveRun {
   controller: AbortController; handle?: AgentRunHandle; completed: Promise<void>; resolve(): void
@@ -60,7 +62,8 @@ export class AgentCoordinator {
   private readonly leases = new Map<string, RuntimeLease>()
   private readonly configuring = new Set<string>()
   private readonly frozenChats = new Set<string>()
-  private readonly management = new AgentManagement()
+  private readonly management: AgentManagement
+  private readonly installations?: AgentCliInstallations
   readonly managementOperations?: AgentManagementOperations
   private closed = false
   constructor(private readonly options: {
@@ -76,14 +79,22 @@ export class AgentCoordinator {
     nativeContext?(instance: AgentInstance, scope: ExecutionScope, provider: AgentProviderRef, signal: AbortSignal): NativeAgentContext | undefined
     authorizeChat?(scope: ExecutionScope, instance: AgentInstance, sessionId: string): void
   }) {
+    if (options.stateRoot) this.installations = new AgentCliInstallations(options.stateRoot)
+    this.management = new AgentManagement((input, scope, provider) => this.installations?.load({ id: input.instanceId, ownerId: scope.principal.id, profileId: scope.profileId }, provider))
     if (options.managementStore && options.authorizeManagement && options.leaseManagement) this.managementOperations = new AgentManagementOperations(options.managementStore, options.authorizeManagement)
   }
 
   startLogin(scope: ExecutionScope, instanceId: string, revision: number, idempotencyKey: string) {
+    return this.startManagement(scope, instanceId, revision, idempotencyKey, 'login')
+  }
+  startInstall(scope: ExecutionScope, instanceId: string, revision: number, idempotencyKey: string) {
+    return this.startManagement(scope, instanceId, revision, idempotencyKey, 'install')
+  }
+  private startManagement(scope: ExecutionScope, instanceId: string, revision: number, idempotencyKey: string, action: 'login' | 'install') {
     scope = jsonCopy(scope)
     const operations = this.managementOperations
     if (!operations || this.closed) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Interactive management is unavailable')
-    const previous = operations.previous(scope, instanceId, revision, idempotencyKey)
+    const previous = operations.previous(scope, instanceId, revision, idempotencyKey, action)
     if (previous) return previous
     const inspect = () => {
       if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent coordinator is shutting down')
@@ -93,32 +104,45 @@ export class AgentCoordinator {
       if (instance.revision !== revision || this.queues.has(instanceId) || this.options.store.hasActiveRuns(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance changed or has active runs')
       return { instance, ...this.options.registry.resolve(scope.profileId, instance.agentTypeId) }
     }
-    const { instance, provider, definition } = inspect(), adapter = definition.management?.prepareLogin
-    if (!adapter) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Native login is unavailable')
+    const { instance, provider, definition } = inspect(), adapter = definition.management
+    if (!adapter?.[action === 'install' ? 'prepareInstall' : 'prepareLogin'] || (action === 'install' && !this.installations)) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Native management is unavailable')
     if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance is being managed')
     let lease: { authorize(): void; release(): void } | undefined
     const authorize = () => {
-      if (!isDeepStrictEqual(inspect().provider, provider)) throw new StudioError('REVISION_CONFLICT', 'Agent provider changed during login')
+      if (!isDeepStrictEqual(inspect().provider, provider)) throw new StudioError('REVISION_CONFLICT', 'Agent provider changed during management')
       lease?.authorize()
     }
     this.configuring.add(instanceId)
     try {
-      return operations.start({ ownerId: scope.principal.id, profileId: scope.profileId, instanceId, revision, provider, idempotencyKey }, authorize, async control => {
-        await this.disposeInstanceLeases(instanceId, 'Native login started')
+      return operations.start({ ownerId: scope.principal.id, profileId: scope.profileId, instanceId, revision, provider, idempotencyKey, action }, authorize, async control => {
+        await this.disposeInstanceLeases(instanceId, 'Native management started')
         authorize()
         const stateDirectory = instance.mode === 'scoped' && this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, provider,
           this.options.store.state.stateRevision(instance.id, provider, revision)) : undefined
         const input = { instanceId, config: instance.config, configRevision: revision, mode: instance.mode }
-        return await this.management.execute(input, scope, provider, async context => {
-          const launch = parseAgentLogin(await adapter(input, context))
-          // Acquire only after the short RPC: worker timeout cleanup must not
-          // wait for an operation that is itself waiting for that same RPC.
-          authorize()
-          lease = this.options.leaseManagement!(provider, scope.profileId,
-            () => control.abort(new StudioError('PLUGIN_UNAVAILABLE', 'Login provider exited')), control.completed)
-          const terminal = await context.processes.spawn({ ...launch, terminal: { cols: 80, rows: 24 } })
-          return control.consume(terminal)
-        }, authorize, this.options.logger, control.signal, stateDirectory, 600_000)
+        let stage: CliInstallStage | undefined
+        const check = () => { if (control.signal.aborted) throw control.signal.reason; authorize() }
+        try {
+          const exit = await this.management.execute(input, scope, provider, async context => {
+            const prepared = action === 'install' ? parseAgentCliInstall(await adapter.prepareInstall!(input, context)) : parseAgentLogin(await adapter.prepareLogin!(input, context))
+            // Acquire only after the short RPC: worker timeout cleanup must not
+            // wait for an operation that is itself waiting for that same RPC.
+            authorize()
+            lease = this.options.leaseManagement!(provider, scope.profileId,
+              () => control.abort(new StudioError('PLUGIN_UNAVAILABLE', 'Management provider exited')), control.completed)
+            if (action === 'install') stage = await this.installations!.stage(instance, provider, prepared as import('../../contracts/plugins').AgentCliInstallPlan, check)
+            const launch = stage ? stage.launch : { ...prepared as import('../../contracts/plugins').ProcessSpawnInput, terminal: { cols: 80, rows: 24 } }
+            check()
+            const terminal = await context.processes.spawn(launch)
+            const exit = await control.consume(terminal)
+            if (stage && exit.code === 0) await stage.verify(context)
+            return exit
+          }, authorize, this.options.logger, control.signal, stateDirectory, 600_000)
+          check()
+          // execute() has confirmed process cleanup. An installer can no longer mutate the selected files.
+          if (stage && exit.code === 0) stage.publish()
+          return exit
+        } finally { if (!this.management.isBlocked(instanceId)) await stage?.discard() }
       }, () => {
         if (!this.management.isBlocked(instanceId)) { lease?.release(); this.configuring.delete(instanceId) }
       })
@@ -623,6 +647,7 @@ export class AgentCoordinator {
             this.options.store.state.stateRevision(instance.id, run.provider, instance.revision)) : undefined
           assertDispatch()
           const runtimeContext = {
+            ...(this.installations ? { nativeCli: this.installations.load(instance, run.provider) } : {}),
             ...(stateDirectory ? { stateDirectory } : {}), provider: run.provider, runtimeSessionId: id, profileId: scope.profileId, ownerId: scope.principal.id, signal: controller.signal, logger: this.options.logger, processes: processes.api, mcp: mcp.api,
           }
           if (run.sessionId && scope.surface === 'chat') bindRuntimeCommandTarget(runtimeContext, {

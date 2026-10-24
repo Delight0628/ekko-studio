@@ -1,9 +1,10 @@
 import { locations } from './resources'
 import { isAbsolute } from 'node:path'
 import { NativeRpcConnection } from '@ekko-studio/agent-drivers'
-import { StudioError, nativeAgentSetup, nativeAgentLogin, type AgentInspection, type AgentManagementAdapter } from '@ekko-studio/plugin-sdk'
+import { StudioError, nativeAgentLaunch, nativeAgentSetup, nativeAgentLogin, type AgentInspection, type AgentManagementAdapter } from '@ekko-studio/plugin-sdk'
 
 export const management: AgentManagementAdapter = {
+  prepareInstall: async () => ({ kind: 'npm', packageName: '@openai/codex', version: '0.163.0', bin: 'codex', runner: 'node' }),
   prepareLogin: nativeAgentLogin('codex', ['login', '--device-auth']),
   locations,
   setup: nativeAgentSetup('codex', '@openai/codex@0.163.0', ['login', '--device-auth']),
@@ -11,8 +12,8 @@ export const management: AgentManagementAdapter = {
     if (mode === 'scoped') throw new StudioError('CAPABILITY_UNSUPPORTED', 'Scoped inspection requires a model-bound management context')
     const cwd = String(config.cwd)
     if (!isAbsolute(cwd)) throw new StudioError('INVALID_ARGUMENT', 'Codex working directory must be absolute')
-    const process = await context.processes.spawn({ command: String(config.command || 'codex'),
-      args: [...(config.args as string[] || []), 'app-server', '--listen', 'stdio://'], cwd, env: config.env as Record<string, string> | undefined })
+    const process = await context.processes.spawn({ command: nativeAgentLaunch('codex', config, context).command,
+      args: [...nativeAgentLaunch('codex', config, context).args, 'app-server', '--listen', 'stdio://'], cwd, env: config.env as Record<string, string> | undefined })
     const rpc = new NativeRpcConnection(process, { notification() {} })
     const abort = () => { void rpc.close().catch(() => {}) }
     context.signal.addEventListener('abort', abort, { once: true })

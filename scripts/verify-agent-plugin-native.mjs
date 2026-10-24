@@ -33,6 +33,7 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     stdin: { contents: `export { AgentCoordinator } from './packages/server/src/modules/studio/services/agents/coordinator';
 export { AgentRegistry } from './packages/server/src/modules/studio/services/agents/registry';
 export { PluginEventBus } from './packages/server/src/modules/studio/services/events/plugin-events';
+export { AgentManagementStore } from './packages/server/src/modules/studio/repositories/agent-management-store';
 export { AgentExecutionStore } from './packages/server/src/modules/studio/repositories/agent-execution-store';
 export { ManagedProcessScope } from './packages/server/src/modules/studio/services/processes/managed';
 export { createNativeAgentContext } from './packages/server/src/modules/studio/services/agents/native-context';
@@ -51,8 +52,9 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
     outfile: managedModule,
     logLevel: "silent"
   });
-  const { AgentCoordinator, AgentRegistry, PluginEventBus, AgentExecutionStore, ManagedProcessScope, createNativeAgentContext, runMcpCredentials, studioConfig, PluginModelGateways, PluginModelCallStore, OpenAIResponsesModelClient, AnthropicMessagesModelClient, OpenAICompatibleModelClient, translatedNativeRequest } = createRequire(import.meta.url)(managedModule);
-  let calls = 0, completedTurns = 0, completedCommands = 0;
+  const { AgentCoordinator, AgentRegistry, PluginEventBus, AgentExecutionStore, AgentManagementStore, ManagedProcessScope, createNativeAgentContext, runMcpCredentials, studioConfig, PluginModelGateways, PluginModelCallStore, OpenAIResponsesModelClient, AnthropicMessagesModelClient, OpenAICompatibleModelClient, translatedNativeRequest } = createRequire(import.meta.url)(managedModule);
+  let calls = 0, completedTurns = 0, completedCommands = 0, installedClis = 0;
+  const managedInstall = process.env.STUDIO_MANAGED_CLI === '1';
   const fixtureInputTokens = process.env.STUDIO_NATIVE_COMMANDS === '1' ? 12000 : 12;
   let activeTarget = 'native', activeVendor, searchIssued = false;
   let nativeMcpEnabled = false, nativeMcpIssued = false, nativeMcpContext;
@@ -166,6 +168,7 @@ data: ${JSON.stringify({ type, ...data })}
   } });
   try {
     for (const [mode, target] of [['global', 'native'], ['scoped', 'native'], ['scoped', 'chat'], ['scoped', 'other'], ['scoped', 'switch']]) for (const vendor of ["codex", "qwen-code"]) {
+      if (managedInstall && target !== 'native') continue;
       activeTarget = target === 'switch' ? 'native' : target;
       activeVendor = vendor;
       nativeMcpEnabled = mode === 'global' && target === 'native';
@@ -244,7 +247,7 @@ requires_openai_auth = false
           } } });
         }
         if (mode === 'scoped') { config.args = []; config.model = 'fixture/model'; }
-        if (mode === 'global') {
+        if (mode === 'global' && !managedInstall) {
           const inspectionTimer = setTimeout(() => controller.abort(), 25000);
           try {
             const inspection = await definition.management.inspect({ instanceId: "acceptance", mode: "global", configRevision: 1, config }, { signal: controller.signal, processes: scope.api });
@@ -258,7 +261,7 @@ requires_openai_auth = false
         const register = generation => { const registration = registry.stage(caller.profileId, { ...provider, generation }, [definition.id]); registration.register(definition); registration.commit(); };
         register('first');
         events = new PluginEventBus();
-        const options = { store: executionStore, registry, events, stateRoot: join(home, 'state'), logger: { info() {}, warn() {}, error() {} }, authorize() {}, validateInput() {},
+        const options = { managementStore: new AgentManagementStore(db), authorizeManagement() {}, leaseManagement: () => ({ authorize() {}, release() {} }), store: executionStore, registry, events, stateRoot: join(home, 'state'), logger: { info() {}, warn() {}, error() {} }, authorize() {}, validateInput() {},
           authorizeChat: (scope, current, sessionId) => {
             if (scope.principal.id !== caller.principal.id || scope.profileId !== caller.profileId || current.ownerId !== caller.principal.id
               || ![`fixture:${vendor}:a`, `fixture:${vendor}:b`].includes(sessionId)) throw new Error('Chat is outside the local acceptance fixture');
@@ -280,7 +283,18 @@ requires_openai_auth = false
               return { id, mediaType: 'image/png', byteLength: length, data: imageData, offset: 0, nextOffset: length, done: true };
             } }, models: { gateway: input => gateways.open(scope, input, signal) } }) };
         coordinator = new AgentCoordinator(options);
+        if (managedInstall) delete config.command;
         let instance = coordinator.createInstance(caller, { agentTypeId: definition.id, mode, config });
+        if (managedInstall) {
+          const operation = coordinator.startInstall(caller, instance.id, instance.revision, `managed-install-${instance.id}`);
+          await coordinator.managementOperations.wait(caller, operation.id);
+          const receipt = coordinator.managementOperations.get(caller, operation.id);
+          if (receipt.status !== 'completed') {
+            const output = coordinator.managementOperations.output(caller, operation.id, 0);
+            throw new Error(`Managed CLI installation failed: ${JSON.stringify(receipt)} ${output.chunks.map(chunk => Buffer.from(chunk.data, 'base64').toString()).join('')}`);
+          }
+          installedClis++;
+        }
         const setup = await coordinator.setupInstance(caller, instance.id, instance.revision);
         if (setup.cli.state !== 'available' || !setup.cli.version || setup.authentication.kind !== (mode === 'scoped' ? 'studio' : 'native')) throw new Error('Unexpected native setup probe');
         console.log(JSON.stringify({ vendor, mode, setup: true, version: setup.cli.version, authentication: setup.authentication.kind }));
@@ -388,7 +402,7 @@ Follow fixture instructions.`) }, { filename: '技能目录/assets/fixture.bin',
     await new Promise((resolve) => server.close(() => resolve()));
     await rm(root, { recursive: true, force: true });
   }
-  console.log(JSON.stringify({ passed: true, turns: completedTurns, ...(process.env.STUDIO_NATIVE_COMMANDS === '1' ? { nativeCommands: completedCommands } : {}), localModelRequests: calls, nativeStudioMcpRequests: nativeMcpRequests.length, remoteProvider: false, accountLogin: false }));
+  console.log(JSON.stringify({ passed: true, turns: completedTurns, ...(managedInstall ? { managedCliInstallations: installedClis } : {}), ...(process.env.STUDIO_NATIVE_COMMANDS === '1' ? { nativeCommands: completedCommands } : {}), localModelRequests: calls, nativeStudioMcpRequests: nativeMcpRequests.length, remoteProvider: false, accountLogin: false }));
 }
 main().catch((error) => {
   console.error(error);

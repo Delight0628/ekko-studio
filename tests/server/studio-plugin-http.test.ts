@@ -14,13 +14,13 @@ const state = vi.hoisted(() => ({ remove: vi.fn(), configure: vi.fn(), install: 
   createChat: vi.fn(),
   authorizeResourceUpload: vi.fn(), importSkill: vi.fn(),
   ownedChat: vi.fn(), readChatImage: vi.fn(),
-  startLogin: vi.fn(), management: { list: vi.fn(() => []), get: vi.fn(), output: vi.fn(), input: vi.fn(), resize: vi.fn(), cancel: vi.fn() },
+  startLogin: vi.fn(), startInstall: vi.fn(), management: { list: vi.fn(() => []), get: vi.fn(), output: vi.fn(), input: vi.fn(), resize: vi.fn(), cancel: vi.fn() },
   uploadImage: vi.fn(), removeImage: vi.fn(), respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), updateInstance: vi.fn(), inspectInstance: vi.fn(), resourceLocations: vi.fn(), resourceFiles: vi.fn(), role: 'super_admin', consumers: null as unknown as ReliablePluginConsumers }))
 vi.mock('../../packages/server/src/modules/studio/services/plugins/runtime', () => ({
   authorizePluginScope: vi.fn(),
   getStudioPluginRuntime: () => ({ host: { uninstall: state.remove, configure: state.configure, install: state.install, list: state.list, diagnostic: state.diagnostic },
     agentChats: { create: state.createChat, ownedBinding: state.ownedChat },
-    bundledAgents: state.bundledAgents, commands: state.commands, artifacts: { create: state.uploadImage, remove: state.removeImage, readForChat: state.readChatImage }, consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { authorizeResourceUpload: state.authorizeResourceUpload, importSkill: state.importSkill, startLogin: state.startLogin, managementOperations: state.management, setupInstance: state.setupInstance, respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance, resourceLocations: state.resourceLocations, resourceFiles: state.resourceFiles } }),
+    bundledAgents: state.bundledAgents, commands: state.commands, artifacts: { create: state.uploadImage, remove: state.removeImage, readForChat: state.readChatImage }, consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { authorizeResourceUpload: state.authorizeResourceUpload, importSkill: state.importSkill, startLogin: state.startLogin, startInstall: state.startInstall, managementOperations: state.management, setupInstance: state.setupInstance, respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance, resourceLocations: state.resourceLocations, resourceFiles: state.resourceFiles } }),
 }))
 import { studioPluginRoutes } from '../../packages/server/src/modules/studio/routes/studio-plugins'
 import { executionScope } from '../../packages/server/src/modules/studio/controllers/studio-plugins'
@@ -370,7 +370,7 @@ it('limits bundled plugin setup to super administrators and passes the exact cur
 
 it('requires an interactive super administrator for every native login terminal endpoint', async () => {
   const endpoints = [
-    ['POST', '/agent-instances/instance/login'], ['GET', '/agent-instances/instance/operations'],
+    ['POST', '/agent-instances/instance/install'], ['POST', '/agent-instances/instance/login'], ['GET', '/agent-instances/instance/operations'],
     ['GET', '/agent-management-operations/operation'], ['GET', '/agent-management-operations/operation/output'],
     ['POST', '/agent-management-operations/operation/input'], ['POST', '/agent-management-operations/operation/resize'],
     ['POST', '/agent-management-operations/operation/cancel'],
@@ -412,4 +412,17 @@ it('accepts only login revision/request keys and scoped terminal controls, with 
   expect((await post('/agent-management-operations/operation/cancel', { id: 'another' })).status).toBe(400)
   expect((await post('/agent-management-operations/operation/cancel', {})).status).toBe(200)
   expect(state.management.cancel).toHaveBeenCalledWith(expect.objectContaining({ profileId: 'one' }), 'operation')
+})
+
+ it('accepts only the owned revision and retry key for managed CLI installation', async () => {
+  const post = (path: string, value: unknown, profile = '?profile=one') => fetch(`${base}/api/studio${path}${profile}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) })
+  const payload = { revision: 1, idempotencyKey: 'install-key' }
+  state.startInstall.mockReturnValue({ id: 'installation', action: 'install', status: 'starting' })
+  expect((await post('/agent-instances/instance/install', payload, '')).status).toBe(400)
+  for (const extra of [{ command: 'npm' }, { version: 'latest' }, { path: '/global' }, { env: { TOKEN: 'secret' } }]) {
+    expect((await post('/agent-instances/instance/install', { ...payload, ...extra })).status).toBe(400)
+  }
+  expect(state.startInstall).not.toHaveBeenCalled()
+  expect((await post('/agent-instances/instance/install', payload)).status).toBe(200)
+  expect(state.startInstall).toHaveBeenCalledWith(expect.objectContaining({ principal: { id: '7', kind: 'user' }, profileId: 'one' }), 'instance', 1, 'install-key')
 })

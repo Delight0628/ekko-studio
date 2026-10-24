@@ -13,6 +13,7 @@ import { PluginHost } from '../../packages/server/src/modules/studio/services/pl
 import { PluginEventBus } from '../../packages/server/src/modules/studio/services/events/plugin-events'
 import { createExecutionContext } from '../../packages/server/src/modules/studio/services/context/execution'
 import { parseAgentLogin } from '../../packages/server/src/modules/studio/services/agents/login-contract'
+import { AgentCliInstallations } from '../../packages/server/src/modules/studio/services/agents/cli-installations'
 import { AgentManagementOperations } from '../../packages/server/src/modules/studio/services/agents/management-operations'
 import { nativeAgentLogin, StudioError, type ExecutionScope } from '../../packages/studio-plugin-sdk/src'
 
@@ -24,11 +25,11 @@ beforeAll(async () => {
   runner = join(root, 'runner.cjs')
   await build({ entryPoints: ['packages/studio-plugin-runner/src/main.ts'], bundle: true, platform: 'node', target: 'node24.22.1', format: 'cjs', outfile: runner, logLevel: 'silent' })
 })
-afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); vi.useRealTimers() })
+afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); vi.useRealTimers(); vi.unstubAllEnvs() })
 afterAll(async () => { await rm(root, { recursive: true, force: true }) })
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
 
-async function setup(options: { crash?: boolean; grant?: boolean } = {}) {
+async function setup(options: { crash?: boolean; grant?: boolean; install?: boolean } = {}) {
   const directory = await mkdtemp(join(root, 'artifact-')), pidPath = join(directory, 'pid'), crashPath = join(directory, 'crash')
   const db = new DatabaseSync(':memory:'), store = new AgentExecutionStore(db), managementStore = new AgentManagementStore(db)
   const pluginStore = new PluginStore(db), registry = new AgentRegistry(), events = new PluginEventBus()
@@ -37,7 +38,7 @@ async function setup(options: { crash?: boolean; grant?: boolean } = {}) {
   const host = new PluginHost({ store: pluginStore, registry, events, context, logger, runnerPath: runner, artifactsRoot: join(root, 'installed'),
     eventContext: async (_state, _event, signal) => context(scope, signal), acceptEvents: async batch => { for (const event of batch) events.publish(event) } })
   const coordinator = new AgentCoordinator({ store, registry, events, logger, authorize, authorizeManagement: authorize, managementStore, context,
-    leaseManagement: (...args) => host.leaseManagement(...args) })
+    leaseManagement: (...args) => host.leaseManagement(...args), stateRoot: join(directory, 'private-state') })
   cleanups.push(async () => { await coordinator.close(); await host.close(); events.close(); db.close() })
   await writeFile(join(directory, 'cli.cjs'), `require('node:fs').writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));
     process.stdin.setRawMode(true); process.stdin.setEncoding('utf8');
@@ -54,8 +55,9 @@ async function setup(options: { crash?: boolean; grant?: boolean } = {}) {
     backend: 'index.cjs', activation: 'profile', contributes: { agents: ['test.login/agent'] }, requires: { capabilities }, configSchema: {} }))
   await writeFile(join(directory, 'index.cjs'), `module.exports = { apply(plugin) {
     plugin.agents.register({ id: 'test.login/agent', name: 'Login fixture', configSchema: {}, capabilities: { text: true, modes: ['global'] },
-      management: { prepareLogin: async () => {
+      management: { ${options.install ? `prepareInstall: async () => ({kind:'npm',packageName:'fixture-cli',version:'1.0.0',bin:'fixture',runner:'node'}),` : ''} prepareLogin: async (_input, context) => {
         ${options.crash ? `setInterval(() => { if(require('node:fs').existsSync(${JSON.stringify(crashPath)})) process.exit(17); }, 20);` : ''}
+        if (context.nativeCli?.state === 'ready') return {command:context.nativeCli.command,args:[...context.nativeCli.args],cwd:${JSON.stringify(directory)}};
         return { command: ${JSON.stringify(process.execPath)}, args: [${JSON.stringify(join(directory, 'cli.cjs'))}], cwd: ${JSON.stringify(directory)} };
       } }, create: async () => { throw new Error('Login must not create a runtime'); } });
   } }`)
@@ -69,7 +71,7 @@ async function setup(options: { crash?: boolean; grant?: boolean } = {}) {
     return Number(await readFile(pidPath, 'utf8'))
   }
   const ended = async (id: string, status: string) => { await operations.wait(scope, id); expect(operations.get(scope, id).status).toBe(status) }
-  return { db, store, managementStore, coordinator, host, registry, logger, authorize, instance, operations, profile, start, ready, ended, crashPath, pidPath }
+  return { directory, db, store, managementStore, coordinator, host, registry, logger, authorize, instance, operations, profile, start, ready, ended, crashPath, pidPath }
 }
 
 it('runs native login through a real worker and PTY with retry-safe receipts and input', async () => {
@@ -103,6 +105,58 @@ it('runs native login through a real worker and PTY with retry-safe receipts and
   expect(f.logger.info).not.toHaveBeenCalled()
   expect(f.logger.warn).not.toHaveBeenCalled()
   expect(f.host.diagnostic('test.login', 'one').hasActiveLeases).toBe(false)
+})
+
+async function installFixture(options: { grant?: boolean; crash?: boolean } = {}) {
+  const f = await setup({ ...options, install: true }), path = join(f.directory, 'npm-cli.js'), gate = join(f.directory, 'install-mode')
+  await writeFile(path, `const fs=require('node:fs'),path=require('node:path');
+    const prefix=process.argv[process.argv.indexOf('--prefix')+1],mode=fs.existsSync(${JSON.stringify(gate)})?fs.readFileSync(${JSON.stringify(gate)},'utf8'):'';
+    fs.writeFileSync(${JSON.stringify(f.pidPath)},String(process.pid));process.stdout.write('INSTALLING\\n');
+    const finish=()=>{if(mode==='fail')process.exit(3);
+      const root=path.join(prefix,'node_modules','fixture-cli');fs.mkdirSync(root,{recursive:true});
+      fs.writeFileSync(path.join(root,'package.json'),JSON.stringify({name:'fixture-cli',version:mode==='wrong'?'2.0.0':'1.0.0',bin:{fixture:'cli.cjs'}}));
+      fs.writeFileSync(path.join(root,'cli.cjs'),mode==='probe'?"process.stdout.write('9.9.9\\n')":${JSON.stringify("process.stdout.write(process.argv.includes('--version')?'1.0.0\\n':'MANAGED CLI\\n');setTimeout(()=>process.exit(0),25)")});
+      process.stdout.write('INSTALLED\\n');};
+    if(mode==='wait')setInterval(()=>{},1000);else finish();`)
+  vi.stubEnv('npm_execpath', path)
+  return { ...f, gate, cache: new AgentCliInstallations(join(f.directory, 'private-state')),
+    install: (key = 'install') => f.coordinator.startInstall(scope, f.instance.id, 1, key) }
+}
+
+it('installs through a real worker and managed process, then uses the selected CLI in login', async () => {
+  const f = await installFixture(), receipt = f.install()
+  expect(receipt).toMatchObject({ action: 'install', status: 'starting' })
+  expect(f.install().id).toBe(receipt.id)
+  expect(() => f.start('install')).toThrow(expect.objectContaining({ code: 'REVISION_CONFLICT' }))
+  await f.ended(receipt.id, 'completed')
+  const installed = f.cache.load(f.instance, receipt.provider)
+  expect(installed).toMatchObject({ state: 'ready', command: process.execPath })
+  expect(f.registry.list('one')[0].management).toEqual({ prepareLogin: true, prepareInstall: true })
+  await expect(f.operations.input(scope, receipt.id, 1, 'input')).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
+  await expect(f.operations.resize(scope, receipt.id, { cols: 80, rows: 24 })).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
+  const login = f.start('after-install')
+  await f.ended(login.id, 'completed')
+  expect(f.operations.output(scope, login.id, 0).chunks.map(chunk => Buffer.from(chunk.data, 'base64').toString()).join('')).toContain('MANAGED CLI')
+  expect(f.store.instance(f.instance.id)).toEqual(f.instance)
+  expect(f.db.prepare('SELECT count(*) AS count FROM studio_agent_runs').get()?.count).toBe(0)
+})
+
+it.each(['fail', 'wrong', 'probe', 'wait'])('preserves the working CLI after %s installation and releases management only after cleanup', async mode => {
+  const f = await installFixture(), first = f.install()
+  await f.ended(first.id, 'completed')
+  const previous = f.cache.load(f.instance, first.provider)
+  await writeFile(f.gate, mode)
+  const next = f.install(`next-${mode}`)
+  if (mode === 'wait') {
+    const pid = await f.ready(next.id, 'INSTALLING')
+    expect(() => f.coordinator.start(scope, f.instance.id, { content: [{ type: 'text', text: 'busy' }] }, 'busy')).toThrow(expect.objectContaining({ code: 'REVISION_CONFLICT' }))
+    await f.operations.cancel(scope, next.id)
+    expect(alive(pid)).toBe(false)
+  }
+  await f.ended(next.id, mode === 'wait' ? 'cancelled' : 'failed')
+  expect(f.cache.load(f.instance, first.provider)).toEqual(previous)
+  expect(f.host.diagnostic('test.login', 'one').hasActiveLeases).toBe(false)
+  expect(await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, config: {}, mode: 'global' })).toMatchObject({ revision: 2 })
 })
 
 it('locks the instance and plugin configuration until terminal cleanup is confirmed', async () => {
@@ -243,4 +297,12 @@ it('validates the private launch DTO and keeps scoped Studio authentication sepa
   await expect(login({ instanceId: 'instance', mode: 'scoped', configRevision: 1, config: {} }, {} as never)).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
   expect(await login({ instanceId: 'instance', mode: 'global', configRevision: 1, config: { command: 'custom', args: ['literal argument'], cwd: process.cwd() } }, {} as never))
     .toEqual({ command: 'custom', args: ['literal argument', 'login', '--device-auth'], cwd: process.cwd() })
+})
+
+it('requires the process grant before invoking native installation', async () => {
+  const f = await installFixture({ grant: false }), receipt = f.install()
+  await f.ended(receipt.id, 'failed')
+  expect(f.operations.get(scope, receipt.id).errorCode).toBe('FORBIDDEN')
+  await expect(readFile(f.pidPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(f.cache.load(f.instance, receipt.provider)).toBeUndefined()
 })

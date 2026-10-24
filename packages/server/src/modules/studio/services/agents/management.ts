@@ -6,6 +6,7 @@ import { parseAgentInspection } from '../plugins/validation'
 
 /** Inspection never creates a Run, checkpoint or persistent runtime lease. */
 export class AgentManagement {
+  constructor(private readonly nativeCli?: (input: AgentManagementInput, scope: ExecutionScope, provider: AgentProviderRef) => AgentRuntimeContext['nativeCli']) {}
   private readonly active = new Map<AbortController, Promise<void>>()
   private readonly unconfirmed = new Set<string>()
   isBlocked(instanceId: string): boolean { return this.unconfirmed.has(instanceId) }
@@ -40,7 +41,8 @@ export class AgentManagement {
       check()
       task = Promise.resolve().then(() => {
         check()
-        return operation({ ...(stateDirectory ? { stateDirectory } : {}), provider, runtimeSessionId: randomUUID(), profileId: scope.profileId, ownerId: scope.principal.id,
+        const nativeCli = this.nativeCli?.(input, scope, provider)
+        return operation({ ...(nativeCli ? { nativeCli } : {}), ...(stateDirectory ? { stateDirectory } : {}), provider, runtimeSessionId: randomUUID(), profileId: scope.profileId, ownerId: scope.principal.id,
           signal: controller.signal, logger, processes: processes.api, mcp: mcp.api })
       }).finally(() => { settled = true })
       const result = await Promise.race([task, aborted])

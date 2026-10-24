@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { AcpConnection, AcpRequestError, AgentEventQueue, ManagedProcessTransport, acpMcpServers } from '@ekko-studio/agent-drivers'
-import { StudioError, readAgentImages, agentContextConfigurationProperties, mergeAgentContextConfiguration, type AgentContextConfiguration, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
+import { StudioError, nativeAgentLaunch, readAgentImages, agentContextConfigurationProperties, mergeAgentContextConfiguration, type AgentContextConfiguration, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
 import { scopedQwen } from './scoped'
 import { management } from './management'
 import { qwenCommandCatalog, compressCommand } from './commands'
@@ -79,8 +79,8 @@ const plugin: StudioPlugin = {
                 if (gateway && images.size && gateway.images !== true) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Selected Studio model does not support images')
                 const isolated = gateway ? await scopedQwen(runtime, gateway) : undefined
                 if (cancelled) return { status: 'cancelled' }
-                const process = await runtime.processes.spawn({ command: String(config.command || 'qwen'),
-                  args: [...(config.args as string[] || []), ...(isolated?.args || []), '--acp'], cwd, env: { ...config.env as Record<string, string>, ...isolated?.env } })
+                const process = await runtime.processes.spawn({ command: nativeAgentLaunch('qwen', config, runtime).command,
+                  args: [...nativeAgentLaunch('qwen', config, runtime).args, ...(isolated?.args || []), '--acp'], cwd, env: { ...config.env as Record<string, string>, ...isolated?.env } })
                 transport = new ManagedProcessTransport(process)
                 if (cancelled) return { status: 'cancelled' }
                 connection = new AcpConnection(transport, {

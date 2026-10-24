@@ -16,6 +16,7 @@ import { managedProcessEnvironment } from '../processes/managed'
 import { PluginMcpBridge } from './mcp'
 import { PluginModelBridge } from './models'
 import { parseAgentResourceLocations } from '../agents/resource-contract'
+import { parseAgentCliInstall } from '../agents/cli-install-contract'
 import { parseAgentLogin } from '../agents/login-contract'
 import { runtimeCommandTarget } from '../agents/command-target'
 import type { PluginCommandRegistry } from './commands'
@@ -164,13 +165,13 @@ export class PluginWorker {
   definition(meta: Omit<AgentTypeSummary, 'provider'>, commands?: PluginCommandRegistry): AgentTypeDefinition {
     const { management, ...metadata } = jsonCopy(meta)
     if (management !== undefined && (!management || !Object.keys(management).length
-      || Object.entries(management).some(([key, value]) => !['inspect', 'locations', 'setup', 'prepareLogin'].includes(key) || value !== true))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent management declaration')
-    const manage = async (input: AgentManagementInput, context: AgentRuntimeContext, method: 'inspect' | 'locations' | 'setup' | 'prepareLogin') => {
+      || Object.entries(management).some(([key, value]) => !['inspect', 'locations', 'setup', 'prepareLogin', 'prepareInstall'].includes(key) || value !== true))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent management declaration')
+    const manage = async (input: AgentManagementInput, context: AgentRuntimeContext, method: 'inspect' | 'locations' | 'setup' | 'prepareLogin' | 'prepareInstall') => {
         if (context.signal.aborted) throw new StudioError('CANCELLED', 'Management scope ended')
         const check = () => {
           if (this.closed) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin worker exited')
           this.authorize('agents.register')
-          if (method === 'prepareLogin') this.authorize('processes.spawn')
+          if ((method === 'prepareLogin' || method === 'prepareInstall')) this.authorize('processes.spawn')
         }
         check()
         const processScope = this.processes.mount(context), mcpScope = this.mcp.mount(context, processScope.handle)
@@ -191,7 +192,7 @@ export class PluginWorker {
         }, 250)
         context.signal.addEventListener('abort', abort, { once: true })
         const task = Promise.resolve().then(() => this.peer.request(`management.${method}`, toJson({ callId, agentTypeId: meta.id,
-          runtimeHandle: processScope.handle, ownerId: context.ownerId, ...(context.stateDirectory ? { stateDirectory: context.stateDirectory } : {}),
+          runtimeHandle: processScope.handle, ownerId: context.ownerId, ...(context.nativeCli ? { nativeCli: context.nativeCli } : {}), ...(context.stateDirectory ? { stateDirectory: context.stateDirectory } : {}),
           input }))).finally(() => { finished = true })
         if (context.signal.aborted) abort()
         try {
@@ -227,6 +228,7 @@ export class PluginWorker {
         ...(management.inspect ? { inspect: async (input, context) => parseAgentInspection(await manage(input, context, 'inspect')) } : {}),
         ...(management.locations ? { locations: async (input, context) => parseAgentResourceLocations(await manage(input, context, 'locations')) } : {}),
         ...(management.setup ? { setup: async (input, context) => parseAgentSetup(await manage(input, context, 'setup')) } : {}),
+        ...(management.prepareInstall ? { prepareInstall: async (input, context) => parseAgentCliInstall(await manage(input, context, 'prepareInstall')) } : {}),
         ...(management.prepareLogin ? { prepareLogin: async (input, context) => parseAgentLogin(await manage(input, context, 'prepareLogin')) } : {}),
       } } : {}),
       create: async (input, context): Promise<AgentRuntime> => {
@@ -254,7 +256,7 @@ export class PluginWorker {
         }
         this.runtimes.add(id)
         try { await this.peer.request('runtime.create', toJson({ agentTypeId: meta.id, runtimeSessionId: id, runtimeHandle: processScope.handle, ownerId: context.ownerId,
-          ...(commandScope ? { commands: true } : {}), ...(context.stateDirectory ? { stateDirectory: context.stateDirectory } : {}), input })) }
+          ...(commandScope ? { commands: true } : {}), ...(context.nativeCli ? { nativeCli: context.nativeCli } : {}), ...(context.stateDirectory ? { stateDirectory: context.stateDirectory } : {}), input })) }
         catch (error) {
           this.runtimes.delete(id)
           try { await releaseResources() } finally { await this.close() }

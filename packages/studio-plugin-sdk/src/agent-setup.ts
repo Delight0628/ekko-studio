@@ -1,11 +1,20 @@
 import { StudioError } from './errors'
-import type { AgentManagementAdapter, AgentSetup } from './types'
+import type { AgentManagementAdapter, AgentSetup, AgentRuntimeContext, JsonObject } from './types'
+
+export function nativeAgentLaunch(defaultCommand: string, config: JsonObject, context: Pick<AgentRuntimeContext, 'nativeCli'>): { command: string; args: string[] } {
+  const args = config.args as string[] || []
+  if (config.command) return { command: String(config.command), args: [...args] }
+  if (context.nativeCli?.state === 'unavailable') throw new StudioError('RUNTIME_UNAVAILABLE', 'Managed CLI requires installation repair')
+  if (context.nativeCli?.state === 'ready') return { command: context.nativeCli.command, args: [...context.nativeCli.args, ...args] }
+  return { command: defaultCommand, args: [...args] }
+}
 
 /** Launch details stay between the plugin and host; clients only receive an operation receipt. */
 export function nativeAgentLogin(defaultCommand: string, loginArgs: string[]): NonNullable<AgentManagementAdapter['prepareLogin']> {
-  return async ({ config, mode }) => {
+  return async ({ config, mode }, context) => {
     if (mode !== 'global') throw new StudioError('CAPABILITY_UNSUPPORTED', 'Scoped instances use Studio credentials')
-    return { command: String(config.command || defaultCommand), args: [...(config.args as string[] || []), ...loginArgs],
+    const launch = nativeAgentLaunch(defaultCommand, config, context)
+    return { command: launch.command, args: [...launch.args, ...loginArgs],
       cwd: String(config.cwd), ...(config.env ? { env: config.env as Record<string, string> } : {}) }
   }
 }
@@ -13,11 +22,13 @@ export function nativeAgentLogin(defaultCommand: string, loginArgs: string[]): N
 /** Version probes discard native output except a bounded version identifier. */
 export function nativeAgentSetup(defaultCommand: string, packageSpec: string, loginArgs: string[], loginInput?: string): NonNullable<AgentManagementAdapter['setup']> {
   return async ({ config, mode }, context) => {
-    const command = String(config.command || defaultCommand), args = config.args as string[] || []
+    const unavailable = !config.command && context.nativeCli?.state === 'unavailable'
+    const { command, args } = unavailable ? { command: defaultCommand, args: config.args as string[] || [] } : nativeAgentLaunch(defaultCommand, config, context)
     const result: AgentSetup = {
       cli: { state: 'unavailable' }, installation: { command: 'npm', args: ['install', '--global', packageSpec] },
       authentication: mode === 'scoped' ? { kind: 'studio' } : { kind: 'native', command, args: [...args, ...loginArgs], ...(loginInput ? { input: loginInput } : {}) },
     }
+    if (unavailable) return result
     let process: import('./types').ProcessHandle | undefined
     try {
       process = await context.processes.spawn({ command, args: [...args, '--version'], cwd: String(config.cwd), ...(config.env ? { env: config.env as Record<string, string> } : {}) })

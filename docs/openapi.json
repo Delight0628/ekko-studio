@@ -13172,6 +13172,198 @@
         }
       }
     },
+    "/api/studio/agent-instances/{id}/install": {
+      "post": {
+        "tags": [
+          "Studio Plugins"
+        ],
+        "summary": "Install the plugin-pinned native CLI in private instance storage",
+        "description": "Requires an interactive Studio login with super administrator privileges and fresh owner/profile authorization. Turn-scoped MCP credentials cannot access these terminal endpoints. Login is an independent management operation, not a chat Run or a usage charge. Terminal input is never stored; output is held in bounded memory for five minutes after exit. Host restart interrupts operations and never replays input. Requires an idle owned instance and exact revision. Only plugin-provided exact npm package versions are accepted. Installation uses private prefix, configuration and cache directories; global npm packages and native account homes are not changed. Failed or cancelled staging preserves the previous selected CLI. Input and resize are unsupported. Selection changes atomically only after package identity, version, executable entry and process cleanup are verified. Custom instance commands take precedence.",
+        "operationId": "startAgentInstall",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owner-bound management result. Launch commands and input frames are never included in receipts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "instanceId",
+                        "configRevision",
+                        "provider",
+                        "action",
+                        "status",
+                        "createdAt",
+                        "updatedAt",
+                        "expiresAt",
+                        "errorCode",
+                        "exit"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "instanceId": {
+                          "type": "string"
+                        },
+                        "configRevision": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "provider": {
+                          "type": "object"
+                        },
+                        "action": {
+                          "enum": [
+                            "login",
+                            "install"
+                          ]
+                        },
+                        "status": {
+                          "enum": [
+                            "starting",
+                            "running",
+                            "completed",
+                            "cancelled",
+                            "failed",
+                            "interrupted"
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "integer"
+                        },
+                        "updatedAt": {
+                          "type": "integer"
+                        },
+                        "expiresAt": {
+                          "type": "integer"
+                        },
+                        "errorCode": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "exit": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "properties": {
+                            "code": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "signal": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or manifest."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Access denied or SYSTEM_PLUGIN_PROTECTED; no deletion side effects."
+          },
+          "404": {
+            "description": "Plugin not installed."
+          },
+          "409": {
+            "description": "Revision conflict, registration conflict or active runtime leases."
+          },
+          "422": {
+            "description": "Plugin requests unsupported capabilities."
+          },
+          "429": {
+            "description": "Terminal, process or input budget exceeded."
+          },
+          "503": {
+            "description": "Plugin host or runtime unavailable."
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "profile",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Authorized Studio profile."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "revision",
+                  "idempotencyKey"
+                ],
+                "properties": {
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "profile": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/studio/agent-instances/{id}/locations": {
       "post": {
         "tags": [
@@ -13464,7 +13656,8 @@
                         },
                         "action": {
                           "enum": [
-                            "login"
+                            "login",
+                            "install"
                           ]
                         },
                         "status": {
@@ -13658,7 +13851,8 @@
                           },
                           "action": {
                             "enum": [
-                              "login"
+                              "login",
+                              "install"
                             ]
                           },
                           "status": {
@@ -14818,7 +15012,8 @@
                         },
                         "action": {
                           "enum": [
-                            "login"
+                            "login",
+                            "install"
                           ]
                         },
                         "status": {
@@ -14980,7 +15175,8 @@
                         },
                         "action": {
                           "enum": [
-                            "login"
+                            "login",
+                            "install"
                           ]
                         },
                         "status": {

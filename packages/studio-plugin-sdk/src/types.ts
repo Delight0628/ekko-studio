@@ -234,7 +234,7 @@ export interface AgentTypeSummary {
   configSchema: JsonSchema
   capabilities: AgentCapabilities
   provider: AgentProviderRef
-  management?: { inspect?: true; locations?: true; setup?: true; prepareLogin?: true }
+  management?: { inspect?: true; locations?: true; setup?: true; prepareLogin?: true; prepareInstall?: true }
 }
 
 /** Native metadata only: never return credentials, config files or account identifiers. */
@@ -255,6 +255,8 @@ export interface AgentSetup {
   authentication: { kind: 'native' | 'studio'; command?: string; args?: string[]; input?: string }
 }
 export interface AgentManagementAdapter {
+  /** Declare an exact native CLI package; the host installs into private instance storage. */
+  prepareInstall?(input: AgentManagementInput, context: AgentRuntimeContext): Promise<AgentCliInstallPlan>
   /** Short-lived resources; no prompt, login, credential refresh or config mutation. */
   inspect?(input: AgentManagementInput, context: AgentRuntimeContext): Promise<AgentInspection>
   /** Declare all native resource locations. Studio scans, reads and edits their contents. */
@@ -266,9 +268,12 @@ export interface AgentManagementAdapter {
   prepareLogin?(input: AgentManagementInput, context: AgentRuntimeContext): Promise<Omit<ProcessSpawnInput, 'terminal'>>
 }
 
+export interface AgentCliInstallPlan { kind: 'npm'; packageName: string; version: string; bin: string; runner: 'node' | 'binary' }
+export type AgentNativeCli = { state: 'ready'; command: string; args: string[] } | { state: 'unavailable' }
+
 export type AgentManagementOperationStatus = 'starting' | 'running' | 'completed' | 'cancelled' | 'failed' | 'interrupted'
 export interface AgentManagementOperation {
-  id: string; instanceId: string; configRevision: number; provider: AgentProviderRef; action: 'login'
+  id: string; instanceId: string; configRevision: number; provider: AgentProviderRef; action: 'login' | 'install'
   status: AgentManagementOperationStatus; createdAt: number; updatedAt: number; expiresAt: number
   errorCode: string | null; exit: ProcessExit | null
 }
@@ -281,6 +286,8 @@ export interface AgentRuntimeContext {
   /** Host-owned persistent directory, isolated by provider/version, owner, profile and instance.
    * Compatible configuration revisions share their original directory. */
   readonly stateDirectory?: string
+  /** Host-verified private CLI. An unavailable installation requires repair or an explicit custom command. */
+  readonly nativeCli?: AgentNativeCli
   readonly provider: AgentProviderRef
   readonly runtimeSessionId: string
   readonly profileId: string

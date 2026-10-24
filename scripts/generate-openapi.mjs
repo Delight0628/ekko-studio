@@ -2106,7 +2106,7 @@ agentSetup.description += ' Requires the owned idle instance and exact revision.
 agentSetup.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, required: ['revision'], properties: { revision: { type: 'integer', minimum: 1 }, profile: { type: 'string' } } })
 const managementReceipt = { type: 'object', additionalProperties: false,
   required: ['id', 'instanceId', 'configRevision', 'provider', 'action', 'status', 'createdAt', 'updatedAt', 'expiresAt', 'errorCode', 'exit'], properties: {
-    id: { type: 'string' }, instanceId: { type: 'string' }, configRevision: { type: 'integer', minimum: 1 }, provider: { type: 'object' }, action: { enum: ['login'] },
+    id: { type: 'string' }, instanceId: { type: 'string' }, configRevision: { type: 'integer', minimum: 1 }, provider: { type: 'object' }, action: { enum: ['login', 'install'] },
     status: { enum: ['starting', 'running', 'completed', 'cancelled', 'failed', 'interrupted'] },
     createdAt: { type: 'integer' }, updatedAt: { type: 'integer' }, expiresAt: { type: 'integer' }, errorCode: { type: ['string', 'null'] },
     exit: { type: ['object', 'null'], properties: { code: { type: ['integer', 'null'] }, signal: { type: ['string', 'null'] } } },
@@ -2115,13 +2115,17 @@ const managementResult = schema => ({ description: 'Owner-bound management resul
   type: 'object', required: ['ok', 'data'], properties: { ok: { const: true }, data: schema },
 } } } })
 for (const [path, methods] of Object.entries(openapi.paths)) {
-  if (!path.startsWith('/api/studio/agent-management-operations/') && !/^\/api\/studio\/agent-instances\/\{id\}\/(login|operations)$/.test(path)) continue
+  if (!path.startsWith('/api/studio/agent-management-operations/') && !/^\/api\/studio\/agent-instances\/\{id\}\/(login|install|operations)$/.test(path)) continue
   for (const operation of Object.values(methods)) {
     operation.description = 'Requires an interactive Studio login with super administrator privileges and fresh owner/profile authorization. Turn-scoped MCP credentials cannot access these terminal endpoints. Login is an independent management operation, not a chat Run or a usage charge. Terminal input is never stored; output is held in bounded memory for five minutes after exit. Host restart interrupts operations and never replays input.'
     operation.responses['200'] = managementResult(managementReceipt)
     operation.responses['429'] = { description: 'Terminal, process or input budget exceeded.' }
   }
 }
+const installStart = openapi.paths['/api/studio/agent-instances/{id}/install'].post
+installStart.summary = 'Install the plugin-pinned native CLI in private instance storage'
+installStart.description += ' Requires an idle owned instance and exact revision. Only plugin-provided exact npm package versions are accepted. Installation uses private prefix, configuration and cache directories; global npm packages and native account homes are not changed. Failed or cancelled staging preserves the previous selected CLI. Input and resize are unsupported. Selection changes atomically only after package identity, version, executable entry and process cleanup are verified. Custom instance commands take precedence.'
+installStart.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, required: ['revision', 'idempotencyKey'], properties: { revision: { type: 'integer', minimum: 1 }, idempotencyKey: { type: 'string', minLength: 1, maxLength: 128 }, profile: { type: 'string' } } })
 const loginStart = openapi.paths['/api/studio/agent-instances/{id}/login'].post
 loginStart.summary = 'Explicitly open the owned native CLI login terminal'
 loginStart.description += ' Requires the idle instance and exact revision. Retry the same idempotencyKey to recover the same operation, including after a lost response. Reusing a key for different input returns 409. Plugin-provided launch arguments stay private; callers cannot supply commands, environment or terminal dimensions. Login blocks instance runs/configuration and plugin replacement until process cleanup. The operation expires after ten minutes and survives browser disconnect. Exit zero means the command ended, not that account authentication was verified; use inspect separately.'

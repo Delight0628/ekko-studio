@@ -21,10 +21,10 @@ export class AgentManagementOperations {
   private closed = false
   constructor(private readonly store: AgentManagementStore, private readonly authorizeScope: (scope: ExecutionScope) => void) {}
 
-  previous(scope: ExecutionScope, instanceId: string, revision: number, key: string): AgentManagementOperation | null {
+  previous(scope: ExecutionScope, instanceId: string, revision: number, key: string, action: 'login' | 'install' = 'login'): AgentManagementOperation | null {
     this.checkScope(scope)
     if (!Number.isSafeInteger(revision) || revision < 1 || typeof key !== 'string' || !key.trim() || key.length > 128) throw new StudioError('INVALID_ARGUMENT', 'Revision and request key are required')
-    const record = this.store.find(scope.principal.id, scope.profileId, key, instanceId, revision)
+    const record = this.store.find(scope.principal.id, scope.profileId, key, instanceId, revision, action)
     return record ? this.project(record) : null
   }
 
@@ -106,7 +106,7 @@ export class AgentManagementOperations {
       finished: !['starting', 'running'].includes(record.status) && (!chunks.length || chunks.at(-1)!.sequence === sequence) }
   }
   async input(scope: ExecutionScope, id: string, sequence: number, text: string): Promise<void> {
-    this.owned(scope, id)
+    if (this.owned(scope, id).action !== 'login') throw new StudioError('CAPABILITY_UNSUPPORTED', 'Installation output is read-only')
     if (!Number.isSafeInteger(sequence) || sequence < 1 || typeof text !== 'string' || !text || Buffer.byteLength(text) > 65_536) throw new StudioError('INVALID_ARGUMENT', 'Invalid terminal input')
     const digest = createHash('sha256').update(text).digest('hex'), previous = this.operations.get(id)?.input
     if (sequence === previous?.sequence && digest === previous.digest) { await previous.task; return }
@@ -125,6 +125,7 @@ export class AgentManagementOperations {
     await task
   }
   async resize(scope: ExecutionScope, id: string, size: unknown): Promise<void> {
+    if (this.owned(scope, id).action !== 'login') throw new StudioError('CAPABILITY_UNSUPPORTED', 'Installation output is read-only')
     const operation = this.live(scope, id), dimensions = parseTerminalSize(size)
     if (!operation.terminal?.resize) throw new StudioError('REVISION_CONFLICT', 'Terminal is still starting')
     await operation.terminal.resize(dimensions.cols, dimensions.rows)

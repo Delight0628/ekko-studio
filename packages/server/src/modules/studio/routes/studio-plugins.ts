@@ -29,6 +29,7 @@ studioPluginRoutes.get('/api/studio/agent-chats/:sessionId/images/:id', requireU
 studioPluginRoutes.post('/api/studio/agent-instances/:id/inspect', requireUserProfile, controller.inspectAgentInstance)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/setup', requireUserProfile, controller.setupAgentInstance)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/login', requireInteractiveSuperAdmin, requireUserProfile, management.startAgentLogin)
+studioPluginRoutes.post('/api/studio/agent-instances/:id/install', requireInteractiveSuperAdmin, requireUserProfile, management.startAgentInstall)
 studioPluginRoutes.get('/api/studio/agent-instances/:id/operations', requireInteractiveSuperAdmin, requireUserProfile, management.listAgentManagementOperations)
 studioPluginRoutes.get('/api/studio/agent-management-operations/:id', requireInteractiveSuperAdmin, requireUserProfile, management.getAgentManagementOperation)
 studioPluginRoutes.get('/api/studio/agent-management-operations/:id/output', requireInteractiveSuperAdmin, requireUserProfile, management.getAgentManagementOutput)
