@@ -460,7 +460,9 @@ export class BrowserManager {
     return this.withAutomationView(record, async () => {
       this.allowAgentContextMenu(record, [action])
       await this.automation.interact(tabId, record.view.webContents, action, assertActive)
+      const pointer = this.automation.lastPointer(record.view.webContents)
       const evidence = await this.observeOperation(record, before, targets, options, generation, tabs, assertActive, started)
+      if (pointer && evidence.observation) evidence.observation.pointer = pointer
       return { ...copyTab(record.tab), ...evidence }
     })
   }

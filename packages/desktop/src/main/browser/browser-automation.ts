@@ -160,7 +160,20 @@ const POINTER_TARGET_FUNCTION = `function (useClickTarget) {
   for (let current = hit; current; current = current.parentNode || current.host) {
     if (current === target) { covered = false; break; }
   }
-  return { x, y, covered };
+  // Add same-origin parent frames from inside the page: each <iframe> content box offsets the point.
+  // The walk stops at the main window or at a cross-origin parent (an out-of-process iframe root).
+  let frameX = 0, frameY = 0, view = target.ownerDocument.defaultView, crossOrigin = false;
+  while (view && view !== view.parent) {
+    let owner = null;
+    try { owner = view.frameElement; } catch (error) { owner = null; }
+    if (!owner) { crossOrigin = true; break; }
+    const box = owner.getBoundingClientRect();
+    const style = owner.ownerDocument.defaultView.getComputedStyle(owner);
+    frameX += box.left + owner.clientLeft + parseFloat(style.paddingLeft || '0');
+    frameY += box.top + owner.clientTop + parseFloat(style.paddingTop || '0');
+    view = view.parent;
+  }
+  return { x, y, covered, frameX, frameY, crossOrigin };
 }`
 
 function keyDescriptor(key: string): { key: string; code: string; keyCode: number } {
@@ -201,6 +214,11 @@ export class BrowserAutomation {
       this.cdpStates.set(contents, state)
     }
     return state
+  }
+
+  /** Main-viewport CSS point where the last interaction dispatched mouse input, for evidence. */
+  lastPointer(contents: WebContents): CdpTabState['lastPointer'] {
+    return this.cdpStates.get(contents)?.lastPointer
   }
 
   /** The JavaScript dialog currently blocking the page, if any. */
@@ -530,6 +548,7 @@ export class BrowserAutomation {
     await this.ensureAttached(contents)
     this.assertNoDialog(contents)
     assertActive()
+    this.cdp(contents).lastPointer = undefined
     // A click can open alert()/confirm(), which blocks the page and the command that caused it.
     // Stop waiting as soon as the dialog appears; the caller reports it instead of hanging.
     await this.cdp(contents).untilDialog(this.dispatch(tabId, contents, action, assertActive))
@@ -599,6 +618,7 @@ export class BrowserAutomation {
         case 'hover': {
           const point = await this.pointerPoint(state, target, objectId, false)
           // A trusted pointer move drives :hover styles and mouseover/mouseenter menus.
+          state.lastPointer = { x: Math.round(point.x), y: Math.round(point.y) }
           await state.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y })
           return
         }
@@ -711,46 +731,45 @@ export class BrowserAutomation {
   private async pointerPoint(state: CdpTabState, target: ElementTarget, objectId: string, clickTarget: boolean): Promise<{ x: number; y: number; covered: boolean }> {
     const response = await state.send('Runtime.callFunctionOn', {
       objectId, returnByValue: true, functionDeclaration: POINTER_TARGET_FUNCTION, arguments: [{ value: clickTarget }],
-    }, target.sessionId) as { result?: { value?: { x?: unknown; y?: unknown; covered?: unknown } } } & ScriptResponse
+    }, target.sessionId) as { result?: { value?: { x?: unknown; y?: unknown; covered?: unknown; frameX?: unknown; frameY?: unknown; crossOrigin?: unknown } } } & ScriptResponse
     const value = response.result?.value
     if (response.exceptionDetails || typeof value?.x !== 'number' || typeof value.y !== 'number') {
       throw scriptFailure('locate browser element', response)
     }
-    const offset = await this.frameOffset(state, target.sessionId, target.frameId)
-    return { x: value.x + offset.x, y: value.y + offset.y, covered: value.covered === true }
+    // Same-origin frames are measured in the page. DevTools box models are only needed when
+    // the walk stopped inside this session (same-process cross-origin frame), plus once per
+    // out-of-process iframe boundary.
+    const inPage = typeof value.frameX === 'number' && typeof value.frameY === 'number'
+    const stoppedEarly = value.crossOrigin === true && !!target.frameId && !target.sessionId
+    const local = inPage && !stoppedEarly ? { x: value.frameX as number, y: value.frameY as number }
+      : target.frameId ? await this.ownerBoxOffset(state, target.frameId, target.sessionId) : { x: 0, y: 0 }
+    const session = await this.sessionOffset(state, target.sessionId)
+    return { x: value.x + local.x + session.x, y: value.y + local.y + session.y, covered: value.covered === true }
   }
 
-  /**
-   * Offset of a frame's viewport inside the main viewport. Box models of nodes in
-   * same-process frames are already relative to their session's root frame, so each
-   * session boundary (out-of-process iframe) adds one owner offset.
-   */
-  private async frameOffset(state: CdpTabState, sessionId: string | undefined, frameId: string | undefined): Promise<{ x: number; y: number }> {
+  /** Content-box origin of a frame's <iframe> element, relative to its session's root viewport. */
+  private async ownerBoxOffset(state: CdpTabState, frameId: string, sessionId: string | undefined): Promise<{ x: number; y: number }> {
+    const owner = await state.send<{ backendNodeId?: number }>('DOM.getFrameOwner', { frameId }, sessionId)
+    const box = await state.send<{ model?: { content?: number[] } }>('DOM.getBoxModel', { backendNodeId: owner.backendNodeId }, sessionId)
+    const content = box.model?.content
+    if (!content || content.length < 2) throw new Error('Browser frame is not visible')
+    return { x: content[0], y: content[1] }
+  }
+
+  /** Offset of an out-of-process iframe session's viewport inside the main viewport, one owner per boundary. */
+  private async sessionOffset(state: CdpTabState, sessionId: string | undefined): Promise<{ x: number; y: number }> {
     let x = 0, y = 0
-    let session = sessionId, frame = frameId
-    for (let depth = 0; depth < 10; depth++) {
-      let ownerFrame: string, ownerSession: string | undefined
-      if (frame) {
-        ownerFrame = frame
-        ownerSession = session
-      } else if (session) {
-        const info = state.sessions.get(session)
-        if (!info) throw new Error('Browser frame is no longer available; take a new snapshot')
-        ownerFrame = info.targetId
-        ownerSession = info.parentSessionId
-      } else {
-        return { x, y }
-      }
-      const owner = await state.send<{ backendNodeId?: number }>('DOM.getFrameOwner', { frameId: ownerFrame }, ownerSession)
-      const box = await state.send<{ model?: { content?: number[] } }>('DOM.getBoxModel', { backendNodeId: owner.backendNodeId }, ownerSession)
-      const content = box.model?.content
-      if (!content || content.length < 2) throw new Error('Browser frame is not visible')
-      x += content[0]
-      y += content[1]
-      if (frame) frame = undefined
-      else session = ownerSession
+    let session = sessionId
+    for (let depth = 0; session; depth++) {
+      if (depth >= 10) throw new Error('Browser frames are nested too deeply')
+      const info = state.sessions.get(session)
+      if (!info) throw new Error('Browser frame is no longer available; take a new snapshot')
+      const offset = await this.ownerBoxOffset(state, info.targetId, info.parentSessionId)
+      x += offset.x
+      y += offset.y
+      session = info.parentSessionId
     }
-    throw new Error('Browser frames are nested too deeply')
+    return { x, y }
   }
 
   private async viewportPoint(state: CdpTabState, xValue: unknown, yValue: unknown): Promise<{ x: number; y: number }> {
@@ -765,6 +784,7 @@ export class BrowserAutomation {
 
   private async mouseClick(state: CdpTabState, point: { x: number; y: number }, button: BrowserMouseButton, clickCount: number): Promise<void> {
     const { x, y } = point
+    state.lastPointer = { x: Math.round(x), y: Math.round(y) }
     await state.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })
     for (let count = 1; count <= clickCount; count++) {
       await state.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, buttons: MOUSE_BUTTON_MASK[button], clickCount: count })
@@ -779,6 +799,7 @@ export class BrowserAutomation {
    */
   private async drag(state: CdpTabState, from: { x: number; y: number }, to: { x: number; y: number }, assertActive: () => void): Promise<void> {
     let data: unknown
+    state.lastPointer = { x: Math.round(from.x), y: Math.round(from.y), to_x: Math.round(to.x), to_y: Math.round(to.y) }
     state.onDragIntercepted = value => { data = value }
     await state.send('Input.setInterceptDrags', { enabled: true }).catch(() => undefined)
     let pressed = false

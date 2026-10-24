@@ -35,6 +35,7 @@ export class CdpTabState {
   /** Whether the root session has its domains and iframe auto-attach enabled. */
   configured = false
   network: BrowserNetworkEntry[] = []
+  lastPointer?: { x: number; y: number; to_x?: number; to_y?: number }
   onDragIntercepted?: (data: unknown) => void
   private readonly requests = new Map<string, PendingRequest>()
   private readonly dialogWaiters = new Set<() => void>()

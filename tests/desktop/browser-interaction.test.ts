@@ -216,6 +216,24 @@ describe('iframes', () => {
     expect(page.mouse()[1]).toMatchObject({ type: 'mousePressed', x: 400, y: 250 })
   })
 
+  it('prefers same-origin frame offsets measured in the page over DevTools box models', async () => {
+    const automation = new BrowserAutomation()
+    const page = framedPage()
+    const original = page.contents.debugger.sendCommand
+    page.contents.debugger.sendCommand = (async (method: string, params: Record<string, any> = {}, sessionId?: string) => {
+      if (method === 'Runtime.callFunctionOn' && String(params.functionDeclaration).includes('covered')) {
+        page.sent.push({ method, params, sessionId })
+        return { result: { value: { x: 100, y: 50, covered: false, frameX: 297, frameY: 145, crossOrigin: false } } }
+      }
+      return original(method, params, sessionId)
+    }) as typeof original
+    const snapshot = await automation.snapshot('tab', page.contents)
+    await automation.interact('tab', page.contents, { action: 'double_click', ref: '@e3', snapshot_id: snapshot.snapshotId })
+    expect(page.mouse()[1]).toMatchObject({ type: 'mousePressed', x: 397, y: 195 })
+    expect(automation.lastPointer(page.contents)).toEqual({ x: 397, y: 195 })
+    expect(page.sent.some(item => item.method === 'DOM.getBoxModel')).toBe(false)
+  })
+
   it('offsets a same-process frame by its owner box and types through the main widget', async () => {
     const automation = new BrowserAutomation()
     const page = framedPage()

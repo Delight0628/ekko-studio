@@ -114,6 +114,8 @@ export interface BrowserObservation {
   openedTabs?: Array<Pick<DesktopBrowserTab, 'id' | 'title' | 'url'>>
   dialog?: BrowserPageDialog
   fileChooser?: { multiple: boolean }
+  /** Main-viewport CSS point where mouse input was dispatched. */
+  pointer?: { x: number; y: number; to_x?: number; to_y?: number }
   hint: string
 }
 
