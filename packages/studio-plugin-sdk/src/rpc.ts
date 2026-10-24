@@ -1,4 +1,4 @@
-import { StudioError, STUDIO_ERROR_CODES, type StudioErrorData } from './errors'
+import { StudioError, STUDIO_ERROR_CODES, serializeStudioError, type StudioErrorData } from './errors'
 import type { JsonValue } from './types'
 
 export type RpcFrame =
@@ -80,7 +80,7 @@ export class RpcPeer {
       if (!this.closed) await this.transport.send({ kind: 'response', id: frame.id, value })
     } catch (error) {
       if (!this.closed) {
-        const safe = error instanceof StudioError ? error.toJSON() : new StudioError('INTERNAL', 'Plugin operation failed').toJSON()
+        const safe = serializeStudioError(error, 'Plugin operation failed')
         await this.transport.send({ kind: 'error', id: frame.id, error: safe }).catch(() => this.close())
       }
     } finally { this.inbound-- }

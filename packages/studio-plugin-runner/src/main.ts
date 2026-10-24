@@ -6,7 +6,7 @@ import { remoteProcesses } from './processes'
 import { remoteModels } from './models'
 import { RpcPeer, type RpcFrame } from '../../studio-plugin-sdk/src/rpc'
 import {
-  StudioError, STUDIO_PLUGIN_RPC_VERSION,
+  StudioError, serializeStudioError, STUDIO_PLUGIN_RPC_VERSION,
   type AgentTypeDefinition, type AgentRuntime, type AgentRuntimeContext, type AgentRunHandle,
   type AgentRunContext, type ExecutionContext, type ExecutionScope, type PluginIdentity,
   type JsonObject, type JsonValue, type PluginContext, type StudioPlugin, type Disposer,
@@ -228,7 +228,7 @@ peer.handle('run.start', async value => {
       ]), expired])
       await peer.request('run.result', { runId, result: json(result) })
     } catch (error) {
-      const safe = error instanceof StudioError ? error.toJSON() : new StudioError('INTERNAL', 'Agent run failed').toJSON()
+      const safe = serializeStudioError(error, 'Agent run failed')
       await peer.request('run.error', { runId, error: json(safe) }).catch(() => {})
     } finally { ended = true; if (timer) clearTimeout(timer); runs.delete(runId); controller.abort() }
   })

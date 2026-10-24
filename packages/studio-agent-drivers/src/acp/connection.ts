@@ -2,6 +2,11 @@ import type { AgentProcessIO } from '../process/transport'
 import { StringDecoder } from 'node:string_decoder'
 import { readFileSync } from 'node:fs'
 export interface AcpImageInput { path: string; name?: string; mediaType?: string }
+export interface AcpPermissionRequest {
+  sessionId: string
+  toolCall: Record<string, unknown>
+  options: Array<{ optionId: string; name: string; kind: string }>
+}
 
 interface Pending {
   resolve(value: any): void
@@ -17,11 +22,15 @@ export class AcpConnection {
   private buffer = ''
   private closed = false
   private sessionId = ''
+  private cancelling = false
+  private permissions = new Map<string | number, AbortController>()
 
   constructor(private child: AgentProcessIO, private callbacks: {
     update(update: any): void
     session(id: string): void
     permissionRequired?: boolean
+    /** Resolve only after the host has accepted the user's response. null cancels. */
+    permission?(request: AcpPermissionRequest, signal: AbortSignal): Promise<string | null>
     warning?(message: string, detail: string): void
   }) {
     child.stdout?.on('data', (chunk: Buffer) => {
@@ -83,6 +92,7 @@ export class AcpConnection {
         this.callbacks.update(message.params.update)
       } else if (message.id !== undefined) {
         if (message.method === 'session/request_permission' && message.params?.sessionId === this.sessionId) {
+          if (this.callbacks.permission) { this.requestPermission(message); return }
           const kind = this.callbacks.permissionRequired ? 'reject_once' : 'allow_once'
           const option = message.params.options?.find((entry: any) => entry.kind === kind)
           this.write({ id: message.id, result: { outcome: option
@@ -98,6 +108,42 @@ export class AcpConnection {
     if (pending.timer) clearTimeout(pending.timer)
     if (message.error) pending.reject(new Error(`ACP: ${message.error.message || 'request failed'}`))
     else pending.resolve(message.result)
+  }
+
+  private requestPermission(message: any): void {
+    const { id, params } = message
+    const options = params.options
+    if (!((typeof id === 'string' && id.length > 0 && id.length <= 256) || (typeof id === 'number' && Number.isSafeInteger(id)))
+      || !Array.isArray(options) || !options.length || options.length > 32
+      || options.some((option: any) => !option || typeof option.optionId !== 'string' || !option.optionId || option.optionId.length > 256
+        || typeof option.name !== 'string' || !option.name || option.name.length > 4096
+        || !['allow_once', 'allow_always', 'reject_once', 'reject_always'].includes(option.kind))
+      || new Set(options.map((option: any) => option.optionId)).size !== options.length
+      || !params.toolCall || typeof params.toolCall !== 'object' || Array.isArray(params.toolCall)) {
+      this.write({ id, error: { code: -32602, message: 'Invalid ACP permission request' } }); return
+    }
+    if (this.permissions.has(id)) { this.dispose(new Error('Duplicate ACP permission request')); return }
+    if (this.cancelling || this.permissions.size >= 32) {
+      this.write({ id, result: { outcome: { outcome: 'cancelled' } } }); return
+    }
+    const controller = new AbortController()
+    this.permissions.set(id, controller)
+    // Retain the wire options separately: application callbacks cannot add an
+    // option and thereby authorize an outcome the CLI never offered.
+    const request = JSON.parse(JSON.stringify({ sessionId: this.sessionId, toolCall: params.toolCall, options })) as AcpPermissionRequest
+    void Promise.resolve().then(() => controller.signal.aborted ? null : this.callbacks.permission!(request, controller.signal))
+      .then(optionId => {
+        if (this.closed || controller.signal.aborted) return
+        const selected = typeof optionId === 'string' && options.some((option: any) => option.optionId === optionId)
+        this.permissions.delete(id)
+        this.write({ id, result: { outcome: selected ? { outcome: 'selected', optionId } : { outcome: 'cancelled' } } })
+      }, () => {
+        if (!this.closed && !controller.signal.aborted) {
+          this.permissions.delete(id)
+          this.write({ id, result: { outcome: { outcome: 'cancelled' } } })
+        }
+      }).catch(error => this.dispose(error instanceof Error ? error : new Error('ACP permission response failed')))
+      .finally(() => { if (this.permissions.get(id) === controller) this.permissions.delete(id) })
   }
 
   async prompt(input: { cwd: string; text: string; images?: AcpImageInput[]; nativeSessionId?: string; mcpServers: object[]; model?: string; reasoningEffort?: string }): Promise<string> {
@@ -145,18 +191,27 @@ export class AcpConnection {
       data: readFileSync(image.path).toString('base64'),
     })
     const result = await this.request('session/prompt', { sessionId: this.sessionId, prompt }, 0)
+    if (this.permissions.size) throw new Error('ACP prompt finished with unresolved permissions')
     this.child.stdin?.end()
     return String(result?.stopReason || 'unknown')
   }
 
   cancel() {
     if (this.closed) return
+    this.cancelling = true
+    for (const [id, controller] of this.permissions) {
+      controller.abort()
+      try { this.write({ id, result: { outcome: { outcome: 'cancelled' } } }) } catch {}
+    }
+    this.permissions.clear()
     try { if (this.sessionId) this.write({ method: 'session/cancel', params: { sessionId: this.sessionId } }) } catch {}
   }
 
   dispose(error = new Error('ACP turn disposed')) {
     if (this.closed) return
     this.closed = true
+    for (const controller of this.permissions.values()) controller.abort()
+    this.permissions.clear()
     for (const pending of this.pending.values()) {
       if (pending.timer) clearTimeout(pending.timer)
       pending.reject(error)
