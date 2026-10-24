@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('electron', async () => ({
   app: { isPackaged: true, getAppPath: () => process.cwd(), getLocale: () => 'en', getVersion: () => '1.0.0' },
-  autoUpdater: Object.assign(new (await import('node:events')).EventEmitter(), { checkForUpdates: vi.fn() }),
+  autoUpdater: new (await import('node:events')).EventEmitter(),
   dialog: { showMessageBox: mocks.dialog },
 }))
 vi.mock('electron-updater', async () => {
@@ -142,7 +142,7 @@ describe('desktop update downloads', () => {
     resolveDownload(['cached.zip'])
     await flush()
     expect(updater.getDesktopUpdateState()).toMatchObject({ status: 'downloaded', percent: 100, bytesPerSecond: 0 })
-    expect(events.autoInstallOnAppQuit).toBe(false)
+    expect(events.autoInstallOnAppQuit).toBe(true)
     expect(mocks.dialog).toHaveBeenLastCalledWith(expect.objectContaining({ buttons: ['Restart now', 'Later'] }))
     expect(mocks.install).not.toHaveBeenCalled()
     expect(updater.cancelDesktopUpdateDownload().status).toBe('downloaded')

@@ -26,9 +26,6 @@ interface Options {
   env: NodeJS.ProcessEnv
   checkReady: (url: string) => Promise<void>
   restart: () => boolean
-  immutableDevice?: boolean
-  focusInstance?: (serverUrl: string | null) => Promise<boolean>
-  openInstance?: (serverUrl: string | null, devices: DesktopRemoteDevice[]) => Promise<void>
 }
 
 function fail(code: string): never {
@@ -127,33 +124,12 @@ export class DesktopRemoteDevices {
     return this.state()
   }
 
-  async openInNewInstance(id: unknown): Promise<void> {
-    if (this.switching) return fail('BUSY')
-    const device = id === null ? null : this.settings.devices.find(row => row.id === id)
-    if (device === undefined) return fail('NOT_FOUND')
-    if (!this.options.openInstance) return fail('RESTART_FAILED')
-    const url = device?.serverUrl ?? null
-    if (url) {
-      requireRemoteServerRootUrl(url)
-      try { await this.options.checkReady(url) } catch { return fail('UNREACHABLE') }
-    }
-    try { await this.options.openInstance(url, this.state().devices) }
-    catch { return fail('RESTART_FAILED') }
-  }
-
-  async switchTo(id: unknown): Promise<void | 'focused'> {
+  async switchTo(id: unknown): Promise<void> {
     if (this.switching) return fail('BUSY')
     const device = id === null ? null : this.settings.devices.find(row => row.id === id)
     if (device === undefined) return fail('NOT_FOUND')
     const serverUrl = device?.serverUrl ?? null
     if (serverUrl === this.options.activeServerUrl) return
-    if (this.options.focusInstance && await this.options.focusInstance(serverUrl)) return 'focused'
-    // A fixed device process must not mutate its identity directory into a
-    // different device. Route to that device owner instead.
-    if (this.options.immutableDevice) {
-      await this.openInNewInstance(id)
-      return 'focused'
-    }
     if (serverUrl) requireRemoteServerRootUrl(serverUrl)
     this.switching = true
     try {
