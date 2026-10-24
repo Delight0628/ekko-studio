@@ -15,6 +15,7 @@
 | 安装策略 | 14 个系统插件 ID 已保留；用户安装不能覆盖，删除在接触工件/worker 前返回 `SYSTEM_PLUGIN_PROTECTED`；profile 选择不会被重复系统登记覆盖 |
 | 事件 | `ctx.on` / `ctx.once`、profile/owner 授权、每分区有序通知；`ctx.events.consume` 持久化游标、租约、重试/死信和保留期；仅把明确允许的旧业务事件字段投影到公共事件表 |
 | Agent API 执行 | 实例、接受请求、幂等、启动、流输出、完成屏障、取消、终态与事件事务落库；崩溃恢复标记 interrupted，不自动重放输入 |
+| 受管进程 | runtime 租约持有管道进程，宿主签发句柄、用户/profile/runtime 隔离、有界字节读取与写入背压、环境白名单、退出确认和进程树终止；worker 不持有宿主 ChildProcess |
 | 协议抽取 | 标准 ACP 连接及事件转换移入独立 `studio-agent-drivers`；旧调用通过兼容入口复用，原有协议测试继续通过 |
 | 旧聊天启动 | 准入已迁为共用服务，HTTP 直接调用；直调入口已绑定宿主 ExecutionScope、复制输入与身份并区分准入前取消和准入后排队；SDK 已通过 `chat.start/get/cancel` 接入已有会话文本运行 |
 | 工程接入 | bootstrap、鉴权 API、生成式 OpenAPI、runner 构建、插件私有导入边界检查、独立 Echo 样例 |
@@ -328,6 +329,24 @@ manifest 可声明 `contributes.services` 的版本和方法输入/输出 schema
 这些通知进入现有持久事件表，采用原有权限、游标和重试规则。进程内目录变化与事件表不构成跨进程原子事务；宿主硬退出后的目录通过激活重建，不宣称完整生命周期事务恢复，也不代表 T03–T05 整体完成。
 
 插件/Agent 综合专项：17 个文件、222 项通过；最后的卸载与宿主退出补充后，服务及 hook worker 两文件 22 项通过。生产构建、服务端类型、harness 与差异检查通过。
+
+提交 `fe0625444` 的完整 coverage：897 个文件、9,221 项通过，12 个文件/32 项跳过；默认时限。
+
+## T05 进展：runtime 受管管道进程
+
+`AgentRuntimeContext` 增加宿主绑定的 owner 与 `processes.spawn({ command, args, cwd, env? })`。内置工厂和插件代理使用同一进程服务；插件另需声明并获授 `processes.spawn`。工厂的进程归 runtime 租约所有，可跨成功轮次复用，单次事件/HTTP 结束不改变其身份。
+
+- `ProcessHandle` 提供 `read/write/end/stop/dispose`；进程对象和 PID 不是 RPC 操作凭据。宿主绑定的 runtime 句柄不能由 owner/profile 参数替换，其他用户或 runtime 的调用不能操作该进程。Hook 不可借已有句柄变更进程。
+- 每次读取最多四段 16 KiB 字节，空批次不是 EOF；`exit` 确认进程退出，仍须读空剩余缓冲。管道在约 256 KiB 高水位暂停、低水位恢复；单次写入最多 64 KiB，同一进程只接受一个待完成写入和一个读者。主动终止后丢弃的迟到输出用 `truncated` 标识。
+- 每个 runtime 最多保留 64 个句柄、宿主最多 128 个存活受管进程；结束后调用 dispose 释放句柄。停止、scope 结束、工厂失败、worker 故障和权限撤销后的操作都会回收相应资源；退出未确认时不释放租约，避免启动重叠进程。
+- 父进程仅传入基础路径、Home、系统/临时目录和 locale；不自动继承应用认证、提供商密钥或 Node 注入选项。显式 env 是插件提交的普通字符串，不能取出平台秘密。Windows 环境按不区分大小写合并；`ELECTRON_RUN_AS_NODE=1` 固定。
+- POSIX 使用独立进程组，先 TERM、再 KILL；Windows 显式等待 `taskkill /T /F` 与子进程关闭。无法确认进程树退出时返回错误。CLI shim 复用现有转义规则，多行 shim 参数拒绝并要求 stdin/提示文件。
+
+当前只提供管道进程，不含 PTY/resize、秘密模板或受管 MCP/模型代理；标准 ACP 驱动仍需改接该句柄，旧厂商执行路径尚未迁移。插件是受信任本地代码，进程能力不提供 OS 沙箱或保证已自行脱离进程组的程序可被回收；Windows 原生父进程先退出后的孤儿追踪仍需后续平台验收。
+
+新增真实管道/worker、跨用户、撤权、崩溃、工厂失败及退出屏障测试，并加入 Windows/macOS/Linux 的独立默认时限检查；不将本机结果代替尚未返回的 CI 平台结果。
+
+综合回归 20 个文件、245 项通过；平台专项在本机 4 个文件、43 项通过，1 项仅 Windows 的 shim 检查跳过。生产构建、SDK/runner/服务端类型、harness 与差异检查通过。
 
 ## CI 修复：JEV harness 重复解析
 

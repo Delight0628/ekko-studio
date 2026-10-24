@@ -281,7 +281,8 @@ it('propagates cancellation through real service RPC without sending a second ex
   await host.configure(state(provider), 0); await host.configure(state(consumer), 0)
   const { definition, provider: ref } = registry.resolve('one', 'test.consumer/agent'), runtimeController = new AbortController()
   const runtime = await definition.create({ instanceId: 'instance', config: {}, configRevision: 1, mode: 'scoped' }, {
-    provider: ref, runtimeSessionId: 'lease', profileId: 'one', signal: runtimeController.signal, logger,
+    provider: ref, runtimeSessionId: 'lease', profileId: 'one', ownerId: 'caller', signal: runtimeController.signal, logger,
+    processes: { spawn: async () => { throw new Error('Processes are not used by this fixture') } },
   })
   const controller = new AbortController(), ctx = context({ ...scope, runId: 'run' }, controller.signal)
   const handle = await runtime.run({ content: [{ type: 'text', text: 'wait' }] }, { ...ctx, scope: { ...ctx.scope, runId: 'run', runtimeSessionId: 'lease' } } as AgentRunContext)

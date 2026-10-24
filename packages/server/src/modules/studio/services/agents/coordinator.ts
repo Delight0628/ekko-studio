@@ -7,6 +7,7 @@ import { AgentExecutionStore, type AgentInstance, type AgentExecution, type Agen
 import { AgentRegistry } from './registry'
 import { PluginEventBus } from '../events/plugin-events'
 import { compileSchema, jsonCopy, parseAgentOutput } from '../plugins/validation'
+import { ManagedProcessScope } from '../processes/managed'
 
 interface ActiveRun {
   controller: AbortController; handle?: AgentRunHandle; completed: Promise<void>; resolve(): void
@@ -16,6 +17,7 @@ interface ActiveRun {
 interface RuntimeLease {
   id: string; provider: AgentProviderRef; revision: number; controller: AbortController
   runtime: Promise<AgentRuntime>; creating: boolean; idleTimer?: ReturnType<typeof setTimeout>; disposing?: Promise<void>
+  processes: ManagedProcessScope
 }
 interface InstanceQueue { current?: string; pending: string[] }
 
@@ -222,6 +224,7 @@ export class AgentCoordinator {
     // Keep the instance occupied until disposal is confirmed, including a late
     // factory result. A timeout bounds the caller's wait; it cannot certify exit.
     const cleanup = lease.runtime.then(runtime => runtime.dispose(reason), () => {})
+      .finally(() => lease.processes.close())
       .then(() => {
         this.options.store.state.closeLease(lease.id)
         if (this.leases.get(instanceId) === lease) this.leases.delete(instanceId)
@@ -269,14 +272,17 @@ export class AgentCoordinator {
         const controller = new AbortController()
         const id = this.options.store.state.openLease(instance.id, run.provider, run.configRevision)
         const resume = resolved.definition.capabilities.resume ? this.options.store.state.checkpoint(instance.id, run.provider, run.configRevision) : undefined
-        let creating: Promise<AgentRuntime>
-        try {
-          creating = resolved.definition.create({ instanceId: instance.id, config: instance.config, configRevision: instance.revision, mode: instance.mode,
+        const processes = new ManagedProcessScope(controller.signal, () => { assertDispatch() })
+        // Install the lease before invoking user code, including factories that
+        // start a process and then throw synchronously.
+        const creating = Promise.resolve().then(() => {
+          assertDispatch()
+          return resolved.definition.create({ instanceId: instance.id, config: instance.config, configRevision: instance.revision, mode: instance.mode,
             ...(resume === undefined ? {} : { resume }) }, {
-            provider: run.provider, runtimeSessionId: id, profileId: scope.profileId, signal: controller.signal, logger: this.options.logger,
+            provider: run.provider, runtimeSessionId: id, profileId: scope.profileId, ownerId: scope.principal.id, signal: controller.signal, logger: this.options.logger, processes: processes.api,
           })
-        } catch (error) { controller.abort(); this.options.store.state.closeLease(id); throw error }
-        lease = { id, provider: run.provider, revision: run.configRevision, controller, runtime: creating, creating: true }
+        })
+        lease = { id, provider: run.provider, revision: run.configRevision, controller, runtime: creating, creating: true, processes }
         this.leases.set(instance.id, lease)
         const pending = lease
         void creating.then(() => { pending.creating = false }, () => { pending.creating = false })

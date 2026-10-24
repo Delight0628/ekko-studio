@@ -10,6 +10,8 @@ import type { ServiceAuthority } from './services'
 import { jsonCopy, toJson, parseAgentOutput } from './validation'
 import { AsyncChannel } from './channel'
 import { authorizeHookOperation, type HookRegistration } from '../events/plugin-hooks'
+import { PluginProcessBridge } from './processes'
+import { managedProcessEnvironment } from '../processes/managed'
 
 export interface WorkerActivation {
   agents: Array<Omit<AgentTypeDefinition, 'create'>>
@@ -27,11 +29,7 @@ interface RemoteRun {
 }
 
 export function workerEnvironment(parent: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const result: NodeJS.ProcessEnv = { NODE_ENV: 'production', ELECTRON_RUN_AS_NODE: '1' }
-  for (const [key, value] of Object.entries(parent)) {
-    if (['PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'SystemRoot', 'COMSPEC', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP', 'TMPDIR', 'LANG'].includes(key) || key.startsWith('LC_')) result[key] = value
-  }
-  return result
+  return { ...managedProcessEnvironment(parent), NODE_ENV: 'production' }
 }
 
 export class PluginWorker {
@@ -48,6 +46,7 @@ export class PluginWorker {
   private closed = false
   private closing?: Promise<void>
   private readonly exit: Promise<void>
+  private readonly processes: PluginProcessBridge
 
   constructor(runnerPath: string, private readonly logger: ScopedLogger, private readonly onExit: () => void, private readonly authorize: (capability: string) => void, timeoutMs = 30_000) {
     this.child = fork(runnerPath, [], {
@@ -71,6 +70,19 @@ export class PluginWorker {
     this.child.stdout?.on('data', (chunk: Buffer) => logger.info('Plugin stdout', { text: chunk.toString('utf8').slice(0, 4096) }))
     this.child.stderr?.on('data', (chunk: Buffer) => logger.warn('Plugin stderr', { text: chunk.toString('utf8').slice(0, 4096) }))
     this.peer.handle('context.call', value => this.contextCall(value))
+    this.processes = new PluginProcessBridge(() => this.authorize('processes.spawn'), (origin, runtimeHandle, runtime) => {
+      if (origin === runtimeHandle) {
+        // A live factory/background runtime capability remains valid while an
+        // unrelated hook runs. Hook-origin calls take the authority path below.
+        return
+      }
+      if (typeof origin !== 'string' || !this.scopes.has(origin) || this.scopes.get(origin)!.signal.aborted) throw new StudioError('FORBIDDEN', 'Process caller scope is unavailable')
+      const scope = this.scopes.get(origin)!.scope as AgentRunContext['scope']
+      if (scope.profileId !== runtime.profileId || scope.principal.id !== runtime.ownerId
+        || (scope.runId && scope.runtimeSessionId !== runtime.runtimeSessionId)) throw new StudioError('FORBIDDEN', 'Process is outside the caller runtime scope')
+      this.authorities.get(origin)?.('processes.spawn')
+    })
+    this.peer.handle('process.call', value => this.processes.call(value))
     this.peer.handle('run.event', async value => {
       const params = value as JsonObject, run = this.runs.get(String(params.runId))
       if (!run) throw new StudioError('NOT_FOUND', 'Run is not active')
@@ -116,15 +128,20 @@ export class PluginWorker {
         if (context.signal.aborted) throw new StudioError('CANCELLED', 'Runtime scope ended')
         if (this.runtimes.has(id)) throw new StudioError('REGISTRATION_CONFLICT', 'Runtime is already active')
         // Creation itself owns a lease: configuration changes must not kill an in-flight factory.
+        const processScope = this.processes.mount(context)
         this.runtimes.add(id)
-        try { await this.peer.request('runtime.create', toJson({ agentTypeId: meta.id, runtimeSessionId: id, input })) }
-        catch (error) { this.runtimes.delete(id); await this.close(); throw error }
+        try { await this.peer.request('runtime.create', toJson({ agentTypeId: meta.id, runtimeSessionId: id, runtimeHandle: processScope.handle, ownerId: context.ownerId, input })) }
+        catch (error) {
+          this.runtimes.delete(id)
+          try { await processScope.close() } finally { await this.close() }
+          throw error
+        }
         let disposal: Promise<void> | undefined
         const dispose = (reason: string): Promise<void> => disposal ??= (async () => {
           context.signal.removeEventListener('abort', aborted)
           try { await this.peer.request('runtime.dispose', { runtimeSessionId: id, reason }, 5_000) }
           catch (error) { await this.close(); throw error }
-          finally { this.runtimes.delete(id) }
+          finally { await processScope.close(); this.runtimes.delete(id) }
         })()
         const aborted = () => { void dispose('Runtime scope ended').catch(() => {}) }
         context.signal.addEventListener('abort', aborted, { once: true })
@@ -248,6 +265,7 @@ export class PluginWorker {
         }
       }
       await this.exit
+      await this.processes.close()
     })()
   }
 
@@ -317,6 +335,7 @@ export class PluginWorker {
     const error = new StudioError('PLUGIN_UNAVAILABLE', 'Plugin worker exited')
     for (const run of this.runs.values()) { run.channel.finish(error); run.reject(error); run.release() }
     this.runs.clear(); this.runtimes.clear(); this.scopes.clear(); this.authorities.clear()
+    void this.processes.close().catch(() => this.logger.error('Plugin process cleanup failed'))
     try { this.onExit() } catch { this.logger.error('Plugin cleanup failed') }
   }
 }

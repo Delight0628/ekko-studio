@@ -471,6 +471,8 @@ worker 崩溃使租约失效，当前 Run 标记 interrupted，未确认 RPC 明
 
 协议驱动依赖 SDK 的 ProcessHandle、字节流和取消接口。宿主的原始 ChildProcess/PTY 对象不跨 RPC；stdout、stdin、resize、exit 等映射为句柄操作。厂商必须写入原生 auth 配置时，插件提交受控配置模板与 secret reference，由获准的宿主执行环境注入；确需明文秘密的插件能力单独授予，不能借运行准备读取整个平台凭据。
 
+当前已实现 runtime `processes.spawn` 和管道 `ProcessHandle.read/write/end/stop/dispose`；读取为有界长轮询，返回 stdout/stderr 字节、截断标志与退出结果，空批次不表示 EOF。身份、runtime 生命周期和能力来自宿主；PTY/resize、秘密注入及厂商驱动切换仍为后续范围。实现限制和退出语义见[受管进程实施记录](studio-plugin-progress.md#t05-进展runtime-受管管道进程)。
+
 ## 10 配置和权限
 
 权限至少区分安装管理、类型贡献、领域读写、事件订阅、hook、路由、模型调用、文件、受管进程、网络和秘密引用。授予范围包含 plugin、generation 策略、profile、owner/用户范围和必要的资源约束；新版本增加能力时需重新满足授予条件。

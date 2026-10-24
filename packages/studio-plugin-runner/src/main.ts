@@ -1,6 +1,7 @@
 import { pathToFileURL } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { remoteProcesses } from './processes'
 import { RpcPeer, type RpcFrame } from '../../studio-plugin-sdk/src/rpc'
 import {
   StudioError, STUDIO_PLUGIN_RPC_VERSION,
@@ -17,7 +18,7 @@ const peer = new RpcPeer({ send: frame => new Promise((resolve, reject) => {
   process.send(frame, error => error ? reject(error) : resolve())
 }) })
 const definitions = new Map<string, AgentTypeDefinition>()
-const runtimes = new Map<string, { runtime: AgentRuntime; controller: AbortController }>()
+const runtimes = new Map<string, { runtime: AgentRuntime; controller: AbortController; handle: string }>()
 const runs = new Map<string, { handle: AgentRunHandle; controller: AbortController }>()
 const callbacks = new Map<string, { type: string; once: boolean; handler: (event: EventEnvelope, ctx: ExecutionContext) => void | Promise<void> }>()
 const services = new Map<string, { token: ServiceToken; implementation: ServiceImplementation }>()
@@ -29,6 +30,7 @@ const hooks = new Map<string, { point: HookPoint; options: HookOptions; handler:
 const hookCalls = new Map<string, AbortController>()
 const hookScope = new AsyncLocalStorage<boolean>()
 const callbackScope = new AsyncLocalStorage<string>()
+const runtimeScope = new AsyncLocalStorage<string>()
 const assertContributionMutation = () => { if (hookScope.getStore()) throw new StudioError('FORBIDDEN', 'Hooks cannot mutate contributions or emit events') }
 const disposers: Disposer[] = []
 let identity: PluginIdentity | undefined
@@ -191,9 +193,11 @@ peer.handle('runtime.create', async value => {
   if (runtimes.has(id)) throw new StudioError('REGISTRATION_CONFLICT', 'Runtime already exists')
   const controller = new AbortController()
   const provider: AgentProviderRef = { kind: 'plugin', pluginId: identity.id, generation: identity.generation, version: identity.version }
-  const ctx: AgentRuntimeContext = { provider, profileId: identity.profileId, runtimeSessionId: id, logger, signal: controller.signal }
-  const runtime = await definition.create(object(params.input) as unknown as RuntimeCreateInput, ctx)
-  runtimes.set(id, { runtime, controller })
+  const runtimeHandle = string(params.runtimeHandle)
+  const ctx: AgentRuntimeContext = { provider, profileId: identity.profileId, ownerId: string(params.ownerId), runtimeSessionId: id, logger, signal: controller.signal,
+    processes: remoteProcesses(peer, runtimeHandle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation) }
+  const runtime = await runtimeScope.run(runtimeHandle, () => definition.create(object(params.input) as unknown as RuntimeCreateInput, ctx))
+  runtimes.set(id, { runtime, controller, handle: runtimeHandle })
   return null
 })
 
@@ -241,13 +245,13 @@ peer.handle('run.respond', async value => {
 })
 peer.handle('runtime.dispose', async value => {
   const params = object(value), id = string(params.runtimeSessionId), runtime = runtimes.get(id)
-  if (runtime) { runtimes.delete(id); runtime.controller.abort(); await runtime.runtime.dispose(string(params.reason)) }
+  if (runtime) { runtimes.delete(id); runtime.controller.abort(); await runtimeScope.run(runtime.handle, () => runtime.runtime.dispose(string(params.reason))) }
   return null
 })
 peer.handle('runtime.checkpoint', async value => {
-  const runtime = runtimes.get(string(object(value).runtimeSessionId))?.runtime
-  if (!runtime?.checkpoint) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Checkpoint is unsupported')
-  return runtime.checkpoint()
+  const runtime = runtimes.get(string(object(value).runtimeSessionId))
+  if (!runtime?.runtime.checkpoint) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Checkpoint is unsupported')
+  return runtimeScope.run(runtime.handle, () => runtime.runtime.checkpoint!())
 })
 peer.handle('service.invoke', async value => {
   const params = object(value), service = services.get(string(params.id)), method = string(params.method), callId = string(params.callId)
@@ -308,7 +312,7 @@ async function dispose(): Promise<void> {
   for (const controller of deliveries.values()) controller.abort()
   for (const controller of hookCalls.values()) controller.abort()
   for (const { handle, controller } of runs.values()) { controller.abort(); await handle.cancel('Plugin shutdown').catch(() => {}) }
-  for (const { runtime, controller } of runtimes.values()) { controller.abort(); await runtime.dispose('Plugin shutdown').catch(() => {}) }
+  for (const { runtime, controller, handle } of runtimes.values()) { controller.abort(); await runtimeScope.run(handle, () => runtime.dispose('Plugin shutdown')).catch(() => {}) }
   for (const dispose of disposers.reverse()) { try { await dispose() } catch { /* Host also owns process cleanup. */ } }
   runs.clear(); runtimes.clear(); definitions.clear(); callbacks.clear(); services.clear(); serviceCalls.clear()
   consumers.clear(); deliveries.clear()

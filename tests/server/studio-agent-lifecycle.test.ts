@@ -121,8 +121,9 @@ it('retains a timed-out factory lease until its late runtime has actually stoppe
 
 it('checks permission again after runtime creation before sending user input', async () => {
   const execute = vi.fn(), dispose = vi.fn(async () => {}), creation = deferred<any>()
-  const { coordinator, instance, authorize } = setup(() => creation.promise)
+  const { coordinator, instance, authorize, factory } = setup(() => creation.promise)
   const run = coordinator.start(scope, instance.id, input, 'one')
+  await vi.waitFor(() => expect(factory).toHaveBeenCalledOnce())
   authorize.mockImplementation(() => { throw new StudioError('FORBIDDEN', 'revoked') })
   creation.resolve({ run: execute, dispose })
   await coordinator.wait(run.id)
@@ -130,6 +131,30 @@ it('checks permission again after runtime creation before sending user input', a
   expect(coordinator.get(scope, run.id)).toMatchObject({ status: 'failed', errorCode: 'FORBIDDEN' })
   expect(execute).not.toHaveBeenCalled()
   expect(dispose).toHaveBeenCalledOnce()
+})
+
+it('cleans factory-owned processes before releasing the lease and dispatching a queued retry', async () => {
+  let pid = 0, calls = 0
+  const alive = () => { try { process.kill(pid, 0); return true } catch { return false } }
+  const { coordinator, instance, db } = setup(async (_input, ctx) => {
+    if (++calls > 1) {
+      expect(alive()).toBe(false)
+      return { run: async () => { const current = turn(); current.complete(); return current }, dispose: async () => {} }
+    }
+    const child = await ctx.processes.spawn({ command: process.execPath, args: ['-e', `process.on('SIGTERM', () => {}); process.stdout.write(String(process.pid)); setInterval(() => {}, 1000)`], cwd: process.cwd() })
+    let batch = await child.read()
+    while (!batch.chunks.length && !batch.exit) batch = await child.read()
+    pid = Number(Buffer.concat(batch.chunks.map(chunk => Buffer.from(chunk.data))).toString())
+    expect(alive()).toBe(true)
+    throw new Error('Factory failed after launching its child')
+  })
+  const first = coordinator.start(scope, instance.id, input, 'failed-factory')
+  const second = coordinator.start(scope, instance.id, input, 'retry-factory')
+  await coordinator.wait(first.id); await coordinator.wait(second.id)
+  expect(coordinator.get(scope, first.id).status).toBe('failed')
+  expect(coordinator.get(scope, second.id).status).toBe('completed')
+  expect(alive()).toBe(false)
+  expect(db.prepare("SELECT count(*) AS total FROM studio_agent_runtime_leases WHERE status='active'").get()).toMatchObject({ total: 0 })
 })
 
 it('cancels just the queued input and cannot stop the preceding or following turn', async () => {

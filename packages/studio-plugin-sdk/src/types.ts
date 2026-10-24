@@ -158,9 +158,39 @@ export interface AgentRuntimeContext {
   readonly provider: AgentProviderRef
   readonly runtimeSessionId: string
   readonly profileId: string
+  readonly ownerId: string
   readonly signal: AbortSignal
   readonly logger: ScopedLogger
+  readonly processes: RuntimeProcesses
 }
+
+/** Pipe processes belong to the runtime lease, not a single turn or HTTP request. */
+export interface ProcessSpawnInput {
+  command: string
+  args: string[]
+  cwd: string
+  /** Literal additions to a minimal host environment; no implicit provider credentials. */
+  env?: Record<string, string>
+}
+export interface ProcessExit { code: number | null; signal: string | null }
+export interface ProcessReadResult {
+  chunks: Array<{ stream: 'stdout' | 'stderr'; data: Uint8Array }>
+  truncated: boolean
+  /** Once non-null, drain remaining chunks before finishing the output stream. */
+  exit: ProcessExit | null
+}
+export interface ProcessHandle {
+  readonly id: string
+  /** Bounded long poll; one reader per process. An empty batch is not EOF. */
+  read(): Promise<ProcessReadResult>
+  write(data: Uint8Array): Promise<void>
+  end(): Promise<void>
+  /** Wait for confirmed exit, escalating termination when needed. */
+  stop(): Promise<void>
+  /** Stop and release the handle; repeated disposal is harmless. */
+  dispose(): Promise<void>
+}
+export interface RuntimeProcesses { spawn(input: ProcessSpawnInput): Promise<ProcessHandle> }
 
 export interface AgentRunContext extends ExecutionContext {
   readonly scope: ExecutionScope & { readonly runId: string; readonly runtimeSessionId: string }
