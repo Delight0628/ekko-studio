@@ -19,7 +19,12 @@ export function deviceInstanceLaunch(input: {
     EKKO_STUDIO_INSTANCE_USER_DATA: userData,
   }
   // Settings, not inherited environment, own the selected device after launch.
-  delete env.EKKO_STUDIO_DESKTOP_SERVER_URL
+  for (const key of Object.keys(env)) {
+    if (/(?:TOKEN|PASSWORD|SECRET|API_?KEY|AUTHORIZATION|COOKIE)/i.test(key)) delete env[key]
+  }
+  // Fixed device instances must always start on their identity target, even
+  // if old instance settings were left pointing elsewhere.
+  env.EKKO_STUDIO_DESKTOP_SERVER_URL = input.serverUrl || ''
   delete env.ELECTRON_RUN_AS_NODE
   delete env.HERMES_DESKTOP_PORT
   return { id, home, userData, env,

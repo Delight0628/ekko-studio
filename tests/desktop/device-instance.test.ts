@@ -12,7 +12,7 @@ describe('independent device process launch', () => {
     expect(a.userData).toBe(b.userData)
     expect(a.env.ELECTRON_RUN_AS_NODE).toBeUndefined()
     expect(a.env.HERMES_DESKTOP_PORT).toBeUndefined()
-    expect(a.env.EKKO_STUDIO_DESKTOP_SERVER_URL).toBeUndefined()
+    expect(a.env.EKKO_STUDIO_DESKTOP_SERVER_URL).toBe('https://new.test')
     expect(a.env.HERMES_HOME).toBe(join(a.home, 'hermes'))
     expect(a.args).toEqual(['/app/main.js'])
     expect(parent.HERMES_DESKTOP_PORT).toBe('8748')
@@ -26,4 +26,13 @@ describe('independent device process launch', () => {
       expect(a.args).toEqual([])
     } finally { rmSync(root, { recursive: true, force: true }) }
   })
+})
+
+it('strips sensitive parent environment without mutating it', () => {
+  const env = { AUTH_TOKEN: 'test-only', OPENAI_API_KEY: 'test-only', PATH: '/bin' }
+  const launch = deviceInstanceLaunch({ home: '/state', userData: '/browser', serverUrl: null, devices: [], env, argv: [], packaged: true })
+  expect(launch.env.AUTH_TOKEN).toBeUndefined()
+  expect(launch.env.OPENAI_API_KEY).toBeUndefined()
+  expect(launch.env.PATH).toBe('/bin')
+  expect(env.AUTH_TOKEN).toBe('test-only')
 })

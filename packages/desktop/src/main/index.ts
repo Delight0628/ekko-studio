@@ -72,6 +72,7 @@ import { PROVIDER_IMPORT_SCHEME, providerImportPayload, providerImportFromArgs, 
 configureDesktopIdentity(app)
 if (process.env[DEVICE_INSTANCE_ENV] && process.env.EKKO_STUDIO_INSTANCE_USER_DATA) {
   app.setPath('userData', process.env.EKKO_STUDIO_INSTANCE_USER_DATA)
+  app.setPath('sessionData', join(process.env.EKKO_STUDIO_INSTANCE_USER_DATA, 'sessions'))
 }
 
 const PORT = Number(process.env.HERMES_DESKTOP_PORT) || 8748
@@ -214,6 +215,7 @@ function desktopRemoteDevices(): DesktopRemoteDevices {
     env: process.env,
     checkReady: url => waitForRemoteServerReady(url, remoteReadyTimeoutMs()),
     restart: () => scheduleAppRestart(250),
+    immutableDevice: Boolean(process.env[DEVICE_INSTANCE_ENV]),
     focusInstance: url => focusDeviceWindow(deviceWindowEndpoint(process.env.EKKO_STUDIO_DEVICE_ROOT || webUiHome(), url)),
     openInstance: async (serverUrl, devices) => {
       if (await focusDeviceWindow(deviceWindowEndpoint(process.env.EKKO_STUDIO_DEVICE_ROOT || webUiHome(), serverUrl))) return
@@ -433,6 +435,7 @@ function getOpenAtLogin(): boolean {
 }
 
 function setOpenAtLogin(openAtLogin: boolean) {
+  if (process.env[DEVICE_INSTANCE_ENV]) throw new Error('Manage startup from the primary Desktop instance')
   writeOpenAtLogin(app, openAtLogin)
 }
 
@@ -1327,10 +1330,12 @@ ipcMain.handle('hermes-desktop:update-cancel', event => {
 })
 ipcMain.handle('hermes-desktop:update-download', event => {
   requireDesktopUpdaterSender(event)
+  if (process.env[DEVICE_INSTANCE_ENV]) throw new Error('Update from the primary Desktop instance')
   return downloadDesktopUpdate()
 })
 ipcMain.handle('hermes-desktop:update-install', event => {
   requireDesktopUpdaterSender(event)
+  if (process.env[DEVICE_INSTANCE_ENV]) throw new Error('Update from the primary Desktop instance')
   return installDesktopUpdate()
 })
 
@@ -1703,19 +1708,19 @@ async function runDesktopApp() {
     // default is fine there.
     if (process.platform !== 'darwin') Menu.setApplicationMenu(null)
     try {
-      migrateWindowsLoginItem(app, APP_USER_MODEL_ID)
+      if (!process.env[DEVICE_INSTANCE_ENV]) migrateWindowsLoginItem(app, APP_USER_MODEL_ID)
     } catch (error) {
       console.warn('[desktop] failed to migrate the Windows login item:', error)
     }
     try {
-      refreshLinuxLoginItem(app)
+      if (!process.env[DEVICE_INSTANCE_ENV]) refreshLinuxLoginItem(app)
     } catch (error) {
       console.warn('[desktop] failed to refresh the Linux login item:', error)
     }
     installMicrophonePermissionHandler()
     createTray()
     await createWindow()
-    screenshotShortcut.restore(screenshotEnvironment().hideWindows)
+    if (!process.env[DEVICE_INSTANCE_ENV]) screenshotShortcut.restore(screenshotEnvironment().hideWindows)
     void warmScreenshotEditor().catch(error => console.warn('[screenshot] could not preload editor:', error))
     app.once('will-quit', disposeScreenshotOverlays)
     app.once('will-quit', () => screenshotShortcut.dispose())
@@ -1723,7 +1728,7 @@ async function runDesktopApp() {
       console.error('[desktop-browser] failed to initialize:', error)
     })
     void bootstrap()
-    initAutoUpdater({
+    if (!process.env[DEVICE_INSTANCE_ENV]) initAutoUpdater({
       beforeQuitAndInstall: prepareAppShutdown,
       onInstallFailure: async () => {
         await prepareAppShutdown()

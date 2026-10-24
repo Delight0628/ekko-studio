@@ -26,6 +26,7 @@ interface Options {
   env: NodeJS.ProcessEnv
   checkReady: (url: string) => Promise<void>
   restart: () => boolean
+  immutableDevice?: boolean
   focusInstance?: (serverUrl: string | null) => Promise<boolean>
   openInstance?: (serverUrl: string | null, devices: DesktopRemoteDevice[]) => Promise<void>
 }
@@ -147,6 +148,12 @@ export class DesktopRemoteDevices {
     const serverUrl = device?.serverUrl ?? null
     if (serverUrl === this.options.activeServerUrl) return
     if (this.options.focusInstance && await this.options.focusInstance(serverUrl)) return 'focused'
+    // A fixed device process must not mutate its identity directory into a
+    // different device. Route to that device owner instead.
+    if (this.options.immutableDevice) {
+      await this.openInNewInstance(id)
+      return 'focused'
+    }
     if (serverUrl) requireRemoteServerRootUrl(serverUrl)
     this.switching = true
     try {
