@@ -630,7 +630,6 @@ export default {
     updateSuccess: 'Обновление успешно. Обновите страницу. Если долго не запускается, запустите вручную.',
     updateFailed: 'Ошибка обновления',
     logout: 'Выйти',
-    nodeVersionWarning: 'Обнаружена Node.js v{version}. Используйте версию {requiredVersion}.',
     changelog: 'Список изменений',
     noChangelog: 'Нет списка изменений',
     versionManagement: 'Управление версиями',

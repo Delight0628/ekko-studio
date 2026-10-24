@@ -710,7 +710,6 @@ export default {
     updateSuccess: 'Atualização concluída. Atualize a página em breve. Se não iniciar após algum tempo, inicie manualmente.',
     updateFailed: 'Falha na atualização',
     logout: 'Sair',
-    nodeVersionWarning: 'Node.js v{version} detectado. Use a versão {requiredVersion}.',
     changelog: 'Registro de alterações',
     noChangelog: 'Nenhum registro disponível',
     versionManagement: 'Gerenciamento de versões',

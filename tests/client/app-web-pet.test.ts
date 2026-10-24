@@ -9,8 +9,6 @@ const routeMock = vi.hoisted(() => ({
   meta: {} as Record<string, unknown>,
 }))
 const appStoreMock = vi.hoisted(() => ({
-  nodeVersion: '24.22.1',
-  nodeRuntime: 'node',
   sidebarOpen: true,
   sidebarCollapsed: false,
   pageSidebarExpanded: true,
@@ -35,7 +33,7 @@ vi.mock('vue-router', async (importOriginal) => {
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
-    t: (key: string, params?: Record<string, unknown>) => params?.version ? `${key}:${params.version}` : key,
+    t: (key: string) => key,
     locale: { value: 'en' },
   }),
 }))
@@ -153,8 +151,6 @@ describe('App web pet mounting', () => {
     localStorage.removeItem('hermes_api_key')
     routeMock.name = 'hermes.chat'
     routeMock.meta = {}
-    appStoreMock.nodeVersion = '24.22.1'
-    appStoreMock.nodeRuntime = 'node'
     appStoreMock.sidebarCollapsed = false
     appStoreMock.pageSidebarExpanded = true
     profilesStoreMock.activeProfileName = 'default'
@@ -168,33 +164,6 @@ describe('App web pet mounting', () => {
     const sources = watchServerTtsSettingsHydrationMock.mock.calls[0][0]
     expect(sources.isLoginPage()).toBe(false)
     expect(sources.activeProfileName()).toBe('default')
-  })
-
-  it.each(['22.22.0', '23.0.0', '24.19.0', '24.22.0', '24.22.2', '25.0.0'])(
-    'warns when a standalone server uses Node %s', (version) => {
-      appStoreMock.nodeVersion = version
-      expect(mountApp().find('.node-warning-bar').text()).toContain(version)
-    },
-  )
-
-  it.each(['', '24.22.1'])('does not warn for an unknown or pinned Node version (%s)', (version) => {
-    appStoreMock.nodeVersion = version
-    expect(mountApp().find('.node-warning-bar').exists()).toBe(false)
-  })
-
-  it('accepts the Electron backend version even from a regular browser', () => {
-    appStoreMock.nodeVersion = '24.19.0'
-    appStoreMock.nodeRuntime = 'electron'
-    expect(mountApp().find('.node-warning-bar').exists()).toBe(false)
-  })
-
-  it('checks a remote standalone server even when the client is Desktop', () => {
-    Object.defineProperty(window, 'hermesDesktop', {
-      configurable: true,
-      value: { isDesktop: true, remoteMode: true, platform: 'darwin' },
-    })
-    appStoreMock.nodeVersion = '24.19.0'
-    expect(mountApp().find('.node-warning-bar').exists()).toBe(true)
   })
 
   it.each(['super_admin', 'admin', null] as const)(
