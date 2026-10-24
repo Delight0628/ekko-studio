@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 export const DEVICE_INSTANCE_ENV = 'EKKO_STUDIO_DEVICE_INSTANCE'
@@ -8,11 +8,13 @@ export function deviceInstanceLaunch(input: {
   home: string; userData: string; serverUrl: string | null; devices: unknown[];
   env: NodeJS.ProcessEnv; argv: string[]; packaged: boolean; id?: string;
 }) {
-  const id = input.id || randomUUID()
+  const root = input.env.EKKO_STUDIO_DEVICE_ROOT || input.home
+  const browserRoot = input.env.EKKO_STUDIO_DEVICE_BROWSER_ROOT || input.userData
+  const id = createHash('sha256').update(input.serverUrl || 'local').digest('hex').slice(0, 32)
   if (!/^[a-zA-Z0-9-]{1,80}$/.test(id)) throw new Error('Invalid device instance ID')
-  const home = join(input.home, 'device-instances', id)
-  const userData = join(input.userData, 'device-instances', id)
-  const env: NodeJS.ProcessEnv = { ...input.env, [DEVICE_INSTANCE_ENV]: id,
+  const home = join(root, 'device-instances', id)
+  const userData = join(browserRoot, 'device-instances', id)
+  const env: NodeJS.ProcessEnv = { ...input.env, EKKO_STUDIO_DEVICE_ROOT: root, EKKO_STUDIO_DEVICE_BROWSER_ROOT: browserRoot, [DEVICE_INSTANCE_ENV]: id,
     HERMES_WEB_UI_HOME: home, HERMES_WEBUI_STATE_DIR: home, HERMES_HOME: join(home, 'hermes'),
     EKKO_STUDIO_INSTANCE_USER_DATA: userData,
   }
@@ -29,5 +31,6 @@ export function deviceInstanceLaunch(input: {
 export function prepareDeviceInstance(launch: ReturnType<typeof deviceInstanceLaunch>) {
   mkdirSync(launch.home, { recursive: true })
   mkdirSync(launch.userData, { recursive: true })
-  writeFileSync(join(launch.home, 'desktop-remote-server.json'), JSON.stringify(launch.settings), { mode: 0o600 })
+  const file = join(launch.home, 'desktop-remote-server.json')
+  if (!existsSync(file)) writeFileSync(file, JSON.stringify(launch.settings), { mode: 0o600, flag: 'wx' })
 }

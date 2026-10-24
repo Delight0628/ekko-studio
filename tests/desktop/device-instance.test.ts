@@ -8,8 +8,8 @@ describe('independent device process launch', () => {
     const parent = { ELECTRON_RUN_AS_NODE: '1', HERMES_DESKTOP_PORT: '8748', EKKO_STUDIO_DESKTOP_SERVER_URL: 'https://old.test' }
     const make = () => deviceInstanceLaunch({ home: '/state', userData: '/browser', serverUrl: 'https://new.test', devices: [], env: parent, argv: ['electron', '/app/main.js', '--quit'], packaged: false })
     const a = make(), b = make()
-    expect(a.home).not.toBe(b.home)
-    expect(a.userData).not.toBe(b.userData)
+    expect(a.home).toBe(b.home)
+    expect(a.userData).toBe(b.userData)
     expect(a.env.ELECTRON_RUN_AS_NODE).toBeUndefined()
     expect(a.env.HERMES_DESKTOP_PORT).toBeUndefined()
     expect(a.env.EKKO_STUDIO_DESKTOP_SERVER_URL).toBeUndefined()

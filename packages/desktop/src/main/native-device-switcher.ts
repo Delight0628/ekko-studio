@@ -281,7 +281,10 @@ export class NativeDeviceSwitcher {
         this.actionWindow?.close()
         return
       }
-      await this.devices().switchTo(operation.target.id)
+      const outcome = await this.devices().switchTo(operation.target.id)
+      if (outcome === 'focused' && !this.disposed) {
+        operation.stage = 'confirm';this.busy = false;this.window.setProgressBar(-1);this.actionWindow?.close();return
+      }
       if (this.disposed) return
       operation.stage = 'restarting'
     } catch (error) {

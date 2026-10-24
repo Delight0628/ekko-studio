@@ -1,3 +1,4 @@
+import { deviceWindowEndpoint, focusDeviceWindow, ownDeviceWindow } from './device-window-owner'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
 import { deviceInstanceLaunch, prepareDeviceInstance, DEVICE_INSTANCE_ENV } from './device-instance'
@@ -213,7 +214,9 @@ function desktopRemoteDevices(): DesktopRemoteDevices {
     env: process.env,
     checkReady: url => waitForRemoteServerReady(url, remoteReadyTimeoutMs()),
     restart: () => scheduleAppRestart(250),
+    focusInstance: url => focusDeviceWindow(deviceWindowEndpoint(process.env.EKKO_STUDIO_DEVICE_ROOT || webUiHome(), url)),
     openInstance: async (serverUrl, devices) => {
+      if (await focusDeviceWindow(deviceWindowEndpoint(process.env.EKKO_STUDIO_DEVICE_ROOT || webUiHome(), serverUrl))) return
       const launch = deviceInstanceLaunch({ home: webUiHome(), userData: app.getPath('userData'),
         serverUrl, devices, env: process.env, argv: process.argv, packaged: app.isPackaged })
       // A local child needs its own server port even while the original stays alive.
@@ -1637,7 +1640,13 @@ ipcMain.handle('hermes-desktop:retry-bootstrap', async (_event, source?: Runtime
   await bootstrap(selectedSource)
 })
 
-function runDesktopApp() {
+async function runDesktopApp() {
+  const releaseDevice = await ownDeviceWindow(
+    deviceWindowEndpoint(process.env.EKKO_STUDIO_DEVICE_ROOT || webUiHome(), activeRemoteServerUrl),
+    () => { if (mainWindow) showMainWindow();else app.once('browser-window-created', () => setTimeout(showMainWindow, 100)) },
+  )
+  if (!releaseDevice) { app.quit();return }
+  app.once('will-quit', releaseDevice)
   pendingProviderImport = providerImportFromArgs(process.argv)
   app.on('open-url', (event, url) => {
     const data = providerImportPayload(url)
@@ -1766,5 +1775,5 @@ if (hermesCliArgs) {
       app.exit(1)
     })
 } else {
-  runDesktopApp()
+  void runDesktopApp().catch(error => { console.error(error); app.quit() })
 }

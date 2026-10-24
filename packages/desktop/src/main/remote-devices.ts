@@ -26,6 +26,7 @@ interface Options {
   env: NodeJS.ProcessEnv
   checkReady: (url: string) => Promise<void>
   restart: () => boolean
+  focusInstance?: (serverUrl: string | null) => Promise<boolean>
   openInstance?: (serverUrl: string | null, devices: DesktopRemoteDevice[]) => Promise<void>
 }
 
@@ -139,12 +140,13 @@ export class DesktopRemoteDevices {
     catch { return fail('RESTART_FAILED') }
   }
 
-  async switchTo(id: unknown): Promise<void> {
+  async switchTo(id: unknown): Promise<void | 'focused'> {
     if (this.switching) return fail('BUSY')
     const device = id === null ? null : this.settings.devices.find(row => row.id === id)
     if (device === undefined) return fail('NOT_FOUND')
     const serverUrl = device?.serverUrl ?? null
     if (serverUrl === this.options.activeServerUrl) return
+    if (this.options.focusInstance && await this.options.focusInstance(serverUrl)) return 'focused'
     if (serverUrl) requireRemoteServerRootUrl(serverUrl)
     this.switching = true
     try {
