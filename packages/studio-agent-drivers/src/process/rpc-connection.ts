@@ -39,7 +39,7 @@ export class NativeRpcConnection {
 
   constructor(process: ManagedProcessPort, private readonly callbacks: {
     notification(method: string, params: Record<string, unknown>): void
-    request?(method: string, params: Record<string, unknown>, signal: AbortSignal): Promise<unknown>
+    request?(method: string, params: Record<string, unknown>, signal: AbortSignal, id: Id): Promise<unknown>
   }) {
     this.closed = new Promise((_, reject) => { this.rejectClosed = reject })
     void this.closed.catch(() => {})
@@ -69,6 +69,14 @@ export class NativeRpcConnection {
     return this.transport.send({ method, params })
   }
 
+  /** A native server may withdraw its own request without closing the connection. */
+  withdrawRequest(id: Id): void {
+    const controller = this.incoming.get(id)
+    if (!controller) return
+    this.incoming.delete(id)
+    controller.abort('native-resolved')
+  }
+
   private receive(message: NativeRpcMessage): void {
     if (this.ended) return
     if (message.method) {
@@ -81,12 +89,12 @@ export class NativeRpcConnection {
       }
       const controller = new AbortController()
       this.incoming.set(id, controller)
-      void Promise.resolve().then(() => controller.signal.aborted ? undefined : this.callbacks.request!(message.method!, message.params || {}, controller.signal))
+      void Promise.resolve().then(() => controller.signal.aborted ? undefined : this.callbacks.request!(message.method!, message.params || {}, controller.signal, id))
         .then(async result => {
           if (!this.ended && !controller.signal.aborted) await this.transport.send({ id, result: result ?? null })
         }, async () => {
           if (!this.ended && !controller.signal.aborted) await this.transport.send({ id, error: { code: -32000, message: 'Client request failed' } })
-        }).catch(error => this.fail(error)).finally(() => this.incoming.delete(id))
+        }).catch(error => this.fail(error)).finally(() => { if (this.incoming.get(id) === controller) this.incoming.delete(id) })
       return
     }
     const pending = this.pending.get(message.id!)

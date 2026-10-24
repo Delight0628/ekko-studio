@@ -54,6 +54,25 @@ it('aborts pending server requests and suppresses late replies after close', asy
   expect(f.port.dispose).toHaveBeenCalledOnce()
 })
 
+it('withdraws only the incoming request and safely accepts a reused native ID', async () => {
+  const calls: Array<{ signal: AbortSignal; answer(value: unknown): void }> = []
+  const f = await connection({ notification() {}, request: (_method, _params, signal) => new Promise(answer => { calls.push({ signal, answer }) }) })
+  const outgoing = f.rpc.request('client', {})
+  await f.receive({ id: 1, method: 'question', params: {} })
+  f.rpc.withdrawRequest(1)
+  expect(calls[0].signal.reason).toBe('native-resolved')
+  await f.receive({ id: 1, method: 'question', params: {} })
+  calls[0].answer({ stale: true })
+  await new Promise(resolve => setImmediate(resolve))
+  // The old callback must not remove the new request's cancellation handle.
+  f.rpc.withdrawRequest(1)
+  expect(calls[1].signal.aborted).toBe(true)
+  calls[1].answer({ stale: true })
+  await f.receive({ id: 1, result: { client: true } })
+  await expect(outgoing).resolves.toEqual({ client: true })
+  expect(f.sent).toHaveLength(1)
+})
+
 it.each([[], { id: 1 }, { id: 1, result: {}, error: { code: 1, message: 'bad' } }, { method: 'notice', params: [] }])('fails pending calls on malformed native frames: %j', async frame => {
   const f = await connection(), pending = f.rpc.request('waiting', {})
   const rejected = expect(pending).rejects.toThrow('Invalid JSON protocol message')

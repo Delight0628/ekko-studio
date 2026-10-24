@@ -42,6 +42,7 @@
 | `GET /api/studio/agent-types` | 当前已激活插件提供的目录；尚未合并旧内置目录 |
 | `GET /api/studio/agent-instances` | 当前用户、当前 profile 的实例 |
 | `POST /api/studio/agent-instances` | 按已注册类型的 schema 创建实例 |
+| `PUT /api/studio/agent-instances/:id` | 按 revision 更新自身实例配置；活动 Run 阻止修改，旧租约确认回收后提交 |
 | `POST /api/studio/agent-instances/:id/runs` | 接受文本执行及幂等键 |
 | `GET /api/studio/agent-runs/:id` | 读取自身 Run 状态 |
 | `GET /api/studio/agent-runs/:id/output` | 按 `after` 序号读取自身 Run 输出 |
@@ -465,13 +466,27 @@ MCP SDK 已以 `93cc9e9ff` 提交并推送至现有草稿 PR。随后在该提�
 - 命令与文件审批走统一 interaction，用户只能选择公开且被原生允许的选项。取消发出 turn/interrupt，随后等待实际进程关闭；准入期间取消同样回收进程。畸形帧、异常退出和未结束工具不能提交成功 checkpoint。
 - 原生 RPC 分开维护双向请求 ID、限制并发及帧大小，退出时中止所有等待；不自动重试可能已发生副作用的请求。
 
-独立包仍缺 scoped provider 设置、原生配置/登录管理、图片、clarification/MCP elicitation、compact 和原生用量账本归并。线程累计计数没有冒充逐模型调用用量。新聊天选择器、默认系统安装和旧 Codex 路径交接均未完成；本项不关闭 T08/T09。
+此增量当时仍缺 scoped provider 设置、原生配置/登录管理、图片、clarification/MCP elicitation、compact 和原生用量账本归并；后续 clarification 进展见下节。线程累计计数没有冒充逐模型调用用量。新聊天选择器、默认系统安装和旧 Codex 路径交接均未完成；本项不关闭 T08/T09。
 
 验证：Codex/Qwen 真实 worker、原生 thread 恢复、审批、取消及 RPC 协议专项 3 文件、19 项通过；类型检查、生产构建及 harness 通过。两包已纳入三平台默认时限进程任务。本机 Codex 0.163.0 还经实际生产插件 bundle 与宿主管理进程完成 initialize/清理验证，未发起推理。
 
 最终全量 coverage：913 文件、9,347 项通过，12 文件/33 项跳过，277.18 秒；Node 24.22.1、两 worker、默认测试时限。两个 npm 插件工件在仓库外解包验证，解包后的 Codex 工件通过同一实际 CLI 握手与清理检查；未发布 npm 包。生产构建、harness 和差异检查通过，当前完整浏览器证据仍为前述 `93cc9e9ff` 的 935 项通过。
 
 随后补齐取消的实际退出屏障：原生 turn 已 interrupted 但进程仍在退出时，Run 保持 cancelling，直到受管进程确认退出。新增真实延迟退出测试与原 Codex/RPC 专项 2 文件、14 项通过，插件类型/构建与 harness 通过。第一次调整在已取消的单轮上下文内抢先触发清理，被原有作用域检查正确拒绝；最终复用取消处理器创建的退出屏障，未放宽宿主授权。前述全量数字对应此修复前的完整增量，此修复另有上述专项证据。
+
+## T06/T08 进展：原生澄清与实例配置更新
+
+- Codex `item/tool/requestUserInput` 按问题分别接入统一交互；保留选项描述，按原生约束允许选择或自由文本，整组回答按原始问题 ID 返回。秘密输入及畸形问题组在持久化前拒绝，尚未实现凭据专用交互。
+- SDK 增加 `allowText`、选项 description、`interaction.withdrawn` 和撤回响应回执；旧澄清请求继续允许文本。宿主在发送前校验回答，原生撤回形成确定终态，重复/迟到响应不能覆盖它。完成、取消和请求尚未发布时的原生清理均有覆盖，不伪造默认回答。
+- 原生 RPC 可撤回单个入站请求，抑制迟到回复，同时保留其他请求及连接。双向 ID 相同及原生复用请求 ID 不会误删新请求的中止句柄。
+- 实例配置更新验证 owner/profile、schema、mode 和 revision。活动/排队 Run 阻止修改；空闲运行时须确认清理后再提交，期间拒绝新 Run，旧幂等请求仍可查询。异步清理后重新授权并检查提供方；撤权或清理失败保留配置。新 revision 不加载旧 checkpoint，旧 Run 历史仍可读。
+- Qwen/Codex 的实际独立工件及真实 worker 验证配置切换，确认旧进程回收、新配置生效及历史保留。接口及交互约束已同步生成式 OpenAPI。
+
+专项 6 文件、87 项通过；生产构建、插件类型检查和 harness 通过。前一阶段澄清增量全量回归 913 文件、9,359 项通过。包含实例配置更新及真实 worker 撤回回执的最终 coverage：914 文件、9,382 项通过，12 文件/33 项跳过，279.47 秒；Node 24.22.1、两 worker、默认时限。上一提交 `1cb4ba455` 的 CI 构建、runtime、三平台受管进程及完整浏览器分片均通过；本增量 CI 状态以 PR 为准。
+
+增加 `npm run verify:plugins:native`：在临时 Home 与本地 Responses/Anthropic 模拟服务下，运行生产插件工件和宿主管理进程。可用 `STUDIO_CODEX_COMMAND` / `STUDIO_QWEN_COMMAND` 指定已安装 CLI 的路径，不自动安装 CLI、不读取既有 Home 或账号凭据。本机 Codex 0.163.0、Qwen Code 0.25.0 均完成两轮实际文本运行及同一原生会话续聊。该结果验证原生协议与输出，不覆盖真实提供商服务、登录、工具/图片/审批全矩阵。
+
+两插件完整迁移仍缺 scoped provider、原生登录/管理、宿主 MCP/Skills 注入、图片、用量对账及聊天交接；Codex 另缺 MCP elicitation 与 compact。实例配置 API 不等同于厂商原生配置管理完成，七大交付块及 T08/T09 继续保持未完成。
 
 ## CI 修复：JEV harness 重复解析
 

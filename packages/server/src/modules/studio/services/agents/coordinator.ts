@@ -3,7 +3,7 @@ import {
   type ExecutionScope, type ExecutionContext, type JsonObject, type JsonValue, type ScopedLogger,
   type AgentProviderRef, type AgentInteractionResponse, type AgentInteraction, type AgentInteractionReceipt,
 } from '../../contracts/plugins'
-import { AgentExecutionStore, type AgentInstance, type AgentExecution, type AgentAdmission } from '../../repositories/agent-execution-store'
+import { AgentExecutionStore, type AgentInstance, type AgentInstanceConfiguration, type AgentExecution, type AgentAdmission } from '../../repositories/agent-execution-store'
 import { AgentRegistry } from './registry'
 import { PluginEventBus } from '../events/plugin-events'
 import { compileSchema, jsonCopy, parseAgentOutput } from '../plugins/validation'
@@ -41,6 +41,7 @@ export class AgentCoordinator {
   private readonly active = new Map<string, ActiveRun>()
   private readonly queues = new Map<string, InstanceQueue>()
   private readonly leases = new Map<string, RuntimeLease>()
+  private readonly configuring = new Set<string>()
   private closed = false
   constructor(private readonly options: {
     store: AgentExecutionStore; registry: AgentRegistry; events: PluginEventBus; logger: ScopedLogger
@@ -62,6 +63,35 @@ export class AgentCoordinator {
     return this.options.store.instances(scope.principal.id, scope.profileId)
   }
 
+  async updateInstance(scope: ExecutionScope, instanceId: string, value: AgentInstanceConfiguration): Promise<AgentInstance> {
+    scope = jsonCopy(scope)
+    const input = jsonCopy(value)
+    if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['revision', 'config', 'mode'].includes(key))
+      || !Number.isSafeInteger(input.revision) || input.revision < 1 || !input.config || typeof input.config !== 'object' || Array.isArray(input.config)
+      || !['scoped', 'global'].includes(input.mode)) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent configuration')
+    const inspect = () => {
+      if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent coordinator is shutting down')
+      this.options.authorize(scope)
+      if (scope.sessionId !== undefined || scope.runId !== undefined || scope.workspaceId !== undefined) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Instance configuration requires an unbound scope')
+      const instance = this.options.store.instance(instanceId)
+      if (!instance || instance.ownerId !== scope.principal.id || instance.profileId !== scope.profileId) throw new StudioError('NOT_FOUND', 'Agent instance is unavailable')
+      if (instance.revision !== input.revision || this.queues.has(instanceId) || this.options.store.hasActiveRuns(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance changed or has active runs')
+      const resolved = this.options.registry.resolve(scope.profileId, instance.agentTypeId)
+      compileSchema(resolved.definition.configSchema)(input.config)
+      if (!resolved.definition.capabilities.modes.includes(input.mode)) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Unsupported Agent mode')
+      return { instance, provider: JSON.stringify(resolved.provider) }
+    }
+    const previous = inspect()
+    if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent configuration is changing')
+    this.configuring.add(instanceId)
+    try {
+      await this.disposeLease(instanceId, 'Instance configuration changed')
+      const current = inspect()
+      if (current.provider !== previous.provider) throw new StudioError('REVISION_CONFLICT', 'Agent provider changed during configuration')
+      return this.options.store.configureInstance(current.instance, input)
+    } finally { this.configuring.delete(instanceId) }
+  }
+
   inspectStart(scope: ExecutionScope, instanceId: string, input: AgentRunInput, idempotencyKey: string): { instance: AgentInstance; previous: AgentExecution | null; provider?: AgentProviderRef } {
     if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent coordinator is shutting down')
     this.options.authorize(scope)
@@ -73,6 +103,7 @@ export class AgentCoordinator {
     scope = jsonCopy(scope)
     const previous = this.options.store.findRequest(instance, input, idempotencyKey)
     if (previous) return { instance, previous }
+    if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent configuration is changing')
     const { definition, provider } = this.options.registry.resolve(scope.profileId, instance.agentTypeId)
     if (!input || typeof input !== 'object' || Object.keys(input).some(key => !['content', 'model', 'timeoutMs'].includes(key))) throw new StudioError('INVALID_ARGUMENT', 'Invalid run input')
     if (!Array.isArray(input.content) || !input.content.length || input.content.length > 100) throw new StudioError('INVALID_ARGUMENT', 'Run content is required')
@@ -160,14 +191,19 @@ export class AgentCoordinator {
     }
     const task = (async () => {
       try {
-        await active!.handle!.respond!({ requestId: claim.interaction.requestId,
+        const dispatch = await active!.handle!.respond!({ requestId: claim.interaction.requestId,
           ...(input.choiceId === undefined ? {} : { choiceId: input.choiceId }), ...(input.text === undefined ? {} : { text: input.text }) })
-        const result = this.options.store.state.setInteraction(claim.interaction, 'resolved')
+        if (dispatch !== undefined && (!dispatch || typeof dispatch !== 'object' || Object.keys(dispatch).length !== 1 || dispatch.status !== 'withdrawn')) {
+          throw new StudioError('INVALID_ARGUMENT', 'Invalid interaction dispatch receipt')
+        }
+        const result = this.options.store.state.setInteraction(claim.interaction, dispatch?.status ?? 'resolved')
         if (!this.options.store.state.interactions(id).some(item => ['pending', 'responding'].includes(item.status))) {
           this.options.store.transition(id, ['waiting_input'], 'running')
         }
         return result
       } catch (error) {
+        const latest = this.options.store.state.interactions(id).find(item => item.id === input.interactionId)
+        if (latest?.status === 'withdrawn') return latest
         this.options.store.state.setInteraction(claim.interaction, 'interrupted')
         this.stop(id)
         throw error instanceof StudioError ? error : new StudioError('RUNTIME_UNAVAILABLE', 'Interaction response failed')
@@ -336,7 +372,7 @@ export class AgentCoordinator {
       if (!result || !['completed', 'cancelled'].includes(result.status)) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent result')
       const cancelling = this.options.store.get(run.id)?.status === 'cancelling'
       if (!cancelling && result.status === 'completed') {
-        if (tools.size || this.options.store.state.interactions(run.id).some(item => item.status !== 'resolved')) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent ended with unresolved work')
+        if (tools.size || this.options.store.state.interactions(run.id).some(item => !['resolved', 'withdrawn'].includes(item.status))) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent ended with unresolved work')
         if (!this.options.store.transition(run.id, ['running', 'waiting_input'], 'finalizing')) throw new StudioError('REVISION_CONFLICT', 'Run cannot finalize')
         await Promise.race([settle(), aborted])
         if (result.checkpoint !== undefined) checkpoint = jsonCopy(result.checkpoint)

@@ -215,6 +215,8 @@ Hermes/Ekko 使用同一 `AgentTypeDefinition` 与 `AgentRuntime`，由 bootstra
 
 `RuntimeCreateInput` 包含宿主确定的 Agent 实例快照、配置 revision、模式、工作区引用及可选恢复引用。实例配置可定义 system prompt、模型选择或原生 preset；原生配置是否支持以能力为准。一个插件可贡献多个类型，一个类型可有多个持久化实例。
 
+当前实例配置更新使用 `PUT /api/studio/agent-instances/:id`，提交 `{ revision, config, mode }`。只允许当前 profile 的所有者修改；活动/排队运行返回冲突，不隐式取消。宿主在空闲租约回收期间阻止新执行，确认退出、重新授权并确认提供方不变后以 revision/CAS 写入。更新创建新的配置 revision，保留既有运行历史；后续执行从新的原生会话开始，不自动跨配置复用旧 checkpoint。该接口不替代厂商原生登录或配置文件管理。
+
 `AgentRunInput` 包含内容块、已授权历史/上下文引用、模型选择、预算、超时和必要的来源信息。host 私有 token、数据库行和任意 sessionMap 均不进入参数。原生多轮会话使用 checkpoint 恢复；恢复失败应返回可判断错误，不能悄悄重放有副作用的工具调用。
 
 ### 3.2 能力协商
@@ -301,6 +303,8 @@ Agent 运行时报告数据，核心负责计价和账户归属。若通过 `ctx
 ### 4.4 交互与取消
 
 交互请求持久化为 interaction ID，绑定 run、provider 引用、runtime lease、资源和可选项。用户响应经原有身份与授权检查，再传给 handle.respond。重复响应幂等，过期响应返回明确错误，不能恢复到另一个原生会话。该契约同时适用于内置和插件 Agent。
+
+当前交互实现中，clarification 可用 `allowText: false` 限制为已声明选项；未提供此字段的旧澄清请求保持允许文本。选项可附带 description，响应只能选择一个 choiceId 或提供 text。审批始终只接受选项。原生请求已被服务端清理时，运行时发出 `interaction.withdrawn`，宿主把尚未完成的请求记为 withdrawn，不伪造用户回答；已成功响应的请求不会被迟到撤回覆盖。若撤回与响应 RPC 并发，`handle.respond` 可返回 `{ status: 'withdrawn' }`，宿主保留实际回执及幂等记录。resolved/withdrawn 均为确定结局；expired/interrupted 仍不能满足正常完成屏障。秘密输入尚无凭据专用契约，厂商插件须在发布普通持久化交互之前拒绝这类请求。
 
 取消先阻止新输入和下游调用，再请求原生停止，等待输出收尾；超过期限关闭 runtime 并清理受管进程树。取消 RPC、调用方断线、HTTP 超时和永久终止原生会话是不同操作，必须分别实现。客户端断线默认不结束已经接受的持久化任务，用户显式取消和任务 deadline 才触发对应策略。
 

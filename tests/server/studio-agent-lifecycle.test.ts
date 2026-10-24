@@ -322,6 +322,56 @@ it('expires an interaction without dispatching and marks unfinished requests int
   expect(coordinator.interactions(scope, run.id).map(value => value.status)).toEqual(['expired', 'interrupted'])
 })
 
+it('validates clarification response modes before claiming or dispatching an answer', async () => {
+  const current = turn(), respond = vi.fn(async () => {})
+  const { coordinator, instance } = setup(async () => ({ run: async () => ({ ...current, respond }), dispose: async () => {} }), { clarifications: true })
+  const run = coordinator.start(scope, instance.id, input, 'choices')
+  await current.events.push({ type: 'interaction.requested', producerSequence: 1, requestId: 'question', kind: 'clarification', prompt: 'Pick one',
+    allowText: false, choices: [{ id: 'one', label: 'One', description: 'Only this choice' }] })
+  await vi.waitFor(() => expect(coordinator.interactions(scope, run.id)).toHaveLength(1))
+  const interaction = coordinator.interactions(scope, run.id)[0]
+  for (const response of [{ text: 'other' }, { choiceId: 'one', text: 'other' }]) {
+    await expect(coordinator.respond(scope, run.id, { interactionId: interaction.id, idempotencyKey: 'answer', ...response })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+  }
+  expect(respond).not.toHaveBeenCalled()
+  expect(coordinator.interactions(scope, run.id)[0]).toMatchObject({ status: 'pending', allowText: false })
+  await coordinator.respond(scope, run.id, { interactionId: interaction.id, idempotencyKey: 'answer', choiceId: 'one' })
+  current.complete(); await coordinator.wait(run.id)
+  expect(coordinator.get(scope, run.id).status).toBe('completed')
+})
+
+it.each(['receipt', 'event'] as const)('preserves withdrawal when it races an in-flight response: %s', async kind => {
+  const current = turn(), response = deferred<void | { status: 'withdrawn' }>()
+  const respond = vi.fn(() => response.promise)
+  const { coordinator, instance } = setup(async () => ({ run: async () => ({ ...current, respond }), dispose: async () => {} }), { clarifications: true })
+  const run = coordinator.start(scope, instance.id, input, kind)
+  await current.events.push({ type: 'interaction.requested', producerSequence: 1, requestId: 'question', kind: 'clarification', prompt: 'Name?', choices: [] })
+  await vi.waitFor(() => expect(coordinator.interactions(scope, run.id)).toHaveLength(1))
+  const answer = { interactionId: coordinator.interactions(scope, run.id)[0].id, idempotencyKey: 'answer', text: 'Ada' }
+  const dispatch = coordinator.respond(scope, run.id, answer)
+  await vi.waitFor(() => expect(respond).toHaveBeenCalledOnce())
+  if (kind === 'event') {
+    await current.events.push({ type: 'interaction.withdrawn', producerSequence: 2, requestId: 'question' })
+    await vi.waitFor(() => expect(coordinator.get(scope, run.id).status).toBe('running'))
+    response.resolve()
+  } else response.resolve({ status: 'withdrawn' })
+  expect(await dispatch).toMatchObject({ status: 'withdrawn' })
+  expect(await coordinator.respond(scope, run.id, answer)).toMatchObject({ status: 'withdrawn' })
+  current.complete(); await coordinator.wait(run.id)
+  expect(coordinator.get(scope, run.id).status).toBe('completed')
+  expect(current.cancel).not.toHaveBeenCalled()
+})
+
+it('rejects withdrawing a request that belongs to no interaction in this run', async () => {
+  const current = turn()
+  const { coordinator, instance } = setup(async () => ({ run: async () => current, dispose: async () => {} }))
+  const run = coordinator.start(scope, instance.id, input, 'foreign-request')
+  await current.events.push({ type: 'interaction.withdrawn', producerSequence: 1, requestId: 'foreign' })
+  await coordinator.wait(run.id)
+  expect(coordinator.get(scope, run.id)).toMatchObject({ status: 'failed', errorCode: 'INVALID_ARGUMENT' })
+  expect(coordinator.output(scope, run.id, -1)).toEqual([])
+})
+
 it('rejects completion with unresolved tools or interactions', async () => {
   const current = turn()
   const { coordinator, instance } = setup(async () => ({ run: async () => current, dispose: async () => {} }))

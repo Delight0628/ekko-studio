@@ -88,6 +88,17 @@ async function setup() {
 }
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
 
+it('applies a new instance configuration without restoring the previous native session', async () => {
+  const f = await setup(), before = await f.run('before')
+  await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, config: { ...f.instance.config, model: 'configured-model' }, mode: 'global' })
+  expect(await f.run('after')).toMatchObject({ status: 'completed', configRevision: 2 })
+  const requests = await f.trace()
+  expect(requests.filter(frame => frame.method === 'session/new')).toHaveLength(2)
+  expect(requests.filter(frame => frame.method === 'session/load')).toHaveLength(0)
+  expect(requests.filter(frame => frame.method === 'session/set_model').at(-1).params.modelId).toBe('configured-model')
+  expect(f.coordinator.get(scope, before.id).status).toBe('completed')
+})
+
 it('loads the independent Qwen artifact in a worker, streams approvals and restores the native session without replay', async () => {
   const f = await setup(), first = f.start('approval')
   await vi.waitFor(() => expect(f.coordinator.get(scope, first.id).status).toBe('waiting_input'))

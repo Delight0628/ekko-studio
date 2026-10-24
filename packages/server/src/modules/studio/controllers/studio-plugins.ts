@@ -105,6 +105,11 @@ export const startAgentExecution = (ctx: Context) => respond(ctx, () => {
   const context = getStudioPluginRuntime().context(executionScope(ctx), new AbortController().signal)
   return context.runs.start({ instanceId: ctx.params.id, input: input.input, idempotencyKey: input.idempotencyKey } as unknown as AgentRunStartInput)
 })
+export const configureAgentInstance = (ctx: Context) => respond(ctx, () => {
+  const { profile: _profile, ...input } = body(ctx, ['revision', 'config', 'mode', 'profile'])
+  return getStudioPluginRuntime().coordinator.updateInstance(executionScope(ctx), ctx.params.id,
+    input as unknown as import('../repositories/agent-execution-store').AgentInstanceConfiguration)
+})
 export const getAgentExecution = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().coordinator.get(executionScope(ctx), ctx.params.id))
 export const getAgentExecutionOutput = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().coordinator.output(executionScope(ctx), ctx.params.id, Number(ctx.query.after ?? -1)))
 export const cancelAgentExecution = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().coordinator.cancel(executionScope(ctx), ctx.params.id))

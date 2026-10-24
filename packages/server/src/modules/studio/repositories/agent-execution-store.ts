@@ -8,6 +8,7 @@ export interface AgentInstance {
   id: string; agentTypeId: string; profileId: string; ownerId: string
   config: JsonObject; revision: number; mode: 'scoped' | 'global'
 }
+export interface AgentInstanceConfiguration { revision: number; config: JsonObject; mode: 'scoped' | 'global' }
 export type { AgentRunStatus } from '../contracts/plugins'
 export type AgentExecution = AgentRunRecord
 export interface AgentAdmission {
@@ -61,6 +62,18 @@ export class AgentExecutionStore {
     return (this.db.prepare('SELECT id FROM studio_agent_instances WHERE owner_id=? AND profile_id=? ORDER BY id').all(ownerId, profileId) as Array<{ id: string }>).map(row => this.instance(row.id)!)
   }
 
+  hasActiveRuns(instanceId: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM studio_agent_runs WHERE instance_id=? AND status NOT IN ('completed','cancelled','failed','interrupted') LIMIT 1").get(instanceId)
+  }
+  configureInstance(instance: AgentInstance, input: AgentInstanceConfiguration): AgentInstance {
+    const changed = this.db.prepare(`UPDATE studio_agent_instances SET config_json=?, mode=?, revision=revision+1
+      WHERE id=? AND owner_id=? AND profile_id=? AND revision=? AND revision<?
+      AND NOT EXISTS (SELECT 1 FROM studio_agent_runs WHERE instance_id=? AND status NOT IN ('completed','cancelled','failed','interrupted'))`)
+      .run(JSON.stringify(input.config), input.mode, instance.id, instance.ownerId, instance.profileId, input.revision, Number.MAX_SAFE_INTEGER, instance.id)
+    if (!changed.changes) throw new StudioError('REVISION_CONFLICT', 'Agent instance changed or has active runs')
+    return this.instance(instance.id)!
+  }
+
   findRequest(instance: AgentInstance, input: AgentRunInput, key: string): AgentExecution | null {
     const hash = agentRunRequestHash(instance.id, input)
     const previous = this.db.prepare('SELECT * FROM studio_agent_runs WHERE owner_id=? AND profile_id=? AND idempotency_key=?').get(instance.ownerId, instance.profileId, key) as unknown as RunRow | undefined
@@ -104,6 +117,9 @@ export class AgentExecutionStore {
       this.db.prepare('INSERT INTO studio_agent_run_outputs (run_id, sequence, event_json) VALUES (?, ?, ?)').run(id, event.producerSequence, JSON.stringify(event))
       this.state.project(id, event)
       if (event.type === 'interaction.requested') this.transition(id, ['running'], 'waiting_input')
+      if (event.type === 'interaction.withdrawn' && !this.state.interactions(id).some(item => ['pending', 'responding'].includes(item.status))) {
+        this.transition(id, ['waiting_input'], 'running')
+      }
       this.db.exec('RELEASE studio_agent_output')
     } catch (error) { this.db.exec('ROLLBACK TO studio_agent_output; RELEASE studio_agent_output'); throw error }
   }

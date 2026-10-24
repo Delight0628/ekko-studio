@@ -49,11 +49,20 @@ export class AgentRunStateStore {
       if (new Set(event.choices.map(choice => choice.id)).size !== event.choices.length || (event.kind === 'approval' && !event.choices.length)) {
         throw new StudioError('INVALID_ARGUMENT', 'Interaction choices must have unique ids')
       }
+      if ((event.kind === 'approval' && event.allowText === true) || (event.allowText === false && !event.choices.length)) {
+        throw new StudioError('INVALID_ARGUMENT', 'Interaction has no supported response')
+      }
       if (this.interactions(runId).some(item => item.requestId === event.requestId)) throw new StudioError('REVISION_CONFLICT', 'Interaction request already exists')
       const interaction: AgentInteraction = { id: randomUUID(), runId, requestId: event.requestId, kind: event.kind,
-        prompt: event.prompt, choices: event.choices, expiresAt: event.expiresAt ?? null, status: 'pending' }
+        prompt: event.prompt, choices: event.choices, ...(event.allowText === undefined ? {} : { allowText: event.allowText }),
+        expiresAt: event.expiresAt ?? null, status: 'pending' }
       this.db.prepare('INSERT INTO studio_agent_interactions (id, run_id, request_id, value_json) VALUES (?, ?, ?, ?)')
         .run(interaction.id, runId, event.requestId, JSON.stringify(interaction))
+    }
+    if (event.type === 'interaction.withdrawn') {
+      const interaction = this.interactions(runId).find(item => item.requestId === event.requestId)
+      if (!interaction) throw new StudioError('INVALID_ARGUMENT', 'Unknown interaction request')
+      this.setInteraction(interaction, 'withdrawn')
     }
   }
 
@@ -99,6 +108,8 @@ export class AgentRunStateStore {
     }
     if (input.choiceId !== undefined && !interaction.choices.some(choice => choice.id === input.choiceId)) throw new StudioError('INVALID_ARGUMENT', 'Unknown interaction choice')
     if (interaction.kind === 'approval' && (input.choiceId === undefined || input.text !== undefined)) throw new StudioError('INVALID_ARGUMENT', 'Approval requires one declared choice')
+    if (interaction.allowText === false && input.text !== undefined) throw new StudioError('INVALID_ARGUMENT', 'Interaction does not accept text')
+    if (input.choiceId !== undefined && input.text !== undefined) throw new StudioError('INVALID_ARGUMENT', 'Choose one interaction response')
     if (input.choiceId === undefined && !input.text?.trim()) throw new StudioError('INVALID_ARGUMENT', 'Interaction response is empty')
     interaction.status = 'responding'
     this.db.prepare('UPDATE studio_agent_interactions SET value_json=?, response_json=? WHERE id=?').run(JSON.stringify(interaction), response, interaction.id)

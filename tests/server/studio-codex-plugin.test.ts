@@ -58,9 +58,33 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
     send({ id: r.id, result: { turn: { id: turnId, status: 'inProgress' } } });
     if (text.startsWith('approval')) send({ id: 'approval', method: 'item/commandExecution/requestApproval', params: {
       threadId: 'native-thread', turnId, itemId: 'tool', command: 'echo fixture', cwd: process.cwd(), availableDecisions: ['accept','decline','cancel'] } });
+    else if (text.startsWith('question')) {
+      const questions = [
+        { id: 'language', header: 'Language', question: 'Which language?', isOther: false, isSecret: false, options: [
+          { label: 'TypeScript', description: 'Typed implementation' }, { label: 'JavaScript', description: 'Plain implementation' }] },
+        { id: 'style', header: 'Style', question: 'Which style?', isOther: true, isSecret: false, options: [{ label: 'Default', description: 'Use defaults' }] },
+        { id: '__proto__', header: 'Notes', question: 'Any notes?', isOther: false, isSecret: false, options: null },
+      ];
+      if (text === 'question-secret') questions[2].isSecret = true;
+      if (text === 'question-duplicate') questions[2].id = 'language';
+      send({ id: 'questions', method: 'item/tool/requestUserInput', params: {
+        threadId: 'native-thread', turnId, itemId: 'tool', questions, isBlocking: true, autoResolutionMs: null } });
+      if (text === 'question-immediate') { notify('serverRequest/resolved', { requestId: 'questions' }); finish(); }
+      if (text === 'question-withdraw' || text === 'question-complete') {
+        const timer = setInterval(() => { if (!fs.existsSync(process.env.CONTROL_FILE)) return;
+          clearInterval(timer);
+          if (text === 'question-withdraw') notify('serverRequest/resolved', { requestId: 'questions' });
+          finish();
+        }, 10);
+      }
+    }
     else if (text === 'unresolved') notify('turn/completed', { turn: { id: turnId, status: 'completed' } });
     else finish();
   } else if (r.id === 'approval' && r.result?.decision === 'accept') finish();
+  else if (r.id === 'questions') {
+    notify('serverRequest/resolved', { requestId: 'questions' });
+    finish();
+  }
   else if (r.method === 'turn/interrupt') {
     send({ id: r.id, result: {} });
     notify('turn/completed', { turn: { id: turnId, status: 'interrupted' } });
@@ -69,7 +93,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
 
 async function setup() {
   const directory = await mkdtemp(join(root, 'run-')), cli = join(directory, 'codex.cjs')
-  const pidFile = join(directory, 'pid'), traceFile = join(directory, 'trace')
+  const pidFile = join(directory, 'pid'), traceFile = join(directory, 'trace'), controlFile = join(directory, 'control')
   await writeFile(cli, fixture)
   const db = new DatabaseSync(':memory:'), store = new PluginStore(db), registry = new AgentRegistry(), events = new PluginEventBus()
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -84,7 +108,7 @@ async function setup() {
   await host.registerSystemArtifact(join(root, 'plugins/codex'))
   await host.configure({ pluginId: 'studio.agent-codex', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'processes.spawn'] }, 0)
   const instance = coordinator.createInstance(scope, { agentTypeId: 'codex', mode: 'global', config: {
-    cwd: directory, command: process.execPath, args: [cli], env: { PID_FILE: pidFile, TRACE_FILE: traceFile },
+    cwd: directory, command: process.execPath, args: [cli], env: { PID_FILE: pidFile, TRACE_FILE: traceFile, CONTROL_FILE: controlFile },
   } })
   const start = (text: string) => coordinator.start(scope, instance.id, { content: [{ type: 'text', text }] }, text)
   const run = async (text: string) => { const r = start(text); await coordinator.wait(r.id); return coordinator.get(scope, r.id) }
@@ -96,7 +120,7 @@ async function setup() {
     cleanups.push(() => next.close())
     return next
   }
-  return { coordinator, host, executionStore, instance, start, run, trace, pid, reopen }
+  return { coordinator, host, executionStore, instance, start, run, trace, pid, reopen, controlFile }
 }
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
 
@@ -145,6 +169,79 @@ it('restores the committed native thread after releasing its runtime lease', asy
   expect((await f.trace()).filter(r => r.method === 'thread/resume')).toEqual([
     expect.objectContaining({ params: expect.objectContaining({ threadId: 'native-thread' }) }),
   ])
+})
+
+it('releases a real worker runtime before changing config and starts a fresh native thread', async () => {
+  const f = await setup(), before = await f.run('before'), pid = await f.pid()
+  await expect(f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, config: f.instance.config, mode: 'scoped' })).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
+  expect(alive(pid)).toBe(true)
+  await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, config: { ...f.instance.config, model: 'configured-model' }, mode: 'global' })
+  expect(alive(pid)).toBe(false)
+  expect(await f.run('after')).toMatchObject({ status: 'completed', configRevision: 2 })
+  expect(await f.pid()).not.toBe(pid)
+  const requests = await f.trace()
+  expect(requests.filter(frame => frame.method === 'thread/start')).toHaveLength(2)
+  expect(requests.filter(frame => frame.method === 'thread/resume')).toHaveLength(0)
+  expect(requests.filter(frame => frame.method === 'turn/start').at(-1).params.model).toBe('configured-model')
+  expect(f.coordinator.get(scope, before.id)).toMatchObject({ status: 'completed', configRevision: 1 })
+})
+
+it('routes multi-question native input with exact choice labels and free text', async () => {
+  const f = await setup(), run = f.start('question')
+  await vi.waitFor(() => expect(f.coordinator.interactions(scope, run.id)).toHaveLength(3))
+  const interactions = f.coordinator.interactions(scope, run.id)
+  expect(interactions[0]).toMatchObject({ allowText: false, choices: [{ id: 'option-0', label: 'TypeScript', description: 'Typed implementation' }, { id: 'option-1' }] })
+  const answer = { interactionId: interactions[0].id, idempotencyKey: 'language' }
+  await expect(f.coordinator.respond(scope, run.id, { ...answer, text: 'Other' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+  await f.coordinator.respond(scope, run.id, { ...answer, choiceId: 'option-1' })
+  expect(f.coordinator.get(scope, run.id).status).toBe('waiting_input')
+  await f.coordinator.respond(scope, run.id, { interactionId: interactions[2].id, idempotencyKey: 'notes', text: 'Keep history' })
+  await f.coordinator.respond(scope, run.id, { interactionId: interactions[1].id, idempotencyKey: 'style', text: 'Custom style' })
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(scope, run.id).status).toBe('completed')
+  expect(f.coordinator.interactions(scope, run.id).map(item => item.status)).toEqual(['resolved', 'resolved', 'resolved'])
+  const reply = (await f.trace()).find(frame => frame.id === 'questions')
+  expect(reply.result.answers).toEqual(JSON.parse('{"language":{"answers":["JavaScript"]},"style":{"answers":["Custom style"]},"__proto__":{"answers":["Keep history"]}}'))
+  expect(await f.run('next')).toMatchObject({ status: 'completed' })
+})
+
+it.each(['question-withdraw', 'question-complete'])('withdraws unanswered native questions without sending invented answers: %s', async text => {
+  const f = await setup(), run = f.start(text)
+  await vi.waitFor(() => expect(f.coordinator.interactions(scope, run.id)).toHaveLength(3))
+  const first = f.coordinator.interactions(scope, run.id)[0]
+  await writeFile(f.controlFile, 'continue')
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(scope, run.id).status).toBe('completed')
+  expect(f.coordinator.interactions(scope, run.id).map(item => item.status)).toEqual(['withdrawn', 'withdrawn', 'withdrawn'])
+  expect((await f.trace()).some(frame => frame.id === 'questions')).toBe(false)
+  await expect(f.coordinator.respond(scope, run.id, { interactionId: first.id, idempotencyKey: 'late', choiceId: 'option-0' })).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  expect(await f.run('next')).toMatchObject({ status: 'completed' })
+})
+
+it.each(['question-secret', 'question-duplicate'])('rejects an unrepresentable native question set before persisting any prompt: %s', async text => {
+  const f = await setup(), run = await f.run(text)
+  expect(run.status).toBe('completed') // The native fixture handles the explicit RPC failure.
+  expect(f.coordinator.interactions(scope, run.id)).toEqual([])
+  expect((await f.trace()).find(frame => frame.id === 'questions')).toEqual({ id: 'questions', error: { code: -32000, message: 'Client request failed' } })
+})
+
+it('suppresses a request withdrawn before its asynchronous callback begins', async () => {
+  const f = await setup(), run = await f.run('question-immediate')
+  expect(run.status).toBe('completed')
+  expect(f.coordinator.interactions(scope, run.id).every(item => item.status === 'withdrawn')).toBe(true)
+  expect((await f.trace()).some(frame => frame.id === 'questions')).toBe(false)
+})
+
+it('cancels all questions and closes the owned native process', async () => {
+  const f = await setup(), run = f.start('question')
+  await vi.waitFor(() => expect(f.coordinator.interactions(scope, run.id)).toHaveLength(3))
+  const pid = await f.pid()
+  await f.coordinator.cancel(scope, run.id)
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(scope, run.id).status).toBe('cancelled')
+  expect(alive(pid)).toBe(false)
+  expect((await f.trace()).some(frame => frame.id === 'questions')).toBe(false)
+  expect(f.coordinator.interactions(scope, run.id).every(item => !['pending', 'responding'].includes(item.status))).toBe(true)
 })
 
 it.skipIf(process.platform === 'win32')('keeps cancellation pending until the native process actually exits', async () => {

@@ -148,9 +148,11 @@ const validateOutput = ajv.compile({ anyOf: [
   eventSchema(['checkpoint.updated'], { value: {} }, ['value']),
   eventSchema(['interaction.requested'], {
     requestId: eventString, kind: { enum: ['approval', 'clarification'] }, prompt: { type: 'string', minLength: 1, maxLength: 16384 },
-    choices: { type: 'array', maxItems: 32, items: { type: 'object', additionalProperties: false, required: ['id', 'label'], properties: { id: eventString, label: { type: 'string', minLength: 1, maxLength: 1024 } } } },
+    choices: { type: 'array', maxItems: 32, items: { type: 'object', additionalProperties: false, required: ['id', 'label'], properties: { id: eventString, label: { type: 'string', minLength: 1, maxLength: 1024 }, description: { type: 'string', maxLength: 4096 } } } },
+    allowText: { type: 'boolean' },
     expiresAt: eventSequence,
   }, ['requestId', 'kind', 'prompt', 'choices']),
+  eventSchema(['interaction.withdrawn'], { requestId: eventString }, ['requestId']),
   eventSchema(['diagnostic'], { message: { type: 'string', maxLength: 4096 } }, ['message']),
 ] })
 export function parseAgentOutput(value: unknown): AgentOutputEvent {

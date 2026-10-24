@@ -1,8 +1,8 @@
-import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { AgentEventQueue, NativeRpcConnection } from '@ekko-studio/agent-drivers'
 import { StudioError, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
 import { codexEvents } from './events'
+import { codexInteractions } from './interactions'
 
 type Output = AgentOutputEvent extends infer T ? T extends AgentOutputEvent ? Omit<T, 'producerSequence'> : never : never
 const schema: JsonObject = {
@@ -23,15 +23,16 @@ const schema: JsonObject = {
 interface Turn {
   id?: string
   cancelled: boolean
+  completed: boolean
   notification(method: string, params: Record<string, any>): void
-  request(method: string, params: Record<string, any>, signal: AbortSignal): Promise<unknown>
+  request(method: string, params: Record<string, any>, signal: AbortSignal, id: string | number): Promise<unknown>
   handle: AgentRunHandle
 }
 
 export const apply: StudioPlugin['apply'] = plugin => {
   plugin.agents.register({
     id: 'codex', name: 'Codex', configSchema: schema,
-    capabilities: { text: true, streaming: true, reasoning: true, approvals: true, resume: true, persistentSession: true, modes: ['global'] },
+    capabilities: { text: true, streaming: true, reasoning: true, approvals: true, clarifications: true, resume: true, persistentSession: true, modes: ['global'] },
     async create(input, runtime) {
       const config = input.config, cwd = String(config.cwd)
       if (!isAbsolute(cwd)) throw new StudioError('INVALID_ARGUMENT', 'Codex working directory must be absolute')
@@ -47,9 +48,9 @@ export const apply: StudioPlugin['apply'] = plugin => {
       let current: Turn | undefined, ended = false
       const rpc = new NativeRpcConnection(process, {
         notification(method, params) { current?.notification(method, params) },
-        async request(method, params, signal) {
+        async request(method, params, signal, id) {
           if (!current) throw new Error('No active Codex turn')
-          return current.request(method, params, signal)
+          return current.request(method, params, signal, id)
         },
       })
       const aborted = () => { void rpc.close().catch(() => {}) }
@@ -68,42 +69,41 @@ export const apply: StudioPlugin['apply'] = plugin => {
           let sequence = 0, ready!: () => void, complete!: (status: string) => void
           const started = new Promise<void>(resolve => { ready = resolve })
           const terminal = new Promise<string>(resolve => { complete = resolve })
-          const pending = new Map<string, { resolve(value: string): void; choices: Set<string> }>()
+          const requests = new Set<string | number>()
           const emit = (event: Output) => events.push({ ...event, producerSequence: ++sequence } as AgentOutputEvent)
           const project = codexEvents(emit)
+          const interactions = codexInteractions(emit)
           const buffered: Array<[string, Record<string, any>]> = []
           let bufferedBytes = 0, cancelTask: Promise<void> | undefined, closing: Promise<void> | undefined
-          const turn: Turn = { cancelled: ctx.signal.aborted, handle: undefined!,
+          const turn: Turn = { cancelled: ctx.signal.aborted, completed: false, handle: undefined!,
             notification(method, params) {
               if (!threadId || params.threadId !== threadId) return
+              if (method === 'serverRequest/resolved') {
+                // Resolution can arrive in the same read batch, before the
+                // async request callback has published any Studio questions.
+                rpc.withdrawRequest(params.requestId)
+                return
+              }
               if (!turn.id) {
                 bufferedBytes += Buffer.byteLength(JSON.stringify(params))
                 if (buffered.length >= 128 || bufferedBytes > 4 * 1024 * 1024) throw new Error('Codex startup event limit exceeded')
                 buffered.push([method, params]); return
               }
               if ((params.turnId || params.turn?.id) !== turn.id) return
-              if (method === 'turn/completed') complete(String(params.turn?.status))
+              if (method === 'turn/completed') {
+                turn.completed = true
+                for (const id of requests) rpc.withdrawRequest(id)
+                complete(String(params.turn?.status))
+              }
               else if (!turn.cancelled) project(method, params)
             },
-            async request(method, params, signal) {
+            async request(method, params, signal, id) {
               await Promise.race([started, rpc.closed])
+              if (turn.completed) { rpc.withdrawRequest(id); return null }
               if (current !== turn || params.threadId !== threadId || params.turnId !== turn.id || turn.cancelled || signal.aborted) throw new Error('Codex request is outside the current turn')
-              if (!['item/commandExecution/requestApproval', 'item/fileChange/requestApproval'].includes(method)) throw new Error('Unsupported Codex client request')
-              const choices = ['accept', 'decline', 'cancel'].filter(choice => !Array.isArray(params.availableDecisions) || params.availableDecisions.includes(choice))
-              if (!choices.length) return { decision: 'cancel' }
-              const requestId = randomUUID()
-              const decision = await new Promise<string>((resolve, reject) => {
-                const abort = () => finish('cancel')
-                const finish = (value: string) => { signal.removeEventListener('abort', abort); pending.delete(requestId); resolve(value) }
-                pending.set(requestId, { resolve: finish, choices: new Set(choices) })
-                signal.addEventListener('abort', abort, { once: true })
-                try {
-                  emit({ type: 'interaction.requested', kind: 'approval', requestId,
-                    prompt: [params.reason, params.command, params.cwd, params.grantRoot].filter(value => typeof value === 'string').join('\n').slice(0, 16384) || 'Codex requests permission',
-                    choices: choices.map(id => ({ id, label: id === 'accept' ? 'Allow once' : id === 'decline' ? 'Decline' : 'Cancel turn' })) })
-                } catch (error) { signal.removeEventListener('abort', abort); pending.delete(requestId); reject(error) }
-              })
-              return { decision }
+              requests.add(id)
+              try { return await interactions.request(method, params, signal) }
+              finally { requests.delete(id) }
             },
           }
           current = turn
@@ -137,7 +137,7 @@ export const apply: StudioPlugin['apply'] = plugin => {
               throw error
             } finally {
               ready(); ctx.signal.removeEventListener('abort', onAbort)
-              for (const entry of pending.values()) entry.resolve('cancel')
+              interactions.close()
               try { if (turn.cancelled) await (closing ??= rpc.close()) }
               finally { events.end(); current = undefined }
             }
@@ -160,9 +160,7 @@ export const apply: StudioPlugin['apply'] = plugin => {
               return cancelTask
             },
             async respond(response) {
-              const entry = pending.get(response.requestId)
-              if (!entry || !response.choiceId || !entry.choices.has(response.choiceId) || response.text !== undefined) throw new StudioError('INVALID_ARGUMENT', 'Invalid Codex approval response')
-              entry.resolve(response.choiceId)
+              return interactions.respond(response)
             },
           }
           turn.handle = handle

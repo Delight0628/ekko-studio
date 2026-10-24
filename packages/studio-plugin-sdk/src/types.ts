@@ -314,8 +314,11 @@ export type AgentOutputEvent =
   | { type: 'tool.started' | 'tool.completed' | 'tool.failed'; producerSequence: number; callId: string; name: string; data: JsonValue }
   | { type: 'usage.reported'; producerSequence: number; modelCallId: string; model: string; mode: 'delta' | 'cumulative' | 'final'; revision: number; inputTokens: number; outputTokens: number }
   | { type: 'checkpoint.updated'; producerSequence: number; value: JsonValue }
-  | { type: 'interaction.requested'; producerSequence: number; requestId: string; kind: 'approval' | 'clarification'; prompt: string; choices: Array<{ id: string; label: string }>; expiresAt?: number }
+  | { type: 'interaction.requested'; producerSequence: number; requestId: string; kind: 'approval' | 'clarification'; prompt: string; choices: AgentInteractionChoice[]; allowText?: boolean; expiresAt?: number }
+  | { type: 'interaction.withdrawn'; producerSequence: number; requestId: string }
   | { type: 'diagnostic'; producerSequence: number; message: string }
+
+export interface AgentInteractionChoice { id: string; label: string; description?: string }
 
 export interface AgentInteraction {
   id: string
@@ -323,9 +326,11 @@ export interface AgentInteraction {
   requestId: string
   kind: 'approval' | 'clarification'
   prompt: string
-  choices: Array<{ id: string; label: string }>
+  choices: AgentInteractionChoice[]
+  /** Clarifications allow text by default. Approvals always require a choice. */
+  allowText?: boolean
   expiresAt: number | null
-  status: 'pending' | 'responding' | 'resolved' | 'expired' | 'interrupted'
+  status: 'pending' | 'responding' | 'resolved' | 'withdrawn' | 'expired' | 'interrupted'
 }
 
 export interface AgentInteractionResponse {
@@ -376,7 +381,8 @@ export interface AgentRunHandle {
   readonly events: AsyncIterable<AgentOutputEvent>
   readonly result: Promise<AgentRunResult>
   cancel(reason: string): Promise<void>
-  respond?(input: { requestId: string; choiceId?: string; text?: string }): Promise<void>
+  /** withdrawn means native resolution won the race; the answer was not delivered. */
+  respond?(input: { requestId: string; choiceId?: string; text?: string }): Promise<void | { status: 'withdrawn' }>
 }
 
 export interface AgentRuntime {

@@ -9,11 +9,11 @@ import { PluginConsumerStore } from '../../packages/server/src/modules/studio/re
 import { ReliablePluginConsumers } from '../../packages/server/src/modules/studio/services/events/reliable-consumers'
 
 const state = vi.hoisted(() => ({ remove: vi.fn(), configure: vi.fn(), install: vi.fn(), diagnostic: vi.fn(), list: vi.fn(() => []),
-  respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), role: 'super_admin', consumers: null as unknown as ReliablePluginConsumers }))
+  respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), updateInstance: vi.fn(), role: 'super_admin', consumers: null as unknown as ReliablePluginConsumers }))
 vi.mock('../../packages/server/src/modules/studio/services/plugins/runtime', () => ({
   authorizePluginScope: vi.fn(),
   getStudioPluginRuntime: () => ({ host: { uninstall: state.remove, configure: state.configure, install: state.install, list: state.list, diagnostic: state.diagnostic },
-    consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel } }),
+    consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance } }),
 }))
 import { studioPluginRoutes } from '../../packages/server/src/modules/studio/routes/studio-plugins'
 
@@ -99,6 +99,23 @@ it('returns a finalization conflict without reporting cancellation', async () =>
   const response = await fetch(`${base}/api/studio/agent-runs/run/cancel?profile=default`, { method: 'POST' })
   expect(response.status).toBe(409)
   expect(await response.json()).toMatchObject({ ok: false, error: { code: 'RUN_FINALIZING' } })
+})
+
+it('configures only the authenticated owner instance and surfaces active-run conflicts', async () => {
+  state.updateInstance.mockReset().mockResolvedValue({ id: 'instance', revision: 2 })
+  const configuration = { revision: 1, config: { cwd: '/fixture' }, mode: 'global' }
+  const request = (body: unknown, profile = '?profile=default') => fetch(`${base}/api/studio/agent-instances/instance${profile}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+  expect((await request(configuration, '')).status).toBe(400)
+  expect((await request({ ...configuration, ownerId: 'forged' })).status).toBe(400)
+  expect((await request({ ...configuration, agentTypeId: 'other' })).status).toBe(400)
+  expect(state.updateInstance).not.toHaveBeenCalled()
+  const response = await request(configuration)
+  expect(await response.json()).toEqual({ ok: true, data: { id: 'instance', revision: 2 } })
+  expect(state.updateInstance).toHaveBeenCalledWith(expect.objectContaining({ principal: { kind: 'user', id: '7' }, profileId: 'default' }), 'instance', configuration)
+  state.updateInstance.mockRejectedValue(new StudioError('REVISION_CONFLICT', 'Active run'))
+  expect((await request(configuration)).status).toBe(409)
 })
 
 it('scopes consumer management to an administrator, plugin and profile and requires explicit revisions', async () => {

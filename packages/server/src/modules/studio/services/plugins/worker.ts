@@ -226,7 +226,14 @@ export class PluginWorker {
     }
     catch (error) { channel.finish(error); reject(error); await release(); this.runs.delete(runId); throw error }
     return { events: channel, result, cancel,
-      ...(canRespond ? { respond: async (input: Parameters<NonNullable<AgentRunHandle['respond']>>[0]) => { await this.peer.request('run.respond', toJson({ runId, input })) } } : {}),
+      ...(canRespond ? { respond: async (input: Parameters<NonNullable<AgentRunHandle['respond']>>[0]) => {
+        const result = await this.peer.request('run.respond', toJson({ runId, input }))
+        if (result === null) return
+        if (!result || typeof result !== 'object' || Array.isArray(result) || Object.keys(result).length !== 1 || result.status !== 'withdrawn') {
+          throw new StudioError('INVALID_ARGUMENT', 'Invalid interaction dispatch receipt')
+        }
+        return { status: 'withdrawn' as const }
+      } } : {}),
     }
   }
 

@@ -2011,6 +2011,15 @@ openapi.paths['/api/studio/agent-instances/{id}/runs'].post.requestBody = studio
     } },
   },
 })
+openapi.paths['/api/studio/agent-instances/{id}'].put.requestBody = studioPluginBody({ type: 'object', additionalProperties: false,
+  required: ['revision', 'config', 'mode'], properties: {
+    revision: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER }, config: { type: 'object', additionalProperties: true },
+    mode: { type: 'string', enum: ['scoped', 'global'] }, profile: { type: 'string' },
+  },
+})
+openapi.paths['/api/studio/agent-instances/{id}'].put.description += ' Replaces instance configuration after validating its revision and registered schema. Active/queued runs block changes. Idle native resources must finish disposal before committing; new runs are blocked during disposal. The new revision starts a fresh native session; prior run history remains readable.'
+openapi.paths['/api/studio/agent-instances/{id}'].put.summary = 'Update Agent instance configuration'
+openapi.paths['/api/studio/agent-instances/{id}'].put.responses['404'].description = 'Agent instance is unavailable in this owner/profile scope.'
 openapi.paths['/api/studio/agent-runs/{id}/output'].get.parameters.push({ name: 'after', in: 'query', schema: { type: 'integer', minimum: -1, default: -1 }, description: 'Exclusive producer sequence cursor; returns up to 100 persisted output events.' })
 openapi.paths['/api/studio/agent-runs/{id}/respond'].post.requestBody = studioPluginBody({ type: 'object', additionalProperties: false,
   required: ['interactionId', 'idempotencyKey'], properties: {
@@ -2019,7 +2028,7 @@ openapi.paths['/api/studio/agent-runs/{id}/respond'].post.requestBody = studioPl
   },
 })
 openapi.paths['/api/studio/agent-runs/{id}/usage'].get.description += ' Returns one normalized record per model call; cumulative snapshots replace prior counts and final revisions may correct them. An empty list means unknown usage, not a measured zero.'
-openapi.paths['/api/studio/agent-runs/{id}/interactions'].get.description += ' Returns persisted approval/clarification requests for this run. Responses require a declared choice or clarification text and an idempotency key; expired or foreign interactions cannot reach the runtime.'
+openapi.paths['/api/studio/agent-runs/{id}/interactions'].get.description += ' Returns persisted approval/clarification requests for this run. Responses require one declared choice or permitted clarification text and an idempotency key. Choice descriptions and allowText describe the input constraints. Native withdrawal is recorded as withdrawn, without inventing an answer; expired, withdrawn or foreign interactions cannot reach the runtime.'
 
 // Write output
 const outputPath = join(rootDir, 'docs/openapi.json')

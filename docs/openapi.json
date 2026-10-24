@@ -12429,6 +12429,104 @@
         }
       }
     },
+    "/api/studio/agent-instances/{id}": {
+      "put": {
+        "tags": [
+          "Studio Plugins"
+        ],
+        "summary": "Update Agent instance configuration",
+        "description": "Operates on registered Agent types and owner-bound instances/runs in the authorized profile. Plugin migration is in progress; existing native Agent execution remains separate until migration completes. Replaces instance configuration after validating its revision and registered schema. Active/queued runs block changes. Idle native resources must finish disposal before committing; new runs are blocked during disposal. The new revision starts a fresh native session; prior run history remains readable.",
+        "operationId": "configureAgentInstance",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Result wrapped as { ok: true, data }."
+          },
+          "400": {
+            "description": "Invalid request or manifest."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Access denied or SYSTEM_PLUGIN_PROTECTED; no deletion side effects."
+          },
+          "404": {
+            "description": "Agent instance is unavailable in this owner/profile scope."
+          },
+          "409": {
+            "description": "Revision conflict, registration conflict or active runtime leases."
+          },
+          "422": {
+            "description": "Plugin requests unsupported capabilities."
+          },
+          "503": {
+            "description": "Plugin host or runtime unavailable."
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "profile",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Authorized Studio profile."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "revision",
+                  "config",
+                  "mode"
+                ],
+                "properties": {
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "config": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "scoped",
+                      "global"
+                    ]
+                  },
+                  "profile": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/studio/agent-instances/{id}/runs": {
       "post": {
         "tags": [
@@ -12684,7 +12782,7 @@
           "Studio Plugins"
         ],
         "summary": "Get interactions",
-        "description": "Operates on registered Agent types and owner-bound instances/runs in the authorized profile. Plugin migration is in progress; existing native Agent execution remains separate until migration completes. Returns persisted approval/clarification requests for this run. Responses require a declared choice or clarification text and an idempotency key; expired or foreign interactions cannot reach the runtime.",
+        "description": "Operates on registered Agent types and owner-bound instances/runs in the authorized profile. Plugin migration is in progress; existing native Agent execution remains separate until migration completes. Returns persisted approval/clarification requests for this run. Responses require one declared choice or permitted clarification text and an idempotency key. Choice descriptions and allowText describe the input constraints. Native withdrawal is recorded as withdrawn, without inventing an answer; expired, withdrawn or foreign interactions cannot reach the runtime.",
         "operationId": "getAgentExecutionInteractions",
         "security": [
           {

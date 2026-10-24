@@ -16,6 +16,7 @@ studioPluginRoutes.delete('/api/studio/plugins/:id', requireSuperAdmin, controll
 studioPluginRoutes.get('/api/studio/agent-types', requireUserProfile, controller.listAgentTypes)
 studioPluginRoutes.get('/api/studio/agent-instances', requireUserProfile, controller.listAgentInstances)
 studioPluginRoutes.post('/api/studio/agent-instances', requireUserProfile, controller.createAgentInstance)
+studioPluginRoutes.put('/api/studio/agent-instances/:id', requireUserProfile, controller.configureAgentInstance)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/runs', requireUserProfile, controller.startAgentExecution)
 studioPluginRoutes.get('/api/studio/agent-runs/:id', requireUserProfile, controller.getAgentExecution)
 studioPluginRoutes.get('/api/studio/agent-runs/:id/output', requireUserProfile, controller.getAgentExecutionOutput)

@@ -8,12 +8,23 @@ Text snapshots replace streamed text; tool completion is deduplicated. Cancellat
 requests native interruption and waits for confirmed process cleanup. The public
 configuration schema preserves native defaults unless a setting is supplied.
 
-This increment supports global text execution, command/file approvals, native
-thread restoration and persistent turns. It is not automatically installed and
+This increment supports global text execution, command/file approvals, multi-question
+native clarification, thread restoration and persistent turns. Choices retain their
+descriptions; only questions that allow other answers accept free text. Native
+request resolution withdraws unanswered Studio interactions and suppresses late
+replies. Cancellation never invents an answer. Secret questions are rejected before
+any prompt is persisted, pending a dedicated credential interaction channel.
+It is not automatically installed and
 does not replace legacy chat or management. Scoped provider setup, login/configuration
-management, images, clarification/MCP elicitation, compaction, native usage ledger
+management, images, MCP elicitation, compaction, native usage ledger
 reconciliation and the full real CLI acceptance matrix remain incomplete. Native
 cumulative counters are not represented as fabricated per-call usage records.
 
 Protocol reference: [official app-server documentation](https://learn.chatgpt.com/docs/app-server).
 The initial schema was also checked against locally generated Codex 0.163.0 types.
+
+`npm run verify:plugins:native` builds both native plugin artifacts and runs two
+real CLI turns against local model fixtures in temporary homes. Set
+`STUDIO_CODEX_COMMAND` and `STUDIO_QWEN_COMMAND` when the installed CLIs are not on
+PATH. This verifies native text streaming and session reuse without account login
+or remote model calls; it does not cover the complete vendor acceptance matrix.

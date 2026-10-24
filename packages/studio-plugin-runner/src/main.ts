@@ -244,8 +244,7 @@ peer.handle('run.respond', async value => {
   const params = object(value), run = runs.get(string(params.runId))
   if (!run || run.controller.signal.aborted) throw new StudioError('RUNTIME_UNAVAILABLE', 'Run is unavailable')
   if (!run.handle.respond) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent cannot respond to interactions')
-  await run.handle.respond(object(params.input) as unknown as Parameters<NonNullable<AgentRunHandle['respond']>>[0])
-  return null
+  return json(await run.handle.respond(object(params.input) as unknown as Parameters<NonNullable<AgentRunHandle['respond']>>[0]) ?? null)
 })
 peer.handle('runtime.dispose', async value => {
   const params = object(value), id = string(params.runtimeSessionId), runtime = runtimes.get(id)

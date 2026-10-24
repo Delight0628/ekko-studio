@@ -138,7 +138,7 @@ describe('plugin worker integration', () => {
     await writeFile(join(directory, 'studio-plugin.json'), JSON.stringify(manifest))
     await writeFile(join(directory, 'index.cjs'), `module.exports = { apply(plugin) {
       plugin.agents.register({ id: 'test.interactive/agent', name: 'Interactive', configSchema: {}, capabilities: { text: true, modes: ['scoped'], persistentSession: true, approvals: true },
-        create: async () => { let turn = 0; return { dispose: async () => {}, run: async () => {
+        create: async () => { let turn = 0; return { dispose: async () => {}, run: async runInput => {
           turn++; let answer; const answered = new Promise(resolve => { answer = resolve });
           let complete; const result = new Promise(resolve => { complete = resolve });
           return { result, events: (async function* () {
@@ -149,7 +149,10 @@ describe('plugin worker integration', () => {
               yield { type: 'usage.reported', producerSequence: 3, modelCallId: 'call', model: 'fixture', mode: 'final', revision: 1, inputTokens: 4, outputTokens: 2 };
               complete({ status: 'completed' });
             }
-          })(), respond: async input => answer(input.choiceId), cancel: async () => { answer(null); complete({ status: 'cancelled' }) } };
+          })(), respond: async input => {
+            if (runInput.content[0].text === 'withdrawn') { answer('withdrawn'); return { status: 'withdrawn' }; }
+            answer(input.choiceId);
+          }, cancel: async () => { answer(null); complete({ status: 'cancelled' }) } };
         } } }
       });
     } }`)
@@ -168,6 +171,12 @@ describe('plugin worker integration', () => {
       expect(coordinator.output(scope, run.id, -1)[1]).toMatchObject({ text: key === 'first' ? '1:yes' : '2:yes' })
       expect(coordinator.usage(scope, run.id)).toMatchObject([{ inputTokens: 4, outputTokens: 2, final: true }])
     }
+    const withdrawn = coordinator.start(scope, instance.id, { content: [{ type: 'text', text: 'withdrawn' }] }, 'withdrawn')
+    await vi.waitFor(() => expect(coordinator.get(scope, withdrawn.id).status).toBe('waiting_input'))
+    const interaction = coordinator.interactions(scope, withdrawn.id)[0]
+    expect(await coordinator.respond(scope, withdrawn.id, { interactionId: interaction.id, idempotencyKey: 'late', choiceId: 'yes' })).toMatchObject({ status: 'withdrawn' })
+    await coordinator.wait(withdrawn.id)
+    expect(coordinator.get(scope, withdrawn.id).status).toBe('completed')
     const run = coordinator.start(scope, instance.id, { content: [{ type: 'text', text: 'stop' }] }, 'third')
     await vi.waitFor(() => expect(coordinator.get(scope, run.id).status).toBe('waiting_input'))
     await coordinator.cancel(scope, run.id); await coordinator.wait(run.id)
