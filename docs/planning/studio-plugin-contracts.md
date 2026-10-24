@@ -277,7 +277,13 @@ Qwen/Codex 已实现多个位置声明；现有 Coding Agent 配置页与 Skills
 
 Studio 文件入口为 `POST /api/studio/agent-instances/:id/resources`：`{ action: 'list', revision }` 返回位置、`snapshot` 和文件目录；`read` 使用 `{ revision, snapshot, kind, locationId, path }`，`write` 再带 `content/etag`。相对路径采用 `/` 分隔，文件位置的 path 为空；不接受绝对路径或自报 owner/provider。所有操作在管理锁与取消作用域内重新授权，位置快照包含提供方、配置 revision 与规范化位置。文件版本绑定规范路径和内容；原生文件被外部修改时返回冲突。JSON/TOML 保存前校验语法，原子替换并保留既有文件权限。
 
-只读声明跨 Skills/configs、重叠目录和路径别名生效；全局共享 Skills 仍只读，多硬链接文件也只读。拒绝相对路径越界、悬空链接和非文本文件。扫描最多访问 4,096 项、返回 2,048 个文件，深度 12；跳过目录内符号链接与隐藏后代，显式声明的隐藏根目录可扫描。文本读取上限 1 MiB。缺失目录返回空目录，缺失的声明配置文件可创建；达到限额或无权限时明确失败，不伪装为空。旧 Skills 详情页可编辑技能正文及可写附属文本文件；导入/删除与目录树增删尚未迁移。
+只读声明跨 Skills/configs、重叠目录和路径别名生效；全局共享 Skills 仍只读，多硬链接文件也只读。拒绝相对路径越界、悬空链接和非文本文件。扫描最多访问 4,096 项、返回 2,048 个文件，深度 12；跳过目录内符号链接与隐藏后代，显式声明的隐藏根目录可扫描。文本读取上限 1 MiB。缺失目录返回空目录，缺失的声明配置文件可创建；达到限额或无权限时明确失败，不伪装为空。旧 Skills 详情页可编辑技能正文及可写附属文本文件；整个 Skill 包的导入/删除已接入，任意目录树增删仍未开放。
+
+`POST /api/studio/agent-instances/:id/skills/import` 使用 multipart 的 `revision/snapshot/locationId/file`，不接受调用者给定目标路径或身份。文件夹上传保留单一顶层 Skill 目录；单 ZIP 可在根或单一顶层目录提供非空 UTF-8 `SKILL.md`。宿主复制上传字节，在物化 ZIP 条目前检查有效目录数量（包含 ZIP64），有界解压、校验 CRC，拒绝越界路径、重复大小写别名、链接、特殊文件和加密内容。最多 256 个文件，每文件 4 MiB，总计 16 MiB，`SKILL.md` 最多 1 MiB；传输另允许 2 MiB multipart 元数据。ZIP 的 owner-execute 位可保留，其余权限按私有文件收敛。完整暂存目录只发布到不存在的目标，不覆盖已有 Skill；失败清理暂存内容。
+
+资源入口另支持 `review-skill/remove-skill`，固定 `kind: skills`。review 返回选定目录（包含隐藏与二进制资产）的完整内容版本及文件/字节数；remove 必须携带该 etag，删除前重新读取校验。声明根目录、受保护后代、符号链接、多硬链接或特殊文件均拒绝删除。错误导入/删除请求在关闭空闲原生租约前拒绝，有效变更仍等待原生清理并再次校验。目录删除属于文件系统操作；主机故障、恢复与跨进程竞态仍在最终验收范围。
+
+Web 复用既有 Skills 导入弹窗和删除确认，明确选择可写来源，并在确认中展示来源路径。切换实例/profile 或退出页面会作废旧确认与迟到读取；列表不混用旧来源。变更后下一轮自动重新加载，不要求执行旧引擎的重载命令。
 
 资源编辑接入保留现有固定页面，不引入独立资源编辑页面或插件文件读写接口。DSH 保留现有原生配置 iframe、插件清单及其打开/关闭生命周期；本阶段不做通用前端插件化。
 
@@ -323,7 +329,7 @@ Disposer、停用、卸载和 generation/原生租约回收撤销对应注册。
 
 通用转发服务维护调用 ID、幂等回执、deadline、取消及资源清理。重复提交不自动重复执行插件 handler，未确认的外部副作用不自动重试；“已派发”不等于处理成功。目录大小、文本长度、RPC 帧及并发有界。Web/Desktop/App 共用命令目录、通用转发和当前返回格式；HTTP/Socket 只适配传输，旧客户端保留现有协议投影。
 
-当前 SDK 已开放 `commands.register`、`CommandInput/Result/Context`，manifest 声明静态命令 ID；Web 输入框消费目录，通过带 revision 和幂等键的 HTTP 调用插件 handler，实时事件和轮询回执共用现有结果渲染。注册支持 `id/name/aliases/description/argsHint/agentTypeIds`，名称可包含大小写字母、数字、下划线、冒号和连字符。受管聊天优先展示无歧义短名称，歧义时使用限定名称；旧平台命令的保留名称继续受保护。暂不支持 examples、草稿和其他输入入口。插件回执不直接清空聊天、删除消息、终止其他 Run 或跳转到返回数据中的会话；业务变更仍须经获权领域服务。`ctx.chat.start` 当前拒绝斜杠管理命令的限制保持。完整验收见实施计划 A35–A39。
+当前 SDK 已开放 `commands.register`、`CommandInput/Result/Context`，manifest 声明静态命令 ID；Web 输入框消费目录，通过带 revision 和幂等键的 HTTP 调用插件 handler，实时事件和轮询回执共用现有结果渲染。注册支持 `id/name/aliases/description/argsHint/agentTypeIds`，名称支持 Unicode 字母、数字、下划线、点、冒号和连字符。受管聊天优先展示无歧义短名称，歧义时使用限定名称；旧平台命令的保留名称继续受保护。暂不支持 examples、草稿和其他输入入口。插件回执不直接清空聊天、删除消息、终止其他 Run 或跳转到返回数据中的会话；业务变更仍须经获权领域服务。`ctx.chat.start` 当前拒绝斜杠管理命令的限制保持。完整验收见实施计划 A35–A39。
 
 manifest 的可选 `contributes.runtimeCommands` 只允许声明本插件 Agent 类型，并须声明/获授 `commands.register`。宿主仅为已绑定自有直接聊天的 runtime 注入可选 `runtime.commands.replace([{ definition, handler }])`；独立 Run 或管理探测不提供此能力。注册沿用相同目录、调用服务和 worker handler，宿主只接收描述，私有目标由协调器绑定 owner/profile、会话、实例/revision、提供方 generation 和 runtime 租约。每个目录最多 64 项、65,536 字节；验证全部通过才替换，相同描述保留 revision。取消、清理、worker 故障及配置/所有权改变撤销或隐藏目录，旧句柄不得更新新租约。
 

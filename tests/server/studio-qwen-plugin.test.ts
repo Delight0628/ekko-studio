@@ -50,7 +50,8 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
     if (r.method === 'session/load') update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'replayed old text' } });
     update({ sessionUpdate: 'available_commands_update', availableCommands: process.env.LARGE_CATALOG === '1'
       ? Array.from({ length: 100 }, (_, index) => ({ name: 'native-' + index, description: 'Native command '.repeat(100) }))
-      : [{ name: 'inspect:state', description: 'Inspect native state', input: { hint: '<raw>' } }] });
+      : [{ name: 'inspect:state', description: 'Inspect native state', input: { hint: '<raw>' } },
+        { name: '技能:检查', description: 'Unicode Skill command' }, { name: 'unsupported command with spaces', description: 'Native-only form' }] });
     send({ id: r.id, result: { sessionId: 'qwen-native' } });
   } else if (r.method === 'session/set_model') send({ id: r.id, result: {} });
   else if (r.method === 'session/prompt') {
@@ -160,6 +161,10 @@ it('publishes the native ACP catalog before session creation completes and prese
   await run('/inspect:state  "quoted"\n tail ')
   expect((await f.trace()).filter(frame => frame.method === 'session/prompt').at(-1).params.prompt[0].text).toBe('/inspect:state  "quoted"\n tail ')
   expect(f.host.commands.list('one', 'qwen', target).find(command => command.name === 'inspect:state')?.revision).toBe(inspect.revision)
+  expect(commands.some(command => command.name === '技能:检查')).toBe(true)
+  expect(commands.some(command => command.name.includes(' '))).toBe(false)
+  await run('/技能:检查  中文参数')
+  expect((await f.trace()).filter(frame => frame.method === 'session/prompt').at(-1).params.prompt[0].text).toBe('/技能:检查  中文参数')
   expect(f.host.commands.list('one', 'qwen', { ...target, sessionId: 'other' }).map(command => command.name)).toEqual(['compress'])
 })
 

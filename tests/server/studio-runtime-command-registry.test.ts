@@ -42,3 +42,13 @@ it('requires a manifest declaration for owned Agent types and command registrati
   expect(() => parseManifest({ ...base, contributes: { ...base.contributes, runtimeCommands: ['foreign'] } })).toThrow()
   expect(() => parseManifest({ ...base, requires: { capabilities: ['agents.register'] } })).toThrow()
 })
+
+it('routes Unicode Skill command names without changing their native spelling', () => {
+  const registry = new PluginCommandRegistry(), controller = new AbortController()
+  const catalog = registry.runtime('profile', provider, 'native', target, async () => {}, () => {}, controller.signal)
+  catalog.replace([{ ...first, name: '技能:检查', aliases: ['café.check'] }])
+  const command = registry.list('profile', 'native', target)[0]
+  expect(command).toMatchObject({ name: '技能:检查', aliases: ['café.check'], qualifiedName: 'test.native:技能:检查' })
+  expect(registry.resolve('profile', 'native', command.id, command.revision, target).summary).toEqual(command)
+  controller.abort()
+})

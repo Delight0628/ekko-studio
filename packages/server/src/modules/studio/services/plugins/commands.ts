@@ -4,7 +4,7 @@ import type { RuntimeCommandTarget } from '../agents/command-target'
 import { StudioError, type AgentProviderRef, type CommandDefinition, type CommandInput, type CommandContext, type CommandResult } from '../../contracts/plugins'
 import { compileSchema, jsonCopy } from './validation'
 
-const name = { type: 'string', pattern: '^[a-zA-Z][a-zA-Z0-9_:-]*$', maxLength: 128 }
+const name = { type: 'string', pattern: '^[\\p{L}\\p{N}_][\\p{L}\\p{N}_.:-]*$', maxLength: 128 }
 const validateDefinition = compileSchema({ type: 'object', additionalProperties: false, required: ['id', 'name', 'description'], properties: {
   id: { type: 'string', maxLength: 256 }, name, description: { type: 'string', maxLength: 512 }, argsHint: { type: 'string', maxLength: 256 },
   aliases: { type: 'array', maxItems: 16, uniqueItems: true, items: name },

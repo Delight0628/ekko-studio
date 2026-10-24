@@ -775,7 +775,7 @@ export default {
 
   codingAgents: {
     defaultConfiguration: "Настройки по умолчанию",
-    resourceInstance: "Экземпляр агента",
+    resourceInstance: "Экземпляр агента", resourceSkillSource: 'Расположение Skill', resourcesNextRun: 'Обновлённые Skills загрузятся автоматически при следующем запуске.',
     resourceFile: "Файл настроек",
     resourceReadOnly: "Только чтение",
     resourcesEmpty: "В этих расположениях нет ресурсов",

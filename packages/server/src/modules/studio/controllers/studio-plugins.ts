@@ -184,8 +184,8 @@ export const agentInstanceLocations = (ctx: Context) => respond(ctx, async () =>
 })
 export const agentInstanceResources = (ctx: Context) => respond(ctx, async () => {
   const input = body(ctx, ['action', 'revision', 'snapshot', 'kind', 'locationId', 'path', 'content', 'etag', 'profile'])
-  if (!['list', 'read', 'write'].includes(String(input.action))) throw new StudioError('INVALID_ARGUMENT', 'Invalid resource operation')
-  const allowed = input.action === 'list' ? ['action', 'revision', 'profile'] : ['action', 'revision', 'profile', 'snapshot', 'kind', 'locationId', 'path', ...(input.action === 'write' ? ['content', 'etag'] : [])]
+  if (!['list', 'read', 'write', 'review-skill', 'remove-skill'].includes(String(input.action))) throw new StudioError('INVALID_ARGUMENT', 'Invalid resource operation')
+  const allowed = input.action === 'list' ? ['action', 'revision', 'profile'] : ['action', 'revision', 'profile', 'snapshot', 'kind', 'locationId', 'path', ...(input.action === 'write' ? ['content', 'etag'] : input.action === 'remove-skill' ? ['etag'] : [])]
   if (Object.keys(input).some(key => !allowed.includes(key))) throw new StudioError('INVALID_ARGUMENT', 'Unexpected resource fields')
   const { revision, snapshot, profile: _profile, ...operation } = input
   const controller = new AbortController(), abort = () => controller.abort()

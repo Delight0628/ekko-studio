@@ -2816,7 +2816,7 @@ jobTriggered: 'Job ausgelost',
 
   codingAgents: {
     defaultConfiguration: "Standardkonfiguration",
-    resourceInstance: "Agent-Instanz",
+    resourceInstance: "Agent-Instanz", resourceSkillSource: 'Skill-Speicherort', resourcesNextRun: 'Beim nächsten Lauf werden die aktualisierten Skills automatisch geladen.',
     resourceFile: "Konfigurationsdatei",
     resourceReadOnly: "Schreibgeschützt",
     resourcesEmpty: "An diesen Orten sind keine Ressourcen vorhanden",

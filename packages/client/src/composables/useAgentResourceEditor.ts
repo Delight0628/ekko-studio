@@ -17,8 +17,11 @@ export function useAgentResourceEditor(instanceId: Ref<string>, section: Ref<str
     const location = catalog.value?.configs?.find(source => source.id === item.locationId)
     return { value: fileKey(item), label: `${location?.name || item.locationId} · ${item.absolutePath}` }
   }))
-  const skills = computed(() => instance.value && catalog.value?.skills && profiles.activeProfileName
-    ? resourceSkillsAdapter(instance.value, profiles.activeProfileName, catalog.value) : undefined)
+  const skills = computed(() => {
+    const current = version
+    return instance.value && catalog.value?.skills && profiles.activeProfileName
+      ? resourceSkillsAdapter(instance.value, profiles.activeProfileName, catalog.value, () => current === version && !error.value) : undefined
+  })
   const dirty = computed(() => file.value !== null && draft.value !== file.value.content)
 
   async function refresh() {

@@ -3310,7 +3310,7 @@ export default {
 
   codingAgents: {
     defaultConfiguration: "الإعدادات الافتراضية",
-    resourceInstance: "مثيل الوكيل",
+    resourceInstance: "مثيل الوكيل", resourceSkillSource: 'موقع المهارة', resourcesNextRun: 'سيتم تحميل المهارات المحدّثة تلقائيًا في التشغيل التالي.',
     resourceFile: "ملف الإعدادات",
     resourceReadOnly: "للقراءة فقط",
     resourcesEmpty: "لا توجد موارد في هذه المواقع",

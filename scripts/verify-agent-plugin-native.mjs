@@ -287,11 +287,11 @@ requires_openai_auth = false
         const marker = `STUDIO_RESOURCE_${vendor}_${mode}`;
         const catalog = await coordinator.resourceFiles(caller, instance.id, instance.revision, { action: 'list' });
         await coordinator.resourceFiles(caller, instance.id, instance.revision, { action: 'write', kind: 'configs', locationId: 'native-instructions', path: '', content: `Follow the fixture instruction ${marker}_INSTRUCTION.`, etag: 'missing' }, catalog.snapshot);
-        await coordinator.resourceFiles(caller, instance.id, instance.revision, { action: 'write', kind: 'skills', locationId: 'native-skills', path: 'studio-resource-check/SKILL.md', content: `---
+        await coordinator.importSkill(caller, instance.id, instance.revision, catalog.snapshot, 'native-skills', [{ filename: '技能目录/SKILL.md', data: Buffer.from(`---
 name: studio-resource-check
 description: Skill marker ${marker}_SKILL.
 ---
-Follow fixture instructions.`, etag: 'missing' }, catalog.snapshot);
+Follow fixture instructions.`) }, { filename: '技能目录/assets/fixture.bin', data: Buffer.from([0, 255, 128]) }]);
         const checkpoints = new Map();
         for (let turn = 0; turn < (nativeMcpEnabled ? 5 : target === 'switch' ? 3 : 2); turn++) {
           searchIssued = false;

@@ -3260,7 +3260,7 @@ export default {
 
   codingAgents: {
     defaultConfiguration: "預設設定",
-    resourceInstance: "Agent 執行個體",
+    resourceInstance: "Agent 執行個體", resourceSkillSource: 'Skills 位置', resourcesNextRun: '下一次執行會自動載入更新後的 Skills。',
     resourceFile: "設定檔",
     resourceReadOnly: "唯讀",
     resourcesEmpty: "這些位置暫無資源",

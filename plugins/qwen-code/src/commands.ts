@@ -5,10 +5,11 @@ import { StudioError, type AgentRuntimeContext, type CommandDefinition, type Com
 export function qwenCommands(value: unknown): Array<{ definition: CommandDefinition; handler: CommandHandler }> {
   if (!Array.isArray(value) || value.length > 4096) throw new StudioError('RESOURCE_EXHAUSTED', 'Qwen command discovery limit exceeded')
   const names = new Set<string>()
-  return value.slice(0, 64).map(command => {
-    if (!command || typeof command.name !== 'string' || !/^[a-zA-Z][a-zA-Z0-9_:-]{0,127}$/.test(command.name)
-      || names.has(command.name) || typeof command.description !== 'string') throw new StudioError('INVALID_ARGUMENT', 'Invalid Qwen command metadata')
-    names.add(command.name)
+  return value.filter(command => {
+    if (!command || typeof command.name !== 'string' || !/^[\p{L}\p{N}_][\p{L}\p{N}_.:-]{0,127}$/u.test(command.name)
+      || names.has(command.name) || typeof command.description !== 'string') return false
+    names.add(command.name); return true
+  }).slice(0, 64).map(command => {
     const name = command.name
     return {
       definition: { id: name === 'compress' ? 'studio.agent-qwen/compress' : `studio.agent-qwen/native-${createHash('sha256').update(name).digest('hex').slice(0, 32)}`, name, agentTypeIds: ['qwen'],
@@ -27,8 +28,9 @@ export function qwenCommandCatalog(runtime: AgentRuntimeContext) {
   let pending = Promise.resolve(), failure: unknown, queued = 0
   return {
     update(value: unknown) {
-      const registrations = qwenCommands(value).filter(command => command.definition.id !== compressCommand.definition.id)
-      if (Array.isArray(value) && value.length > 64) runtime.logger.warn('Qwen command completion catalog was truncated', { discovered: value.length, limit: 64 })
+      const parsed = qwenCommands(value)
+      const registrations = parsed.filter(command => command.definition.id !== compressCommand.definition.id)
+      if (Array.isArray(value) && value.length > parsed.length) runtime.logger.warn('Qwen completion omitted unsupported or excess native commands', { discovered: value.length, published: parsed.length, limit: 64 })
       if (runtime.commands) {
         if (queued >= 64) throw new StudioError('RESOURCE_EXHAUSTED', 'Qwen command update limit exceeded')
         queued++

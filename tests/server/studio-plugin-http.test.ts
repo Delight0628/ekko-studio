@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({ remove: vi.fn(), configure: vi.fn(), install: 
   commands: { list: vi.fn(() => []), start: vi.fn(), get: vi.fn(), cancel: vi.fn() },
   bundledAgents: { list: vi.fn(() => []), enable: vi.fn() }, setupInstance: vi.fn(),
   createChat: vi.fn(),
+  authorizeResourceUpload: vi.fn(), importSkill: vi.fn(),
   ownedChat: vi.fn(), readChatImage: vi.fn(),
   startLogin: vi.fn(), management: { list: vi.fn(() => []), get: vi.fn(), output: vi.fn(), input: vi.fn(), resize: vi.fn(), cancel: vi.fn() },
   uploadImage: vi.fn(), removeImage: vi.fn(), respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), updateInstance: vi.fn(), inspectInstance: vi.fn(), resourceLocations: vi.fn(), resourceFiles: vi.fn(), role: 'super_admin', consumers: null as unknown as ReliablePluginConsumers }))
@@ -19,7 +20,7 @@ vi.mock('../../packages/server/src/modules/studio/services/plugins/runtime', () 
   authorizePluginScope: vi.fn(),
   getStudioPluginRuntime: () => ({ host: { uninstall: state.remove, configure: state.configure, install: state.install, list: state.list, diagnostic: state.diagnostic },
     agentChats: { create: state.createChat, ownedBinding: state.ownedChat },
-    bundledAgents: state.bundledAgents, commands: state.commands, artifacts: { create: state.uploadImage, remove: state.removeImage, readForChat: state.readChatImage }, consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { startLogin: state.startLogin, managementOperations: state.management, setupInstance: state.setupInstance, respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance, resourceLocations: state.resourceLocations, resourceFiles: state.resourceFiles } }),
+    bundledAgents: state.bundledAgents, commands: state.commands, artifacts: { create: state.uploadImage, remove: state.removeImage, readForChat: state.readChatImage }, consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { authorizeResourceUpload: state.authorizeResourceUpload, importSkill: state.importSkill, startLogin: state.startLogin, managementOperations: state.management, setupInstance: state.setupInstance, respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance, resourceLocations: state.resourceLocations, resourceFiles: state.resourceFiles } }),
 }))
 import { studioPluginRoutes } from '../../packages/server/src/modules/studio/routes/studio-plugins'
 import { executionScope } from '../../packages/server/src/modules/studio/controllers/studio-plugins'
@@ -70,6 +71,29 @@ it('creates an owned chat using only a saved instance revision and retry key', a
   expect(state.createChat).toHaveBeenCalledWith(expect.objectContaining({ principal: { kind: 'user', id: '7' }, profileId: 'one' }), 'instance', input)
   state.createChat.mockImplementationOnce(() => { throw new StudioError('REVISION_CONFLICT', 'Instance changed') })
   expect((await request(input)).status).toBe(409)
+})
+
+it('imports multipart Skill files with host identity and only explicit revision, source and snapshot fields', async () => {
+  state.importSkill.mockClear(); state.authorizeResourceUpload.mockReset()
+  state.importSkill.mockResolvedValue({ name: 'uploaded', locationId: 'native', path: 'uploaded' })
+  const upload = (extra = false) => {
+    const data = new FormData()
+    data.append('revision', '3'); data.append('snapshot', 'a'.repeat(64)); data.append('locationId', 'native')
+    data.append('file', new Blob([Buffer.from('# Skill')]), 'uploaded/SKILL.md')
+    if (extra) data.append('ownerId', 'another-user')
+    return data
+  }
+  const url = `${base}/api/studio/agent-instances/instance/skills/import?profile=one`
+  expect((await fetch(url, { method: 'POST', body: upload(true) })).status).toBe(400)
+  expect(state.importSkill).not.toHaveBeenCalled()
+  state.authorizeResourceUpload.mockImplementationOnce(() => { throw new StudioError('NOT_FOUND', 'Instance unavailable') })
+  expect((await fetch(url, { method: 'POST', body: upload() })).status).toBe(404)
+  expect(state.importSkill).not.toHaveBeenCalled()
+  const response = await fetch(url, { method: 'POST', body: upload() })
+  expect(response.status).toBe(200)
+  expect(response.headers.get('cache-control')).toBe('no-store')
+  expect(state.importSkill).toHaveBeenCalledWith(expect.objectContaining({ principal: { kind: 'user', id: '7' }, profileId: 'one' }),
+    'instance', 3, 'a'.repeat(64), 'native', [{ filename: 'uploaded/SKILL.md', data: Buffer.from('# Skill') }], expect.any(AbortSignal))
 })
 
 it('authorizes the live chat before serving historical image bytes with detected media type', async () => {

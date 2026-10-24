@@ -11,6 +11,7 @@ export interface ResourceFileEntry extends ResourceFileRef { absolutePath: strin
 export interface ResourceFileContent extends ResourceFileEntry { content: string; etag: string }
 export type ResourceFileOperation = { action: 'list' } | ({ action: 'read' } & ResourceFileRef)
   | ({ action: 'write'; content: string; etag: string } & ResourceFileRef)
+  | ({ action: 'review-skill' } & ResourceFileRef) | ({ action: 'remove-skill'; etag: string } & ResourceFileRef)
 const MAX_BYTES = 1024 * 1024
 const hash = (content: Buffer) => createHash('sha256').update(content).digest('hex')
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
@@ -34,6 +35,14 @@ export class AgentResourceFiles {
 
   canonicalLocations() {
     return (['skills', 'configs'] as const).map(kind => (this.locations[kind] || []).map(location => [location.id, canonical(location.path)]))
+  }
+
+  /** Host-only directory authority used by whole-Skill import/removal. */
+  skillDirectory(locationId: string, path: string) {
+    const target = this.target({ kind: 'skills', locationId, path })
+    const protectedChild = [...this.locations.skills || [], ...this.locations.configs || []]
+      .some(location => location.readOnly && within(canonical(location.path), target.path))
+    return { ...target, readOnly: !!target.readOnly || protectedChild }
   }
 
   private target(ref: ResourceFileRef) {

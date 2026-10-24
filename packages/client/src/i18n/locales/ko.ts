@@ -2816,7 +2816,7 @@ export default {
 
   codingAgents: {
     defaultConfiguration: "기본 설정",
-    resourceInstance: "Agent 인스턴스",
+    resourceInstance: "Agent 인스턴스", resourceSkillSource: '스킬 저장 위치', resourcesNextRun: '다음 실행에서 업데이트된 스킬을 자동으로 불러옵니다.',
     resourceFile: "설정 파일",
     resourceReadOnly: "읽기 전용",
     resourcesEmpty: "이 위치에 리소스가 없습니다",

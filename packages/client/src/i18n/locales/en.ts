@@ -3322,7 +3322,7 @@ export default {
 
   codingAgents: {
     defaultConfiguration: "Default configuration",
-    resourceInstance: "Agent instance",
+    resourceInstance: "Agent instance", resourceSkillSource: 'Skill source', resourcesNextRun: 'The next run loads the updated Skills automatically.',
     resourceFile: "Configuration file",
     resourceReadOnly: "Read-only",
     resourcesEmpty: "No resources at these locations",

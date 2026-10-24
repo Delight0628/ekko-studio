@@ -14,6 +14,8 @@ import { AgentManagement } from './management'
 import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { AgentResourceFiles, type ResourceFileOperation } from './resource-files'
+import { AgentResourceSkills } from './resource-skill-files'
+import { copySkillUploads, parseSkillArchive, type ResourceSkillUpload } from './resource-skill-archive'
 import { parseAgentResourceLocations } from './resource-contract'
 import { AgentManagementOperations } from './management-operations'
 import type { AgentManagementStore } from '../../repositories/agent-management-store'
@@ -233,11 +235,43 @@ export class AgentCoordinator {
       if (operation.action === 'list') return { ...locations, snapshot: currentSnapshot, files: await files.list() }
       if (snapshot !== currentSnapshot) throw new StudioError('REVISION_CONFLICT', 'Resource locations changed; reload before editing')
       if (operation.action === 'read') return { file: files.read(operation) }
+      if (operation.action === 'review-skill' || operation.action === 'remove-skill') {
+        if (operation.kind !== 'skills') throw new StudioError('INVALID_ARGUMENT', 'Skill operations require a Skill source')
+        const skills = new AgentResourceSkills(files, authorize), ref = { locationId: operation.locationId, path: operation.path }
+        if (operation.action === 'review-skill') return { skill: skills.review(ref) }
+        skills.validateRemoval(ref, operation.etag)
+        await this.disposeInstanceLeases(instanceId, 'Native Skill removed')
+        authorize()
+        return skills.remove(ref, operation.etag)
+      }
       if (operation.action !== 'write') throw new StudioError('INVALID_ARGUMENT', 'Invalid resource operation')
       // A retained native runtime may cache configuration. Recreate it on the next Run.
       await this.disposeInstanceLeases(instanceId, 'Native resource edited')
       authorize()
       return { file: files.write(operation, operation.content, operation.etag) }
+    }, signal)
+  }
+
+  authorizeResourceUpload(scope: ExecutionScope, instanceId: string): void {
+    this.options.authorize(scope)
+    if (this.closed || scope.sessionId !== undefined || scope.runId !== undefined || scope.workspaceId !== undefined) throw new StudioError('FORBIDDEN', 'Resource upload requires an interactive instance scope')
+    const instance = this.options.store.instance(instanceId)
+    if (!instance || instance.ownerId !== scope.principal.id || instance.profileId !== scope.profileId) throw new StudioError('NOT_FOUND', 'Agent instance is unavailable')
+  }
+
+  async importSkill(scope: ExecutionScope, instanceId: string, revision: number, snapshot: string, locationId: string, values: ResourceSkillUpload[], signal?: AbortSignal) {
+    this.authorizeResourceUpload(scope, instanceId)
+    if (signal?.aborted) throw new StudioError('CANCELLED', 'Skill upload cancelled')
+    const archive = parseSkillArchive(copySkillUploads(values))
+    return this.withResourceLocations(scope, instanceId, revision, async (locations, authorize) => {
+      const files = new AgentResourceFiles(locations, authorize)
+      const currentSnapshot = createHash('sha256').update(JSON.stringify([locations, files.canonicalLocations()])).digest('hex')
+      if (snapshot !== currentSnapshot) throw new StudioError('REVISION_CONFLICT', 'Resource locations changed; reload before importing')
+      const skills = new AgentResourceSkills(files, authorize)
+      skills.validateImport(locationId, archive.name)
+      await this.disposeInstanceLeases(instanceId, 'Native Skill imported')
+      authorize()
+      return skills.import(locationId, archive)
     }, signal)
   }
 

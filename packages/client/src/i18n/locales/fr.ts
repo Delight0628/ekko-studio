@@ -2816,7 +2816,7 @@ jobTriggered: 'Job declenche',
 
   codingAgents: {
     defaultConfiguration: "Configuration par défaut",
-    resourceInstance: "Instance de l’agent",
+    resourceInstance: "Instance de l’agent", resourceSkillSource: 'Emplacement du Skill', resourcesNextRun: 'Les Skills mis à jour seront chargés automatiquement à la prochaine exécution.',
     resourceFile: "Fichier de configuration",
     resourceReadOnly: "Lecture seule",
     resourcesEmpty: "Aucune ressource à ces emplacements",

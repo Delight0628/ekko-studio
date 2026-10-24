@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -8,7 +8,7 @@ import { AgentCoordinator } from '../../packages/server/src/modules/studio/servi
 import { AgentRegistry } from '../../packages/server/src/modules/studio/services/agents/registry'
 import { PluginEventBus } from '../../packages/server/src/modules/studio/services/events/plugin-events'
 import { createExecutionContext } from '../../packages/server/src/modules/studio/services/context/execution'
-import { StudioError, type ExecutionScope } from '../../packages/studio-plugin-sdk/src'
+import { StudioError, type ExecutionScope, type AgentResourceLocations } from '../../packages/studio-plugin-sdk/src'
 const cleanup: Array<() => Promise<void>> = []
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close() })
 const scope: ExecutionScope = { scopeId: 'scope', principal: { id: 'owner', kind: 'user' }, profileId: 'profile', surface: 'api', traceId: 'trace' }
@@ -16,10 +16,13 @@ async function setup() {
   const root = await mkdtemp(join(tmpdir(), 'resource-access-'))
   const db = new DatabaseSync(':memory:'), store = new AgentExecutionStore(db), registry = new AgentRegistry(), events = new PluginEventBus()
   const authorize = vi.fn(), dispose = vi.fn(async () => {}), logger = { info() {}, warn() {}, error() {} }
-  const locations = vi.fn(async () => ({ configs: [{ id: 'config', name: 'Config', path: join(root, 'config.json'), scope: 'global' as const, readOnly: false, kind: 'file' as const, format: 'json' }] }))
+  const locations = vi.fn(async (): Promise<AgentResourceLocations> => ({
+    skills: [{ id: 'native', name: 'Native', path: join(root, 'skills'), scope: 'global', readOnly: false }],
+    configs: [{ id: 'config', name: 'Config', path: join(root, 'config.json'), scope: 'global', readOnly: false, kind: 'file', format: 'json' }],
+  }))
   const create = vi.fn(async () => ({ run: async () => ({ events: (async function* () {})(), result: Promise.resolve({ status: 'completed' as const }), cancel: async () => {} }), dispose }))
   const registration = registry.stage('*', { kind: 'builtin', module: 'ekko', implementationVersion: 'test' }, ['ekko'])
-  registration.register({ id: 'ekko', name: 'Fixture', configSchema: { type: 'object' }, capabilities: { text: true, modes: ['global', 'scoped'] }, management: { locations }, create }); registration.commit()
+  registration.register({ id: 'ekko', name: 'Fixture', configSchema: { type: 'object' }, capabilities: { text: true, persistentSession: true, modes: ['global', 'scoped'] }, management: { locations }, create }); registration.commit()
   const coordinator = new AgentCoordinator({ store, registry, events, logger, authorize, context: (scope, signal) => createExecutionContext(scope, signal, logger, { authorize: async () => {}, agents: { list: async () => [] }, sessions: { get: async () => null } }) })
   const instance = coordinator.createInstance(scope, { agentTypeId: 'ekko', config: {}, mode: 'global' })
   cleanup.push(async () => { await coordinator.close(); events.close(); db.close(); await rm(root, { recursive: true, force: true }) })
@@ -62,4 +65,47 @@ it('invalidates an idle native runtime after a file save so the next Run reloads
   expect(f.dispose).toHaveBeenCalledTimes(1)
   const next = f.coordinator.start(scope, f.instance.id, input, 'next'); await f.coordinator.wait(next.id)
   expect(f.create).toHaveBeenCalledTimes(2)
+})
+
+it('imports and removes a reviewed Skill through the same owner, snapshot and native cleanup barriers', async () => {
+  const f = await setup(), input = { content: [{ type: 'text' as const, text: 'run' }] }
+  const first = f.coordinator.start(scope, f.instance.id, input, 'first'); await f.coordinator.wait(first.id)
+  const catalog = await f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'list' })
+  const upload = [{ filename: 'native-skill/SKILL.md', data: Buffer.from('Native Skill') }]
+  await expect(f.coordinator.importSkill({ ...scope, principal: { kind: 'user', id: 'other' } }, f.instance.id, 1, catalog.snapshot, 'native', upload)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  await expect(f.coordinator.importSkill({ ...scope, runId: first.id }, f.instance.id, 1, catalog.snapshot, 'native', upload)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  await expect(f.coordinator.importSkill(scope, f.instance.id, 1, 'stale', 'native', upload)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  expect(f.dispose).not.toHaveBeenCalled()
+  await expect(f.coordinator.importSkill(scope, f.instance.id, 1, catalog.snapshot, 'native', upload)).resolves.toEqual({ name: 'native-skill', locationId: 'native', path: 'native-skill' })
+  expect(f.dispose).toHaveBeenCalledOnce()
+  const afterImport = f.coordinator.start(scope, f.instance.id, input, 'after-import'); await f.coordinator.wait(afterImport.id)
+  await expect(f.coordinator.importSkill(scope, f.instance.id, 1, catalog.snapshot, 'native', upload)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  expect(f.dispose).toHaveBeenCalledOnce()
+  const ref = { kind: 'skills' as const, locationId: 'native', path: 'native-skill' }
+  const review = await f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'review-skill', ...ref }, catalog.snapshot)
+  await writeFile(join(f.root, 'skills/native-skill/asset'), 'external edit')
+  await expect(f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'remove-skill', ...ref, etag: review.skill!.etag }, catalog.snapshot)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  expect(f.dispose).toHaveBeenCalledOnce()
+  const current = await f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'review-skill', ...ref }, catalog.snapshot)
+  await expect(f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'remove-skill', ...ref, etag: current.skill!.etag }, catalog.snapshot)).resolves.toEqual({ removed: true })
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  await expect(readFile(join(f.root, 'skills/native-skill/SKILL.md'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('copies import buffers before delayed discovery and rejects revoked access before publishing files', async () => {
+  const f = await setup(), catalog = await f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'list' }), original = await f.locations()
+  const gate = Promise.withResolvers<void>(), upload = [{ filename: 'safe/SKILL.md', data: Buffer.from('original') }]
+  f.locations.mockImplementation(async () => { await gate.promise; return original })
+  const task = f.coordinator.importSkill(scope, f.instance.id, 1, catalog.snapshot, 'native', upload)
+  upload[0].data.fill(0)
+  gate.resolve()
+  await task
+  expect(await readFile(join(f.root, 'skills/safe/SKILL.md'), 'utf8')).toBe('original')
+  const revoked = Promise.withResolvers<void>()
+  f.locations.mockImplementation(async () => { await revoked.promise; return original })
+  const pending = f.coordinator.importSkill(scope, f.instance.id, 1, catalog.snapshot, 'native', [{ filename: 'revoked/SKILL.md', data: Buffer.from('safe') }])
+  f.authorize.mockImplementation(() => { throw new StudioError('FORBIDDEN', 'Revoked') })
+  revoked.resolve()
+  await expect(pending).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  await expect(readFile(join(f.root, 'skills/revoked/SKILL.md'))).rejects.toMatchObject({ code: 'ENOENT' })
 })

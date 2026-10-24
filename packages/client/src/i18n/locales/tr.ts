@@ -34,7 +34,7 @@ export default {
   agentManagement: agentManagementMessages['tr'],
   codingAgents: {
     refresh: 'Yenile',
-    defaultConfiguration: 'Varsayılan yapılandırma', resourceInstance: 'Agent örneği', resourceFile: 'Yapılandırma dosyası', resourceReadOnly: 'Salt okunur',
+    defaultConfiguration: 'Varsayılan yapılandırma', resourceInstance: 'Agent örneği', resourceSkillSource: 'Skill konumu', resourcesNextRun: 'Güncellenen Skills bir sonraki çalıştırmada otomatik yüklenir.', resourceFile: 'Yapılandırma dosyası', resourceReadOnly: 'Salt okunur',
     resourcesEmpty: 'Bu konumlarda kaynak yok', resourcesUnsupported: 'Bu kaynak türü sağlanmıyor', resourcesUnavailable: 'Agent kaynakları kullanılamıyor',
     resourcesChanged: 'Örnek değişti. Kaydetmeden önce yeniden yükleyin.',
   },

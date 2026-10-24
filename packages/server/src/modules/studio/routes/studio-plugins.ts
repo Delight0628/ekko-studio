@@ -2,6 +2,7 @@ import Router from '@koa/router'
 import * as controller from '../controllers/studio-plugins'
 import { requireSuperAdmin, requireInteractiveSuperAdmin, requireUserProfile } from '../public/auth'
 import * as management from '../controllers/agent-management'
+import * as resourceSkills from '../controllers/agent-resource-skills'
 
 export const studioPluginRoutes = new Router()
 studioPluginRoutes.get('/api/studio/plugins', requireSuperAdmin, controller.listPlugins)
@@ -23,6 +24,7 @@ studioPluginRoutes.get('/api/studio/agent-instances', requireUserProfile, contro
 studioPluginRoutes.post('/api/studio/agent-instances', requireUserProfile, controller.createAgentInstance)
 studioPluginRoutes.put('/api/studio/agent-instances/:id', requireUserProfile, controller.configureAgentInstance)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/chats', requireUserProfile, controller.createAgentChat)
+studioPluginRoutes.post('/api/studio/agent-instances/:id/skills/import', requireUserProfile, resourceSkills.importAgentSkill)
 studioPluginRoutes.get('/api/studio/agent-chats/:sessionId/images/:id', requireUserProfile, controller.readAgentChatImage)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/inspect', requireUserProfile, controller.inspectAgentInstance)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/setup', requireUserProfile, controller.setupAgentInstance)

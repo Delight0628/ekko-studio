@@ -16,13 +16,16 @@ export async function fetchResourceInstances(profile: string): Promise<AgentReso
   return (await request<{ data: AgentResourceInstance[] }>(`/api/studio/agent-instances?${new URLSearchParams({ profile })}`)).data
 }
 const pending = new Map<string, Promise<unknown>>()
-async function resourceRequest<T>(instance: AgentResourceInstance, profile: string, body: Record<string, unknown>): Promise<T> {
+async function resourceQueue<T>(instance: AgentResourceInstance, profile: string, action: () => Promise<T>): Promise<T> {
   const key = JSON.stringify([profile, instance.id])
-  const task = (pending.get(key) || Promise.resolve()).catch(() => {}).then(async () => (await request<{ data: T }>(`/api/studio/agent-instances/${encodeURIComponent(instance.id)}/resources?${new URLSearchParams({ profile })}`, {
-    method: 'POST', body: JSON.stringify({ revision: instance.revision, ...body }),
-  })).data)
+  const task = (pending.get(key) || Promise.resolve()).catch(() => {}).then(action)
   pending.set(key, task)
   try { return await task } finally { if (pending.get(key) === task) pending.delete(key) }
+}
+function resourceRequest<T>(instance: AgentResourceInstance, profile: string, body: Record<string, unknown>): Promise<T> {
+  const path = `/api/studio/agent-instances/${encodeURIComponent(instance.id)}/resources?${new URLSearchParams({ profile })}`
+  const encoded = JSON.stringify({ revision: instance.revision, ...body })
+  return resourceQueue(instance, profile, async () => (await request<{ data: T }>(path, { method: 'POST', body: encoded })).data)
 }
 export function fetchResourceCatalog(instance: AgentResourceInstance, profile: string): Promise<AgentResourceCatalog> {
   return resourceRequest(instance, profile, { action: 'list' })
@@ -33,4 +36,18 @@ export async function readAgentResource(instance: AgentResourceInstance, profile
 }
 export async function writeAgentResource(instance: AgentResourceInstance, profile: string, snapshot: string, file: AgentResourceContent, content: string): Promise<AgentResourceContent> {
   return (await resourceRequest<{ file: AgentResourceContent }>(instance, profile, { action: 'write', snapshot, ...refFields(file), etag: file.etag, content })).file
+}
+export interface AgentResourceSkillReview { locationId: string; path: string; name: string; etag: string; files: number; bytes: number }
+export async function reviewAgentResourceSkill(instance: AgentResourceInstance, profile: string, snapshot: string, locationId: string, path: string) {
+  return (await resourceRequest<{ skill: AgentResourceSkillReview }>(instance, profile, { action: 'review-skill', kind: 'skills', snapshot, locationId, path })).skill
+}
+export function removeAgentResourceSkill(instance: AgentResourceInstance, profile: string, snapshot: string, review: AgentResourceSkillReview) {
+  return resourceRequest(instance, profile, { action: 'remove-skill', kind: 'skills', snapshot, locationId: review.locationId, path: review.path, etag: review.etag })
+}
+export function importAgentResourceSkill(instance: AgentResourceInstance, profile: string, snapshot: string, locationId: string, files: File[]): Promise<{ name: string }> {
+  const body = new FormData()
+  body.append('revision', String(instance.revision)); body.append('snapshot', snapshot); body.append('locationId', locationId)
+  for (const file of files) body.append('file', file, file.webkitRelativePath || file.name)
+  const path = `/api/studio/agent-instances/${encodeURIComponent(instance.id)}/skills/import?${new URLSearchParams({ profile })}`
+  return resourceQueue(instance, profile, async () => (await request<{ data: { name: string } }>(path, { method: 'POST', body })).data)
 }

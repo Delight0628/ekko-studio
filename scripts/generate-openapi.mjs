@@ -2178,18 +2178,21 @@ agentLocations.responses['200'] = { description: 'Host-bound resource location a
   } },
 } } } }
 const agentResources = openapi.paths['/api/studio/agent-instances/{id}/resources'].post
-agentResources.summary = 'Scan, read or save native Agent resources in Studio'
+agentResources.summary = 'Scan, edit or remove reviewed native Agent Skills and configuration'
 agentResources.description += ' Studio performs filesystem IO on freshly declared locations of an owned idle instance. Use list first; reads/writes require its snapshot plus a source ID and relative path (empty for a file location). Writes require the read etag and invalidate retained native runtime resources. Revision, source, content or canonical-path changes return 409. Shared/builtin/overlapping read-only sources and hardlinks cannot be written. Text is bounded to 1 MiB; scans are bounded to 4096 visited entries, 2048 files and depth 12, excluding nested symlinks and hidden descendants. A missing declared file may be created; a missing directory lists no files. No plugin file IO RPC is called.'
 const resourceRefFields = {
   kind: { type: 'string', enum: ['skills', 'configs'] }, locationId: { type: 'string', minLength: 1, maxLength: 128 },
   path: { type: 'string', maxLength: 4096, description: 'Relative POSIX path within the declared source; empty for a file source. No absolute paths, backslashes or traversal segments.' },
 }
-agentResources.requestBody = studioPluginBody({ oneOf: ['list', 'read', 'write'].map(action => ({
+agentResources.description += ' review-skill reads a complete named Skill directory, including binary/hidden assets, and returns its content etag. remove-skill requires that reviewed etag and rejects changed contents. Both require kind=skills; declared roots, links, hardlinks, protected descendants and special files cannot be removed. Review is bounded to 256 files, 512 entries, depth 12 and 16 MiB; each file is at most 4 MiB. Removal is a filesystem operation, not a SQLite transaction.'
+agentResources.requestBody = studioPluginBody({ oneOf: ['list', 'read', 'write', 'review-skill', 'remove-skill'].map(action => ({
   type: 'object', additionalProperties: false,
-  required: ['action', 'revision', ...(action === 'list' ? [] : ['snapshot', 'kind', 'locationId', 'path']), ...(action === 'write' ? ['content', 'etag'] : [])],
+  required: ['action', 'revision', ...(action === 'list' ? [] : ['snapshot', 'kind', 'locationId', 'path']), ...(action === 'write' ? ['content', 'etag'] : action === 'remove-skill' ? ['etag'] : [])],
   properties: { action: { type: 'string', enum: [action] }, revision: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER }, profile: { type: 'string' },
     ...(action === 'list' ? {} : { ...resourceRefFields, snapshot: { type: 'string' } }),
     ...(action === 'write' ? { content: { type: 'string', maxLength: 1048576 }, etag: { type: 'string' } } : {}),
+    ...(['review-skill', 'remove-skill'].includes(action) ? { kind: { const: 'skills' } } : {}),
+    ...(action === 'remove-skill' ? { etag: { type: 'string', pattern: '^[a-f0-9]{64}$' } } : {}),
   },
 })) })
 const resourceFileFields = { ...resourceRefFields, absolutePath: { type: 'string' }, exists: { type: 'boolean' }, readOnly: { type: 'boolean' } }
@@ -2201,11 +2204,23 @@ agentResources.responses['200'] = { description: 'Resource catalog, or the read/
       snapshot: { type: 'string' }, files: { type: 'array', maxItems: 2048, items: resourceFileSchema } } },
     { type: 'object', additionalProperties: false, required: ['file'], properties: { file: { ...resourceFileSchema,
       required: [...resourceFileSchema.required, 'content', 'etag'], properties: { ...resourceFileFields, content: { type: 'string' }, etag: { type: 'string' } } } } },
+    { type: 'object', additionalProperties: false, required: ['skill'], properties: { skill: { type: 'object', additionalProperties: false,
+      required: ['name', 'locationId', 'path', 'etag', 'files', 'bytes'], properties: { name: { type: 'string' }, locationId: { type: 'string' }, path: { type: 'string' }, etag: { type: 'string' }, files: { type: 'integer' }, bytes: { type: 'integer' } } } } },
+    { type: 'object', additionalProperties: false, required: ['removed'], properties: { removed: { const: true } } },
   ] } },
 } } } }
 agentResources.responses['409'].description = 'Active/queued Run, stale instance revision, changed location snapshot or external file modification.'
 agentResources.responses['429'] = { description: 'Resource scan, text size or management concurrency limit exceeded.' }
 agentResources.responses['504'] = { description: 'Resource operation deadline exceeded.' }
+const agentSkillImport = openapi.paths['/api/studio/agent-instances/{id}/skills/import'].post
+agentSkillImport.summary = 'Import one complete Skill into a selected owned instance source'
+agentSkillImport.description += ' Requires an unbound owner/profile scope, idle instance, current revision and resource-location snapshot. Send one ZIP, or folder files whose filenames preserve one top-level Skill directory. ZIPs may contain SKILL.md at root or one top-level Skill folder. The host validates paths, duplicates, directory counts, compression, CRC, expanded sizes, UTF-8 SKILL.md and read-only aliases before publication. Extraction is bounded to 256 files, 4 MiB per file and 16 MiB total; multipart transport permits 2 MiB additional framing. A complete staging directory is renamed into an absent destination; existing Skills are never overwritten. Retained native resources must finish disposal before publication. No inference, login, plugin filesystem RPC or global Skill directory is selected implicitly.'
+agentSkillImport.requestBody = { required: true, content: { 'multipart/form-data': { schema: { type: 'object', additionalProperties: false,
+  required: ['revision', 'snapshot', 'locationId', 'file'], properties: { revision: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER }, snapshot: { type: 'string', pattern: '^[a-f0-9]{64}$' }, locationId: { type: 'string', minLength: 1, maxLength: 128 },
+    file: { type: 'array', minItems: 1, maxItems: 256, items: { type: 'string', format: 'binary' } } } } } } }
+agentSkillImport.responses['200'] = managementResult({ type: 'object', required: ['name', 'locationId', 'path'], properties: { name: { type: 'string' }, locationId: { type: 'string' }, path: { type: 'string' } } })
+agentSkillImport.responses['409'].description = 'Instance busy, stale revision/snapshot or an existing destination Skill.'
+agentSkillImport.responses['429'] = { description: 'Upload, extraction, file count or concurrent upload limit exceeded.' }
 agentInspection.summary = 'Inspect native Agent metadata'
 agentInspection.description += ' Requires an idle owned instance and a declared management adapter. Starts short-lived managed resources; does not create a Studio Run or native chat session, log in, refresh credentials or change configuration. Serializes with instance changes and new runs. Results contain only native name/version, authentication state/method labels and native model choices. Unknown authentication and unsupported model discovery are explicit. Rechecks access and provider/configuration revision; cancellation, revocation and the 25-second deadline dispose resources.'
 agentInspection.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, properties: { profile: { type: 'string' } } })
