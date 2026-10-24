@@ -12,6 +12,7 @@ import SkillSourceLegend from '@/components/hermes/skills/SkillSourceLegend.vue'
 import PendingWriteApprovals from '@/components/hermes/skills/PendingWriteApprovals.vue'
 import { deleteSkillApi, importSkill, fetchSkills, type SkillCategory, type SkillSource, type SkillInfo, type SkillTarget } from '@/api/hermes/skills'
 import { fetchPendingWrites } from '@/api/hermes/write-gate'
+import type { ResourceSkillsAdapter } from '@/utils/agent-resource-skills'
 import { useProfilesStore } from '@/stores/hermes/profiles'
 
 type SourceFilter = SkillSource | 'modified'
@@ -19,6 +20,7 @@ type SourceFilter = SkillSource | 'modified'
 const props = withDefaults(defineProps<{
   target?: SkillTarget
   embedded?: boolean
+  resourceAdapter?: ResourceSkillsAdapter
 }>(), {
   target: 'hermes',
   embedded: false,
@@ -51,8 +53,8 @@ const selectedSkillData = computed(() => {
   return cat?.skills.find(s => s.name === selectedSkill.value) ?? null
 })
 
-const isHermesTarget = computed(() => skillTarget.value === 'hermes')
-const canManageTarget = computed(() => isHermesTarget.value || skillTarget.value === 'dsh' || (skillTarget.value === 'cursor' || skillTarget.value === 'antigravity'))
+const isHermesTarget = computed(() => !props.resourceAdapter && skillTarget.value === 'hermes')
+const canManageTarget = computed(() => !props.resourceAdapter && (isHermesTarget.value || skillTarget.value === 'dsh' || (skillTarget.value === 'cursor' || skillTarget.value === 'antigravity')))
 const selectedSkillReadonly = computed(() => {
   if (!selectedSkillData.value) return true
   if (selectedSkillData.value.readonly) return true
@@ -76,7 +78,7 @@ onUnmounted(() => {
   mobileQuery?.removeEventListener('change', handleMobileChange)
 })
 
-watch(() => props.target, () => {
+watch([() => props.target, () => props.resourceAdapter], () => {
   selectedCategory.value = ''
   selectedSkill.value = ''
   loadSkills()
@@ -88,7 +90,7 @@ async function loadSkills() {
     if (!profilesStore.activeProfileName || profilesStore.profiles.length === 0) {
       await profilesStore.fetchProfiles()
     }
-    const data = await fetchSkills(undefined, skillTarget.value)
+    const data = props.resourceAdapter ? await props.resourceAdapter.loadSkills() : await fetchSkills(undefined, skillTarget.value)
     categories.value = data.categories
     archived.value = data.archived
     ensureSelectedSkill()
@@ -285,6 +287,7 @@ function handleSkillSaved() {
           <div class="skills-main">
             <SkillDetail
               v-if="selectedCategory && selectedSkill"
+              :key="`${selectedCategory}/${selectedSkill}`"
               :category="selectedCategory"
               :skill="selectedSkill"
               :skill-name="selectedSkillData?.name || selectedSkill"
@@ -293,6 +296,10 @@ function handleSkillSaved() {
               :view-count="selectedSkillData?.viewCount"
               :pinned="selectedSkillData?.pinned"
               :target="skillTarget"
+              :load-content="resourceAdapter?.loadContent"
+              :load-files="resourceAdapter?.loadFiles"
+              :save-content="resourceAdapter?.saveContent"
+              :can-edit-file="resourceAdapter?.canEditFile"
               :readonly="selectedSkillReadonly"
               :can-pin="isHermesTarget"
               @pin-toggled="handlePinToggled"

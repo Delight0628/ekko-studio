@@ -2106,6 +2106,35 @@ agentLocations.responses['200'] = { description: 'Host-bound resource location a
     },
   } },
 } } } }
+const agentResources = openapi.paths['/api/studio/agent-instances/{id}/resources'].post
+agentResources.summary = 'Scan, read or save native Agent resources in Studio'
+agentResources.description += ' Studio performs filesystem IO on freshly declared locations of an owned idle instance. Use list first; reads/writes require its snapshot plus a source ID and relative path (empty for a file location). Writes require the read etag and invalidate retained native runtime resources. Revision, source, content or canonical-path changes return 409. Shared/builtin/overlapping read-only sources and hardlinks cannot be written. Text is bounded to 1 MiB; scans are bounded to 4096 visited entries, 2048 files and depth 12, excluding nested symlinks and hidden descendants. A missing declared file may be created; a missing directory lists no files. No plugin file IO RPC is called.'
+const resourceRefFields = {
+  kind: { type: 'string', enum: ['skills', 'configs'] }, locationId: { type: 'string', minLength: 1, maxLength: 128 },
+  path: { type: 'string', maxLength: 4096, description: 'Relative POSIX path within the declared source; empty for a file source. No absolute paths, backslashes or traversal segments.' },
+}
+agentResources.requestBody = studioPluginBody({ oneOf: ['list', 'read', 'write'].map(action => ({
+  type: 'object', additionalProperties: false,
+  required: ['action', 'revision', ...(action === 'list' ? [] : ['snapshot', 'kind', 'locationId', 'path']), ...(action === 'write' ? ['content', 'etag'] : [])],
+  properties: { action: { type: 'string', enum: [action] }, revision: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER }, profile: { type: 'string' },
+    ...(action === 'list' ? {} : { ...resourceRefFields, snapshot: { type: 'string' } }),
+    ...(action === 'write' ? { content: { type: 'string', maxLength: 1048576 }, etag: { type: 'string' } } : {}),
+  },
+})) })
+const resourceFileFields = { ...resourceRefFields, absolutePath: { type: 'string' }, exists: { type: 'boolean' }, readOnly: { type: 'boolean' } }
+const resourceFileSchema = { type: 'object', additionalProperties: false, required: Object.keys(resourceFileFields), properties: resourceFileFields }
+const resourceLocationData = agentLocations.responses['200'].content['application/json'].schema.properties.data
+agentResources.responses['200'] = { description: 'Resource catalog, or the read/saved text file and opaque version.', content: { 'application/json': { schema: {
+  type: 'object', required: ['ok', 'data'], properties: { ok: { type: 'boolean', enum: [true] }, data: { oneOf: [
+    { ...resourceLocationData, required: [...resourceLocationData.required, 'snapshot', 'files'], properties: { ...resourceLocationData.properties,
+      snapshot: { type: 'string' }, files: { type: 'array', maxItems: 2048, items: resourceFileSchema } } },
+    { type: 'object', additionalProperties: false, required: ['file'], properties: { file: { ...resourceFileSchema,
+      required: [...resourceFileSchema.required, 'content', 'etag'], properties: { ...resourceFileFields, content: { type: 'string' }, etag: { type: 'string' } } } } },
+  ] } },
+} } } }
+agentResources.responses['409'].description = 'Active/queued Run, stale instance revision, changed location snapshot or external file modification.'
+agentResources.responses['429'] = { description: 'Resource scan, text size or management concurrency limit exceeded.' }
+agentResources.responses['504'] = { description: 'Resource operation deadline exceeded.' }
 agentInspection.summary = 'Inspect native Agent metadata'
 agentInspection.description += ' Requires an idle owned instance and a declared management adapter. Starts short-lived managed resources; does not create a Studio Run or native chat session, log in, refresh credentials or change configuration. Serializes with instance changes and new runs. Results contain only native name/version, authentication state/method labels and native model choices. Unknown authentication and unsupported model discovery are explicit. Rechecks access and provider/configuration revision; cancellation, revocation and the 25-second deadline dispose resources.'
 agentInspection.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, properties: { profile: { type: 'string' } } })

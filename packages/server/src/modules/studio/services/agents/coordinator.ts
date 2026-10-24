@@ -11,6 +11,8 @@ import { ManagedMcpScope } from '../mcp/managed'
 import { ManagedProcessScope } from '../processes/managed'
 import { agentStateDirectory } from './state-directory'
 import { AgentManagement } from './management'
+import { createHash } from 'node:crypto'
+import { AgentResourceFiles, type ResourceFileOperation } from './resource-files'
 import { parseAgentResourceLocations } from './resource-contract'
 
 interface ActiveRun {
@@ -126,6 +128,27 @@ export class AgentCoordinator {
   }
 
   async resourceLocations(scope: ExecutionScope, instanceId: string, revision: number, signal?: AbortSignal) {
+    return this.withResourceLocations(scope, instanceId, revision, async locations => locations, signal)
+  }
+
+  async resourceFiles(scope: ExecutionScope, instanceId: string, revision: number, operation: ResourceFileOperation, snapshot?: string, signal?: AbortSignal) {
+    operation = jsonCopy(operation)
+    return this.withResourceLocations(scope, instanceId, revision, async (locations, authorize) => {
+      const files = new AgentResourceFiles(locations, authorize)
+      const currentSnapshot = createHash('sha256').update(JSON.stringify([locations, files.canonicalLocations()])).digest('hex')
+      if (operation.action === 'list') return { ...locations, snapshot: currentSnapshot, files: await files.list() }
+      if (snapshot !== currentSnapshot) throw new StudioError('REVISION_CONFLICT', 'Resource locations changed; reload before editing')
+      if (operation.action === 'read') return { file: files.read(operation) }
+      if (operation.action !== 'write') throw new StudioError('INVALID_ARGUMENT', 'Invalid resource operation')
+      // A retained native runtime may cache configuration. Recreate it on the next Run.
+      await this.disposeLease(instanceId, 'Native resource edited')
+      authorize()
+      return { file: files.write(operation, operation.content, operation.etag) }
+    }, signal)
+  }
+
+  private async withResourceLocations<T>(scope: ExecutionScope, instanceId: string, revision: number,
+    consume: (locations: import('../../contracts/plugins').AgentResourceLocations & { instanceId: string; configRevision: number; provider: AgentProviderRef }, authorize: () => void) => Promise<T>, signal?: AbortSignal): Promise<T> {
     scope = jsonCopy(scope)
     if (!Number.isSafeInteger(revision) || revision < 1) throw new StudioError('INVALID_ARGUMENT', 'Configuration revision is required')
     const inspect = () => {
@@ -151,10 +174,12 @@ export class AgentCoordinator {
       const stateDirectory = instance.mode === 'scoped' && this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, provider) : undefined
       authorize()
       const input = { instanceId, config: instance.config, configRevision: instance.revision, mode: instance.mode }
-      const result = await this.management.execute(input, scope, provider, async context =>
-        parseAgentResourceLocations(await adapter(input, context)), authorize, this.options.logger, signal, stateDirectory)
-      authorize()
-      return { instanceId, configRevision: instance.revision, provider, ...result }
+      return await this.management.execute(input, scope, provider, async context => {
+        const locations = parseAgentResourceLocations(await adapter(input, context))
+        const check = () => { if (context.signal.aborted) throw context.signal.reason; authorize() }
+        check()
+        return consume({ instanceId, configRevision: instance.revision, provider, ...locations }, check)
+      }, authorize, this.options.logger, signal, stateDirectory)
     } finally { if (!this.management.isBlocked(instanceId)) this.configuring.delete(instanceId) }
   }
 

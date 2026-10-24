@@ -2813,6 +2813,15 @@ jobTriggered: 'Job ausgelost',
   },
 
   codingAgents: {
+    defaultConfiguration: "Standardkonfiguration",
+    resourceInstance: "Agent-Instanz",
+    resourceFile: "Konfigurationsdatei",
+    resourceReadOnly: "Schreibgeschützt",
+    resourcesEmpty: "An diesen Orten sind keine Ressourcen vorhanden",
+    resourcesUnsupported: "Dieser Ressourcentyp wird nicht bereitgestellt",
+    resourcesUnavailable: "Agent-Ressourcen sind nicht verfügbar",
+    resourcesChanged: "Instanz geändert. Vor dem Speichern neu laden.",
+
     nativeUsage: "Nutzung: Eingabe {inputTokens}, Ausgabe {outputTokens}, Cache-Lesen {cacheReadTokens}, Cache-Schreiben {cacheWriteTokens}, insgesamt {totalTokens} Tokens.",
     nativeUsageUnknown: "Nutzung unbekannt. Für diese Sitzung wurden noch keine nativen Token-Daten gemeldet.",
     nativeContextUnknown: "Kontext unbekannt. Aktuelle native Kontextnutzung und Grenze sind nicht verfügbar.",

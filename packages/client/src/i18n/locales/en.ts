@@ -3319,6 +3319,15 @@ export default {
   },
 
   codingAgents: {
+    defaultConfiguration: "Default configuration",
+    resourceInstance: "Agent instance",
+    resourceFile: "Configuration file",
+    resourceReadOnly: "Read-only",
+    resourcesEmpty: "No resources at these locations",
+    resourcesUnsupported: "This resource type is not provided",
+    resourcesUnavailable: "Agent resources are unavailable",
+    resourcesChanged: "Instance changed. Reload before saving.",
+
     nativeUsage: "Usage: input {inputTokens}, output {outputTokens}, cache read {cacheReadTokens}, cache write {cacheWriteTokens}, total {totalTokens} tokens.",
     nativeUsageUnknown: "Usage: unknown. No native token usage has been reported for this session.",
     nativeContextUnknown: "Context: unknown. Current native context usage and its limit are not available.",

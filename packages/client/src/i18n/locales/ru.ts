@@ -772,6 +772,15 @@ export default {
   },
 
   codingAgents: {
+    defaultConfiguration: "Настройки по умолчанию",
+    resourceInstance: "Экземпляр агента",
+    resourceFile: "Файл настроек",
+    resourceReadOnly: "Только чтение",
+    resourcesEmpty: "В этих расположениях нет ресурсов",
+    resourcesUnsupported: "Этот тип ресурсов не предоставлен",
+    resourcesUnavailable: "Ресурсы агента недоступны",
+    resourcesChanged: "Экземпляр изменён. Перезагрузите перед сохранением.",
+
     nativeModelDefault: 'Модель агента по умолчанию',
     nativeModelsFailed: 'Не удалось загрузить модели. Используйте модель по умолчанию или обновите список.',
     nativeModelsRefreshFailed: "Не удалось обновить. Показаны модели из кеша.",

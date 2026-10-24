@@ -281,3 +281,24 @@ it.each(['global', 'scoped'] as const)('declares multiple qwen skill roots and c
   await expect(f.coordinator.resourceLocations({ ...scope, principal: { kind: 'user', id: 'other' } }, f.instance.id, 2)).rejects.toMatchObject({ code: 'NOT_FOUND' })
   await expect(f.coordinator.resourceLocations({ ...scope, profileId: 'other' }, f.instance.id, 2)).rejects.toMatchObject({ code: 'NOT_FOUND' })
 })
+
+it('loads Studio-edited scoped configuration and skills from the declared native locations', async () => {
+  const f = await setup('scoped')
+  const catalog = await f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'list' })
+  const configRef = { kind: 'configs' as const, locationId: 'native-config', path: '' }
+  const skillRef = { kind: 'skills' as const, locationId: 'native-skills', path: 'studio-test/SKILL.md' }
+  await f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'write', ...configRef, content: '{"ui":{"theme":"studio-resource-test"}}', etag: 'missing' }, catalog.snapshot)
+  await f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'write', ...skillRef, content: '# Studio edited skill', etag: 'missing' }, catalog.snapshot)
+  const probe = `
+fs.writeFileSync(process.env.PID_FILE + '.resources', JSON.stringify({ config: fs.readFileSync(require('node:path').join(process.env.QWEN_HOME, 'settings.json'), 'utf8'), skill: fs.readFileSync(require('node:path').join(process.env.QWEN_HOME, 'skills/studio-test/SKILL.md'), 'utf8') }));`
+  await writeFile(join(f.directory, 'qwen.cjs'), (await readFile(join(f.directory, 'qwen.cjs'), 'utf8')) + probe)
+  expect((await f.run('resource-first')).status).toBe('completed')
+  let loaded = JSON.parse(await readFile(join(f.directory, 'pid.resources'), 'utf8'))
+  expect(loaded.config).toContain('studio-resource-test')
+  expect(loaded.skill).toBe('# Studio edited skill')
+  const read = await f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'read', ...skillRef }, catalog.snapshot)
+  await f.coordinator.resourceFiles(scope, f.instance.id, 1, { action: 'write', ...skillRef, content: '# Updated for next run', etag: read.file!.etag }, catalog.snapshot)
+  expect((await f.run('resource-next')).status).toBe('completed')
+  loaded = JSON.parse(await readFile(join(f.directory, 'pid.resources'), 'utf8'))
+  expect(loaded.skill).toBe('# Updated for next run')
+})

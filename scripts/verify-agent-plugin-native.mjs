@@ -14,7 +14,8 @@ async function main() {
   const root = await mkdtemp(join(tmpdir(), "studio-real-plugin-turns-"));
   const managedModule = join(root, "managed.cjs");
   await build({
-    stdin: { contents: `export { ManagedProcessScope } from './packages/server/src/modules/studio/services/processes/managed';
+    stdin: { contents: `export { AgentResourceFiles } from './packages/server/src/modules/studio/services/agents/resource-files';
+export { ManagedProcessScope } from './packages/server/src/modules/studio/services/processes/managed';
 export { PluginModelGateways } from './packages/server/src/modules/studio/services/models/gateway';
 export { PluginModelCallStore } from './packages/server/src/modules/studio/repositories/plugin-model-call-store';
 export { AgentRunStateStore } from './packages/server/src/modules/studio/repositories/agent-run-state-store';
@@ -29,7 +30,7 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
     outfile: managedModule,
     logLevel: "silent"
   });
-  const { ManagedProcessScope, PluginModelGateways, PluginModelCallStore, AgentRunStateStore, OpenAIResponsesModelClient, AnthropicMessagesModelClient, OpenAICompatibleModelClient, translatedNativeRequest } = createRequire(import.meta.url)(managedModule);
+  const { AgentResourceFiles, ManagedProcessScope, PluginModelGateways, PluginModelCallStore, AgentRunStateStore, OpenAIResponsesModelClient, AnthropicMessagesModelClient, OpenAICompatibleModelClient, translatedNativeRequest } = createRequire(import.meta.url)(managedModule);
   let calls = 0;
   let activeTarget = 'native';
   const requests = [];
@@ -131,6 +132,15 @@ requires_openai_auth = false
             console.log(JSON.stringify({ vendor, inspection: true, authentication: inspection.authentication.state, modelCatalog: inspection.models.status, models: inspection.models.items.length }));
           } finally { clearTimeout(inspectionTimer); }
         }
+        const marker = `STUDIO_RESOURCE_${vendor}_${mode}`;
+        const locations = await definition.management.locations({ instanceId: "acceptance", mode, configRevision: 1, config }, { stateDirectory: join(home, "state") });
+        const files = new AgentResourceFiles(locations, () => {});
+        files.write({ kind: 'configs', locationId: 'native-instructions', path: '' }, `Follow the fixture instruction ${marker}_INSTRUCTION.`, 'missing');
+        files.write({ kind: 'skills', locationId: 'native-skills', path: 'studio-resource-check/SKILL.md' }, `---
+name: studio-resource-check
+description: Skill marker ${marker}_SKILL.
+---
+Follow fixture instructions.`, 'missing');
         runtime = await definition.create({ instanceId: "acceptance", mode, configRevision: 1, config }, { signal: controller.signal, processes: scope.api, stateDirectory: join(home, "state") });
         let checkpoint;
         for (let turn = 0; turn < 2; turn++) {
@@ -149,6 +159,9 @@ requires_openai_auth = false
             const [result] = await Promise.all([handle.result, (async () => {
               for await (const event of handle.events) output.push(event);
             })()]);
+            const nativeInput = JSON.stringify(requests.slice(requestOffset));
+            console.log(JSON.stringify({ vendor, mode, turn: turn + 1, nativeInstructionsLoaded: nativeInput.includes(marker + '_INSTRUCTION'), nativeSkillDiscovered: nativeInput.includes(marker + '_SKILL') }));
+            if (!nativeInput.includes(marker + '_INSTRUCTION') || !nativeInput.includes(marker + '_SKILL')) throw new Error(`${vendor} ${mode} did not consume the declared native resources`);
             if (turn && JSON.stringify(result.checkpoint) !== JSON.stringify(checkpoint)) throw new Error(vendor + " changed native session between turns");
             checkpoint = result.checkpoint;
             if (turn && !requests.slice(requestOffset).some(hasImage)) throw new Error(`${vendor} did not forward the image to its model`);

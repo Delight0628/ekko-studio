@@ -2813,6 +2813,15 @@ export default {
   },
 
   codingAgents: {
+    defaultConfiguration: "기본 설정",
+    resourceInstance: "Agent 인스턴스",
+    resourceFile: "설정 파일",
+    resourceReadOnly: "읽기 전용",
+    resourcesEmpty: "이 위치에 리소스가 없습니다",
+    resourcesUnsupported: "이 리소스 유형은 제공되지 않습니다",
+    resourcesUnavailable: "Agent 리소스를 사용할 수 없습니다",
+    resourcesChanged: "인스턴스가 변경되었습니다. 저장 전에 새로고침하세요.",
+
     nativeUsage: "사용량: 입력 {inputTokens}, 출력 {outputTokens}, 캐시 읽기 {cacheReadTokens}, 캐시 쓰기 {cacheWriteTokens}, 총 {totalTokens} 토큰.",
     nativeUsageUnknown: "사용량 알 수 없음: 이 세션의 네이티브 토큰 사용량이 아직 보고되지 않았습니다.",
     nativeContextUnknown: "컨텍스트 알 수 없음: 네이티브 세션의 현재 사용량과 한도를 가져올 수 없습니다.",

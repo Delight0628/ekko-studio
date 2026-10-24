@@ -3257,6 +3257,15 @@ export default {
   },
 
   codingAgents: {
+    defaultConfiguration: "預設設定",
+    resourceInstance: "Agent 執行個體",
+    resourceFile: "設定檔",
+    resourceReadOnly: "唯讀",
+    resourcesEmpty: "這些位置暫無資源",
+    resourcesUnsupported: "未提供此類資源",
+    resourcesUnavailable: "Agent 資源無法使用",
+    resourcesChanged: "執行個體已變更，請重新載入後儲存。",
+
     nativeUsage: "用量：輸入 {inputTokens}，輸出 {outputTokens}，快取讀取 {cacheReadTokens}，快取寫入 {cacheWriteTokens}，合計 {totalTokens} tokens。",
     nativeUsageUnknown: "用量未知：此工作階段尚未收到原生 Token 用量資料。",
     nativeContextUnknown: "上下文未知：暫時無法取得原生工作階段的目前占用及上限。",

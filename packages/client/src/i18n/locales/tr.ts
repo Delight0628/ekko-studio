@@ -30,6 +30,12 @@ const writeApprovalMessages = {
 }
 
 export default {
+  codingAgents: {
+    refresh: 'Yenile',
+    defaultConfiguration: 'Varsayılan yapılandırma', resourceInstance: 'Agent örneği', resourceFile: 'Yapılandırma dosyası', resourceReadOnly: 'Salt okunur',
+    resourcesEmpty: 'Bu konumlarda kaynak yok', resourcesUnsupported: 'Bu kaynak türü sağlanmıyor', resourcesUnavailable: 'Agent kaynakları kullanılamıyor',
+    resourcesChanged: 'Örnek değişti. Kaydetmeden önce yeniden yükleyin.',
+  },
   sessionTasks: {
       "title": "Görevler",
       "task": "Görev",

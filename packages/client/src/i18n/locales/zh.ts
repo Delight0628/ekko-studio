@@ -3357,6 +3357,15 @@ export default {
   },
 
   codingAgents: {
+    defaultConfiguration: "默认配置",
+    resourceInstance: "Agent 实例",
+    resourceFile: "配置文件",
+    resourceReadOnly: "只读",
+    resourcesEmpty: "这些位置暂无资源",
+    resourcesUnsupported: "未提供此类资源",
+    resourcesUnavailable: "Agent 资源不可用",
+    resourcesChanged: "实例已改变，请重新加载后保存。",
+
     nativeUsage: "用量：输入 {inputTokens}，输出 {outputTokens}，缓存读取 {cacheReadTokens}，缓存写入 {cacheWriteTokens}，合计 {totalTokens} tokens。",
     nativeUsageUnknown: "用量未知：此会话尚未收到原生 Token 用量数据。",
     nativeContextUnknown: "上下文未知：暂时无法获取原生会话的当前占用及上限。",

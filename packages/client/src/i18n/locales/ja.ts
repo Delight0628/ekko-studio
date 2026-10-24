@@ -2813,6 +2813,15 @@ export default {
   },
 
   codingAgents: {
+    defaultConfiguration: "既定の設定",
+    resourceInstance: "Agent インスタンス",
+    resourceFile: "設定ファイル",
+    resourceReadOnly: "読み取り専用",
+    resourcesEmpty: "これらの場所にリソースはありません",
+    resourcesUnsupported: "この種類のリソースは提供されていません",
+    resourcesUnavailable: "Agent のリソースを利用できません",
+    resourcesChanged: "インスタンスが変更されました。保存前に再読み込みしてください。",
+
     nativeUsage: "使用量：入力 {inputTokens}、出力 {outputTokens}、キャッシュ読取 {cacheReadTokens}、書込 {cacheWriteTokens}、合計 {totalTokens} トークン。",
     nativeUsageUnknown: "使用量は不明です。このセッションのネイティブトークン使用量はまだ報告されていません。",
     nativeContextUnknown: "コンテキストは不明です。ネイティブセッションの現在の使用量と上限を取得できません。",

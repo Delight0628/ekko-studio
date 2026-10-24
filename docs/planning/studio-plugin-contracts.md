@@ -248,7 +248,7 @@ Hermes/Ekko 使用同一 `AgentTypeDefinition` 与 `AgentRuntime`，由 bootstra
 
 检查结果仅允许原生名称/版本、认证状态及方法 ID/名称、模型 ID/名称/默认项/推理级别，并附宿主 provider/configRevision 快照。认证状态区分 `authenticated/required/not_required/unknown`；模型发现区分 `available/unsupported`，不会把未知当成未登录或空目录。适配器不得借检查执行登录、刷新凭据、推理或改写配置。结果上限 256 KiB、512 个模型、32 个认证方法；宿主检查字段、重复 ID 和大小。并发上限 16，执行期限 25 秒；撤权、取消、断连和关闭均回收资源。取消后最多等待 5 秒确认回调与受管资源清理，不合作的 worker 会被终止；清理未确认时保留实例占用，不能启动下一轮。
 
-Codex 使用 `account/read`（`refreshToken: false`）和有界分页 `model/list`，不返回账号标识、原生 Home 或秘密。Qwen 仅执行 ACP v1 initialize，投影客户端信息和认证方法；该握手不提供当前认证状态，无会话模型发现不支持。登录/退出、配置文件、安装升级、终端、Skills/MCP 管理与相应交互仍未实现，不将此检查接口计为完整原生管理迁移。
+Codex 使用 `account/read`（`refreshToken: false`）和有界分页 `model/list`，不返回账号标识、原生 Home 或秘密。Qwen 仅执行 ACP v1 initialize，投影客户端信息和认证方法；该握手不提供当前认证状态，无会话模型发现不支持。登录/退出、安装升级、终端和 MCP 管理与相应交互仍未实现；配置文件和 Skills 的 Studio 编辑接入见下节，不将此检查接口计为完整原生管理迁移。
 
 ### 3.3 多个资源位置与固定页面
 
@@ -265,7 +265,13 @@ Coding Agent 插件通过 `management.locations(input, context)` 告诉 Studio S
 
 `configSchema` 描述 Studio 保存的实例参数，不等于 Agent 原生配置文件清单。`create({ config }, runtimeCtx)` 的提示词、MCP 等输入也不替代此位置声明。Studio 管理的 MCP 及其运行凭据仍由宿主提供，插件负责原生适配；插件描述的 Skills 与配置位置应对应 Agent 实际使用的范围。模式或工作区改变后重新解析整个位置清单，不能继续使用旧位置缓存。
 
-Qwen/Codex 已实现多个位置的声明，尚未接入旧 Skills 和配置编辑页面。后续接入保留现有固定页面及 Studio 文件操作链路，不引入独立资源编辑页面或插件文件读写接口。DSH 保留现有原生配置 iframe、插件清单及其打开/关闭生命周期；本阶段不做通用前端插件化。
+Qwen/Codex 已实现多个位置声明；现有 Coding Agent 配置页与 Skills 页已消费声明，按自有实例选择来源，保存后下一次运行重新创建原生 runtime。未选择实例时继续使用原管理路径。实例仍通过现有开发 API 创建；完整安装、登录和实例配置表单尚未交付。
+
+Studio 文件入口为 `POST /api/studio/agent-instances/:id/resources`：`{ action: 'list', revision }` 返回位置、`snapshot` 和文件目录；`read` 使用 `{ revision, snapshot, kind, locationId, path }`，`write` 再带 `content/etag`。相对路径采用 `/` 分隔，文件位置的 path 为空；不接受绝对路径或自报 owner/provider。所有操作在管理锁与取消作用域内重新授权，位置快照包含提供方、配置 revision 与规范化位置。文件版本绑定规范路径和内容；原生文件被外部修改时返回冲突。JSON/TOML 保存前校验语法，原子替换并保留既有文件权限。
+
+只读声明跨 Skills/configs、重叠目录和路径别名生效；全局共享 Skills 仍只读，多硬链接文件也只读。拒绝相对路径越界、悬空链接和非文本文件。扫描最多访问 4,096 项、返回 2,048 个文件，深度 12；跳过目录内符号链接与隐藏后代，显式声明的隐藏根目录可扫描。文本读取上限 1 MiB。缺失目录返回空目录，缺失的声明配置文件可创建；达到限额或无权限时明确失败，不伪装为空。旧 Skills 详情页可编辑技能正文及可写附属文本文件；导入/删除与目录树增删尚未迁移。
+
+资源编辑接入保留现有固定页面，不引入独立资源编辑页面或插件文件读写接口。DSH 保留现有原生配置 iframe、插件清单及其打开/关闭生命周期；本阶段不做通用前端插件化。
 
 ### 3.4 插件向 Studio 提供输入框命令
 

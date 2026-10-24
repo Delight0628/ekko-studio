@@ -3307,6 +3307,15 @@ export default {
   },
 
   codingAgents: {
+    defaultConfiguration: "الإعدادات الافتراضية",
+    resourceInstance: "مثيل الوكيل",
+    resourceFile: "ملف الإعدادات",
+    resourceReadOnly: "للقراءة فقط",
+    resourcesEmpty: "لا توجد موارد في هذه المواقع",
+    resourcesUnsupported: "هذا النوع من الموارد غير متاح",
+    resourcesUnavailable: "موارد الوكيل غير متاحة",
+    resourcesChanged: "تغير المثيل. أعد التحميل قبل الحفظ.",
+
     nativeUsage: "الاستخدام: إدخال {inputTokens}، إخراج {outputTokens}، قراءة ذاكرة مؤقتة {cacheReadTokens}، كتابة ذاكرة مؤقتة {cacheWriteTokens}، الإجمالي {totalTokens} رمزًا.",
     nativeUsageUnknown: "الاستخدام غير معروف. لم تُبلّغ الأداة الأصلية بعد عن استخدام الرموز لهذه الجلسة.",
     nativeContextUnknown: "السياق غير معروف. استخدام السياق الأصلي الحالي وحدّه غير متاحين.",

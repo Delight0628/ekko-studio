@@ -261,7 +261,7 @@ function confirmDelete(category: string, skillName: string) {
         <!-- Default flat category list -->
         <template v-else>
             <div v-for="cat in filteredCategories" :key="cat.name" class="skill-category">
-                <button class="category-header" @click="toggleCategory(cat.name)">
+                <button class="category-header" :title="cat.description" @click="toggleCategory(cat.name)">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                         class="category-arrow" :class="{ collapsed: collapsedCategories.has(cat.name) }">
                         <polyline points="6 9 12 15 18 9" />

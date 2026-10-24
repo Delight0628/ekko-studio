@@ -20,6 +20,7 @@ studioPluginRoutes.get('/api/studio/agent-instances', requireUserProfile, contro
 studioPluginRoutes.post('/api/studio/agent-instances', requireUserProfile, controller.createAgentInstance)
 studioPluginRoutes.put('/api/studio/agent-instances/:id', requireUserProfile, controller.configureAgentInstance)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/inspect', requireUserProfile, controller.inspectAgentInstance)
+studioPluginRoutes.post('/api/studio/agent-instances/:id/resources', requireUserProfile, controller.agentInstanceResources)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/locations', requireUserProfile, controller.agentInstanceLocations)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/runs', requireUserProfile, controller.startAgentExecution)
 studioPluginRoutes.get('/api/studio/agent-runs/:id', requireUserProfile, controller.getAgentExecution)

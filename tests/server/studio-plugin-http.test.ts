@@ -10,11 +10,11 @@ import { ReliablePluginConsumers } from '../../packages/server/src/modules/studi
 
 const state = vi.hoisted(() => ({ remove: vi.fn(), configure: vi.fn(), install: vi.fn(), diagnostic: vi.fn(), list: vi.fn(() => []),
   commands: { list: vi.fn(() => []), start: vi.fn(), get: vi.fn(), cancel: vi.fn() },
-  uploadImage: vi.fn(), removeImage: vi.fn(), respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), updateInstance: vi.fn(), inspectInstance: vi.fn(), resourceLocations: vi.fn(), role: 'super_admin', consumers: null as unknown as ReliablePluginConsumers }))
+  uploadImage: vi.fn(), removeImage: vi.fn(), respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), updateInstance: vi.fn(), inspectInstance: vi.fn(), resourceLocations: vi.fn(), resourceFiles: vi.fn(), role: 'super_admin', consumers: null as unknown as ReliablePluginConsumers }))
 vi.mock('../../packages/server/src/modules/studio/services/plugins/runtime', () => ({
   authorizePluginScope: vi.fn(),
   getStudioPluginRuntime: () => ({ host: { uninstall: state.remove, configure: state.configure, install: state.install, list: state.list, diagnostic: state.diagnostic },
-    commands: state.commands, artifacts: { create: state.uploadImage, remove: state.removeImage }, consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance, resourceLocations: state.resourceLocations } }),
+    commands: state.commands, artifacts: { create: state.uploadImage, remove: state.removeImage }, consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance, resourceLocations: state.resourceLocations, resourceFiles: state.resourceFiles } }),
 }))
 import { studioPluginRoutes } from '../../packages/server/src/modules/studio/routes/studio-plugins'
 
@@ -248,4 +248,19 @@ it('routes command calls with caller identity, hides receipt ownership and prese
   expect((await fetch(`${base}/api/studio/command-calls/call?profile=default`)).status).toBe(200)
   expect((await fetch(`${base}/api/studio/command-calls/call/cancel?profile=default`, { method: 'POST' })).status).toBe(200)
   expect(state.commands.cancel).toHaveBeenCalledWith(expect.objectContaining({ principal: { id: '7', kind: 'user' } }), 'call')
+})
+
+it('routes resource IO only by instance, revision and source reference, rejecting injected paths/identity', async () => {
+  state.resourceFiles.mockResolvedValue({ file: { content: 'saved' } })
+  const payload = { action: 'read', revision: 1, snapshot: 'snapshot', kind: 'configs', locationId: 'native', path: '' }
+  const post = (value: unknown) => fetch(`${base}/api/studio/agent-instances/instance/resources?profile=default`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value),
+  })
+  const response = await post(payload)
+  expect(response.status).toBe(200)
+  expect(state.resourceFiles).toHaveBeenCalledWith(expect.objectContaining({ principal: { kind: 'user', id: '7' }, profileId: 'default' }), 'instance', 1,
+    { action: 'read', kind: 'configs', locationId: 'native', path: '' }, 'snapshot', expect.any(AbortSignal))
+  state.resourceFiles.mockClear()
+  for (const value of [{ ...payload, ownerId: 'other' }, { ...payload, absolutePath: '/etc/passwd' }, { ...payload, action: 'list' }, { ...payload, action: 'delete' }]) expect((await post(value)).status).toBe(400)
+  expect(state.resourceFiles).not.toHaveBeenCalled()
 })

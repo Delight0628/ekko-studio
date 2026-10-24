@@ -375,3 +375,16 @@ For shared Coding Agent skill permissions, run `skills-controller.test.ts`,
 remain read-only, rejected deletion cannot fall back to Hermes, and DSH-private
 skills stay writable. Register native skill formats from bootstrap; agent modules
 must not import another agent’s implementation.
+
+## Plugin native resource editors
+
+For changes to plugin resource locations or Studio file access, run the
+`studio-agent-resource-files`, `studio-agent-resource-access`, `studio-plugin-http`,
+`studio-qwen-plugin` and `studio-codex-plugin` server tests, the resource-editor and
+SkillDetail client tests, and `tests/e2e/plugin-agent-resources.spec.ts` with the
+legacy Cursor/DSH management flows. Use temporary roots, never the user's native
+configuration. `npm run verify:plugins:native` additionally uses installed Codex
+and Qwen CLIs against a local model fixture and disposable homes: it writes
+instruction/skill markers via Studio's resource service and verifies both in the
+actual model requests. `STUDIO_CODEX_COMMAND` and `STUDIO_QWEN_COMMAND` may select
+explicit executables. This does not verify account login or remote providers.

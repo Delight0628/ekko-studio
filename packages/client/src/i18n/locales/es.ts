@@ -2813,6 +2813,15 @@ jobTriggered: 'Job ejecutado',
   },
 
   codingAgents: {
+    defaultConfiguration: "Configuración predeterminada",
+    resourceInstance: "Instancia del agente",
+    resourceFile: "Archivo de configuración",
+    resourceReadOnly: "Solo lectura",
+    resourcesEmpty: "No hay recursos en estas ubicaciones",
+    resourcesUnsupported: "Este tipo de recurso no está disponible",
+    resourcesUnavailable: "Los recursos del agente no están disponibles",
+    resourcesChanged: "La instancia cambió. Recarga antes de guardar.",
+
     nativeUsage: "Uso: entrada {inputTokens}, salida {outputTokens}, lectura de caché {cacheReadTokens}, escritura de caché {cacheWriteTokens}, total {totalTokens} tokens.",
     nativeUsageUnknown: "Uso desconocido. Esta sesión aún no ha recibido datos nativos de tokens.",
     nativeContextUnknown: "Contexto desconocido. No están disponibles el uso actual del contexto nativo ni su límite.",
