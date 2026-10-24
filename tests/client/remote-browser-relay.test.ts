@@ -123,3 +123,59 @@ describe('native grant invalidation', () => {
     await relay.stopRemoteBrowserRelay()
   })
 })
+
+describe('remembered remote control', () => {
+  beforeEach(() => { vi.resetModules(); localStorage.clear(); fixture.callbacks.clear(); fixture.connected = true; fixture.token = 'account'; fixture.mode = true; fixture.allow = true })
+  afterEach(async () => { localStorage.clear(); const relay = await import('../../packages/client/src/composables/useRemoteBrowserRelay'); await relay.stopRemoteBrowserRelay() })
+
+  it('does not start without a remembered grant', async () => {
+    const relay = await import('../../packages/client/src/composables/useRemoteBrowserRelay')
+    await relay.resumeRememberedRemoteBrowser()
+    expect(relay.remoteBrowserEnabled.value).toBe(false)
+    expect(fixture.callbacks.size).toBe(0)
+  })
+
+  it('restores a remembered grant and forgets it when the user stops sharing', async () => {
+    const relay = await import('../../packages/client/src/composables/useRemoteBrowserRelay')
+    relay.rememberRemoteBrowser(true)
+    await relay.resumeRememberedRemoteBrowser()
+    expect(relay.remoteBrowserEnabled.value).toBe(true)
+    relay.rememberRemoteBrowser(false)
+    await relay.stopRemoteBrowserRelay()
+    expect(relay.remoteBrowserRemembered()).toBe(false)
+    await relay.resumeRememberedRemoteBrowser()
+    expect(relay.remoteBrowserEnabled.value).toBe(false)
+  })
+
+  it('stays off when Desktop declines or the session is logged out', async () => {
+    const relay = await import('../../packages/client/src/composables/useRemoteBrowserRelay')
+    relay.rememberRemoteBrowser(true)
+    fixture.token = ''
+    await relay.resumeRememberedRemoteBrowser()
+    expect(relay.remoteBrowserEnabled.value).toBe(false)
+    fixture.token = 'account'
+    fixture.allow = false
+    await relay.resumeRememberedRemoteBrowser()
+    expect(relay.remoteBrowserEnabled.value).toBe(false)
+  })
+
+  it('reconnects a remembered grant after a dropped connection, but not after the user stops', async () => {
+    vi.useFakeTimers()
+    try {
+      const relay = await import('../../packages/client/src/composables/useRemoteBrowserRelay')
+      relay.rememberRemoteBrowser(true)
+      await relay.resumeRememberedRemoteBrowser()
+      fixture.callbacks.get('disconnect')!()
+      expect(relay.remoteBrowserEnabled.value).toBe(false)
+      fixture.callbacks.clear()
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(relay.remoteBrowserEnabled.value).toBe(true)
+      fixture.callbacks.get('disconnect')!()
+      relay.rememberRemoteBrowser(false)
+      fixture.callbacks.clear()
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(relay.remoteBrowserEnabled.value).toBe(false)
+      expect(fixture.callbacks.size).toBe(0)
+    } finally { vi.useRealTimers() }
+  })
+})

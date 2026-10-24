@@ -14,6 +14,37 @@ let generation = 0
 let socket: Socket | null = null
 let stopAuth: (() => void) | null = null
 let cancelConnection: (() => void) | null = null
+let resumeTimer: ReturnType<typeof setTimeout> | null = null
+
+// The explicit panel grant is remembered on this device until the user stops it,
+// so refreshes, restarts, profile switches and dropped connections restore it.
+const REMEMBER_KEY = 'hermes.desktopBrowser.remoteControlRemembered'
+const RESUME_DELAY_MS = 5000
+
+export function remoteBrowserRemembered(): boolean {
+  try { return localStorage.getItem(REMEMBER_KEY) === '1' } catch { return false }
+}
+
+export function rememberRemoteBrowser(enabled: boolean): void {
+  try {
+    if (enabled) localStorage.setItem(REMEMBER_KEY, '1')
+    else localStorage.removeItem(REMEMBER_KEY)
+  } catch { /* storage unavailable: fall back to per-session consent */ }
+  if (!enabled && resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null }
+}
+
+/** Restore a remembered grant; never throws and never prompts. */
+export async function resumeRememberedRemoteBrowser(): Promise<void> {
+  if (resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null }
+  const bridge = desktopBridge()
+  if (remoteBrowserEnabled.value || !remoteBrowserRemembered() || !bridge?.remoteMode || !bridge.browser?.remoteRequest || !getApiKey()) return
+  try { await startRemoteBrowserRelay() } catch (error) { console.warn('[desktop-browser] remembered remote control was not restored', error) }
+}
+
+function scheduleRememberedResume(): void {
+  if (resumeTimer || !remoteBrowserRemembered()) return
+  resumeTimer = setTimeout(() => { resumeTimer = null; void resumeRememberedRemoteBrowser() }, RESUME_DELAY_MS)
+}
 
 export async function stopRemoteBrowserRelay(): Promise<void> {
   generation++
@@ -78,7 +109,11 @@ export async function startRemoteBrowserRelay(): Promise<void> {
       if (/remote control has not been authorized|browser permission was revoked/i.test(message) && socket === connection) void stopRemoteBrowserRelay()
     }
   })
-  const stop = () => { if (socket === connection) void stopRemoteBrowserRelay() }
+  const stop = () => {
+    if (socket !== connection) return
+    void stopRemoteBrowserRelay()
+    scheduleRememberedResume()
+  }
   connection.on('disconnect', stop)
   connection.on('browser.revoked', stop)
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -109,4 +144,7 @@ export async function startRemoteBrowserRelay(): Promise<void> {
   }
 }
 
-if (typeof window !== 'undefined') window.addEventListener('beforeunload', () => { void stopRemoteBrowserRelay() })
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => { void stopRemoteBrowserRelay() })
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void resumeRememberedRemoteBrowser() })
+}

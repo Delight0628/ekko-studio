@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { useTheme } from '@/composables/useTheme'
 import { NSpin, NButton, NInput, NPopover, NSelect, useDialog, useMessage } from 'naive-ui'
-import { remoteBrowserOwnerState, remoteBrowserEnabled, startRemoteBrowserRelay, stopRemoteBrowserRelay } from '@/composables/useRemoteBrowserRelay'
-import { useProfilesStore } from '@/stores/hermes/profiles'
+import { rememberRemoteBrowser, remoteBrowserOwnerState, remoteBrowserEnabled, startRemoteBrowserRelay, stopRemoteBrowserRelay } from '@/composables/useRemoteBrowserRelay'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { useI18n } from 'vue-i18n'
@@ -28,15 +27,18 @@ watch(isDark, dark => {
   void themeSyncQueue.catch(error => { console.warn('[desktop-browser] theme sync failed', error) })
 }, { immediate: true })
 const remoteControlAvailable = desktopBridge()?.remoteMode === true && !!bridge?.setRemoteControl
-const relayProfiles = useProfilesStore()
 const remoteControlPending = ref(false)
-watch(() => relayProfiles.activeProfileName, () => { void stopRemoteBrowserRelay() })
 async function toggleRemoteControl(): Promise<void> {
   if (remoteControlPending.value) return
   remoteControlPending.value = true
   try {
-    if (remoteBrowserEnabled.value) await stopRemoteBrowserRelay()
-    else await startRemoteBrowserRelay()
+    if (remoteBrowserEnabled.value) {
+      rememberRemoteBrowser(false)
+      await stopRemoteBrowserRelay()
+    } else {
+      await startRemoteBrowserRelay()
+      rememberRemoteBrowser(remoteBrowserEnabled.value)
+    }
   } catch (error) { message.error(error instanceof Error ? error.message : String(error)) }
   finally { remoteControlPending.value = false }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { stopRemoteBrowserRelay } from '@/composables/useRemoteBrowserRelay'
+import { resumeRememberedRemoteBrowser, stopRemoteBrowserRelay } from '@/composables/useRemoteBrowserRelay'
 import { deploymentUrl } from '@/utils/deployment-url'
 import {
   computed,
@@ -107,7 +107,7 @@ const naiveLocale = computed(() => naiveLocaleFor(locale.value));
 const naiveRtl = computed(() => naiveRtlFor(locale.value));
 const appStore = useAppStore();
 const profilesStore = useProfilesStore();
-watch(() => profilesStore.activeProfileName, () => { void stopRemoteBrowserRelay() });
+watch(() => profilesStore.activeProfileName, async () => { await stopRemoteBrowserRelay(); await resumeRememberedRemoteBrowser() });
 const route = useRoute();
 const { sessionSearchOpen } = useSessionSearch();
 
@@ -117,7 +117,7 @@ const themeOverrides = computed(() =>
 const naiveTheme = computed(() => (isDark.value ? darkTheme : null));
 
 const isLoginPage = computed(() => route.name === "login");
-watch(isLoginPage, login => { if (login) void stopRemoteBrowserRelay() });
+watch(isLoginPage, login => { void (login ? stopRemoteBrowserRelay() : resumeRememberedRemoteBrowser()) }, { immediate: true });
 watchServerTtsSettingsHydration({
   isLoginPage: () => isLoginPage.value,
   activeProfileName: () => profilesStore.activeProfileName,
