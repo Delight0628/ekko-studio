@@ -26,7 +26,7 @@ afterAll(async () => { await rm(root, { recursive: true, force: true }) })
 const scope: ExecutionScope = { scopeId: 'scope', principal: { kind: 'user', id: 'caller' }, profileId: 'one', surface: 'api', traceId: 'trace' }
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
 
-async function setup(options: { granted?: boolean; crash?: boolean; shared?: boolean; hook?: boolean } = {}) {
+async function setup(options: { granted?: boolean; crash?: boolean; shared?: boolean; hook?: boolean; acp?: boolean } = {}) {
   const directory = await mkdtemp(join(root, 'artifact-')), pidPath = join(directory, 'pid')
   const db = new DatabaseSync(':memory:'), store = new PluginStore(db), registry = new AgentRegistry(), events = new PluginEventBus(), hooks = new PluginHookRegistry()
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -61,6 +61,30 @@ async function setup(options: { granted?: boolean; crash?: boolean; shared?: boo
       }, dispose: async () => { try { await child.dispose() } catch (error) { ${options.shared ? "if (error.code !== 'FORBIDDEN') throw error" : 'throw error'} } } };
     } });
   } }`)
+  if (options.acp) {
+    await build({ entryPoints: ['packages/studio-agent-drivers/src/index.ts'], bundle: true, platform: 'node', target: 'node24.22.1', format: 'cjs', outfile: join(directory, 'driver.cjs'), logLevel: 'silent' })
+    await writeFile(join(directory, 'cli.cjs'), `const reply = value => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...value }) + '\\n');
+      require('node:readline').createInterface({ input: process.stdin }).on('line', line => { const request = JSON.parse(line);
+        if (request.method === 'initialize') reply({ id: request.id, result: { protocolVersion: 1, agentCapabilities: {} } });
+        else if (request.method === 'session/new') reply({ id: request.id, result: { sessionId: 'native' } });
+        else if (request.method === 'session/prompt') { reply({ method: 'session/update', params: { sessionId: 'native', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: request.params.prompt[0].text } } } }); reply({ id: request.id, result: { stopReason: 'end_turn' } }); }
+      });`)
+    await writeFile(join(directory, 'index.cjs'), `const { AcpConnection, ManagedProcessTransport } = require('./driver.cjs');
+      module.exports = { apply(plugin) { plugin.agents.register({ id: 'test.process/agent', name: 'ACP over SDK', configSchema: {}, capabilities: { text: true, modes: ['scoped'] },
+        create: async (_input, runtime) => { let transport; return {
+          run: async input => { let resolve, reject; const result = new Promise((yes, no) => { resolve = yes; reject = no });
+            return { result, cancel: async () => { await transport?.dispose(); resolve({ status: 'cancelled' }) }, events: (async function* () {
+              try { const child = await runtime.processes.spawn({ command: ${JSON.stringify(process.execPath)}, args: [require('node:path').join(__dirname, 'cli.cjs')], cwd: __dirname });
+                transport = new ManagedProcessTransport(child); const updates = [];
+                const connection = new AcpConnection(transport, { session() {}, update: value => updates.push(value) });
+                await connection.prompt({ cwd: __dirname, text: input.content[0].text, mcpServers: [] }); await transport.exited;
+                let sequence = 0; for (const update of updates) yield { type: 'message.delta', producerSequence: ++sequence, messageId: 'answer', text: update.content.text };
+                resolve({ status: 'completed' });
+              } catch (error) { reject(error); throw error }
+            })() };
+          }, dispose: async () => { await transport?.dispose() }
+        } } }); } }`)
+  }
   await host.install(directory)
   const state = { pluginId: manifest.id, profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: capabilities }
   await host.configure(state, 0)
@@ -119,4 +143,12 @@ it('does not let a read-only hook mutate an existing runtime process', async () 
   expect((await f.run(f.instance().id, 'start')).status).toBe('completed')
   await expect(f.hooks.run('sessions.remove', { sessionId: 'session' }, f.context(scope, new AbortController().signal))).rejects.toMatchObject({ code: 'FORBIDDEN' })
   await vi.waitFor(() => expect(f.logger.info.mock.calls.some(call => JSON.stringify(call).includes('hook-process') && JSON.stringify(call).includes('FORBIDDEN'))).toBe(true))
+})
+
+it('runs the independent ACP driver in a real plugin worker through bounded SDK process RPC', async () => {
+  const f = await setup({ acp: true }), text = '中文😀 & "$HOME" '.repeat(12_000), instance = f.instance()
+  const run = f.coordinator.start(scope, instance.id, { content: [{ type: 'text', text }] }, 'acp')
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(scope, run.id).status).toBe('completed')
+  expect(f.coordinator.output(scope, run.id, -1)).toEqual([expect.objectContaining({ type: 'message.delta', text })])
 })

@@ -51,6 +51,16 @@ it('rechecks grants after a blocked read and withholds private output when acces
   await bridge.close(); expect(child.dispose).toHaveBeenCalledTimes(1)
 })
 
+it('does not hand out a process started while its grant was being revoked', async () => {
+  let allowed = true, resolve!: (handle: ProcessHandle) => void
+  const child = process('late-revoked'), bridge = new PluginProcessBridge(() => { if (!allowed) throw new StudioError('FORBIDDEN', 'Revoked') }, () => {})
+  const binding = bridge.mount(context(() => new Promise(done => { resolve = done })))
+  const pending = bridge.call({ runtimeHandle: binding.handle, method: 'spawn', input: {} })
+  allowed = false; resolve(child)
+  await expect(pending).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  await bridge.close(); expect(child.dispose).toHaveBeenCalledTimes(1)
+})
+
 it('validates binary RPC frames without silently accepting malformed base64', async () => {
   const child = process('bytes'), bridge = new PluginProcessBridge(() => {}, () => {})
   const binding = bridge.mount(context(async () => child))

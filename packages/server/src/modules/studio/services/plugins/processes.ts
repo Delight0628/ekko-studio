@@ -67,7 +67,10 @@ export class PluginProcessBridge {
     if (method === 'spawn') {
       const pending = (async () => {
         const handle = await binding.context.processes.spawn(input as unknown as ProcessSpawnInput)
-        if (!this.bindings.has(runtimeHandle)) { await handle.dispose(); throw new StudioError('CANCELLED', 'Runtime process scope ended') }
+        try {
+          if (!this.bindings.has(runtimeHandle)) throw new StudioError('CANCELLED', 'Runtime process scope ended')
+          authorize(); this.origin(originHandle, runtimeHandle, binding.context)
+        } catch (error) { await handle.dispose(); throw error }
         binding.handles.set(handle.id, handle)
         return { id: handle.id }
       })()

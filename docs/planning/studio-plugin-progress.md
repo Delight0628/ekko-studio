@@ -342,11 +342,23 @@ manifest 可声明 `contributes.services` 的版本和方法输入/输出 schema
 - 父进程仅传入基础路径、Home、系统/临时目录和 locale；不自动继承应用认证、提供商密钥或 Node 注入选项。显式 env 是插件提交的普通字符串，不能取出平台秘密。Windows 环境按不区分大小写合并；`ELECTRON_RUN_AS_NODE=1` 固定。
 - POSIX 使用独立进程组，先 TERM、再 KILL；Windows 显式等待 `taskkill /T /F` 与子进程关闭。无法确认进程树退出时返回错误。CLI shim 复用现有转义规则，多行 shim 参数拒绝并要求 stdin/提示文件。
 
-当前只提供管道进程，不含 PTY/resize、秘密模板或受管 MCP/模型代理；标准 ACP 驱动仍需改接该句柄，旧厂商执行路径尚未迁移。插件是受信任本地代码，进程能力不提供 OS 沙箱或保证已自行脱离进程组的程序可被回收；Windows 原生父进程先退出后的孤儿追踪仍需后续平台验收。
+当前只提供管道进程，不含 PTY/resize、秘密模板或受管 MCP/模型代理；标准 ACP 驱动接入见下节，旧厂商执行路径尚未迁移。插件是受信任本地代码，进程能力不提供 OS 沙箱或保证已自行脱离进程组的程序可被回收；Windows 原生父进程先退出后的孤儿追踪仍需后续平台验收。
 
 新增真实管道/worker、跨用户、撤权、崩溃、工厂失败及退出屏障测试，并加入 Windows/macOS/Linux 的独立默认时限检查；不将本机结果代替尚未返回的 CI 平台结果。
 
 综合回归 20 个文件、245 项通过；平台专项在本机 4 个文件、43 项通过，1 项仅 Windows 的 shim 检查跳过。生产构建、SDK/runner/服务端类型、harness 与差异检查通过。
+
+提交 `57321726b` 完整 coverage：900 个文件、9,243 项通过，12 个文件/33 项跳过，默认时限。其 Windows/macOS/Linux native-processes CI 均通过，包括新增默认时限的进程、worker、退出屏障及 Windows shim 检查；该时点浏览器和 ARM64 仍在运行。
+
+## T05 进展：ACP 驱动使用 SDK 进程句柄
+
+独立 driver 包提供 `ManagedProcessTransport`，接受与 SDK `ProcessHandle` 结构兼容的最小字节端口。ACP 连接改为依赖通用 I/O；原有 ChildProcess 调用继续兼容，插件可通过受管句柄驱动同一协议实现，不导入 server 私有代码。
+
+适配层串行发送最多 64 KiB 的写入分片，最多缓存 16 MiB / 128 个待写消息；end 等待已排队字节写完。stdout/stderr 分开投递，UTF-8 重组仍由 ACP 解析器负责；截断、写失败或提前关闭会拒绝待处理请求，不能解释成成功。退出后释放进程句柄；主动清理保留宿主确认退出的屏障。
+
+验证覆盖大文本/图片、原生历史恢复过滤、模型与 reasoning 选择、分片字节、stdin 结束顺序、缓存上限和失败传播；真实插件 worker 打包加载独立驱动后，通过 SDK RPC 启动协议 fixture CLI，完成大文本输入、输出与退出闭环。这是公共进程/驱动契约验证，**不等于真实厂商 CLI 或任何一个 Coding Agent 已完成迁移**。
+
+相关专项 4 个文件、35 项通过，包括等待进程启动期间撤销 grant 后回收新句柄的竞态。生产构建、harness、独立 driver 构建与 npm 工件解包加载通过；包只含独立驱动及类型，没有发布到 npm。
 
 ## CI 修复：JEV harness 重复解析
 

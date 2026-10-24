@@ -1,4 +1,4 @@
-import type { ChildProcess } from 'node:child_process'
+import type { AgentProcessIO } from '../process/transport'
 import { StringDecoder } from 'node:string_decoder'
 import { readFileSync } from 'node:fs'
 export interface AcpImageInput { path: string; name?: string; mediaType?: string }
@@ -18,7 +18,7 @@ export class AcpConnection {
   private closed = false
   private sessionId = ''
 
-  constructor(private child: ChildProcess, private callbacks: {
+  constructor(private child: AgentProcessIO, private callbacks: {
     update(update: any): void
     session(id: string): void
     permissionRequired?: boolean
