@@ -438,6 +438,18 @@ describe('ensureBridgeReadyForChatRun', () => {
 })
 
 describe('ChatRunSocket bridge readiness gating', () => {
+  it('uses an internal caller port for orchestrated cancellation', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io } = makeServerHarness()
+    const server = new ChatRunSocket(io as any)
+    await server.abortSession('internal', 'Workflow stopped')
+    const caller = handleAbortMock.mock.calls.at(-1)![1]
+    expect(caller.kind).toBe('direct')
+    expect(caller).not.toHaveProperty('emit')
+    expect(caller).not.toHaveProperty('to')
+    expect(caller.isActive()).toBe(false)
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     startBridgeMock.mockReset()

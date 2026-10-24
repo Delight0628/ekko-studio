@@ -2511,6 +2511,10 @@ export class ChatRunSocket {
       onEvent?: (event: string, payload: any) => void
     } = {},
   ): Promise<ChatRunAndWaitResult> {
+    // Internal orchestrators pass trusted DTOs, never a transport object. Freeze
+    // their request/identity before readiness checks can yield to another turn.
+    data = structuredClone(data)
+    options = { ...options, ...(options.user ? { user: Object.freeze(structuredClone(options.user)) } : {}) }
     const sessionId = String(data.session_id || '').trim()
     if (!sessionId) throw new Error('session_id is required')
     const profile = options.profile || data.profile || getSession(sessionId)?.profile || getActiveProfileName() || 'default'
@@ -2639,21 +2643,27 @@ export class ChatRunSocket {
       waiters.add(onEvent)
       this.runWaiters.set(sessionId, waiters)
 
-      const fakeSocket = {
-        id: `workflow-run-${sessionId}`,
-        connected: true,
-        data: { user: options.user, groupRunIsCurrent: options.groupRunIsCurrent },
-        join: () => {},
-        to: (room: string) => ({
-          emit: (event: string, payload: any) => {
-            this.nsp.to(room).emit(event, payload)
-            onEvent(event, payload)
-          },
+      const surface = data.session_source || source
+      const caller: ChatRunCaller = {
+        kind: 'direct', originId: `orchestration-${randomUUID()}`,
+        user: options.user, groupRunIsCurrent: options.groupRunIsCurrent,
+        executionScope: Object.freeze({
+          scopeId: randomUUID(), traceId: randomUUID(), profileId: profile, sessionId,
+          principal: Object.freeze(options.user ? { kind: 'user' as const, id: String(options.user.id) } : { kind: 'service' as const, id: 'studio-orchestrator' }),
+          surface: surface === 'group_chat' ? 'group-chat' : surface === 'workflow' ? 'workflow' : surface === 'global_agent' ? 'global-agent' : 'job',
         }),
-        emit: (event: string, payload: any) => onEvent(event, payload),
-      } as unknown as Socket
+        isActive: () => !this.closing,
+        observeSession: () => {}, // The invocation's waiter above owns observation.
+        reply: onEvent,
+        publishToPeers: (sessionId, event, payload) => {
+          this.nsp.to(`session:${sessionId}`).emit(event, payload)
+          onEvent(event, payload)
+        },
+      }
 
-      this.handleRun(fakeSocket, { ...data, onEvent }, profile, false, undefined, pushTargetId)
+      // Direct callers receive runtime callbacks through reply. Supplying a second
+      // data.onEvent callback would append every bridge/Ekko text delta twice.
+      this.handleRun(caller, data, profile, false, undefined, pushTargetId)
         .catch(err => {
           const error = err instanceof Error ? err.message : String(err)
           const payload = { event: 'run.failed', session_id: sessionId, error }
@@ -2678,18 +2688,15 @@ export class ChatRunSocket {
     const sid = String(sessionId || '').trim()
     if (!sid) return
     this.mobileRunTargets.delete(sid)
-    const fakeSocket = {
-      id: `workflow-abort-${sid}`,
-      connected: false,
-      data: {},
-      emit: () => {},
-      join: () => {},
-      to: (room: string) => ({ emit: (event: string, payload: any) => this.nsp.to(room).emit(event, payload) }),
-    } as unknown as Socket
+    const caller: ChatRunCaller = {
+      kind: 'direct', originId: `orchestration-abort-${randomUUID()}`,
+      isActive: () => false, reply: () => {}, observeSession: () => {},
+      publishToPeers: (sessionId, event, payload) => { this.nsp.to(`session:${sessionId}`).emit(event, payload) },
+    }
     this.finishTaskPlanRun(sid, 'abort.completed')
     await handleAbort(
       this.nsp,
-      fakeSocket,
+      caller,
       sid,
       this.sessionMap,
       this.bridge,

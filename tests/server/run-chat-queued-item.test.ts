@@ -580,7 +580,7 @@ describe('ChatRunSocket queued bridge runs', () => {
 
   it('supports bridge peer broadcasts during runAndWait workflow runs', async () => {
     handleBridgeRunMock.mockImplementationOnce(async (_nsp, socket, data) => {
-      socket.to(`session:${data.session_id}`).emit('run.peer_user_message', {
+      socket.publishToPeers(data.session_id, 'run.peer_user_message', {
         event: 'run.peer_user_message',
         session_id: data.session_id,
       })
@@ -639,6 +639,37 @@ describe('ChatRunSocket queued bridge runs', () => {
       output: 'answer',
       reasoning: 'thought',
     })
+  })
+
+  it.each(['workflow', 'group_chat', 'global_agent'] as const)('uses a scoped direct caller and snapshots internal %s input before readiness', async surface => {
+    let ready!: (value: unknown) => void
+    ensureReadyMock.mockImplementationOnce(() => new Promise(resolve => { ready = resolve }))
+    handleBridgeRunMock.mockImplementationOnce(async (_nsp, caller, data) => {
+      expect(caller.kind).toBe('direct')
+      expect(caller).not.toHaveProperty('emit')
+      expect(caller).not.toHaveProperty('to')
+      expect(caller).not.toHaveProperty('join')
+      expect(caller.user.id).toBe(7)
+      expect(caller.executionScope).toMatchObject({ sessionId: 'internal', profileId: 'default', principal: { kind: 'user', id: '7' },
+        surface: surface.replace('_', '-') })
+      expect(Object.isFrozen(caller.executionScope)).toBe(true)
+      expect(Object.isFrozen(caller.executionScope.principal)).toBe(true)
+      expect(data.input).toEqual([{ type: 'text', text: 'original' }])
+      data.onEvent('message.delta', { delta: 'once' })
+      data.onEvent('reasoning.delta', { delta: 'thought' })
+      data.onEvent('run.completed', { run_id: 'internal-run' })
+    })
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io } = makeServerHarness()
+    const server = new ChatRunSocket(io as any)
+    const request = { session_id: 'internal', input: [{ type: 'text' as const, text: 'original' }], source: surface, session_source: surface }
+    const options = { profile: 'default', user: { id: 7, username: 'owner', role: 'super_admin' as const }, onEvent: vi.fn() }
+    const pending = server.runAndWait(request, options)
+    await vi.waitFor(() => expect(ready).toBeTypeOf('function'))
+    request.input[0].text = 'mutated'; options.user.id = 99; options.profile = 'foreign'
+    ready({ reachable: true, status: 'ready' })
+    expect(await pending).toMatchObject({ ok: true, output: 'once', reasoning: 'thought' })
+    expect(options.onEvent.mock.calls.map(call => call[0])).toEqual(['message.delta', 'reasoning.delta', 'run.completed'])
   })
 
   it('auto-responds once to approvals only when runAndWait enables it', async () => {
