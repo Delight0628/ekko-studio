@@ -1473,6 +1473,8 @@ export * from './tools/images'
 
 export * from './tools/manager'
 
+export * from './tools/mcp'
+
 export * from './tools/registry'
 
 export * from './tools/session-tasks'
@@ -3469,7 +3471,38 @@ export class EkkoToolManager {
 ### `src/tools/mcp.ts`
 
 ```ts
-export function createMcpToolProvider(): AgentToolProvider
+export interface StdioMcpServerConfig {
+  type: 'stdio'
+  command: string
+  args: string[]
+  env: Record<string, string>
+  supportsParallelToolCalls: boolean
+  requestTimeoutMs?: number
+}
+
+export interface StreamableHttpMcpServerConfig {
+  type: 'streamable_http'
+  url: string
+  headers: Record<string, string>
+  supportsParallelToolCalls: boolean
+  requestTimeoutMs?: number
+}
+
+export type McpServerConfig = StdioMcpServerConfig | StreamableHttpMcpServerConfig
+
+export type McpClientTransport = Parameters<Client['connect']>[0]
+
+export interface McpToolProviderOptions {
+  failOnConnectionError?: boolean
+  createTransport?: (server: McpServerConfig, context: { serverName: string; signal: AbortSignal }) => McpClientTransport | Promise<McpClientTransport>
+}
+
+export interface McpToolProvider extends AgentToolProvider {
+  closeScope(signal?: AbortSignal): Promise<void>
+  dispose(): Promise<void>
+}
+
+export function createMcpToolProvider(options: McpToolProviderOptions = {}): McpToolProvider
 ```
 ### `src/tools/path-safety.ts`
 

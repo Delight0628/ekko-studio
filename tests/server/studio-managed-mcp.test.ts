@@ -133,3 +133,21 @@ it('rejects oversized outbound frames before writing and bounds concurrent sends
   await f.transport.close(); release()
   expect((await settled).filter(value => value.status === 'rejected').length).toBeGreaterThan(0)
 })
+
+it('uses the public Ekko MCP provider with managed transports and an awaited scope barrier', async () => {
+  const { createMcpToolProvider } = await import('../../packages/ekko-agent/src/tools/mcp')
+  const lifecycle = new AbortController(), scope = new ManagedProcessScope(lifecycle.signal, () => {})
+  cleanups.push(() => scope.close())
+  const provider = createMcpToolProvider({ createTransport: async server => {
+    if (server.type !== 'stdio') throw new Error('Expected stdio')
+    return new ManagedJsonRpcTransport(await scope.api.spawn({ command: server.command, args: server.args, env: server.env, cwd: process.cwd() }), parseJSONRPCMessage)
+  } })
+  cleanups.push(() => provider.dispose())
+  const context = { mcpSessionSignal: lifecycle.signal, mcpServers: { fixture: { command: process.execPath,
+    args: [join(process.cwd(), 'tests/fixtures/fake-mcp-server.cjs')] } } }
+  const tools = await provider.listTools(context)
+  const pid = Number((await tools.find(tool => tool.definition.name === 'fake_pid')!.execute({}, context)).content)
+  expect(() => process.kill(pid, 0)).not.toThrow()
+  lifecycle.abort(); await provider.closeScope(lifecycle.signal)
+  expect(() => process.kill(pid, 0)).toThrow()
+})
