@@ -15,6 +15,12 @@ export type AgentExecution = AgentRunRecord
 export interface AgentAdmission {
   originalInput: AgentRunInput; hooks: HookSnapshot[]; expectedProvider: AgentProviderRef; expectedRevision: number
 }
+/** Synchronous domain projections participate in the canonical Run transaction. */
+export interface AgentExecutionProjection {
+  accepted(run: AgentExecution, input: AgentRunInput): void
+  output(run: AgentExecution, event: AgentOutputEvent): void
+  finished(run: AgentExecution): void
+}
 interface RunRow { id: string; instance_id: string; profile_id: string; owner_id: string; status: AgentRunStatus; provider_json: string; config_revision: number; revision: number; created_at: number; updated_at: number; error_code: string | null; input_hash: string }
 
 function canonicalJson(value: unknown): string {
@@ -30,7 +36,7 @@ export class AgentExecutionStore {
   readonly state: AgentRunStateStore
   readonly conversations: AgentConversationStore
   private readonly events: PluginEventStore
-  constructor(private readonly db: DatabaseSync) {
+  constructor(private readonly db: DatabaseSync, private readonly projection?: AgentExecutionProjection) {
     this.state = new AgentRunStateStore(db)
     this.conversations = new AgentConversationStore(db)
     this.events = new PluginEventStore(db)
@@ -104,6 +110,7 @@ export class AgentExecutionStore {
       VALUES (?, ?, ?, ?, 'accepted', ?, ?, ?, ?, ?, ?)`).run(id, instance.id, instance.profileId, instance.ownerId, JSON.stringify(provider), instance.revision, now, now, key, hash)
       this.db.prepare('INSERT INTO studio_agent_run_admissions VALUES (?, ?, ?, ?)').run(id, JSON.stringify(original), JSON.stringify(input), JSON.stringify(admission?.hooks || []))
       if (target) this.conversations.bind(id, instance, target)
+      this.projection?.accepted(this.get(id)!, original)
       this.db.exec('RELEASE studio_agent_admission')
     } catch (error) { this.db.exec('ROLLBACK TO studio_agent_admission; RELEASE studio_agent_admission'); throw error }
     return { run: this.get(id)!, created: true }
@@ -129,6 +136,7 @@ export class AgentExecutionStore {
     try {
       this.db.prepare('INSERT INTO studio_agent_run_outputs (run_id, sequence, event_json) VALUES (?, ?, ?)').run(id, event.producerSequence, JSON.stringify(event))
       this.state.project(id, event)
+      this.projection?.output(run, event)
       if (event.type === 'interaction.requested') this.transition(id, ['running'], 'waiting_input')
       if (event.type === 'interaction.withdrawn' && !this.state.interactions(id).some(item => ['pending', 'responding'].includes(item.status))) {
         this.transition(id, ['waiting_input'], 'running')
@@ -151,6 +159,7 @@ export class AgentExecutionStore {
       if (changed.changes) {
         this.state.endInteractions(id)
         if (status === 'completed' && checkpoint !== undefined) this.state.saveCheckpoint(run.conversationId ?? run.instanceId, run.provider, run.configRevision, id, checkpoint)
+        this.projection?.finished(this.get(id)!)
       }
       const events = changed.changes ? this.events.append([{
         schemaVersion: 1, id: randomUUID(), type, occurredAt: Date.now(), partitionKey: `${run.profileId}:${run.id}`, sequence: 0,
