@@ -13,7 +13,9 @@ describe('embedded browser color scheme', () => {
     expect(view.setBackgroundColor).toHaveBeenLastCalledWith('#ffffff')
     expect(debuggerApi.attach).toHaveBeenCalledOnce()
     expect(debuggerApi.sendCommand.mock.calls).toEqual([
+      ['Emulation.setAutoDarkModeOverride', { enabled: true }],
       ['Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] }],
+      ['Emulation.setAutoDarkModeOverride', { enabled: false }],
       ['Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] }],
     ])
   })
