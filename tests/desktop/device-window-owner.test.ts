@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
@@ -32,4 +32,10 @@ it('recovers a Unix socket left by a killed owner', async () => {
     const release = await ownDeviceWindow(endpoint, vi.fn())
     expect(release).toBeTypeOf('function');release!()
   } finally {child.kill();rmSync(root,{recursive:true,force:true})}
+})
+
+it('keeps Electron argument delivery ahead of cross-userData device focusing', () => {
+  const source = readFileSync('packages/desktop/src/main/index.ts', 'utf8')
+  expect(source.indexOf('app.requestSingleInstanceLock(')).toBeLessThan(source.indexOf('const releaseDevice = await ownDeviceWindow('))
+  expect(source.indexOf("app.on('second-instance'")).toBeLessThan(source.indexOf('const releaseDevice = await ownDeviceWindow('))
 })

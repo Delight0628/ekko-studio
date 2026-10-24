@@ -1647,12 +1647,6 @@ async function runDesktopApp() {
     installationCoordinator.register(app.getVersion())
   }
   app.once('will-quit', () => installationCoordinator?.release())
-  const releaseDevice = await ownDeviceWindow(
-    deviceWindowEndpoint(process.env.EKKO_STUDIO_DEVICE_ROOT || webUiHome(), activeRemoteServerUrl),
-    () => { if (mainWindow) showMainWindow();else app.once('browser-window-created', () => setTimeout(showMainWindow, 100)) },
-  )
-  if (!releaseDevice) { app.quit();return }
-  app.once('will-quit', releaseDevice)
   pendingProviderImport = providerImportFromArgs(process.argv)
   app.on('open-url', (event, url) => {
     const data = providerImportPayload(url)
@@ -1687,6 +1681,15 @@ async function runDesktopApp() {
     }
     showMainWindow()
   })
+
+  // Preserve Electron's same-userData delivery of --quit and provider imports.
+  // The device guard additionally deduplicates different userData directories.
+  const releaseDevice = await ownDeviceWindow(
+    deviceWindowEndpoint(process.env.EKKO_STUDIO_DEVICE_ROOT || webUiHome(), activeRemoteServerUrl),
+    () => { if (mainWindow) showMainWindow();else app.once('browser-window-created', () => setTimeout(showMainWindow, 100)) },
+  )
+  if (!releaseDevice) { app.quit();return }
+  app.once('will-quit', releaseDevice)
 
   app.whenReady().then(async () => {
     if (QUIT_EXISTING) {
