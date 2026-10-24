@@ -136,18 +136,18 @@ const extraMessages: Record<NativeDeviceLocale, Record<keyof typeof extraEnglish
   },
 }
 const openLabels: Record<NativeDeviceLocale, { openCurrent: string; openNew: string }> = {
-  en: { openCurrent: 'Open here (restart)', openNew: 'Open new instance' },
-  zh: { openCurrent: '此窗口打开（重启）', openNew: '新窗口打开（独立实例）' },
-  'zh-TW': { openCurrent: '此視窗開啟（重新啟動）', openNew: '新視窗開啟（獨立實例）' },
-  ja: { openCurrent: 'このウィンドウで開く（再起動）', openNew: '新しいインスタンスで開く' },
-  ko: { openCurrent: '현재 창에서 열기 (재시작)', openNew: '새 인스턴스로 열기' },
-  fr: { openCurrent: 'Ouvrir ici (redémarrer)', openNew: 'Ouvrir une nouvelle instance' },
-  es: { openCurrent: 'Abrir aquí (reiniciar)', openNew: 'Abrir nueva instancia' },
-  de: { openCurrent: 'Hier öffnen (Neustart)', openNew: 'Neue Instanz öffnen' },
-  pt: { openCurrent: 'Abrir aqui (reiniciar)', openNew: 'Abrir nova instância' },
-  ru: { openCurrent: 'Открыть здесь (перезапуск)', openNew: 'Открыть новый экземпляр' },
-  ar: { openCurrent: 'فتح هنا (إعادة التشغيل)', openNew: 'فتح نسخة جديدة' },
-  tr: { openCurrent: 'Burada aç (yeniden başlat)', openNew: 'Yeni örnekte aç' },
+  en: { openCurrent: 'Open here', openNew: 'Open new instance' },
+  zh: { openCurrent: '此窗口打开', openNew: '新窗口打开' },
+  'zh-TW': { openCurrent: '此視窗開啟', openNew: '新視窗開啟' },
+  ja: { openCurrent: 'このウィンドウで開く', openNew: '新しいインスタンスで開く' },
+  ko: { openCurrent: '현재 창에서 열기', openNew: '새 인스턴스로 열기' },
+  fr: { openCurrent: 'Ouvrir ici', openNew: 'Ouvrir une nouvelle instance' },
+  es: { openCurrent: 'Abrir aquí', openNew: 'Abrir nueva instancia' },
+  de: { openCurrent: 'Hier öffnen', openNew: 'Neue Instanz öffnen' },
+  pt: { openCurrent: 'Abrir aqui', openNew: 'Abrir nova instância' },
+  ru: { openCurrent: 'Открыть здесь', openNew: 'Открыть новый экземпляр' },
+  ar: { openCurrent: 'فتح هنا', openNew: 'فتح نسخة جديدة' },
+  tr: { openCurrent: 'Burada aç', openNew: 'Yeni örnekte aç' },
 }
 export type NativeDeviceLabels = Labels & typeof extraEnglish & { openCurrent: string; openNew: string }
 export function nativeDeviceLabels(locale: NativeDeviceLocale = defaultNativeDeviceLocale()): NativeDeviceLabels {
