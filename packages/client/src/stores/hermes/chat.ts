@@ -1,4 +1,9 @@
 import { shallowReactive } from 'vue'
+import { AgentChatTranscript } from '@/utils/agent-chat-transcript'
+import { onPersistedAgentMessage, onAgentInteraction } from '@/api/studio/chat'
+import { respondManagedAgent } from '@/api/studio/agent-management'
+import { agentInteractionLabels, agentInteractionResponse } from '@/utils/agent-interaction'
+import type { AgentInteraction } from '../../../../studio-plugin-sdk/src/types'
 import { startPluginCommand, getPluginCommand, cancelPluginCommand, type PluginCommand } from '@/api/studio/commands'
 import { deploymentUrl } from '@/utils/deployment-url'
 import { chatSessionAgentAvatar } from '@/utils/chat-agent-avatar'
@@ -434,6 +439,7 @@ export function formatMessageWithReference(reference: MessageReference, content:
 }
 
 export interface PendingApproval {
+  runId?: string
   sessionId: string
   approvalId: string
   command: string
@@ -446,6 +452,8 @@ export interface PendingApproval {
 }
 
 export interface PendingClarify {
+  runId?: string
+  nativeInteraction?: AgentInteraction
   sessionId: string
   clarifyId: string
   question: string
@@ -919,7 +927,7 @@ function mapHermesMessages(msgs: HermesMessage[], taskPlans: unknown[] = [], pre
   // needed to name later tool result rows when resuming persisted history.
   const filteredMsgs = msgs.filter(m => {
     if (m.role === 'assistant') {
-      return (m.tool_calls?.length || 0) > 0 || runtimePayloadText((m as any).content).trim() !== '' || !!m.run_usage
+      return (m.tool_calls?.length || 0) > 0 || runtimePayloadText((m as any).content).trim() !== '' || !!m.reasoning?.trim() || !!m.run_usage
     }
     return true
   })
@@ -1361,6 +1369,8 @@ export const useChatStore = defineStore('chat', () => {
   const serverWorking = ref<Set<string>>(new Set())
   /** Authoritative live delegation counts, never inferred from transcript history. */
   const backgroundPendingBySession = ref<Map<string, number>>(new Map())
+  const agentTranscript = new AgentChatTranscript()
+  const agentInteractions = new Map<string, Map<string, AgentInteraction>>()
   let runtimeGeneration = 0
   const backgroundObservers = new Map<string, () => void>()
 
@@ -1372,6 +1382,8 @@ export const useChatStore = defineStore('chat', () => {
 
   const unsubscribeAuthInvalidation = onAuthInvalidated(() => {
     runtimeGeneration += 1
+    agentTranscript.clear()
+    agentInteractions.clear()
     clearBackgroundObservers()
     for (const call of pluginCommandCalls.values()) call.controller.abort()
     pluginCommandCalls.clear()
@@ -1386,6 +1398,8 @@ export const useChatStore = defineStore('chat', () => {
     for (const call of pluginCommandCalls.values()) call.controller.abort()
     pluginCommandCalls.clear()
     runtimeGeneration += 1
+    agentTranscript.clear()
+    agentInteractions.clear()
     clearBackgroundObservers()
   })
 
@@ -1574,6 +1588,8 @@ export const useChatStore = defineStore('chat', () => {
     activeRuntimeMode = mode
     runtimeMode.value = mode
     runtimeGeneration += 1
+    agentTranscript.clear()
+    agentInteractions.clear()
     clearBackgroundObservers()
     sessions.value = []
     pendingRunUsage.clear()
@@ -2029,7 +2045,7 @@ export const useChatStore = defineStore('chat', () => {
       const detail = await fetchSessionMessagesPage(sid, 0, limit, activeSession.value?.profile)
       if (revision !== messageHistoryRevisions.get(sid) || options.canApply?.() === false) return false
       if (!detail) return false
-      const mapped = mapHermesMessages(detail.messages || [], detail.taskPlans, target.messages)
+      const mapped = mapHermesMessages(agentTranscript.remember(sid, detail.messages || []), detail.taskPlans, target.messages)
       target.messages = mapped
       restorePersistedSubagentStreams(sid)
       setWorkspaceRunChanges(sid, detail.workspaceRunChanges || [])
@@ -2208,7 +2224,7 @@ export const useChatStore = defineStore('chat', () => {
           target.parentLastMessage = (data as any).parentLastMessage || target.parentLastMessage || null
           target.parentLastMessageRole = (data as any).parentLastMessageRole || target.parentLastMessageRole || null
           if (Array.isArray(data.messages)) {
-            target.messages = mapHermesMessages(data.messages as any[], data.taskPlans, target.messages)
+            target.messages = mapHermesMessages(agentTranscript.remember(data.session_id, data.messages as HermesMessage[], true), data.taskPlans, target.messages)
             restorePersistedSubagentStreams(sessionId)
             setWorkspaceRunChanges(sessionId, data.workspaceRunChanges || [])
             target.loadedMessageCount = data.messageLoadedCount ?? data.messages.length
@@ -2354,7 +2370,7 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       const existingIds = new Set(target.messages.map(message => message.id))
-      const olderMessages = mapHermesMessages(page.messages).filter(message => !existingIds.has(message.id))
+      const olderMessages = mapHermesMessages(agentTranscript.remember(sessionId, page.messages)).filter(message => !existingIds.has(message.id))
       target.messages = mergeTaskPlanMessages([...olderMessages, ...target.messages], page.taskPlans || [], sessionId)
       restorePersistedSubagentStreams(sessionId)
       mergeWorkspaceRunChanges(sessionId, page.workspaceRunChanges || [])
@@ -3418,6 +3434,7 @@ export const useChatStore = defineStore('chat', () => {
       .filter((choice: unknown): choice is PendingApproval['choices'][number] =>
         choice === 'once' || choice === 'session' || choice === 'always' || choice === 'deny')
     pendingApprovals.value.set(sid, {
+      runId: evt.run_id,
       sessionId: sid,
       approvalId,
       command: String((evt as any).command || ''),
@@ -3465,6 +3482,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!sid || !clarifyId) return
     if (pendingClarifyResponseIds.get(sid) !== clarifyId) pendingClarifyResponseIds.delete(sid)
     pendingClarifies.value.set(sid, {
+      runId: evt.run_id,
       sessionId: sid,
       clarifyId,
       question: String((evt as any).question || ''),
@@ -3504,17 +3522,19 @@ export const useChatStore = defineStore('chat', () => {
     }
     pendingClarifies.value.delete(sid)
     pendingClarifies.value = new Map(pendingClarifies.value)
+    const nextNative = agentInteractions.get(sid)?.values().next().value
+    if (nextNative) updateAgentInteraction(sid, nextNative)
   }
 
-  function clearPendingInteractions(sessionId: string) {
-    pendingApprovalResponseIds.delete(sessionId)
-    pendingClarifyResponseIds.delete(sessionId)
+  function clearPendingInteractions(sessionId: string, runId?: string) {
     let changed = false
-    if (pendingApprovals.value.has(sessionId)) {
+    if (pendingApprovals.value.has(sessionId) && (!runId || pendingApprovals.value.get(sessionId)?.runId === runId)) {
+      pendingApprovalResponseIds.delete(sessionId)
       pendingApprovals.value.delete(sessionId)
       changed = true
     }
-    if (pendingClarifies.value.has(sessionId)) {
+    if (pendingClarifies.value.has(sessionId) && (!runId || pendingClarifies.value.get(sessionId)?.runId === runId)) {
+      pendingClarifyResponseIds.delete(sessionId)
       pendingClarifies.value.delete(sessionId)
       changed = true
     }
@@ -3541,7 +3561,18 @@ export const useChatStore = defineStore('chat', () => {
   function respondToClarifyFor(sessionId: string, clarifyId: string, response: string): PendingInteractionSubmitResult {
     const pending = pendingClarifies.value.get(sessionId)
     if (!pending || pending.clarifyId !== clarifyId) return 'missing'
-    respondClarify(sessionId, clarifyId, response, runtimeTransport())
+    if (pending.nativeInteraction) {
+      if (pendingClarifyResponseIds.get(sessionId) === clarifyId) return 'submitted'
+      const value = agentInteractionResponse(pending.nativeInteraction, response, crypto.randomUUID())
+      if (!value) return 'missing'
+      const profile = sessions.value.find(session => session.id === sessionId)?.profile || useProfilesStore().activeProfileName || 'default'
+      void respondManagedAgent(profile, pending.nativeInteraction.runId, value).then(receipt => {
+        updateAgentInteraction(sessionId, { ...pending.nativeInteraction!, status: receipt.status })
+      }).catch(error => {
+        pendingClarifyResponseIds.delete(sessionId)
+        addAgentErrorMessage(sessionId, error)
+      })
+    } else respondClarify(sessionId, clarifyId, response, runtimeTransport())
     pendingClarifyResponseIds.set(sessionId, clarifyId)
     return 'submitted'
   }
@@ -4031,7 +4062,7 @@ export const useChatStore = defineStore('chat', () => {
           const previousActiveAssistantMessageId = activeAssistantMessageId
           const previousReasoningAssistantMessageId = reasoningAssistantMessageId
           const replayRunMarker = getReplayRunMarker(data.events) ?? activeRunMarker
-          target.messages = mapHermesMessages(data.messages as any[], data.taskPlans, target.messages)
+          target.messages = mapHermesMessages(agentTranscript.remember(data.session_id, data.messages as HermesMessage[], true), data.taskPlans, target.messages)
           restorePersistedSubagentStreams(sid)
           setWorkspaceRunChanges(sid, data.workspaceRunChanges || [])
           target.loadedMessageCount = data.messageLoadedCount ?? data.messages.length
@@ -4253,7 +4284,7 @@ export const useChatStore = defineStore('chat', () => {
             case 'abort.completed': {
               setAbortState(sid, { aborting: false, synced: (evt as any).synced ?? false })
               settleInterruptedSubagents(sid)
-              clearPendingInteractions(sid)
+              clearPendingInteractions(sid, evt.agent_run_id)
               const abortedAssistant = getSessionMsgs(sid).find(message => message.id === activeAssistantMessageId)
                 || [...getSessionMsgs(sid)].reverse().find(message => message.role === 'assistant' && message.isStreaming)
               handleTerminalWorkspaceRunChange(sid, evt, abortedAssistant?.id)
@@ -4339,6 +4370,14 @@ export const useChatStore = defineStore('chat', () => {
               break
             }
 
+            case 'message.persisted': {
+              if (!evt.agent_run_id || !Array.isArray(evt.messages)) break
+              const assistant = [...evt.messages].reverse().find(message => message.role === 'assistant' && (message.content?.trim() || message.reasoning?.trim()))
+              if (assistant) activeAssistantMessageId = String(assistant.id)
+              if (evt.messages.some(message => message.role === 'assistant' && message.content?.trim())) { runProducedAssistantText = true; runProducedAssistantContent = true }
+              if (evt.messages.some(message => message.role === 'tool' || message.tool_calls?.length)) runHadToolActivity = true
+              break
+            }
             case 'message.delta': {
               if (evt.delta) {
                 runProducedAssistantText = true
@@ -4633,7 +4672,7 @@ export const useChatStore = defineStore('chat', () => {
 
             case 'run.failed': {
               clearRunStartedAt(sid)
-              clearPendingInteractions(sid)
+              clearPendingInteractions(sid, evt.agent_run_id)
               const failedMessages = getSessionMsgs(sid)
               const failedAssistant = activeAssistantMessageId
                 ? failedMessages.find(message => message.id === activeAssistantMessageId)
@@ -4922,7 +4961,7 @@ export const useChatStore = defineStore('chat', () => {
         case 'abort.completed': {
           setAbortState(sid, { aborting: false, synced: (evt as any).synced ?? false })
           settleInterruptedSubagents(sid)
-          clearPendingInteractions(sid)
+          clearPendingInteractions(sid, evt.agent_run_id)
           const abortedAssistant = getSessionMsgs(sid).find(message => message.id === activeAssistantMessageId)
             || [...getSessionMsgs(sid)].reverse().find(message => message.role === 'assistant' && message.isStreaming)
           handleTerminalWorkspaceRunChange(sid, evt, abortedAssistant?.id)
@@ -5001,7 +5040,15 @@ export const useChatStore = defineStore('chat', () => {
           break
         }
 
-        case 'message.delta': {
+        case 'message.persisted': {
+              if (!evt.agent_run_id || !Array.isArray(evt.messages)) break
+              const assistant = [...evt.messages].reverse().find(message => message.role === 'assistant' && (message.content?.trim() || message.reasoning?.trim()))
+              if (assistant) activeAssistantMessageId = String(assistant.id)
+              if (evt.messages.some(message => message.role === 'assistant' && message.content?.trim())) { runProducedAssistantText = true; runProducedAssistantContent = true }
+              if (evt.messages.some(message => message.role === 'tool' || message.tool_calls?.length)) runHadToolActivity = true
+              break
+            }
+            case 'message.delta': {
           if (evt.delta) {
             runProducedAssistantText = true
             runProducedAssistantContent = true
@@ -5292,7 +5339,7 @@ export const useChatStore = defineStore('chat', () => {
 
         case 'run.failed': {
           clearRunStartedAt(sid)
-          clearPendingInteractions(sid)
+          clearPendingInteractions(sid, evt.agent_run_id)
           const failedMessages = getSessionMsgs(sid)
           const failedAssistant = activeAssistantMessageId
             ? failedMessages.find(message => message.id === activeAssistantMessageId)
@@ -5344,6 +5391,7 @@ export const useChatStore = defineStore('chat', () => {
     // Register handlers in global session map
     registerSessionHandlers(sid, {
       onMessageDelta: (evt) => handleEvent(evt),
+      onMessagePersisted: (evt) => handleEvent(evt),
       onMessageInterim: (evt) => handleEvent(evt),
       onReasoningDelta: (evt) => handleEvent(evt),
       onThinkingDelta: (evt) => handleEvent(evt),
@@ -5461,6 +5509,52 @@ export const useChatStore = defineStore('chat', () => {
   onSessionTitleUpdated(applyGeneratedSessionTitle)
   onSessionWorkspaceUpdated(applySessionWorkspaceUpdate)
   onSessionSettingsUpdated(applySessionSettingsUpdate)
+  function updateAgentInteraction(sessionId: string, interaction: AgentInteraction) {
+    const values = agentInteractions.get(sessionId) ?? new Map<string, AgentInteraction>()
+    if (['pending', 'responding'].includes(interaction.status)) values.set(interaction.id, interaction)
+    else values.delete(interaction.id)
+    if (values.size) agentInteractions.set(sessionId, values)
+    else agentInteractions.delete(sessionId)
+    const current = pendingClarifies.value.get(sessionId)
+    if (current && !current.nativeInteraction) return
+    const next = [...values.values()][0]
+    if (next) {
+      const requestedAt = current?.clarifyId === next.id ? current.requestedAt : Date.now()
+      pendingClarifies.value.set(sessionId, { sessionId, clarifyId: next.id, runId: next.runId, nativeInteraction: next,
+        question: next.prompt, choices: agentInteractionLabels(next), responseMode: 'native', initialResponse: '',
+        requestedAt, timeoutMs: next.expiresAt ? Math.max(0, next.expiresAt - requestedAt) : 600_000,
+        countdownDeadline: next.expiresAt ?? requestedAt + 600_000 })
+    } else if (current?.nativeInteraction) pendingClarifies.value.delete(sessionId)
+    pendingClarifies.value = new Map(pendingClarifies.value)
+  }
+  const stopAgentInteractions = onAgentInteraction(evt => {
+    if (evt.session_id && evt.interaction) updateAgentInteraction(evt.session_id, evt.interaction)
+  })
+  onScopeDispose(stopAgentInteractions)
+
+  const stopPersistedAgentMessages = onPersistedAgentMessage(evt => {
+    const sid = evt.session_id, runId = evt.agent_run_id
+    if (!sid || !runId || !Array.isArray(evt.messages)) return
+    const session = sessions.value.find(item => item.id === sid)
+    if (!session) return
+    agentTranscript.remember(sid, evt.messages)
+    const rows = agentTranscript.run(sid, runId)
+    const previous = getSessionMsgs(sid)
+    const queueId = String((evt as any).queue_id || '')
+    const position = previous.findIndex(message => message.runMarker === runId || message.id === queueId)
+    const mapped = mapHermesMessages(rows, [], previous)
+    const lastAssistant = [...mapped].reverse().find(message => message.role === 'assistant')
+    for (const message of mapped) {
+      if (message.role === 'assistant') message.isStreaming = message === lastAssistant && serverWorking.value.has(sid)
+      if (message.role === 'tool' && message.toolResult === undefined) message.toolStatus = serverWorking.value.has(sid) ? 'running' : 'done'
+    }
+    const retained = previous.filter(message => message.runMarker !== runId && message.id !== queueId)
+    retained.splice(position < 0 ? retained.length : Math.min(position, retained.length), 0, ...mapped)
+    session.messages = retained
+    dropQueuedUserMessage(sid, queueId)
+  })
+  onScopeDispose(stopPersistedAgentMessages)
+
   onRunUsageUpdated(evt => {
     const sid = evt.session_id
     const summary = normalizeRunUsage((evt as any).run_usage)
@@ -5547,7 +5641,7 @@ export const useChatStore = defineStore('chat', () => {
                 activeSession.value.workspace = data.workspace.trim() || null
                 activeSession.value.isLocalOnly = false
               }
-              activeSession.value.messages = mapHermesMessages(data.messages as any[], data.taskPlans, activeSession.value.messages)
+              activeSession.value.messages = mapHermesMessages(agentTranscript.remember(data.session_id, data.messages as HermesMessage[], true), data.taskPlans, activeSession.value.messages)
               restorePersistedSubagentStreams(sid)
               setWorkspaceRunChanges(sid, data.workspaceRunChanges || [])
               activeSession.value.loadedMessageCount = data.messageLoadedCount ?? data.messages.length

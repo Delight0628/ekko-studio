@@ -4,6 +4,7 @@ import { AgentExecutionStore } from '../../packages/server/src/modules/studio/re
 import { AgentChatProjection } from '../../packages/server/src/modules/studio/repositories/agent-chat-projection'
 import { PluginEventStore } from '../../packages/server/src/modules/studio/repositories/plugin-event-store'
 import type { AgentOutputEvent, AgentProviderRef } from '../../packages/studio-plugin-sdk/src'
+import { SKILL_USAGE_EVENTS_SCHEMA, SKILL_USAGE_EVENTS_INDEXES } from '../../packages/server/src/modules/studio/infrastructure/database/schemas'
 
 const cleanup: Array<() => void> = []
 afterEach(() => { for (const close of cleanup.splice(0)) close() })
@@ -19,6 +20,8 @@ function setup() {
     CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL,
     reasoning TEXT, tool_calls TEXT, tool_call_id TEXT, tool_name TEXT, run_marker TEXT, timestamp INTEGER, finish_reason TEXT);`)
   for (const id of ['a', 'b', 'old']) db.prepare("INSERT INTO sessions (id, profile, studio_user_id, source) VALUES (?, 'one', '7', 'coding_agent')").run(id)
+  db.exec(`CREATE TABLE skill_usage_events (${Object.entries(SKILL_USAGE_EVENTS_SCHEMA).map(([name, sql]) => `${name} ${sql}`).join(', ')})`)
+  for (const sql of Object.values(SKILL_USAGE_EVENTS_INDEXES)) db.exec(sql)
   const projection = new AgentChatProjection(db), store = new AgentExecutionStore(db, projection)
   const instance = store.createInstance({ agentTypeId: 'test.chat/agent', profileId: 'one', ownerId: '7', mode: 'global', config: {} })
   projection.attach('a', instance); projection.attach('b', instance)
@@ -61,6 +64,24 @@ it('projects existing tool-call/result fields, preserves unknown usage, and fini
   expect(f.messages('a')).toHaveLength(3)
   expect(f.session('a')).toMatchObject({ end_reason: 'completed', ended_at: expect.any(Number) })
   expect(new PluginEventStore(f.db).read('one')).toHaveLength(1)
+})
+
+it('reuses evidence-backed skill tracking once for the projected tool result and canonical Run', () => {
+  const f = setup(), run = f.start('a', 'request')
+  f.store.appendOutput(run.id, { type: 'tool.started', producerSequence: 0, callId: 'skill', name: 'skill_view', data: { name: 'fixture-skill' } })
+  for (const sequence of [1, 2]) f.store.appendOutput(run.id, { type: 'tool.completed', producerSequence: sequence, callId: 'skill', name: 'skill_view', data: 'The skill instructions' })
+  expect(f.db.prepare('SELECT * FROM skill_usage_events').all()).toMatchObject([{ session_id: 'a', run_id: run.id, profile: 'one', agent: 'test.chat/agent', skill: 'fixture-skill', action: 'view' }])
+  expect(f.messages('a')).toHaveLength(3)
+})
+
+it('leaves independent executions and the legacy chat writer outside this projection', () => {
+  const f = setup(), run = f.store.accept(f.instance, provider, input, 'independent').run
+  f.store.transition(run.id, ['accepted'], 'running')
+  f.store.appendOutput(run.id, { type: 'message.delta', producerSequence: 0, messageId: 'm', text: 'Independent response' })
+  f.store.finish(run.id, 'completed', null)
+  expect(f.store.output(run.id)).toHaveLength(1)
+  expect(f.messages('a')).toEqual([])
+  expect(f.messages('b')).toEqual([])
 })
 
 it('keeps equal native message and tool identities separate between chats and Runs', () => {
@@ -106,15 +127,18 @@ it('rejects an empty imported transcript that still references an existing nativ
   expect(f.projection.binding('old')).toBeUndefined()
 })
 
-it('rolls back Run admission and its input message when the transcript insert fails', () => {
+it('keeps accepted input durable while rolling back dispatch and its transcript row on a history insert failure', () => {
   const f = setup()
   f.db.exec("CREATE TRIGGER fail_input AFTER INSERT ON messages BEGIN SELECT RAISE(ABORT, 'fixture input failure'); END")
-  expect(() => f.accept('a', 'request')).toThrow('fixture input failure')
-  for (const table of ['studio_agent_runs', 'studio_agent_conversations', 'studio_agent_run_targets', 'studio_agent_run_admissions', 'studio_agent_chat_messages', 'messages']) {
+  const run = f.accept('a', 'request')
+  expect(() => f.store.transition(run.id, ['accepted'], 'starting')).toThrow('fixture input failure')
+  expect(f.store.get(run.id)?.status).toBe('accepted')
+  expect(f.store.originalInput(run.id)).toEqual(input)
+  for (const table of ['studio_agent_chat_messages', 'messages']) {
     expect(f.db.prepare(`SELECT count(*) AS count FROM ${table}`).get()?.count).toBe(0)
   }
   f.db.exec('DROP TRIGGER fail_input')
-  expect(f.accept('a', 'request').sessionId).toBe('a')
+  expect(f.store.transition(run.id, ['accepted'], 'starting')).toBe(true)
   expect(f.messages('a')).toHaveLength(1)
 })
 
@@ -123,6 +147,7 @@ it.each([['hermes', 'cli', 'hermes'], ['ekko-agent', 'builtin_agent', 'ekko']] a
   f.db.prepare('UPDATE sessions SET agent=?, source=? WHERE id=?').run(agent, source, 'old')
   f.projection.attach('old', instance, source)
   const run = f.store.accept(instance, { kind: 'builtin', module, implementationVersion: 'test' }, input, 'builtin', undefined, { kind: 'chat', sessionId: 'old' }).run
+  f.store.transition(run.id, ['accepted'], 'starting')
   expect(f.projection.binding('old')?.source).toBe(source)
   expect(f.session('old')).toMatchObject({ agent, source })
   expect(f.messages('old')).toMatchObject([{ role: 'user', content: 'hello', run_marker: run.id }])

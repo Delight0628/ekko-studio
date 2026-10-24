@@ -10,10 +10,11 @@ export interface NativeAgentContext {
   end(): Promise<void>
   close(): Promise<void>
 }
+export interface NativeAgentTurnBinding { contextId: string; sessionId: string; instructions: string; interactive?: boolean }
 
 /** No vendor branches or native Home edits: adapters only consume the prepared DTO. */
 export function createNativeAgentContext(instance: AgentInstance, scope: ExecutionScope, runtimeSignal: AbortSignal,
-  authorize: (runId: string) => void): NativeAgentContext | undefined {
+  authorize: (runId: string) => void, options: { bindTurn?(runId: string, signal: AbortSignal): NativeAgentTurnBinding | Promise<NativeAgentTurnBinding> } = {}): NativeAgentContext | undefined {
   const settings = instance.config.studioMcp as AgentContextConfiguration['studioMcp']
   if (settings?.enabled !== true) return undefined
   const userId = Number(scope.principal.id)
@@ -25,7 +26,12 @@ export function createNativeAgentContext(instance: AgentInstance, scope: Executi
   return {
     async prepare(runId, signal) {
       authorize(runId)
-      turn = await slot.begin(servers, { sessionId: `agent-run:${runId}`, profile: scope.profileId, agentId: instance.agentTypeId, userId,
+      const binding = scope.sessionId && settings.interaction !== false ? await options.bindTurn?.(runId, signal) : undefined
+      authorize(runId)
+      if (binding && binding.sessionId !== scope.sessionId) throw new StudioError('FORBIDDEN', 'Native MCP binding belongs to another chat')
+      turn = await slot.begin({ ...servers, ...(binding ? { 'ekko-studio-interaction': { env: { [STUDIO_MANAGED_MCP_ENV]: '1' } } } : {}) },
+        { sessionId: binding?.sessionId ?? scope.sessionId ?? `agent-run:${runId}`, profile: scope.profileId, agentId: instance.agentTypeId, userId, ...(binding ? { contextId: binding.contextId } : {}),
+        ...(binding ? { sessionTasks: binding.interactive !== false, userClarification: binding.interactive !== false } : {}),
         signal: AbortSignal.any([signal, runtimeSignal]), authorize: () => authorize(runId) })
       authorize(runId)
       const mcpServers = Object.fromEntries(Object.entries(turn.servers).map(([name, value]) => {
@@ -33,7 +39,7 @@ export function createNativeAgentContext(instance: AgentInstance, scope: Executi
         return [name, { command: server.command, args: server.args, env: server.env } satisfies AgentMcpServerConfiguration]
       }))
       return { mcpServers, systemPrompt: studioMcpUsageGuidelines(studioMcpCapabilities(mcpServers)),
-        ...(turn.contextId ? { turnInstructions: `Studio MCP context for this turn: ${turn.contextId}. Pass context_id="${turn.contextId}" on every Studio MCP call, including compact toolset wrappers. This context supersedes all previous turns and expires when the current Run ends.` } : {}) }
+        ...(turn.contextId ? { turnInstructions: [binding?.instructions, `Studio MCP context for this turn: ${turn.contextId}. Pass context_id="${turn.contextId}" on every Studio MCP call, including compact toolset wrappers. This context supersedes all previous turns and expires when the current Run ends.`].filter(Boolean).join('\n\n') } : {}) }
     },
     async end() { await turn?.dispose(); turn = undefined },
     close: () => slot.close(),

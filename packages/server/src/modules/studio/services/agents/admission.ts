@@ -28,7 +28,7 @@ export class AgentRunAdmission {
     if (signal.aborted) throw new StudioError('CANCELLED', 'Run start was cancelled')
     const inspected = this.coordinator.inspectStart(scope, request.instanceId, request.input, request.idempotencyKey, target)
     if (inspected.previous) return inspected.previous
-    if (target) scope = { ...scope, sessionId: target.sessionId, surface: 'chat' }
+    if (target) scope = { ...scope, sessionId: target.sessionId, surface: scope.surface === 'api' ? 'chat' : scope.surface }
     const key = JSON.stringify([scope.principal.id, scope.profileId, request.idempotencyKey]), hash = agentRunRequestHash(request.instanceId, request.input, target)
     const pending = this.pending.get(key)
     if (pending) {

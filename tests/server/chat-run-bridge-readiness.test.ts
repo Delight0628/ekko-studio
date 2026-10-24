@@ -167,7 +167,97 @@ function makeServerHarness() {
 }
 
 describe('ChatRunSocket global pending interactions', () => {
+  it('routes bound chats to canonical admission with trusted identity and leaves legacy managers unused', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { setAgentChatService } = await import('../../packages/server/src/modules/studio/services/agents/chat-registry')
+    const { io, socket } = makeServerHarness(), server = new ChatRunSocket(io as any)
+    Object.assign(socket.data, { user: { id: 7, role: 'super_admin' }, profile: 'default' })
+    const start = vi.fn(async () => ({ id: 'canonical', status: 'running' })), follow = vi.fn()
+    const service = { isBound: (id: string) => id === 'managed-session', ownedBinding: vi.fn(), start, activity: () => [] }
+    setAgentChatService(service as any)
+    ;(server as any).managedAgentDelivery = { follow }
+    const legacyCount = handleCodingAgentRunMock.mock.calls.length, readyCount = ensureReadyMock.mock.calls.length
+    try {
+      await (server as any).handleRun(socket, { session_id: 'managed-session', input: '/status', source: 'coding_agent', managed_agent_protocol: 1,
+        coding_agent_id: 'codex', apiKey: 'untrusted-legacy-key', model: 'untrusted-legacy-model', queue_id: 'request-id' }, 'default')
+      expect(start).toHaveBeenCalledWith(expect.objectContaining({ principal: { kind: 'user', id: '7' }, profileId: 'default', sessionId: 'managed-session', surface: 'chat' }),
+        'managed-session', { content: [{ type: 'text', text: '/status' }] }, 'request-id', expect.any(AbortSignal))
+      expect(follow).toHaveBeenCalledWith(expect.anything(), 'managed-session', 'canonical', 'request-id')
+      expect(handleCodingAgentRunMock.mock.calls.length).toBe(legacyCount)
+      expect(ensureReadyMock.mock.calls.length).toBe(readyCount)
+      expect(socket.emit).toHaveBeenCalledWith('run.accepted', expect.objectContaining({ agent_run_id: 'canonical', queue_id: 'request-id' }))
+    } finally { setAgentChatService(undefined) }
+  })
+
+  it('requires the supported client protocol before accepting a bound chat and preserves a trusted background surface', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { setAgentChatService } = await import('../../packages/server/src/modules/studio/services/agents/chat-registry')
+    const { io, socket } = makeServerHarness(), server = new ChatRunSocket(io as any)
+    Object.assign(socket.data, { user: { id: 7, role: 'super_admin' }, profile: 'default' })
+    const start = vi.fn(async () => ({ id: 'canonical', status: 'running' }))
+    setAgentChatService({ isBound: () => true, ownedBinding: vi.fn(), start, activity: () => [] } as any)
+    ;(server as any).managedAgentDelivery = { follow: vi.fn() }
+    try {
+      await expect((server as any).handleRun(socket, { session_id: 'managed-session', input: 'Hello' }, 'default')).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
+      expect(start).not.toHaveBeenCalled()
+      const caller = { kind: 'direct', user: { id: 7 }, originId: 'background', isActive: () => true, observeSession: vi.fn(), reply: vi.fn(), publishToPeers: vi.fn(),
+        executionScope: { scopeId: 'origin', traceId: 'trace', principal: { kind: 'user', id: '7' }, profileId: 'default', surface: 'event' } }
+      await (server as any).handleRun(caller, { session_id: 'managed-session', input: 'Background work' }, 'default')
+      expect(start.mock.calls[0][0]).toMatchObject({ surface: 'event', sessionId: 'managed-session' })
+    } finally { setAgentChatService(undefined) }
+  })
+
+  it('binds managed plans, goals and questions to a canonical Run without a legacy session cache', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io, emitted } = makeServerHarness(), server = new ChatRunSocket(io as any)
+    let active = true
+    const lease = server.beginAgentTaskPlanRun('owned-chat', 'default', 'canonical-run', () => active, true, '7')
+    expect(lease.instructions).toContain('<studio_session_tasks_context>')
+    expect(server.updateTaskPlan(lease.contextId, 'default', { plan: [{ id: 'work', step: 'Verify', status: 'in_progress' }] }).run_id).toBe('canonical-run')
+    expect(server.listSessionTasks(lease.contextId, 'default')).toMatchObject({ session_id: 'owned-chat' })
+    const question = server.requestClarification(lease.contextId, 'default', { question: 'Choose', choices: ['First', 'Second'] })
+    const requested = emitted.find(entry => entry.event === 'clarify.requested')!
+    expect(server.respondCodingAgentClarification('owned-chat', requested.payload.clarify_id, 'First')).toBe(true)
+    expect(await question).toMatchObject({ reason: 'response', response: 'First' })
+    active = false; lease.finish('ended')
+    expect(() => server.listSessionTasks(lease.contextId, 'default')).toThrow('expired')
+  })
+
+  it('keeps managed background contexts plan-only and protects the next Run from an older terminal event', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io } = makeServerHarness(), server = new ChatRunSocket(io as any)
+    const old = server.beginAgentTaskPlanRun('owned-chat', 'default', 'old-run', () => true, false, '7')
+    expect(old.instructions).not.toContain('<studio_session_tasks_context>')
+    expect(old.instructions).not.toContain('<studio_interaction_context>')
+    expect(() => server.listSessionTasks(old.contextId, 'default')).toThrow('unavailable')
+    expect(() => server.requestClarification(old.contextId, 'default', { question: 'No background questions' })).toThrow('expired')
+    old.finish('ended')
+    const current = server.beginAgentTaskPlanRun('owned-chat', 'default', 'new-run', () => true, false, '7')
+    const plan = { plan: [{ id: 'work', step: 'Continue', status: 'in_progress' }] }
+    server.updateTaskPlan(current.contextId, 'default', plan)
+    ;(server as any).finishTaskPlanRun('owned-chat', 'run.completed', { agent_run_id: 'old-run' })
+    expect(server.updateTaskPlan(current.contextId, 'default', plan).revision).toBe(2)
+    current.finish('ended')
+  })
+
+  it('requires the current owner and profile for managed interaction API contexts', async () => {
+    const previous = getSessionMock.getMockImplementation()!
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const server = new ChatRunSocket(makeServerHarness().io as any)
+    try {
+      getSessionMock.mockImplementation(() => ({ id: 'owned-chat', profile: 'default', source: 'coding_agent', agent: 'codex', studio_user_id: '7' }) as any)
+      const lease = server.beginAgentTaskPlanRun('owned-chat', 'default', 'run', () => true, true, '7')
+      expect(() => server.authorizeAgentInteractionContext(lease.contextId, 'default', '7')).not.toThrow()
+      expect(() => server.authorizeAgentInteractionContext(lease.contextId, 'default', '8')).toThrow('current user scope')
+      expect(() => server.authorizeAgentInteractionContext(lease.contextId, 'other-profile', '7')).toThrow('current user scope')
+      getSessionMock.mockImplementation(() => ({ id: 'owned-chat', profile: 'default', source: 'coding_agent', agent: 'codex', studio_user_id: '8' }) as any)
+      expect(() => server.authorizeAgentInteractionContext(lease.contextId, 'default', '7')).toThrow('current user scope')
+      lease.finish('interrupted')
+    } finally { getSessionMock.mockImplementation(previous) }
+  })
+
   it('binds session goals to the active primary turn without publishing a plan card', async () => {
+    saveTaskPlanMock.mockClear()
     const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
     const { io, emitted } = makeServerHarness()
     const server = new ChatRunSocket(io as any)

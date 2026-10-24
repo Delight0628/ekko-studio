@@ -4,7 +4,7 @@
  */
 import { isSqliteAvailable, getDb } from '../infrastructure/database'
 import { TASK_PLANS_TABLE, SESSION_TASKS_TABLE, COMPRESSION_SNAPSHOT_TABLE, SESSIONS_TABLE, MESSAGES_TABLE, SESSION_CATEGORIES_TABLE, WORKSPACE_RUN_CHANGES_TABLE, WORKSPACE_RUN_CHANGE_FILES_TABLE } from '../infrastructure/database/schemas'
-import { normalizeMessageContentForStorageRole } from './message-content'
+import { normalizeMessageContentForStorageRole, parseStoredToolCalls as parseToolCalls } from './message-content'
 import { copyCompressionSnapshot } from './compression-snapshot'
 import { recordSkillUsageMessage } from './skill-usage-store'
 import { getRecordedSessionTokensBatch } from './usage-store'
@@ -110,18 +110,6 @@ export interface HermesSessionDetailRow extends HermesSessionRow {
 // Tables are created automatically on bootstrap via initAllHermesTables()
 
 // --- Helpers ---
-
-function parseToolCalls(value: unknown): any[] | null {
-  if (value == null || value === '') return null
-  if (Array.isArray(value)) return value
-  if (typeof value !== 'string') return null
-  try {
-    const parsed = JSON.parse(value)
-    return Array.isArray(parsed) ? parsed : null
-  } catch {
-    return null
-  }
-}
 
 function mapSessionRow(row: Record<string, unknown>): HermesSessionRow {
   return mapSessionRows([row])[0]

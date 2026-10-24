@@ -34,6 +34,7 @@ export interface ChatRunStartScope {
 }
 
 export interface ChatRunStartRequest {
+  managed_agent_protocol?: number
   push_snapshot?: unknown
   input: string | ContentBlock[]
   display_input?: string | ContentBlock[] | null
@@ -81,6 +82,7 @@ export interface ChatRunStartRequest {
 
 /** Legacy execution and delivery remain adapters; admission owns no HTTP or Socket objects. */
 export interface ChatRunStartPorts {
+  isManagedChat?(sessionId: string): boolean
   sessions: Map<string, SessionState>
   emit(event: string, payload: Record<string, unknown>): void
   emitSession(sessionId: string, event: string, payload: Record<string, unknown>): void
@@ -166,6 +168,25 @@ export async function startChatRun(request: ChatRunStartRequest, scope: ChatRunS
     data.category_id = resolveSessionCategoryId(data.category_id)
   }
   if (data.session_id) {
+    if (ports.isManagedChat?.(data.session_id)) {
+      try {
+        if (scope.shared) throw new StudioError('FORBIDDEN', 'Managed Agent chats require their owner')
+        scope.directCaller?.assertCanStart?.()
+        const actor = await ports.pushActor()
+        if (actor) {
+          const target = bindRunPushTarget({ kind: 'chat', profile: runProfile, runId: randomUUID() }, data.session_id, actor, {
+            ciphertext: prepareRunPushSnapshot(actor, pushSnapshot), platform: String((pushSnapshot as any)?.platform || 'unknown'),
+          })
+          pushTargetId = target.id
+          ports.emit('run.push.bound', { session_id: data.session_id, queue_id: data.queue_id, run_id: target.run_id })
+        }
+        await ports.execute(data, runProfile, pushTargetId)
+      } catch (err) {
+        ports.emit('run.failed', { event: 'run.failed', session_id: data.session_id, queue_id: data.queue_id,
+          error: err instanceof Error ? err.message : String(err), ...(err instanceof StudioError ? { error_code: err.code } : {}) })
+      }
+      return
+    }
     const state = getOrCreateSession(ports.sessions, data.session_id)
     const source = resolveRunSource(data.source, data.session_id)
     const storedSession = getSession(data.session_id)

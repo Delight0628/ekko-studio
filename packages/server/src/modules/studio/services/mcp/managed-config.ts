@@ -25,7 +25,7 @@ function bundledLauncher(): string | undefined {
 
 /** Platform launch policy; vendor adapters only translate this DTO to native config formats. */
 export function studioManagedMcpConfig(profile: string, serverName: string, toolset: string, host: {
-  appHome: string; port: number | string; nativeTaskPlan?: boolean; runTokenFile?: string
+  appHome: string; port: number | string; nativeTaskPlan?: boolean; runTokenFile?: string; sessionTasks?: boolean; userClarification?: boolean
 }): ManagedMcpLaunch {
   const launcher = bundledLauncher()
   return {
@@ -39,7 +39,8 @@ export function studioManagedMcpConfig(profile: string, serverName: string, tool
       HERMES_MCP_SERVER_NAME: serverName,
       HERMES_MCP_TOOLSET: toolset,
       [STUDIO_MANAGED_MCP_ENV]: '1',
-      ...(host.nativeTaskPlan ? { HERMES_MCP_NATIVE_TASK_PLAN: '1' } : { HERMES_MCP_USER_CLARIFICATION: '1' }),
+      ...(host.nativeTaskPlan ? { HERMES_MCP_NATIVE_TASK_PLAN: '1' } : { HERMES_MCP_USER_CLARIFICATION: host.userClarification === false ? '' : '1' }),
+      ...(host.sessionTasks === undefined ? {} : { HERMES_MCP_SESSION_TASKS: host.sessionTasks ? '1' : '0' }),
       ...(host.runTokenFile ? { HERMES_WEB_UI_RUN_TOKEN_FILE: host.runTokenFile } : {}),
       // Never inherit static bearer tokens or an Electron GUI launch mode.
       HERMES_WEB_UI_TOKEN: '', AUTH_TOKEN: '', ELECTRON_RUN_AS_NODE: '1',

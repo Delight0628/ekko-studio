@@ -225,11 +225,11 @@ it('uses local member records and never borrows the room owner or a remote sende
   expect(groupRunUser(local, 'room', 'research', message)).toBeUndefined()
 })
 
-function mcpClient(url: string, file: string, contextLookup = false, boundContext = false, toolset = 'plan') {
+function mcpClient(url: string, file: string, contextLookup = false, boundContext = false, toolset = 'plan', envOverrides: Record<string, string> = {}) {
   const child: ChildProcessWithoutNullStreams = spawn(process.execPath, ['bin/ekko-studio-mcp.mjs', toolset], {
     env: { ...process.env, HERMES_WEB_UI_URL: url, HERMES_WEB_UI_PROFILE: 'research', HERMES_WEB_UI_RUN_TOKEN_FILE: file,
       HERMES_MCP_CONTEXT_CREDENTIALS: contextLookup ? '1' : '', HERMES_MCP_RUN_BOUND_CONTEXT: boundContext ? '1' : '',
-      HERMES_WEB_UI_TOKEN: 'stale-env-token', AUTH_TOKEN: 'stale-static-token', HERMES_MCP_USER_CLARIFICATION: '1' },
+      HERMES_WEB_UI_TOKEN: 'stale-env-token', AUTH_TOKEN: 'stale-static-token', HERMES_MCP_USER_CLARIFICATION: '1', ...envOverrides },
   })
   const responses = new Map<number, any>()
   let buffer = ''
@@ -248,7 +248,7 @@ function mcpClient(url: string, file: string, contextLookup = false, boundContex
     await vi.waitFor(() => expect(responses.has(requestId)).toBe(true), { timeout: 5000 })
     return responses.get(requestId).result
   }
-  return { child, list: () => rpc('tools/list', {}), call: (args: unknown, tool = 'ekko_studio_update_plan') => rpc('tools/call', { name: tool, arguments: args }) }
+  return { child, initialize: () => rpc('initialize', {}), list: () => rpc('tools/list', {}), call: (args: unknown, tool = 'ekko_studio_update_plan') => rpc('tools/call', { name: tool, arguments: args }) }
 
 }
 
@@ -431,6 +431,26 @@ it('rotates one native MCP process through a stable private path while revoking 
     await slot.close(); client.child.kill(); server.closeAllConnections()
     await new Promise<void>(resolve => server.close(() => resolve()))
   }
+})
+
+it('exposes only the task card in a background native interaction process and rejects hidden goal/question calls', async () => {
+  const slot = new NativeMcpCredentialSlot()
+  const lease = await slot.begin({ 'ekko-studio-interaction': { env: { HERMES_WEB_UI_MANAGED_MCP: '1' } } }, {
+    sessionId: 'background-chat', profile: 'research', agentId: 'test.plugin/agent', userId: 7, contextId: 'background-plan',
+    sessionTasks: false, userClarification: false, signal: new AbortController().signal,
+  })
+  const env = (lease.servers['ekko-studio-interaction'] as any).env
+  const client = mcpClient('http://127.0.0.1:1', env.HERMES_WEB_UI_RUN_TOKEN_FILE, false, true, 'plan', env)
+  try {
+    const initialized = await client.initialize()
+    expect(initialized.instructions).toContain('ekko_studio_update_plan')
+    expect(initialized.instructions).not.toContain('ekko_studio_list_session_tasks')
+    expect(initialized.instructions).not.toContain('ekko_studio_clarify')
+    expect((await client.list()).tools.map((tool: any) => tool.name)).toEqual(['ekko_studio_update_plan'])
+    for (const tool of ['ekko_studio_list_session_tasks', 'ekko_studio_update_session_tasks', 'ekko_studio_clarify']) {
+      expect((await client.call({ context_id: 'background-plan' }, tool)).isError).toBe(true)
+    }
+  } finally { client.child.kill(); await slot.close() }
 })
 
 it('keeps custom native MCP definitions unchanged and never aliases caller-selected credential paths', async () => {

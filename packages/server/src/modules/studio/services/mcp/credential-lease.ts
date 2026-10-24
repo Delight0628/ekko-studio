@@ -5,9 +5,10 @@ import { studioManagedMcpConfig, isStudioManagedMcpServer } from './managed-conf
 
 /** One authenticated execution owns its credential files, independent of other turns in the Profile. */
 export async function leaseStudioMcpServers(servers: Record<string, unknown> | undefined, run: {
-  sessionId: string; profile: string; agentId: string; userId?: number; signal: AbortSignal; nativeTaskPlan?: boolean; authorize?(): void
+  sessionId: string; profile: string; agentId: string; userId?: number; signal: AbortSignal; nativeTaskPlan?: boolean; contextId?: string; sessionTasks?: boolean; userClarification?: boolean; authorize?(): void
 }) {
-  const lifecycle = new AbortController(), contextId = randomUUID()
+  if (run.contextId !== undefined && (typeof run.contextId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(run.contextId))) throw new Error('Invalid host MCP context')
+  const lifecycle = new AbortController(), contextId = run.contextId ?? randomUUID()
   const managed = Object.entries(servers || {}).filter(([name, value]) => isStudioManagedMcpServer(name, value))
   const dispose = () => {
     lifecycle.abort()
@@ -35,6 +36,7 @@ export async function leaseStudioMcpServers(servers: Record<string, unknown> | u
       configured[name] = {
         ...studioManagedMcpConfig(run.profile, name, toolset, {
           appHome: getWebUiHome(), port: config.port, nativeTaskPlan: run.nativeTaskPlan, runTokenFile: tokenFile,
+          sessionTasks: run.sessionTasks, userClarification: run.userClarification,
         }),
         ...(original.enabled === undefined ? {} : { enabled: original.enabled }),
         ...(original.supports_parallel_tool_calls === true ? { supports_parallel_tool_calls: true } : {}),

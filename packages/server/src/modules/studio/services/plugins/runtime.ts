@@ -4,7 +4,7 @@ import { getDb } from '../../infrastructure/database'
 import { config } from '../../public/config'
 import { logger as applicationLogger } from '../../public/logging'
 import { findUserById, userCanAccessProfile } from '../../repositories/users-store'
-import { addMessage, updateSessionStats, getSessionMetadata } from '../../repositories/session-store'
+import { addMessage, updateSessionStats, getSessionMetadata, createSession } from '../../repositories/session-store'
 import { PluginStore } from '../../repositories/plugin-store'
 import { PluginEventStore } from '../../repositories/plugin-event-store'
 import { PluginConsumerStore } from '../../repositories/plugin-consumer-store'
@@ -38,6 +38,10 @@ import { PluginModels } from '../models/plugin'
 import { listApiModels, prepareModelResponse } from '../model-api/service'
 import { AgentManagementStore } from '../../repositories/agent-management-store'
 import { createNativeAgentContext } from '../agents/native-context'
+import { AgentChatProjection } from '../../repositories/agent-chat-projection'
+import { AgentChatStore } from '../../repositories/agent-chat-store'
+import { AgentChats } from '../agents/chats'
+import { setAgentChatService, getAgentChatService } from '../agents/chat-registry'
 
 const logger: ScopedLogger = {
   info: (message, data) => applicationLogger.info(data || {}, message),
@@ -113,7 +117,8 @@ export function createStudioPluginRuntime(runnerPath: string) {
         agentTypeId: session.agent, archived: !!session.is_archived } : null
     } },
   })
-  const executionStore = new AgentExecutionStore(db)
+  const chatProjection = new AgentChatProjection(db)
+  const executionStore = new AgentExecutionStore(db, chatProjection)
   const managementStore = new AgentManagementStore(db)
   managementStore.recoverInterrupted()
   const artifacts = new AgentArtifacts(db, executionStore, authorizePluginScope)
@@ -133,19 +138,28 @@ export function createStudioPluginRuntime(runnerPath: string) {
     },
   })
   const coordinator: AgentCoordinator = new AgentCoordinator({ store: executionStore, registry, events, logger,
+    authorizeChat: (scope, instance, sessionId) => agentChats.authorizeRunTarget(scope, instance, sessionId),
     nativeContext: (instance, scope, provider, signal) => createNativeAgentContext(instance, scope, signal, runId => {
       authorizePluginScope(scope)
       host.authorizeNativeMcp(provider, scope.profileId)
       const run = executionStore.get(runId)
-      if (!run || run.instanceId !== instance.id || run.ownerId !== scope.principal.id || run.profileId !== scope.profileId
+      if (!run || run.instanceId !== instance.id || run.ownerId !== scope.principal.id || run.profileId !== scope.profileId || run.sessionId !== scope.sessionId || run.surface !== scope.surface
         || !['starting', 'running', 'waiting_input'].includes(run.status)) throw new StudioError('RUN_FINALIZING', 'Native MCP turn is unavailable')
-    }),
+      if (scope.sessionId) agentChats.authorizeRunTarget(scope, instance, scope.sessionId)
+    }, { bindTurn: (runId, signal) => agentChats.beginNativeTurn(scope, instance, runId, signal) }),
     managementStore, authorizeManagement: scope => {
       authorizePluginScope(scope)
       if (findUserById(scope.principal.id)?.role !== 'super_admin') throw new StudioError('FORBIDDEN', 'Native terminal requires a super administrator')
     }, leaseManagement: (provider, profileId, cancel, completed) => host.leaseManagement(provider, profileId, cancel, completed),
     stateRoot: resolve(config.appHome, 'plugins', 'state'), validateInput: (scope, input) => artifacts.validate(scope, input), authorize: authorizePluginScope, context, settleRun: id => models.settleRun(id) })
   const admission = new AgentRunAdmission(coordinator, hooks, context)
+  const agentChats = new AgentChats({ store: new AgentChatStore(db), projection: chatProjection, executions: executionStore, coordinator, admission, registry,
+    authorize: authorizePluginScope, createSession: input => { createSession(input) },
+    interactions: { begin: (...args) => {
+      const server = getChatRunServer()
+      if (typeof server?.beginAgentTaskPlanRun !== 'function') throw new StudioError('CAPABILITY_UNSUPPORTED', 'Chat interactions are unavailable')
+      return server.beginAgentTaskPlanRun(...args)
+    } }, interactionError: runId => logger.warn('Agent chat interaction cleanup failed', { runId }) })
   const removeHook = configureSessionRemovalHook(async ({ scope, profileId, sessionId, signal }) => {
     if (!hooks.has(profileId, 'sessions.remove')) return
     if (!scope || scope.profileId !== profileId || (scope.sessionId && scope.sessionId !== sessionId)) throw new StudioError('FORBIDDEN', 'Session hook requires the authorized caller scope')
@@ -199,8 +213,8 @@ export function createStudioPluginRuntime(runnerPath: string) {
     const user = findUserById(ownerId)
     if (!user || user.status !== 'active' || user.role !== 'super_admin') throw new StudioError('FORBIDDEN', 'Plugin installation requires a super administrator')
   })
-  return { host, bundledAgents, commands, store, eventStore, executionStore, artifacts, coordinator, registry, events, consumers, hooks, models, context,
-    async close() { unsubscribe(); await removeHook(); chat.close(); await bundledAgents.close(); await commands.close(); await coordinator.close(); await host.close(); await models.close(); await consumers.close(); events.close() } }
+  return { host, bundledAgents, commands, store, eventStore, executionStore, artifacts, coordinator, registry, events, consumers, hooks, models, context, agentChats,
+    async close() { unsubscribe(); await removeHook(); chat.close(); await bundledAgents.close(); await commands.close(); await coordinator.close(); agentChats.close(); if (getAgentChatService() === agentChats) setAgentChatService(undefined); await host.close(); await models.close(); await consumers.close(); events.close() } }
 }
 
 export type StudioPluginRuntime = ReturnType<typeof createStudioPluginRuntime>
@@ -209,6 +223,7 @@ let runtime: StudioPluginRuntime | undefined
 export function configureStudioPluginRuntime(value: StudioPluginRuntime): void {
   if (runtime && runtime !== value) throw new StudioError('REVISION_CONFLICT', 'Plugin runtime is already configured')
   runtime = value
+  setAgentChatService(value.agentChats)
 }
 export function getStudioPluginRuntime(): StudioPluginRuntime {
   if (!runtime) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin runtime is not initialized')

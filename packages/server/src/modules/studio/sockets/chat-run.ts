@@ -1,6 +1,8 @@
 import { chatRunCaller, isDirectChatRunCaller, type ChatRunCaller, type ChatRunCallerTarget } from '../services/chat-run/caller'
 import type { DirectChatRunOptions, DirectChatRunHandle } from '../services/chat-run/direct'
-import { StudioError } from '../contracts/plugins'
+import { StudioError, type ExecutionScope } from '../contracts/plugins'
+import { getAgentChatService } from '../services/agents/chat-registry'
+import { AgentChatDelivery, type AgentChatActivity } from '../services/chat-run/agent-delivery'
 import { createChatRunInvocation } from '../services/chat-run/invocation'
 import { startChatRun, requireChatRunSessionAccess, type ChatRunStartRequest, type ChatRunStartScope, type ChatRunStartPorts } from '../services/chat-run/start'
 import { isBridgeRunSource, isProviderAgentExecution, isEkkoAgentExecution, webhookAgentForRun } from '../services/chat-run/run-routing'
@@ -18,8 +20,9 @@ import { publishAppState, stateEvent, planStateEvent } from '../services/webhook
 import type { BusinessEvent } from '../services/webhooks/business-events'
 import { authenticatedPushActor } from '../services/notifications/push-registration'
 import { type PushRunRef, getRunPushTarget } from '../repositories/run-push-store'
-import { ClarificationRuns } from '../services/clarification-runs'
-import { TaskPlanRuns, taskPlanRunInstruction } from '../services/task-plan-runs'
+import { ClarificationRuns, clarificationTurnInstruction } from '../services/clarification-runs'
+import { TaskPlanRuns, TaskPlanError, taskPlanRunInstruction, taskPlanTurnInstruction } from '../services/task-plan-runs'
+import { studioSessionAccount } from '../contracts/runs/usage'
 import { runMcpCredentials } from '../services/auth/run-mcp-credentials'
 import { saveTaskPlan } from '../repositories/task-plan-store'
 import { getSessionTasks, updateSessionTasks, SessionTasksError } from '../services/session-tasks'
@@ -398,6 +401,7 @@ export class ChatRunSocket {
   private backgroundBridge = createPrimaryAgentBridge({ timeoutMs: 1000, connectRetryMs: 0 })
   /** sessionId → session state (messages, working status, events, run tracking) */
   private sessionMap = new Map<string, SessionState>()
+  private readonly managedInteractionContexts = new Map<string, { sessionId: string; profile: string; ownerId: string }>()
   private hermesQueueInsertionOperations = new Map<string, Promise<void>>()
   private readonly taskPlanRuns = new TaskPlanRuns(saveTaskPlan, (sessionId, snapshot) => {
     this.emitExternalEvent(sessionId, 'plan.updated', { event: 'plan.updated', ...snapshot })
@@ -500,6 +504,32 @@ export class ChatRunSocket {
     return { contextId, finish: (state: 'ended' | 'interrupted' | 'failed') => this.taskPlanRuns.finish(contextId, state) }
   }
 
+  /** Host adapter for a canonical direct-chat Run; does not depend on a cached
+   * legacy native session ID or create another chat/run. */
+  beginAgentTaskPlanRun(sessionId: string, profile: string, runId: string, isActive: () => boolean, interactive: boolean, ownerId: string) {
+    if (!ownerId) throw new TaskPlanError('An owned Agent interaction context is required')
+    const resolve = () => ({ isWorking: isActive(), activeRunMarker: runId })
+    const contextId = this.taskPlanRuns.begin(sessionId, profile, resolve, undefined, interactive)
+    this.managedInteractionContexts.set(contextId, { sessionId, profile, ownerId })
+    if (interactive) this.clarificationRuns.begin(contextId, sessionId, profile, resolve)
+    return { contextId, instructions: [taskPlanTurnInstruction(contextId, interactive), interactive ? clarificationTurnInstruction(contextId) : ''].filter(Boolean).join('\n\n'),
+      finish: (state: 'ended' | 'interrupted' | 'failed') => {
+        try {
+          runMcpCredentials.revoke(sessionId, contextId)
+          this.clarificationRuns.finishSession(sessionId, contextId)
+          this.taskPlanRuns.finish(contextId, state)
+        } finally { this.managedInteractionContexts.delete(contextId) }
+      } }
+  }
+
+  authorizeAgentInteractionContext(contextId: string, profile: string, userId: string): void {
+    const binding = this.managedInteractionContexts.get(contextId)
+    if (!binding) return
+    const session = getSession(binding.sessionId)
+    if (this.closing || profile !== binding.profile || userId !== binding.ownerId || !session
+      || (session.profile || 'default') !== profile || studioSessionAccount(session) !== userId) throw new TaskPlanError('Agent interaction context is outside the current user scope', 403)
+  }
+
   private beginTaskPlanRun(sessionId: string | undefined, profile: string, sessionTasksEnabled = true) {
     if (!sessionId) return undefined
     runMcpCredentials.revoke(sessionId)
@@ -509,6 +539,10 @@ export class ChatRunSocket {
 
   private finishTaskPlanRun(sessionId: string, event: string, payload?: any, contextId?: string) {
     if (!['run.completed', 'run.failed', 'abort.completed'].includes(event)) return
+    if (!contextId && typeof payload?.agent_run_id === 'string') {
+      contextId = this.taskPlanRuns.contextForRun(sessionId, payload.agent_run_id)
+      if (!contextId) return
+    }
     runMcpCredentials.revoke(sessionId, contextId)
     this.clarificationRuns.finishSession(sessionId, contextId)
     // A queue boundary can finish after its queued input was removed. Runtime
@@ -521,7 +555,7 @@ export class ChatRunSocket {
     } catch (err) {
       // Keep terminal run delivery working even if persistence fails; startup recovery settles the stored plan.
       logger.warn(err, '[chat-run-socket] failed to finish task plan for %s', sessionId)
-    }
+    } finally { if (contextId) this.managedInteractionContexts.delete(contextId) }
   }
 
   emitSessionSettingsUpdated(sessionId: string, settings: {
@@ -884,6 +918,18 @@ export class ChatRunSocket {
       } catch {
         return
       }
+      const managedChats = getAgentChatService()
+      if (managedChats?.isBound(data.session_id)) {
+        const sessionId = data.session_id, queueId = data.queue_id
+        try {
+          const profile = getSession(sessionId)?.profile || 'default'
+          const scope = this.managedAgentScope(socket, profile, sessionId)
+          const target = managedChats.activity(scope, sessionId).find(item => item.queueId === queueId && ['accepted', 'queued'].includes(item.run.status))
+          if (target) void managedChats.cancel(scope, sessionId, target.run.id).then(() => this.managedAgentDelivery?.publishQueue(scope, sessionId))
+            .catch(() => logger.warn('[chat-run-socket] Agent queued cancellation failed'))
+        } catch { /* A stale or unauthorized queue id cannot cancel another Run. */ }
+        return
+      }
       const state = this.sessionMap.get(data.session_id)
       if (!state?.queue.length) return
       const before = state.queue.length
@@ -949,6 +995,18 @@ export class ChatRunSocket {
         try {
           profile = requireSocketSessionAccess(sessionId)
         } catch {
+          return
+        }
+        const managedChats = getAgentChatService()
+        if (managedChats?.isBound(sessionId)) {
+          try {
+            const scope = this.managedAgentScope(socket, profile, sessionId)
+            const current = managedChats.activity(scope, sessionId)[0]
+            if (current) {
+              this.emitToSession(socket, sessionId, 'abort.started', { event: 'abort.started', agent_run_id: current.run.id, run_id: current.run.id })
+              void managedChats.cancel(scope, sessionId, current.run.id).catch(() => logger.warn('[chat-run-socket] Agent cancellation failed'))
+            }
+          } catch { /* Fresh owner/profile authorization applies to every control. */ }
           return
         }
         this.finishTaskPlanRun(sessionId, 'abort.completed')
@@ -1264,8 +1322,73 @@ export class ChatRunSocket {
     return codingAgentRunManager.resolveClarification(sessionId, clarifyId, response).resolved
   }
 
+  private managedAgentDelivery?: AgentChatDelivery
+
+  private managedAgentScope(socket: ChatRunCallerTarget, profile: string, sessionId: string): ExecutionScope {
+    const caller = chatRunCaller(socket)
+    if (!caller.user || (!isDirectChatRunCaller(socket) && (socket as Socket).data?.sessionShare)) throw new StudioError('FORBIDDEN', 'Managed Agent chats require their owner')
+    const scope = structuredClone(caller.executionScope ?? {
+      scopeId: randomUUID(), traceId: randomUUID(), principal: { kind: 'user' as const, id: String(caller.user.id) }, profileId: profile, surface: 'chat' as const,
+    })
+    if (scope.profileId !== profile || scope.principal.kind !== 'user' || scope.principal.id !== String(caller.user.id)
+      || (scope.sessionId !== undefined && scope.sessionId !== sessionId)) throw new StudioError('FORBIDDEN', 'Chat is outside the execution scope')
+    return { ...scope, sessionId }
+  }
+
+  private syncManagedAgentActivity(sessionId: string, activity: AgentChatActivity, currentRunId?: string): void {
+    const state = getOrCreateSession(this.sessionMap, sessionId)
+    state.isWorking = activity.length > 0
+    state.isAborting = activity.some(({ run }) => run.status === 'cancelling')
+    if (currentRunId) {
+      const run = activity.find(item => item.run.id === currentRunId)?.run
+      state.runId = currentRunId; state.activeRunMarker = currentRunId; state.runStartedAt = run?.createdAt
+    } else if (!activity.some(item => item.run.id === state.runId)) {
+      state.runId = undefined; state.activeRunMarker = undefined
+      if (!state.isWorking) state.runStartedAt = undefined
+    }
+  }
+
+  private async handleManagedAgentRun(socket: ChatRunCallerTarget, data: ChatRunStartRequest, profile: string): Promise<void> {
+    const chats = getAgentChatService()
+    if (!chats || !data.session_id) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent chat service is unavailable')
+    const scope = this.managedAgentScope(socket, profile, data.session_id)
+    if (!isDirectChatRunCaller(socket) && data.managed_agent_protocol !== 1) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Update this client before continuing an Agent instance chat')
+    // Configuration belongs to the selected instance. Legacy model/provider
+    // request fields are not used to choose or configure a native runtime.
+    chats.ownedBinding(scope, data.session_id)
+    const content = typeof data.input === 'string' ? [{ type: 'text' as const, text: data.input }]
+      : data.input.map(block => {
+        if (block.type !== 'text') throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent chat attachments require the owned artifact adapter')
+        return { type: 'text' as const, text: block.text }
+      })
+    const queueId = data.queue_id || randomUUID()
+    const caller = chatRunCaller(socket)
+    caller.assertCanStart?.()
+    caller.observeSession(data.session_id)
+    const run = await chats.start(scope, data.session_id, { content }, queueId, new AbortController().signal)
+    caller.reply('run.accepted', { event: 'run.accepted', session_id: data.session_id, queue_id: queueId, agent_run_id: run.id, run_id: run.id })
+    if (!this.managedAgentDelivery) this.managedAgentDelivery = new AgentChatDelivery({ chats,
+      emit: (sessionId, event, payload) => {
+        const state = this.sessionMap.get(sessionId)
+        if (event === 'message.persisted' && state) {
+          for (const row of payload.messages as import('../contracts/runs/session').SessionMessage[]) {
+            const index = state.messages.findIndex(message => String(message.id) === String(row.id))
+            if (index === -1) state.messages.push(row)
+            else state.messages[index] = row
+          }
+        }
+        this.emitExternalEvent(sessionId, event, payload)
+      },
+      activity: (sessionId, runs, current) => this.syncManagedAgentActivity(sessionId, runs, current),
+      onError: runId => logger.warn({ runId }, '[chat-run-socket] Agent chat delivery unavailable'),
+    })
+    this.syncManagedAgentActivity(data.session_id, chats.activity(scope, data.session_id))
+    this.managedAgentDelivery.follow(scope, data.session_id, run.id, queueId)
+  }
+
   private startRun(socket: ChatRunCallerTarget, data: ChatRunStartRequest, scope: ChatRunStartScope, pushActor: ChatRunStartPorts['pushActor']) {
     return startChatRun(data, scope, {
+      isManagedChat: sessionId => !!getAgentChatService()?.isBound(sessionId),
       sessions: this.sessionMap,
       emit: (event, payload) => chatRunCaller(socket).reply(event, payload),
       emitSession: (sessionId, event, payload) => this.emitToSession(socket, sessionId, event, payload),
@@ -1297,10 +1420,19 @@ export class ChatRunSocket {
     let terminal = false
     let cancelRequested = false
     let aborting = false
+    let canonicalRunId: string | undefined
     const assertCanStart = () => {
       if (cancelRequested) throw new Error('Chat invocation was cancelled')
     }
     const abortOwnRun = () => {
+      if (canonicalRunId) {
+        if (terminal || aborting) return
+        aborting = true
+        void getAgentChatService()?.cancel(scope, data.session_id!, canonicalRunId).catch(() => deliver('run.failed', {
+          event: 'run.failed', session_id: data.session_id, error: 'Chat cancellation failed',
+        }))
+        return
+      }
       if (!started || terminal || aborting) return
       aborting = true
       // This caller observes only its execution. A terminal event prevents a delayed
@@ -1312,10 +1444,12 @@ export class ChatRunSocket {
     }
     const observed = new Set<string>()
     const deliver = (event: string, payload: any) => {
+      if (canonicalRunId && payload.agent_run_id && payload.agent_run_id !== canonicalRunId) return
+      if (event === 'run.accepted' && payload.agent_run_id) canonicalRunId = payload.agent_run_id
       if (event === 'run.started') started = true
       if (['run.completed', 'run.failed', 'abort.completed'].includes(event)) terminal = true
       if (active) options.onEvent(event, buildOutboundRunEvent(event, payload))
-      if (cancelRequested && started && !terminal) queueMicrotask(abortOwnRun)
+      if (cancelRequested && (started || canonicalRunId) && !terminal) queueMicrotask(abortOwnRun)
     }
     const caller: ChatRunCaller = {
       kind: 'direct', originId: `http-run-${randomUUID()}`,
@@ -1394,6 +1528,7 @@ export class ChatRunSocket {
   private async handleRun(
     socket: ChatRunCallerTarget,
     data: {
+      managed_agent_protocol?: number
       input: string | ContentBlock[]
       display_input?: string | ContentBlock[] | null
       display_role?: 'user' | 'command'
@@ -1458,6 +1593,10 @@ export class ChatRunSocket {
       if (target && target.profile === profile && surface !== 'workflow' && surface !== 'group_chat' && !backgroundContinuationContext) {
         this.mobileRunTargets.set(data.session_id, { ...target })
       } else this.mobileRunTargets.delete(data.session_id)
+    }
+    if (data.session_id && getAgentChatService()?.isBound(data.session_id)) {
+      await this.handleManagedAgentRun(socket, data as ChatRunStartRequest, profile)
+      return
     }
     const ekkoMcpServers = isEkkoAgentExecution(data)
       ? resolveChatEkkoMcpServers(profile, data.mcpServers || data.mcp_servers) || {}
@@ -1953,12 +2092,31 @@ export class ChatRunSocket {
     sid: string,
     options?: { event: 'app.resumed'; cachedId: string },
   ) {
+    const managedChats = getAgentChatService()
+    const managed = !!managedChats?.isBound(sid)
     let state = this.sessionMap.get(sid)
-    if (!state) {
+    if (!state || managed) {
+      const previous = state
       state = await loadSessionStateFromDb(sid, this.sessionMap)
+      if (managed && previous) Object.assign(state, { isWorking: previous.isWorking, runId: previous.runId, activeRunMarker: previous.activeRunMarker,
+        runStartedAt: previous.runStartedAt, isAborting: previous.isAborting, events: previous.events, profile: previous.profile })
       this.sessionMap.set(sid, state)
     }
-    await this.reattachBridgeRun(socket, sid, state)
+    let managedQueue: Array<Record<string, unknown>> | undefined
+    if (managed && !socket.data?.sessionShare) {
+      try {
+        const profile = getSession(sid)?.profile || 'default', scope = this.managedAgentScope(socket, profile, sid)
+        const activity = managedChats!.activity(scope, sid)
+        this.syncManagedAgentActivity(sid, activity)
+        managedQueue = activity.filter(({ run }) => ['accepted', 'queued'].includes(run.status)).map(({ run, queueId, input }) => ({
+          id: queueId, role: 'user', content: input.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), timestamp: Math.floor(run.createdAt / 1000), queued: true,
+        }))
+      } catch (error) {
+        socket.emit('run.failed', { event: 'run.failed', session_id: sid, error: error instanceof Error ? error.message : String(error) })
+        return
+      }
+    }
+    if (!managed) await this.reattachBridgeRun(socket, sid, state)
     if (this.sessionMap.get(sid) !== state) {
       state = this.sessionMap.get(sid) || await loadSessionStateFromDb(sid, this.sessionMap)
       this.sessionMap.set(sid, state)
@@ -2010,8 +2168,9 @@ export class ChatRunSocket {
       cacheReadTokens: state.cacheReadTokens,
       cacheWriteTokens: state.cacheWriteTokens,
       contextTokens: state.contextTokens,
-      queueLength: state.queue?.length || 0,
-      queueMessages: this.serializeQueuedMessages(state.queue || []),
+      managed_agent_protocol: managed ? 1 : undefined,
+      queueLength: managedQueue?.length ?? state.queue?.length ?? 0,
+      queueMessages: managedQueue ?? this.serializeQueuedMessages(state.queue || []),
       queueInsertion: state.queueInsertion ? {
         generation: state.queueInsertion.generation,
         run_id: state.queueInsertion.runId,
@@ -2775,7 +2934,7 @@ export class ChatRunSocket {
     })
     this.observePetEvent(profile, event, tagged)
     this.emitPendingInteraction(profile, event, tagged)
-    if (state?.isWorking) {
+    if (state?.isWorking && event !== 'message.persisted') {
       state.events.push({ event, data: tagged })
       if (state.events.length > 200) state.events.splice(0, state.events.length - 200)
     }
@@ -3175,6 +3334,7 @@ export class ChatRunSocket {
 
   /** Close all active upstream response streams */
   async close() {
+    this.managedAgentDelivery?.close()
     if (this.closing) return
     this.closing = true
     for (const observer of [...this.directRunObservers]) observer.fail('Chat run service is shutting down')

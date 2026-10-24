@@ -1193,11 +1193,11 @@ defineExpose({
             >
               {{ choice }}
             </NButton>
-            <NButton size="small" type="error" secondary @click="handleClarify('')">
+            <NButton v-if="!visibleClarify.nativeInteraction" size="small" type="error" secondary @click="handleClarify('')">
               {{ t("chat.clarifyDismiss") }}
             </NButton>
           </div>
-          <div class="clarify-float-input-row">
+          <div v-if="!visibleClarify.nativeInteraction || (visibleClarify.nativeInteraction.kind === 'clarification' && visibleClarify.nativeInteraction.allowText !== false)" class="clarify-float-input-row">
             <NInput
               v-model:value="clarifyResponse"
               size="small"

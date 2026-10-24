@@ -19,7 +19,7 @@ function setup() {
   const db = new DatabaseSync(':memory:'), store = new AgentExecutionStore(db), registry = new AgentRegistry(), events = new PluginEventBus()
   const hooks = new PluginHookRegistry(), logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
   let created = 0, authorized = true
-  const seen: Array<{ native: string; turn: number; sessionId?: string; lease: string }> = [], disposed: string[] = []
+  const seen: Array<{ native: string; turn: number; sessionId?: string; lease: string; surface: ExecutionScope['surface'] }> = [], disposed: string[] = []
   const dispose = vi.fn(async (native: string) => { disposed.push(native) })
   const registration = registry.stage('one', { kind: 'plugin', pluginId: 'test.conversations', version: '1.0.0', generation: 'first' }, ['test.conversations/agent'])
   registration.register({ id: 'test.conversations/agent', name: 'Conversation fixture', configSchema: { type: 'object', additionalProperties: false,
@@ -32,7 +32,7 @@ function setup() {
       let turn = saved?.turn ?? 0
       return {
         run: async (_, context) => {
-          seen.push({ native, turn: ++turn, sessionId: context.scope.sessionId, lease: runtime.runtimeSessionId })
+          seen.push({ native, turn: ++turn, sessionId: context.scope.sessionId, lease: runtime.runtimeSessionId, surface: context.scope.surface })
           return { events: (async function* () {})(), result: Promise.resolve({ status: 'completed' as const, checkpoint: { native, turn } }), cancel: async () => {} }
         }, dispose: () => dispose(native),
       }
@@ -109,6 +109,18 @@ it('binds idempotency, reads, caller scope and fresh authorization to the exact 
   expect(() => f.coordinator.get(scope, run.id)).toThrow(expect.objectContaining({ code: 'FORBIDDEN' }))
   await expect(f.run('a', 'same-key')).rejects.toMatchObject({ code: 'FORBIDDEN' })
   expect(f.seen).toHaveLength(1)
+})
+
+it('preserves background origin and native history while replacing cached runtimes across execution surfaces', async () => {
+  const f = setup()
+  const first = await f.run('a', 'chat')
+  const background = await f.admission.startInChat({ ...scope, surface: 'event' }, 'a', { instanceId: f.instance.id, input, idempotencyKey: 'background' }, new AbortController().signal)
+  await f.coordinator.wait(background.id)
+  const last = await f.run('a', 'chat-again')
+  expect([first.surface, background.surface, last.surface]).toEqual(['chat', 'event', 'chat'])
+  expect(f.seen.map(row => row.native)).toEqual(['native-1', 'native-1', 'native-1'])
+  expect(f.seen.map(row => row.surface)).toEqual(['chat', 'event', 'chat'])
+  expect(new Set(f.seen.map(row => row.lease)).size).toBe(3)
 })
 
 it('drains every chat lease and carries each checkpoint only for compatible configuration changes', async () => {

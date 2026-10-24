@@ -262,7 +262,7 @@ function clarifyContent(action: Extract<GlobalPendingAction, { kind: 'chat-clari
           onClick: () => { clarifyDrafts[action.key] = choice },
         }, { default: () => choice })))
       : null,
-    h(NInput, {
+    (action.kind !== 'chat-clarify' || !action.pending.nativeInteraction || (action.pending.nativeInteraction.kind === 'clarification' && action.pending.nativeInteraction.allowText !== false)) ? h(NInput, {
       value: clarifyDrafts[action.key] || '',
       placeholder: t('chat.clarifyPlaceholder'),
       'onUpdate:value': (value: string) => { clarifyDrafts[action.key] = value },
@@ -272,7 +272,7 @@ function clarifyContent(action: Extract<GlobalPendingAction, { kind: 'chat-clari
           void submitClarify(action)
         }
       },
-    }),
+    }) : null,
   ])
 }
 

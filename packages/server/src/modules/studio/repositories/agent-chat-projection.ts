@@ -1,9 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { StudioError, type AgentOutputEvent, type AgentRunInput } from '../contracts/plugins'
 import type { AgentExecution, AgentExecutionProjection, AgentInstance } from './agent-execution-store'
-import { normalizeMessageContentForStorageRole } from './message-content'
+import { normalizeMessageContentForStorageRole, parseStoredToolCalls } from './message-content'
+import type { SessionMessage } from '../contracts/runs/session'
 import { MESSAGES_TABLE, SESSIONS_TABLE } from '../infrastructure/database/schemas'
 import { BUILTIN_HISTORY_SOURCES } from '../contracts/history-source'
+import { recordSkillUsageMessage } from './skill-usage-store'
 
 type Source = typeof BUILTIN_HISTORY_SOURCES[number]
 export interface AgentChatBinding { sessionId: string; instanceId: string; ownerId: string; profileId: string; source: Source }
@@ -30,6 +32,13 @@ export class AgentChatProjection implements AgentExecutionProjection {
     return row ? { sessionId, instanceId: row.instance_id, ownerId: row.owner_id, profileId: row.profile_id, source: row.source } : undefined
   }
 
+  assertBinding(sessionId: string, instance: AgentInstance): AgentChatBinding {
+    const binding = this.binding(sessionId)
+    if (!binding || binding.instanceId !== instance.id || binding.ownerId !== instance.ownerId || binding.profileId !== instance.profileId) throw new StudioError('FORBIDDEN', 'Chat is outside the Agent binding')
+    this.check(binding)
+    return binding
+  }
+
   /** Only a new owned chat can be attached. Existing native history needs an
    * explicit migration instead of silently starting a different conversation. */
   attach(sessionId: string, instance: AgentInstance, source: Source = 'coding_agent'): void {
@@ -53,9 +62,17 @@ export class AgentChatProjection implements AgentExecutionProjection {
     this.db.prepare('INSERT INTO studio_agent_chat_bindings VALUES (?, ?, ?, ?, ?)').run(sessionId, instance.id, instance.ownerId, instance.profileId, source)
   }
 
-  accepted(run: AgentExecution, input: AgentRunInput): void {
+  accepted(run: AgentExecution, _input: AgentRunInput): void {
     if (!run.sessionId) return
     this.forRun(run)
+  }
+
+  started(run: AgentExecution, input: AgentRunInput): void {
+    if (!run.sessionId) return
+    this.forRun(run)
+    if (this.message(run.id, 'input', 'input')) return
+    // Canonical admission already persists queued input. Materialize its chat
+    // row only when dispatched, after the previous Run's last assistant row.
     const content = input.content.every(block => block.type === 'text') ? input.content.map(block => block.type === 'text' ? block.text : '').join('\n') : JSON.stringify(input.content)
     this.insert(run, 'input', 'input', 'user', content)
     this.db.prepare(`UPDATE ${SESSIONS_TABLE} SET ended_at=NULL, end_reason=NULL WHERE id=?`).run(run.sessionId)
@@ -82,6 +99,8 @@ export class AgentChatProjection implements AgentExecutionProjection {
       const message = this.message(run.id, 'tool-result', event.callId) ?? this.insert(run, 'tool-result', event.callId, 'tool', '')
       this.db.prepare(`UPDATE ${MESSAGES_TABLE} SET content=?, tool_call_id=?, tool_name=?, finish_reason=? WHERE id=?`)
         .run(normalizeMessageContentForStorageRole('tool', text), event.callId, event.name, event.type === 'tool.failed' ? 'error' : null, message.id)
+      recordSkillUsageMessage(message.id, { session_id: run.sessionId, role: 'tool', content: text, tool_call_id: event.callId,
+        tool_name: event.name, run_marker: run.id, timestamp: Math.floor(run.createdAt / 1000) }, this.db)
     } else return
     this.stats(run.sessionId)
   }
@@ -99,6 +118,22 @@ export class AgentChatProjection implements AgentExecutionProjection {
   message(runId: string, kind: Kind, logicalId: string): Message | undefined {
     return this.db.prepare(`SELECT m.id, m.content, m.reasoning FROM studio_agent_chat_messages p JOIN ${MESSAGES_TABLE} m ON m.id=p.message_id
       WHERE p.run_id=? AND p.kind=? AND p.logical_id=?`).get(runId, kind, logicalId) as unknown as Message | undefined
+  }
+
+  /** Read committed rows for delivery. Transport never rewrites the transcript. */
+  rows(runId: string, events: AgentOutputEvent[], includeInput = false): SessionMessage[] {
+    const ids = new Set<number>()
+    const add = (kind: Kind, id: string) => { const row = this.message(runId, kind, id); if (row) ids.add(row.id) }
+    if (includeInput) add('input', 'input')
+    for (const event of events) {
+      if (['message.delta', 'message.snapshot', 'reasoning.delta'].includes(event.type)) add('message', (event as { messageId: string }).messageId)
+      else if (event.type === 'tool.started') add('tool-call', event.callId)
+      else if (event.type === 'tool.completed' || event.type === 'tool.failed') add('tool-result', event.callId)
+    }
+    return [...ids].sort((a, b) => a - b).map(id => {
+      const row = this.db.prepare(`SELECT * FROM ${MESSAGES_TABLE} WHERE id=?`).get(id)!
+      return { ...row, tool_calls: parseStoredToolCalls(row.tool_calls) } as unknown as SessionMessage
+    })
   }
 
   private check(binding: AgentChatBinding): void {

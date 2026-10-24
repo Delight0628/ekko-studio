@@ -58,6 +58,25 @@ beforeEach(() => {
 })
 
 describe('chat start admission without a transport', () => {
+  it('sends bound chats to canonical admission without parsing legacy commands or entering the legacy queue', async () => {
+    const { state, scope, ports } = harness()
+    state.isWorking = true
+    const managed = { ...ports, isManagedChat: () => true }
+    for (const input of ['/status', '/branch', 'Next turn']) await startChatRun({ session_id: 'session', source: 'coding_agent', input, queue_id: input }, scope, managed)
+    expect(ports.execute).toHaveBeenCalledTimes(3)
+    expect(ports.commands.session).not.toHaveBeenCalled()
+    expect(ports.commands.codingAgent).not.toHaveBeenCalled()
+    expect(state.queue).toEqual([])
+    expect(state.isWorking).toBe(true)
+  })
+
+  it('rejects shared managed chat writes before device binding or canonical admission', async () => {
+    const { scope, ports } = harness({ shared: true })
+    await startChatRun({ session_id: 'session', input: 'Hello' }, scope, { ...ports, isManagedChat: () => true })
+    expect(ports.emit).toHaveBeenCalledWith('run.failed', expect.objectContaining({ error_code: 'FORBIDDEN' }))
+    expect(ports.pushActor).not.toHaveBeenCalled()
+    expect(ports.execute).not.toHaveBeenCalled()
+  })
   it('resolves an existing session profile, explicit profile, and removed-profile fallback', () => {
     const { scope } = harness({ profile: 'research' })
     mocks.rows.set('session', { profile: 'private' })

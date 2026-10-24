@@ -28,6 +28,7 @@ interface ActiveRun {
 }
 interface RuntimeLease {
   instanceId: string
+  surface: ExecutionScope['surface']
   id: string; provider: AgentProviderRef; revision: number; controller: AbortController
   runtime: Promise<AgentRuntime>; creating: boolean; idleTimer?: ReturnType<typeof setTimeout>; disposing?: Promise<void>
   processes: ManagedProcessScope
@@ -318,10 +319,10 @@ export class AgentCoordinator {
     if (admission && (instance.revision !== admission.expectedRevision || JSON.stringify(provider) !== JSON.stringify(admission.expectedProvider))) {
       throw new StudioError('REVISION_CONFLICT', 'Agent configuration or provider changed during hooks')
     }
-    input = jsonCopy(input); scope = jsonCopy({ ...scope, ...(target ? { sessionId: target.sessionId, surface: 'chat' as const } : {}) })
+    input = jsonCopy(input); scope = jsonCopy({ ...scope, ...(target ? { sessionId: target.sessionId, surface: scope.surface === 'api' ? 'chat' as const : scope.surface } : {}) })
     const queue = this.queues.get(instance.id) || { pending: [] }
     if (this.active.size + this.leases.size >= 128 || queue.pending.length >= 32) throw new StudioError('RESOURCE_EXHAUSTED', 'Agent run queue is full')
-    const accepted = this.options.store.accept(instance, provider!, input, idempotencyKey, admission, target)
+    const accepted = this.options.store.accept(instance, provider!, input, idempotencyKey, admission, target, scope.surface)
     if (!accepted.created) return accepted.run
     const id = accepted.run.id
     let resolve!: () => void
@@ -535,8 +536,8 @@ export class AgentCoordinator {
       const disposals = [...this.leases.values()].filter(lease => lease.instanceId === instance.id && lease.disposing).map(lease => lease.disposing)
       if (disposals.length) await Promise.race([Promise.all(disposals), aborted])
       let lease = this.leases.get(leaseKey)
-      if (lease && (lease.disposing || lease.revision !== run.configRevision || JSON.stringify(lease.provider) !== JSON.stringify(run.provider))) {
-        await this.disposeLease(leaseKey, 'Provider or configuration changed')
+      if (lease && (lease.disposing || lease.surface !== scope.surface || lease.revision !== run.configRevision || JSON.stringify(lease.provider) !== JSON.stringify(run.provider))) {
+        await this.disposeLease(leaseKey, 'Provider, configuration or execution surface changed')
         lease = undefined
       }
       if (lease?.idleTimer) clearTimeout(lease.idleTimer)
@@ -560,7 +561,7 @@ export class AgentCoordinator {
             ...(stateDirectory ? { stateDirectory } : {}), provider: run.provider, runtimeSessionId: id, profileId: scope.profileId, ownerId: scope.principal.id, signal: controller.signal, logger: this.options.logger, processes: processes.api, mcp: mcp.api,
           })
         })
-        lease = { id, instanceId: instance.id, provider: run.provider, revision: run.configRevision, controller, runtime: creating, creating: true, processes, mcp }
+        lease = { id, instanceId: instance.id, surface: scope.surface, provider: run.provider, revision: run.configRevision, controller, runtime: creating, creating: true, processes, mcp }
         this.leases.set(leaseKey, lease)
         const pending = lease
         void creating.then(() => { pending.creating = false }, () => { pending.creating = false })
@@ -587,6 +588,7 @@ export class AgentCoordinator {
         }), (async () => {
           for await (const raw of active.handle!.events) {
             if (ended) break
+            this.get(scope, run.id)
             const event = parseAgentOutput(raw)
             if (event.producerSequence <= sequence) throw new StudioError('INVALID_ARGUMENT', 'Agent output is out of sequence')
             sequence = event.producerSequence
@@ -613,6 +615,7 @@ export class AgentCoordinator {
         if (checkpoint === undefined && resolved.definition.capabilities.resume && runtime.checkpoint) {
           checkpoint = jsonCopy(await Promise.race([runtime.checkpoint(), aborted]))
         }
+        this.get(scope, run.id)
         this.finish(run.id, 'completed', null, checkpoint)
         retain = !!resolved.definition.capabilities.persistentSession && !this.closed
       } else this.finish(run.id, active.expired ? 'interrupted' : 'cancelled', active.expired ? 'DEADLINE_EXCEEDED' : null)

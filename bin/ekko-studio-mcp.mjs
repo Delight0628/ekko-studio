@@ -72,6 +72,7 @@ const positionalArgs = process.argv.slice(2).filter(arg => !arg.startsWith('-'))
 const requestedToolset = String(positionalArgs[0] || process.env.HERMES_MCP_TOOLSET || 'api').trim().toLowerCase()
 const ACTIVE_TOOLSET = TOOLSETS.has(requestedToolset) ? requestedToolset : 'api'
 const SHARED_TASK_PLAN_ENABLED = process.env.HERMES_MCP_NATIVE_TASK_PLAN !== '1'
+const SESSION_TASKS_ENABLED = SHARED_TASK_PLAN_ENABLED && process.env.HERMES_MCP_SESSION_TASKS !== '0'
 const USER_CLARIFICATION_ENABLED = SHARED_TASK_PLAN_ENABLED && process.env.HERMES_MCP_USER_CLARIFICATION === '1'
 
 if (process.argv.includes('-h') || process.argv.includes('--help')) {
@@ -1768,6 +1769,7 @@ function resolveToolName(name) {
 function activeToolsetTools() {
   return tools.filter(tool => tool.toolset === ACTIVE_TOOLSET
     && (SHARED_TASK_PLAN_ENABLED || tool.toolset !== 'plan')
+    && (SESSION_TASKS_ENABLED || !['ekko_studio_list_session_tasks', 'ekko_studio_update_session_tasks'].includes(tool.name))
     && (USER_CLARIFICATION_ENABLED || tool.name !== 'ekko_studio_clarify'))
 }
 
@@ -1786,7 +1788,7 @@ function categoryToolByName(name) {
 function serverInstructions() {
   if (ACTIVE_TOOLSET === 'plan') return SHARED_TASK_PLAN_ENABLED
     ? 'Use ekko_studio_update_plan from ekko-studio-interaction to maintain the current Studio task card. Use only the context_id supplied with the latest input; expired contexts cannot update another turn.'
-      + ' At the beginning of each turn, use ekko_studio_list_session_tasks to review past user goals. Record only independent deliverables, ongoing follow-up or explicit user-requested tracking; skip simple questions, one-off lookups and trivial edits without lasting tracking value. Keep one goal per user outcome and reuse its id for refinements, corrections and constraints. Use ekko_studio_update_session_tasks only for changed/new goals, creating eligible goals before execution and saving results before the final response. Reading an unchanged ledger does not require a write. Keep summaries to one or two short sentences about results and remaining blockers; put implementation and test logs in the conversation. Session goals span turns and are distinct from per-turn plan steps; no page card is created. Completed goals require concise completion_evidence of verified delivery.'
+      + (SESSION_TASKS_ENABLED ? ' At the beginning of each turn, use ekko_studio_list_session_tasks to review past user goals. Record only independent deliverables, ongoing follow-up or explicit user-requested tracking; skip simple questions, one-off lookups and trivial edits without lasting tracking value. Keep one goal per user outcome and reuse its id for refinements, corrections and constraints. Use ekko_studio_update_session_tasks only for changed/new goals, creating eligible goals before execution and saving results before the final response. Reading an unchanged ledger does not require a write. Keep summaries to one or two short sentences about results and remaining blockers; put implementation and test logs in the conversation. Session goals span turns and are distinct from per-turn plan steps; no page card is created. Completed goals require concise completion_evidence of verified delivery.' : '')
       + (USER_CLARIFICATION_ENABLED ? ' Use ekko_studio_clarify from this same MCP server to ask a necessary question and wait for the user in Studio/App, using the latest interaction context_id. Never treat timeout, dismissal, or cancellation as approval.' : '')
     : ''
   if (ACTIVE_TOOLSET === 'api') {

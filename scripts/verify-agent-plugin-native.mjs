@@ -309,7 +309,7 @@ Follow fixture instructions.`, etag: 'missing' }, catalog.snapshot);
             const conversation = result.conversationId ?? instance.id;
             const nextCheckpoint = state.checkpoint(conversation, result.provider, instance.revision);
             if (result.status !== 'completed') throw new Error(`${vendor} ${mode} native turn failed: ${result.errorCode}`);
-            if (nativeMcpEnabled && !nativeMcpRequests.some(call => call.sessionId === `agent-run:${result.id}` && call.contextId === nativeMcpContext)) {
+            if (nativeMcpEnabled && !nativeMcpRequests.some(call => call.sessionId === (result.sessionId ?? `agent-run:${result.id}`) && call.contextId === nativeMcpContext)) {
               const summary = tools => (tools || []).map(tool => ({ type: tool.type, name: tool.name || tool.function?.name, ...(tool.tools ? { tools: summary(tool.tools) } : {}) }));
               throw new Error(`${vendor} did not call the host-injected Studio MCP with its current turn context: ${JSON.stringify({ issued: nativeMcpIssued, nativeClientRequests, tools: requests.slice(requestOffset).map(body => summary(body.tools)), outputs: requests.slice(requestOffset).flatMap(body => body.input || []).filter(item => item.type === 'function_call_output').map(item => item.output) })}`);
             }

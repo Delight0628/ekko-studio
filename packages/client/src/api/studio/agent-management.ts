@@ -27,3 +27,6 @@ export async function fetchAgentManagementOutput(profile: string, id: string, af
 export function sendAgentManagementInput(profile: string, id: string, sequence: number, text: string) { return data(`agent-management-operations/${encodeURIComponent(id)}/input`, profile, 'POST', { sequence, text }) }
 export function resizeAgentManagementTerminal(profile: string, id: string, cols: number, rows: number) { return data(`agent-management-operations/${encodeURIComponent(id)}/resize`, profile, 'POST', { cols, rows }) }
 export function cancelAgentManagementOperation(profile: string, id: string) { return data<AgentManagementOperation>(`agent-management-operations/${encodeURIComponent(id)}/cancel`, profile, 'POST', {}) }
+export function respondManagedAgent(profile: string, runId: string, response: import('../../../../studio-plugin-sdk/src/types').AgentInteractionResponse) {
+  return data<import('../../../../studio-plugin-sdk/src/types').AgentInteractionReceipt>(`agent-runs/${encodeURIComponent(runId)}/respond`, profile, 'POST', response)
+}

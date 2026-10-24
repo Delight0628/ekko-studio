@@ -6,7 +6,7 @@ export interface AgentContextConfiguration {
   systemPrompt?: string
   mcpServers?: Record<string, AgentMcpServerConfiguration>
   /** Explicitly opt in to host toolsets. Interaction tools require a bound chat context. */
-  studioMcp?: { enabled: boolean; api?: boolean; browser?: boolean; devices?: boolean; use?: boolean }
+  studioMcp?: { enabled: boolean; api?: boolean; browser?: boolean; devices?: boolean; use?: boolean; interaction?: boolean }
 }
 
 /** Host-only turn metadata, separate from saved instance configuration. */
@@ -27,7 +27,7 @@ const enabled = { enabled: { type: 'boolean' }, disabled: { type: 'boolean' } }
 export const agentContextConfigurationProperties: JsonObject = {
   systemPrompt: { type: 'string', maxLength: 65536 },
   studioMcp: { type: 'object', additionalProperties: false, required: ['enabled'], properties: {
-    enabled: { type: 'boolean' }, api: { type: 'boolean' }, browser: { type: 'boolean' }, devices: { type: 'boolean' }, use: { type: 'boolean' },
+    enabled: { type: 'boolean' }, api: { type: 'boolean' }, browser: { type: 'boolean' }, devices: { type: 'boolean' }, use: { type: 'boolean' }, interaction: { type: 'boolean' },
   } },
   mcpServers: {
     type: 'object', maxProperties: 32,

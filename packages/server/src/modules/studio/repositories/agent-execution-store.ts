@@ -1,5 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
+import type { ExecutionScope } from '../contracts/plugins'
 import { StudioError, type AgentProviderRef, type JsonObject, type AgentRunInput, type AgentOutputEvent, type EventEnvelope, type AgentRunRecord, type AgentRunStatus, type HookSnapshot } from '../contracts/plugins'
 import { PluginEventStore } from './plugin-event-store'
 import { AgentRunStateStore } from './agent-run-state-store'
@@ -18,6 +19,7 @@ export interface AgentAdmission {
 /** Synchronous domain projections participate in the canonical Run transaction. */
 export interface AgentExecutionProjection {
   accepted(run: AgentExecution, input: AgentRunInput): void
+  started(run: AgentExecution, input: AgentRunInput): void
   output(run: AgentExecution, event: AgentOutputEvent): void
   finished(run: AgentExecution): void
 }
@@ -54,6 +56,8 @@ export class AgentExecutionStore {
       PRIMARY KEY(run_id, sequence)
     ); CREATE TABLE IF NOT EXISTS studio_agent_run_admissions (
       run_id TEXT PRIMARY KEY, original_input_json TEXT NOT NULL, effective_input_json TEXT NOT NULL, hooks_json TEXT NOT NULL
+    ); CREATE TABLE IF NOT EXISTS studio_agent_run_origins (
+      run_id TEXT PRIMARY KEY, surface TEXT NOT NULL
     );`)
   }
 
@@ -97,7 +101,7 @@ export class AgentExecutionStore {
     }
     return null
   }
-  accept(instance: AgentInstance, provider: AgentProviderRef, input: AgentRunInput, key: string, admission?: AgentAdmission, target?: AgentRunTarget): { run: AgentExecution; created: boolean } {
+  accept(instance: AgentInstance, provider: AgentProviderRef, input: AgentRunInput, key: string, admission?: AgentAdmission, target?: AgentRunTarget, surface: ExecutionScope['surface'] = 'api'): { run: AgentExecution; created: boolean } {
     const original = admission?.originalInput ?? input
     const previous = this.findRequest(instance, original, key, target)
     if (previous) return { run: previous, created: false }
@@ -109,6 +113,7 @@ export class AgentExecutionStore {
       (id, instance_id, profile_id, owner_id, status, provider_json, config_revision, created_at, updated_at, idempotency_key, input_hash)
       VALUES (?, ?, ?, ?, 'accepted', ?, ?, ?, ?, ?, ?)`).run(id, instance.id, instance.profileId, instance.ownerId, JSON.stringify(provider), instance.revision, now, now, key, hash)
       this.db.prepare('INSERT INTO studio_agent_run_admissions VALUES (?, ?, ?, ?)').run(id, JSON.stringify(original), JSON.stringify(input), JSON.stringify(admission?.hooks || []))
+      this.db.prepare('INSERT INTO studio_agent_run_origins VALUES (?, ?)').run(id, surface)
       if (target) this.conversations.bind(id, instance, target)
       this.projection?.accepted(this.get(id)!, original)
       this.db.exec('RELEASE studio_agent_admission')
@@ -119,13 +124,32 @@ export class AgentExecutionStore {
     const row = this.db.prepare('SELECT * FROM studio_agent_runs WHERE id=?').get(id) as unknown as RunRow | undefined
     return row ? this.decode(row) : null
   }
+  requestKey(id: string): string | undefined {
+    return this.db.prepare('SELECT idempotency_key FROM studio_agent_runs WHERE id=?').get(id)?.idempotency_key as string | undefined
+  }
+  activeForChat(sessionId: string): AgentExecution[] {
+    const rows = this.db.prepare(`SELECT r.* FROM studio_agent_runs r JOIN studio_agent_run_targets t ON t.run_id=r.id
+      WHERE t.session_id=? AND r.status NOT IN ('completed','cancelled','failed','interrupted') ORDER BY r.created_at, r.rowid`).all(sessionId)
+    return rows.map(row => this.decode(row as unknown as RunRow))
+  }
   input(id: string): AgentRunInput | null {
     const row = this.db.prepare('SELECT effective_input_json FROM studio_agent_run_admissions WHERE run_id=?').get(id) as { effective_input_json: string } | undefined
     return row ? JSON.parse(row.effective_input_json) as AgentRunInput : null
   }
+  originalInput(id: string): AgentRunInput | null {
+    const row = this.db.prepare('SELECT original_input_json FROM studio_agent_run_admissions WHERE run_id=?').get(id) as { original_input_json: string } | undefined
+    return row ? JSON.parse(row.original_input_json) as AgentRunInput : null
+  }
   transition(id: string, from: AgentRunStatus[], to: AgentRunStatus): boolean {
-    return this.db.prepare(`UPDATE studio_agent_runs SET status=?, revision=revision+1, updated_at=? WHERE id=? AND status IN (${from.map(() => '?').join(',')})`)
-      .run(to, Date.now(), id, ...from).changes > 0
+    const starting = !!this.projection && ['starting', 'running'].includes(to)
+    if (starting) this.db.exec('SAVEPOINT studio_agent_transition')
+    try {
+      const changed = this.db.prepare(`UPDATE studio_agent_runs SET status=?, revision=revision+1, updated_at=? WHERE id=? AND status IN (${from.map(() => '?').join(',')})`)
+        .run(to, Date.now(), id, ...from).changes > 0
+      if (changed && starting) this.projection!.started(this.get(id)!, this.originalInput(id)!)
+      if (starting) this.db.exec('RELEASE studio_agent_transition')
+      return changed
+    } catch (error) { if (starting) this.db.exec('ROLLBACK TO studio_agent_transition; RELEASE studio_agent_transition'); throw error }
   }
   appendOutput(id: string, event: AgentOutputEvent): void {
     const run = this.get(id)
@@ -177,8 +201,10 @@ export class AgentExecutionStore {
   }
   private decode(row: RunRow): AgentExecution {
     const admission = this.db.prepare('SELECT hooks_json FROM studio_agent_run_admissions WHERE run_id=?').get(row.id) as { hooks_json: string } | undefined
+    const origin = this.db.prepare('SELECT surface FROM studio_agent_run_origins WHERE run_id=?').get(row.id) as { surface: ExecutionScope['surface'] } | undefined
     return { id: row.id, instanceId: row.instance_id, profileId: row.profile_id, ownerId: row.owner_id, status: row.status,
       ...this.conversations.target(row.id),
+      ...(origin ? { surface: origin.surface } : {}),
       provider: JSON.parse(row.provider_json) as AgentProviderRef, configRevision: row.config_revision, revision: row.revision,
       createdAt: row.created_at, updatedAt: row.updated_at, errorCode: row.error_code, ...(admission ? { hooks: JSON.parse(admission.hooks_json) as HookSnapshot[] } : {}) }
   }
