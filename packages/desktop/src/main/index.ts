@@ -1,4 +1,5 @@
 import './desktop-storage-bootstrap'
+import { InstallationCoordinator } from './installation-coordinator'
 import { deviceWindowEndpoint, focusDeviceWindow, ownDeviceWindow } from './device-window-owner'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
@@ -1641,7 +1642,11 @@ ipcMain.handle('hermes-desktop:retry-bootstrap', async (_event, source?: Runtime
   await bootstrap(selectedSource)
 })
 
+let installationCoordinator: InstallationCoordinator | null = null
 async function runDesktopApp() {
+  installationCoordinator = new InstallationCoordinator(process.execPath)
+  installationCoordinator.register(app.getVersion())
+  app.once('will-quit', () => installationCoordinator?.release())
   const releaseDevice = await ownDeviceWindow(
     deviceWindowEndpoint(process.env.EKKO_STUDIO_DEVICE_ROOT || webUiHome(), activeRemoteServerUrl),
     () => { if (mainWindow) showMainWindow();else app.once('browser-window-created', () => setTimeout(showMainWindow, 100)) },
@@ -1725,6 +1730,13 @@ async function runDesktopApp() {
     })
     void bootstrap()
     if (!process.env[DEVICE_INSTANCE_ENV]) initAutoUpdater({
+      acquireInstall: targetVersion => {
+        if (!installationCoordinator) throw new Error('Desktop installation coordination is unavailable')
+        try { return installationCoordinator.beginInstall(targetVersion) } catch (error) {
+          if (error instanceof Error && error.message === 'DESKTOP_OTHER_DEVICE_WINDOWS_OPEN') throw new Error(t('update.otherDevicesOpen'))
+          throw error
+        }
+      },
       beforeQuitAndInstall: prepareAppShutdown,
       onInstallFailure: async () => {
         await prepareAppShutdown()

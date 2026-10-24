@@ -11,6 +11,8 @@ type TranslationKey =
   | 'tray.openAtLoginFailedTitle'
   | 'tray.openAtLoginFailedMessage'
   | 'tray.quit'
+  | 'browser.profileInUse'
+  | 'update.otherDevicesOpen'
   | 'update.upToDateTitle'
   | 'update.upToDateMessage'
   | 'update.checkingTitle'
@@ -74,6 +76,8 @@ const supportedLocales: DesktopLocale[] = ['en', 'zh', 'zh-TW', 'ja', 'ko', 'fr'
 
 const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
   en: {
+    'browser.profileInUse': "This browser profile is open in another Desktop instance. Close that instance first.",
+    'update.otherDevicesOpen': "Close other device windows before installing the Desktop update.",
     'tray.show': 'Show Ekko Studio',
     'tray.hide': 'Hide Ekko Studio',
     'tray.checkForUpdates': 'Check for Updates',
@@ -142,6 +146,8 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'loginReset.failedMessage': 'Could not reset the desktop login.',
   },
   zh: {
+    'browser.profileInUse': "此浏览器配置正被其他 Desktop 实例使用，请先退出该实例。",
+    'update.otherDevicesOpen': "请先退出其他设备窗口，再安装 Desktop 更新。",
     'tray.show': '显示 Ekko Studio',
     'tray.hide': '隐藏 Ekko Studio',
     'tray.checkForUpdates': '检查更新',
@@ -210,6 +216,8 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'loginReset.failedMessage': '无法重置桌面端登录。',
   },
   'zh-TW': {
+    'browser.profileInUse': "此瀏覽器設定正由其他 Desktop 實例使用，請先結束該實例。",
+    'update.otherDevicesOpen': "請先結束其他裝置視窗，再安裝 Desktop 更新。",
     'tray.show': '顯示 Ekko Studio',
     'tray.hide': '隱藏 Ekko Studio',
     'tray.checkForUpdates': '檢查更新',
@@ -278,6 +286,8 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'loginReset.failedMessage': '無法重置桌面端登入。',
   },
   ja: {
+    'browser.profileInUse': "このブラウザープロファイルは別の Desktop インスタンスで使用中です。先に終了してください。",
+    'update.otherDevicesOpen': "Desktop を更新する前に、他のデバイスウィンドウを終了してください。",
     'tray.show': 'Ekko Studio を表示',
     'tray.hide': 'Ekko Studio を隠す',
     'tray.checkForUpdates': 'アップデートを確認',
@@ -346,6 +356,8 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'loginReset.failedMessage': 'Could not reset the desktop login.',
   },
   ko: {
+    'browser.profileInUse': "다른 Desktop 인스턴스가 이 브라우저 프로필을 사용 중입니다. 먼저 종료하세요.",
+    'update.otherDevicesOpen': "Desktop 업데이트를 설치하기 전에 다른 기기 창을 종료하세요.",
     'tray.show': 'Ekko Studio 표시',
     'tray.hide': 'Ekko Studio 숨기기',
     'tray.checkForUpdates': '업데이트 확인',
@@ -414,6 +426,8 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'loginReset.failedMessage': 'Could not reset the desktop login.',
   },
   fr: {
+    'browser.profileInUse': "Ce profil de navigateur est utilisé par une autre instance Desktop. Fermez-la d’abord.",
+    'update.otherDevicesOpen': "Fermez les autres fenêtres d’appareils avant d’installer la mise à jour Desktop.",
     'tray.show': 'Afficher Ekko Studio',
     'tray.hide': 'Masquer Ekko Studio',
     'tray.checkForUpdates': 'Rechercher les mises a jour',
@@ -482,6 +496,8 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'loginReset.failedMessage': 'Could not reset the desktop login.',
   },
   es: {
+    'browser.profileInUse': "Otra instancia de Desktop está usando este perfil del navegador. Ciérrela primero.",
+    'update.otherDevicesOpen': "Cierre las otras ventanas de dispositivos antes de instalar la actualización de Desktop.",
     'tray.show': 'Mostrar Ekko Studio',
     'tray.hide': 'Ocultar Ekko Studio',
     'tray.checkForUpdates': 'Buscar actualizaciones',
@@ -550,6 +566,8 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'loginReset.failedMessage': 'Could not reset the desktop login.',
   },
   de: {
+    'browser.profileInUse': "Dieses Browserprofil wird von einer anderen Desktop-Instanz verwendet. Beenden Sie diese zuerst.",
+    'update.otherDevicesOpen': "Beenden Sie andere Gerätefenster, bevor Sie das Desktop-Update installieren.",
     'tray.show': 'Ekko Studio anzeigen',
     'tray.hide': 'Ekko Studio ausblenden',
     'tray.checkForUpdates': 'Nach Updates suchen',
@@ -618,6 +636,8 @@ const translations: Record<DesktopLocale, Record<TranslationKey, string>> = {
     'loginReset.failedMessage': 'Could not reset the desktop login.',
   },
   pt: {
+    'browser.profileInUse': "Este perfil de navegador está em uso por outra instância do Desktop. Encerre-a primeiro.",
+    'update.otherDevicesOpen': "Encerre as outras janelas de dispositivos antes de instalar a atualização do Desktop.",
     'tray.show': 'Mostrar Ekko Studio',
     'tray.hide': 'Ocultar Ekko Studio',
     'tray.checkForUpdates': 'Verificar atualizacoes',
