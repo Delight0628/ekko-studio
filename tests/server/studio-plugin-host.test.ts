@@ -30,6 +30,38 @@ beforeAll(async () => {
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close() })
 afterAll(async () => { await rm(root, { recursive: true, force: true }) })
 
+it('retains a real worker lease and shares disposal completion after runtime abort', async () => {
+  const { host, registry, logger } = setup()
+  const directory = await mkdtemp(join(root, 'disposal-')), releasePath = join(root, 'release-disposal')
+  const manifest = { schemaVersion: 1, id: 'test.disposal', version: '1.0.0', engines: { studioSdk: '^0.1.0', rpc: 1 }, backend: 'index.cjs', activation: 'profile',
+    contributes: { agents: ['test.disposal/agent'] }, requires: { capabilities: ['agents.register'] }, configSchema: {} }
+  await writeFile(join(directory, 'studio-plugin.json'), JSON.stringify(manifest))
+  await writeFile(join(directory, 'index.cjs'), `module.exports = { apply(ctx) { ctx.agents.register({
+    id: 'test.disposal/agent', name: 'Disposal fixture', configSchema: {}, capabilities: { text: true, modes: ['scoped'] },
+    create: async () => ({ run: async () => { throw new Error('not used') }, dispose: async () => {
+      ctx.logger.info('disposal-started');
+      while (true) { try { await require('node:fs/promises').readFile(ctx.config.releasePath); return } catch { await new Promise(resolve => setTimeout(resolve, 10)) } }
+    } })
+  }) } }`)
+  await host.install(directory)
+  const state = { pluginId: manifest.id, profileId: 'default', ownerId: '1', enabled: true, config: { releasePath }, grants: manifest.requires.capabilities }
+  await host.configure(state, 0)
+  const { definition, provider } = registry.resolve('default', 'test.disposal/agent'), controller = new AbortController()
+  const runtime = await definition.create({ instanceId: 'instance', config: {}, configRevision: 1, mode: 'scoped' }, {
+    runtimeSessionId: 'disposal-runtime', provider, profileId: 'default', signal: controller.signal, logger,
+  })
+  controller.abort()
+  let stopped = false
+  const disposal = runtime.dispose('Run ended').then(() => { stopped = true })
+  await vi.waitFor(() => expect(logger.info.mock.calls.some(call => JSON.stringify(call).includes('disposal-started'))).toBe(true))
+  expect(stopped).toBe(false)
+  await expect(host.configure({ ...state, enabled: false }, 1)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  await writeFile(releasePath, 'release')
+  await disposal
+  expect(stopped).toBe(true)
+  await expect(host.configure({ ...state, enabled: false }, 1)).resolves.toMatchObject({ enabled: false })
+})
+
 function setup(sessions: ContextServices['sessions'] = { get: async () => null }, chatFactory?: (db: DatabaseSync) => ContextServices['chat'], workflows?: ContextServices['workflows']) {
   const db = new DatabaseSync(':memory:')
   const chat = chatFactory?.(db)

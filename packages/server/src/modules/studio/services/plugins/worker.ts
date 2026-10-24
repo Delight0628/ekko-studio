@@ -109,12 +109,13 @@ export class PluginWorker {
         this.runtimes.add(id)
         try { await this.peer.request('runtime.create', toJson({ agentTypeId: meta.id, runtimeSessionId: id, input })) }
         catch (error) { this.runtimes.delete(id); await this.close(); throw error }
-        const dispose = async (reason: string): Promise<void> => {
-          if (!this.runtimes.delete(id)) return
+        let disposal: Promise<void> | undefined
+        const dispose = (reason: string): Promise<void> => disposal ??= (async () => {
           context.signal.removeEventListener('abort', aborted)
           try { await this.peer.request('runtime.dispose', { runtimeSessionId: id, reason }, 5_000) }
           catch (error) { await this.close(); throw error }
-        }
+          finally { this.runtimes.delete(id) }
+        })()
         const aborted = () => { void dispose('Runtime scope ended').catch(() => {}) }
         context.signal.addEventListener('abort', aborted, { once: true })
         if (context.signal.aborted) { await dispose('Runtime scope ended'); throw new StudioError('CANCELLED', 'Runtime scope ended') }
