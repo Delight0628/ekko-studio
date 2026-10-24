@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import sharp from 'sharp'
+import sharp, { type Metadata } from 'sharp'
 import { StudioError, type AgentRunInput, type ArtifactChunk, type ExecutionScope, type ImageArtifact } from '../../contracts/plugins'
 import { jsonCopy } from '../plugins/validation'
 import { AgentArtifactStore } from '../../repositories/agent-artifact-store'
@@ -27,7 +27,7 @@ export class AgentArtifacts {
     this.uploading++
     try {
       if (signal.aborted) throw new StudioError('CANCELLED', 'Image upload ended')
-      let metadata: sharp.Metadata
+      let metadata: Metadata
       try { metadata = await sharp(data, { limitInputPixels: 40_000_000, failOn: 'warning' }).metadata() }
       catch { throw new StudioError('INVALID_ARGUMENT', 'Invalid or oversized image') }
       const mediaType = mediaTypes[metadata.format || '']
