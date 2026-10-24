@@ -1,3 +1,4 @@
+import './desktop-storage-bootstrap'
 import { deviceWindowEndpoint, focusDeviceWindow, ownDeviceWindow } from './device-window-owner'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
@@ -70,13 +71,6 @@ import { getOpenAtLogin as readOpenAtLogin, setOpenAtLogin as writeOpenAtLogin, 
 import { PROVIDER_IMPORT_SCHEME, providerImportPayload, providerImportFromArgs, providerImportTarget } from './provider-import'
 
 configureDesktopIdentity(app)
-if (process.env[DEVICE_INSTANCE_ENV] && process.env.EKKO_STUDIO_INSTANCE_USER_DATA) {
-  app.setPath('userData', process.env.EKKO_STUDIO_INSTANCE_USER_DATA)
-  const sessionData = join(process.env.EKKO_STUDIO_INSTANCE_USER_DATA, 'sessions')
-  mkdirSync(sessionData, { recursive: true, mode: 0o700 })
-  app.setPath('sessionData', sessionData)
-}
-
 const PORT = Number(process.env.HERMES_DESKTOP_PORT) || 8748
 const START_HIDDEN = process.argv.includes('--hidden')
 const QUIT_EXISTING = process.argv.includes('--quit')
