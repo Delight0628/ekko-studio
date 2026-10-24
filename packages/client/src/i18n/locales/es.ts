@@ -414,8 +414,6 @@ export default {
     remoteOwnerBusy: 'Standby — browser operation in progress',
     remoteOwnerConnecting: 'Connecting',
 
-    remoteControl: 'Allow remote control',
-    remoteControlStop: 'Stop remote control',
 
     title: 'Navegador', settings: 'Ajustes del navegador', desktopOnly: 'El navegador integrado solo está disponible en Ekko Studio Desktop.', newTab: 'Nueva pestaña',
     back: 'Atrás', forward: 'Adelante', reload: 'Recargar', stop: 'Detener', addressPlaceholder: 'Buscar o escribir una dirección',

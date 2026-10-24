@@ -340,8 +340,6 @@ export default {
     remoteOwnerBusy: 'Standby — browser operation in progress',
     remoteOwnerConnecting: 'Connecting',
 
-    remoteControl: 'Allow remote control',
-    remoteControlStop: 'Stop remote control',
 
     title: 'Tarayıcı',
     settings: 'Tarayıcı ayarları',

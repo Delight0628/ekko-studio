@@ -906,13 +906,13 @@ test('remote device browser keeps sharing off if the Desktop grant is unavailabl
   await page.locator('.header-tool-toggle').click()
   const panel = page.locator('.chat-tool-panel')
   await panel.getByRole('tab', { name: 'Browser', exact: true }).click()
-  await panel.getByRole('button', { name: 'Allow remote control', exact: true }).click()
   await expect.poll(() => page.evaluate(() => (window as any).__remoteBrowserConsent.includes(true))).toBe(true)
-  await expect(panel.getByRole('button', { name: 'Allow remote control', exact: true })).toBeVisible()
-  await expect(panel.getByRole('button', { name: 'Stop remote control', exact: true })).toHaveCount(0)
+  await expect(panel.locator('.remote-control-action')).toHaveCount(0)
+  expect(await page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.allSockets
+    .some((socket: any) => String(socket.url).endsWith('/desktop-browser')))).toBe(false)
 })
 
-test('remote device browser enables and stops with one click and a full-width label', async ({ page }) => {
+test('remote device browser is shared automatically without a consent control', async ({ page }) => {
   await installDesktopBridge(page, 'win32', true)
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   await mockChatSocket(page)
@@ -928,26 +928,12 @@ test('remote device browser enables and stops with one click and a full-width la
     desktop.browser.remoteRequest = async () => ({ result: { tabs: [] } })
   })
   await page.goto('/#/hermes/chat')
+  await expect.poll(() => page.evaluate(() => (window as any).__remoteBrowserGrants.filter(Boolean))).toEqual([true])
   await page.locator('.header-tool-toggle').click()
   const panel = page.locator('.chat-tool-panel')
   await panel.getByRole('tab', { name: 'Browser', exact: true }).click()
-  const enable = panel.getByRole('button', { name: 'Allow remote control', exact: true })
-  const labelFits = async (selector: string) => page.locator(selector).evaluate(element => {
-    const button = element.getBoundingClientRect()
-    const label = element.querySelector('.n-button__content')!.getBoundingClientRect()
-    return label.left >= button.left && label.right <= button.right && button.width > 30
-  })
-  await expect(enable).toHaveAttribute('aria-pressed', 'false')
-  await expect.poll(() => labelFits('.remote-control-action button')).toBe(true)
-  await enable.click()
-  const stop = panel.getByRole('button', { name: 'Stop remote control', exact: true })
-  await expect(stop).toHaveAttribute('aria-pressed', 'true')
+  await expect(panel.getByRole('button', { name: /remote control/i })).toHaveCount(0)
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  expect(await page.evaluate(() => (window as any).__remoteBrowserGrants.filter(Boolean))).toEqual([true])
-  await expect.poll(() => labelFits('.remote-control-action button')).toBe(true)
-  await stop.click()
-  await expect(enable).toHaveAttribute('aria-pressed', 'false')
-  expect(await page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.allSockets
-    .filter((socket: any) => String(socket.url).endsWith('/desktop-browser'))
-    .every((socket: any) => !socket.connected))).toBe(true)
+  await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.allSockets
+    .some((socket: any) => String(socket.url).endsWith('/desktop-browser') && socket.connected))).toBe(true)
 })

@@ -16,38 +16,26 @@ let stopAuth: (() => void) | null = null
 let cancelConnection: (() => void) | null = null
 let resumeTimer: ReturnType<typeof setTimeout> | null = null
 
-// The explicit panel grant is remembered on this device until the user stops it,
-// so refreshes, restarts, profile switches and dropped connections restore it.
-const REMEMBER_KEY = 'hermes.desktopBrowser.remoteControlRemembered'
+// In remote mode the Desktop browser is shared automatically whenever this
+// renderer is logged in; dropped connections are retried in the background.
 const RESUME_DELAY_MS = 5000
 
-export function remoteBrowserRemembered(): boolean {
-  try { return localStorage.getItem(REMEMBER_KEY) === '1' } catch { return false }
-}
-
-export function rememberRemoteBrowser(enabled: boolean): void {
-  try {
-    if (enabled) localStorage.setItem(REMEMBER_KEY, '1')
-    else localStorage.removeItem(REMEMBER_KEY)
-  } catch { /* storage unavailable: fall back to per-session consent */ }
-  if (!enabled && resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null }
-}
-
-/** Restore a remembered grant; never throws and never prompts. */
-export async function resumeRememberedRemoteBrowser(): Promise<void> {
+/** Connect the Desktop browser relay if possible; never throws and never prompts. */
+export async function ensureRemoteBrowserRelay(): Promise<void> {
   if (resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null }
   const bridge = desktopBridge()
-  if (remoteBrowserEnabled.value || !remoteBrowserRemembered() || !bridge?.remoteMode || !bridge.browser?.remoteRequest || !getApiKey()) return
-  try { await startRemoteBrowserRelay() } catch (error) { console.warn('[desktop-browser] remembered remote control was not restored', error) }
+  if (remoteBrowserEnabled.value || cancelConnection || !bridge?.remoteMode || !bridge.browser?.remoteRequest || !bridge.browser.setRemoteControl || !getApiKey()) return
+  try { await startRemoteBrowserRelay() } catch (error) { console.warn('[desktop-browser] remote control is not connected', error) }
 }
 
-function scheduleRememberedResume(): void {
-  if (resumeTimer || !remoteBrowserRemembered()) return
-  resumeTimer = setTimeout(() => { resumeTimer = null; void resumeRememberedRemoteBrowser() }, RESUME_DELAY_MS)
+function scheduleResume(): void {
+  if (resumeTimer || !getApiKey()) return
+  resumeTimer = setTimeout(() => { resumeTimer = null; void ensureRemoteBrowserRelay() }, RESUME_DELAY_MS)
 }
 
 export async function stopRemoteBrowserRelay(): Promise<void> {
   generation++
+  if (resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null }
   remoteBrowserEnabled.value = false
   remoteBrowserOwnerState.value = 'connecting'
   stopGrantState?.(); stopGrantState = null
@@ -70,7 +58,7 @@ export async function startRemoteBrowserRelay(): Promise<void> {
     if (!await bridge.browser.setRemoteControl?.(true)) return
   } catch (error) { await stopRemoteBrowserRelay(); throw error }
   stopGrantState = bridge.browser.onRemoteControlState?.(enabled => {
-    if (!enabled && generation === startedGeneration) void stopRemoteBrowserRelay()
+    if (!enabled && generation === startedGeneration) { void stopRemoteBrowserRelay(); scheduleResume() }
   }) || null
   if (generation !== startedGeneration) { await bridge.browser.setRemoteControl?.(false); return }
   const endpoint = socketEndpoint(getBaseUrlValue(), '/desktop-browser')
@@ -112,7 +100,7 @@ export async function startRemoteBrowserRelay(): Promise<void> {
   const stop = () => {
     if (socket !== connection) return
     void stopRemoteBrowserRelay()
-    scheduleRememberedResume()
+    scheduleResume()
   }
   connection.on('disconnect', stop)
   connection.on('browser.revoked', stop)
@@ -146,5 +134,5 @@ export async function startRemoteBrowserRelay(): Promise<void> {
 
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', () => { void stopRemoteBrowserRelay() })
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void resumeRememberedRemoteBrowser() })
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void ensureRemoteBrowserRelay() })
 }

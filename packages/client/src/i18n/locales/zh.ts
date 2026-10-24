@@ -414,8 +414,6 @@ export default {
     remoteOwnerBusy: '待命：浏览器操作正在执行',
     remoteOwnerConnecting: '正在连接',
 
-    remoteControl: '允许远程控制',
-    remoteControlStop: '停止远程控制',
 
     title: '浏览器', settings: '浏览器设置', desktopOnly: '内置浏览器仅在 Ekko Studio 桌面端可用。', newTab: '新标签页',
     back: '后退', forward: '前进', reload: '刷新', stop: '停止', addressPlaceholder: '搜索或输入网址',
