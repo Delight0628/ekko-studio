@@ -219,6 +219,38 @@ describe('desktop browser batch interactions', () => {
     expect(manager.pageDialog('tab')).toBeUndefined()
   })
 
+  it('keeps native alert/confirm boxes off screen while the agent controls the tab', async () => {
+    const { EventEmitter } = await import('node:events')
+    const { manager, internal, record, contents } = await setup()
+    const shown: unknown[] = []
+    const emitter = Object.assign(new EventEmitter(), contents)
+    emitter.on('-run-dialog', (info: unknown) => { shown.push(info) })
+    record.view.webContents = emitter
+    internal.routePageDialogs(record)
+
+    // The agent controls the tab: Electron's box is not shown; the agent answers via DevTools.
+    emitter.emit('-run-dialog', 'agent-confirm', () => {})
+    expect(shown).toEqual([])
+    expect(record.heldDialog).toMatchObject({ info: 'agent-confirm' })
+
+    // The user takes over before the agent answered: the box is handed to the user.
+    internal.automation.pageDialog = () => ({ type: 'confirm' })
+    manager.revokeAgentControl('tab')
+    expect(shown).toEqual(['agent-confirm'])
+    expect(record.heldDialog).toBeUndefined()
+
+    // The user's own browsing keeps Electron's normal native box.
+    emitter.emit('-run-dialog', 'user-alert', () => {})
+    expect(shown).toEqual(['agent-confirm', 'user-alert'])
+
+    // Answered by the agent, then released: nothing is replayed.
+    manager.setAgentControl('tab', 'active')
+    emitter.emit('-run-dialog', 'answered', () => {})
+    internal.automation.pageDialog = () => undefined
+    manager.revokeAgentControl('tab')
+    expect(shown).toEqual(['agent-confirm', 'user-alert'])
+  })
+
   it('intercepts file pickers only while the agent controls the tab', async () => {
     const { manager, contents } = await setup()
     manager.setAgentControl('tab', 'idle')

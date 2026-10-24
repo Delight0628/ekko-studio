@@ -73,6 +73,10 @@ interface TabRecord {
   openerTabId?: string
   /** Agent right-clicks must reach the page without popping the annotation menu. */
   suppressContextMenuUntil?: number
+  /** alert/confirm opened while the agent controls the tab; answered via DevTools instead of a native box. */
+  heldDialog?: { info: unknown; callback: unknown }
+  /** Electron's own JavaScript dialog handlers, which show the native message box. */
+  nativeDialogListeners?: Array<(...args: unknown[]) => void>
 }
 
 const AGENT_CONTEXT_MENU_GRACE_MS = 1500
@@ -467,6 +471,37 @@ export class BrowserManager {
     }
   }
 
+  /**
+   * While the agent controls a tab, alert/confirm stay off the user's screen: the agent sees
+   * them as observation.dialog and answers through DevTools. Electron's internal -run-dialog
+   * handler (which shows the native box) is only used for the user's own browsing, or when
+   * the user takes over while a dialog is still unanswered.
+   */
+  private routePageDialogs(record: TabRecord): void {
+    const emitter = record.view.webContents as unknown as NodeJS.EventEmitter
+    if (typeof emitter.listeners !== 'function') return
+    const native = emitter.listeners('-run-dialog') as Array<(...args: unknown[]) => void>
+    if (!native.length) return
+    record.nativeDialogListeners = native
+    emitter.removeAllListeners('-run-dialog')
+    emitter.on('-run-dialog', (info: unknown, callback: unknown) => {
+      if (record.tab.agentControl === 'active') {
+        record.heldDialog = { info, callback }
+        return
+      }
+      for (const listener of native) listener.call(emitter, info, callback)
+    })
+  }
+
+  private releaseHeldDialog(record: TabRecord): void {
+    const held = record.heldDialog
+    if (!held) return
+    record.heldDialog = undefined
+    // Only hand an unanswered dialog to the user; the page would otherwise stay blocked.
+    if (!this.automation.pageDialog(record.view.webContents)) return
+    for (const listener of record.nativeDialogListeners || []) listener.call(record.view.webContents, held.info, held.callback)
+  }
+
   pageDialog(tabId: string): BrowserPageDialog | undefined {
     return this.automation.pageDialog(this.requireTab(tabId).view.webContents)
   }
@@ -478,6 +513,9 @@ export class BrowserManager {
     const generation = record.documentGeneration || 0
     const tabs = new Set(this.records.keys())
     const dialog = await this.automation.handleDialog(tabId, record.view.webContents, accept, promptText)
+    // DevTools already answered the page; Electron's callback for the held dialog is dropped, as it
+    // is when Electron aborts its own box.
+    record.heldDialog = undefined
     const evidence = await this.observeOperation(record, before, [], options, generation, tabs, () => {}, Date.now())
     return { ...copyTab(record.tab), ...evidence, dialog }
   }
@@ -699,6 +737,7 @@ export class BrowserManager {
       void this.automation.setFileChooserInterception(record.view.webContents, control === 'active').catch(() => undefined)
     }
     tab.agentControl = control
+    if (control !== 'active') this.releaseHeldDialog(record)
     tab.agentLabel = label
     tab.agentAction = action
     this.emitState()
@@ -977,6 +1016,7 @@ export class BrowserManager {
     }
     const record: TabRecord = { tab, view, console: [] }
     const contents = view.webContents
+    this.routePageDialogs(record)
     contents.on('dom-ready', () => {
       void applyBrowserColorScheme(view, this.colorScheme).catch(error => {
         console.warn('[desktop-browser] color scheme update failed', error)
