@@ -216,6 +216,10 @@ export class BrowserAutomation {
     const dialog = state.dialog
     if (!dialog) throw new Error('No page dialog is open')
     await state.send('Page.handleJavaScriptDialog', { accept, ...(promptText !== undefined ? { promptText } : {}) }, dialog.sessionId)
+    // DevTools answers the page but leaves Electron's native message box on screen.
+    // Electron closes its alert/confirm boxes on this internal event without re-answering.
+    const emitter = contents as unknown as { emit?: (event: string, ...args: unknown[]) => boolean }
+    if (typeof emitter.emit === 'function') emitter.emit('-cancel-dialogs', { resetState: false })
     if (state.dialog === dialog) state.dialog = undefined
     this.invalidate(tabId)
     const { sessionId: _sessionId, ...visible } = dialog

@@ -143,7 +143,11 @@ describe('page dialogs', () => {
     await expect(automation.snapshot('tab', page.contents)).rejects.toThrow('ekko_studio_browser_dialog')
     await expect(automation.interact('tab', page.contents, { action: 'press', key: 'Enter' })).rejects.toThrow('confirm dialog is open')
 
+    const emitted: unknown[][] = []
+    Object.assign(page.contents, { emit: (...args: unknown[]) => { emitted.push(args); return true } })
     await expect(automation.handleDialog('tab', page.contents, false)).resolves.toMatchObject({ type: 'confirm' })
+    // Electron's native confirm box must close once DevTools has answered the page.
+    expect(emitted).toEqual([['-cancel-dialogs', { resetState: false }]])
     expect(page.sent.find(item => item.method === 'Page.handleJavaScriptDialog')?.params).toEqual({ accept: false })
     expect(automation.pageDialog(page.contents)).toBeUndefined()
     await expect(automation.handleDialog('tab', page.contents, true)).rejects.toThrow('No page dialog')
