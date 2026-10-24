@@ -44,7 +44,7 @@ const SUPPORTED_CAPABILITIES = new Set([
   ...CORE_EVENTS.map(name => `events.subscribe:${name}`),
   ...CORE_EVENTS.map(name => `events.consume:${name}`),
   'hooks.before:runs.start', 'hooks.before:sessions.remove',
-  'processes.spawn', 'mcp.connect',
+  'processes.spawn', 'mcp.connect', 'mcp.studio',
   'models.read', 'models.stream', 'models.gateway', 'artifacts.read',
 ])
 
@@ -59,6 +59,13 @@ export class PluginHost {
   constructor(private readonly options: PluginHostOptions) {}
 
   list(): PluginInstallation[] { return this.options.store.list() }
+
+  authorizeNativeMcp(provider: AgentProviderRef, profileId: string): void {
+    if (provider.kind === 'builtin') return
+    const active = this.active.get(this.key(provider.pluginId, profileId))
+    if (this.closed || !active || active.generation !== provider.generation) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin activation is unavailable')
+    active.worker.authorizeNativeMcp()
+  }
 
   leaseManagement(provider: AgentProviderRef, profileId: string, cancel: () => void, completed: Promise<void>) {
     if (provider.kind === 'builtin') return { authorize() {}, release() {} }

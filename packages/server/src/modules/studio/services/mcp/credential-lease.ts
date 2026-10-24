@@ -1,30 +1,31 @@
 import { randomUUID } from 'node:crypto'
 import { runMcpCredentials } from '../auth/run-mcp-credentials'
 import { config, getWebUiHome } from '../../public/config'
-import { studioManagedMcpConfig, STUDIO_MANAGED_MCP_ENV } from './managed-config'
+import { studioManagedMcpConfig, isStudioManagedMcpServer } from './managed-config'
 
 /** One authenticated execution owns its credential files, independent of other turns in the Profile. */
 export async function leaseStudioMcpServers(servers: Record<string, unknown> | undefined, run: {
-  sessionId: string; profile: string; agentId: string; userId?: number; signal: AbortSignal; nativeTaskPlan?: boolean
+  sessionId: string; profile: string; agentId: string; userId?: number; signal: AbortSignal; nativeTaskPlan?: boolean; authorize?(): void
 }) {
   const lifecycle = new AbortController(), contextId = randomUUID()
-  const managed = Object.entries(servers || {}).filter(([name, value]) => {
-    const server = value as { env?: Record<string, string>; enabled?: boolean; disabled?: boolean } | null
-    return /^ekko-studio-(api|browser|devices|use|interaction|plan)$/.test(name)
-      && server?.enabled !== false && server?.disabled !== true && server?.env?.[STUDIO_MANAGED_MCP_ENV] === '1'
-  })
+  const managed = Object.entries(servers || {}).filter(([name, value]) => isStudioManagedMcpServer(name, value))
   const dispose = () => {
     lifecycle.abort()
     runMcpCredentials.revoke(run.sessionId, contextId)
     run.signal.removeEventListener('abort', dispose)
   }
   run.signal.throwIfAborted()
+  run.authorize?.()
   run.signal.addEventListener('abort', dispose, { once: true })
-  if (!managed.length) return { servers, signal: lifecycle.signal, dispose }
+  if (!managed.length) return { servers, signal: lifecycle.signal, dispose, contextId: undefined }
   try {
     const tokenFile = await runMcpCredentials.issue({ sessionId: run.sessionId, profile: run.profile, userId: run.userId,
-      contextId, agentId: run.agentId, isActive: () => !lifecycle.signal.aborted && !run.signal.aborted }, { preserveOtherContexts: true })
+      contextId, agentId: run.agentId, isActive: () => {
+        if (lifecycle.signal.aborted || run.signal.aborted) return false
+        try { run.authorize?.(); return true } catch { return false }
+      } }, { preserveOtherContexts: true })
     run.signal.throwIfAborted()
+    run.authorize?.()
     const configured = { ...servers }
     for (const [name, value] of managed) {
       const original = value as Record<string, unknown>
@@ -41,6 +42,6 @@ export async function leaseStudioMcpServers(servers: Record<string, unknown> | u
           : typeof original.requestTimeoutMs === 'number' && Number.isInteger(original.requestTimeoutMs) && original.requestTimeoutMs > 0 ? { requestTimeoutMs: original.requestTimeoutMs } : {}),
       }
     }
-    return { servers: configured, signal: lifecycle.signal, dispose }
+    return { servers: configured, signal: lifecycle.signal, dispose, contextId }
   } catch (error) { dispose(); throw error }
 }

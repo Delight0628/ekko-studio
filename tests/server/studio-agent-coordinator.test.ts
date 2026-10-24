@@ -12,7 +12,7 @@ const cleanup: Array<() => Promise<void>> = []
 afterEach(async () => { vi.useRealTimers(); for (const close of cleanup.splice(0)) await close() })
 const scope: ExecutionScope = { scopeId: 'scope', principal: { id: '1', kind: 'user' }, profileId: 'one', surface: 'api', traceId: 'trace' }
 
-function setup(create?: AgentTypeDefinition['create']) {
+function setup(create?: AgentTypeDefinition['create'], nativeMcp = false) {
   const db = new DatabaseSync(':memory:'), store = new AgentExecutionStore(db), registry = new AgentRegistry(), events = new PluginEventBus()
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
   const factory = vi.fn(create || (async () => ({
@@ -20,7 +20,7 @@ function setup(create?: AgentTypeDefinition['create']) {
     dispose: async () => {},
   })))
   const registration = registry.stage('*', { kind: 'builtin', module: 'ekko', implementationVersion: 'test' }, ['ekko'])
-  registration.register({ id: 'ekko', name: 'Ekko fixture', configSchema: { type: 'object', additionalProperties: false }, capabilities: { text: true, modes: ['scoped'] }, create: factory })
+  registration.register({ id: 'ekko', name: 'Ekko fixture', configSchema: { type: 'object', additionalProperties: false, properties: { studioMcp: { type: 'object' } } }, capabilities: { text: true, nativeMcp, modes: ['scoped'] }, create: factory })
   registration.commit()
   const coordinator = new AgentCoordinator({ store, registry, events, logger, authorize: () => {}, context: (scope, signal) => createExecutionContext(scope, signal, logger, {
     authorize: async () => {}, sessions: { get: async () => null }, agents: { list: async profile => registry.list(profile) },
@@ -108,4 +108,13 @@ it('rejects malformed input before accepting a run', () => {
     expect(() => coordinator.start(scope, instance.id, input as never, 'request')).toThrow()
   }
   expect(factory).not.toHaveBeenCalled()
+})
+
+it.each([false, true])('rejects unavailable native MCP before admitting a Run (adapter support: %s)', async supported => {
+  const f = setup(undefined, supported)
+  const configured = await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, mode: 'scoped', config: { studioMcp: { enabled: true } } })
+  expect(() => f.coordinator.start(scope, configured.id, { content: [{ type: 'text', text: 'must not infer' }] }, 'unsupported-mcp'))
+    .toThrow(expect.objectContaining({ code: 'CAPABILITY_UNSUPPORTED' }))
+  expect(f.db.prepare('SELECT count(*) AS count FROM studio_agent_runs').get()?.count).toBe(0)
+  expect(f.factory).not.toHaveBeenCalled()
 })

@@ -18,6 +18,7 @@ import { parseAgentResourceLocations } from './resource-contract'
 import { AgentManagementOperations } from './management-operations'
 import type { AgentManagementStore } from '../../repositories/agent-management-store'
 import { parseAgentLogin } from './login-contract'
+import type { NativeAgentContext } from './native-context'
 
 interface ActiveRun {
   controller: AbortController; handle?: AgentRunHandle; completed: Promise<void>; resolve(): void
@@ -29,6 +30,7 @@ interface RuntimeLease {
   runtime: Promise<AgentRuntime>; creating: boolean; idleTimer?: ReturnType<typeof setTimeout>; disposing?: Promise<void>
   processes: ManagedProcessScope
   mcp: ManagedMcpScope
+  nativeContext?: NativeAgentContext
   settling?: Promise<void>
 }
 interface InstanceQueue { current?: string; pending: string[] }
@@ -64,6 +66,7 @@ export class AgentCoordinator {
     managementStore?: AgentManagementStore
     authorizeManagement?(scope: ExecutionScope): void
     leaseManagement?(provider: AgentProviderRef, profileId: string, cancel: () => void, completed: Promise<void>): { authorize(): void; release(): void }
+    nativeContext?(instance: AgentInstance, scope: ExecutionScope, provider: AgentProviderRef, signal: AbortSignal): NativeAgentContext | undefined
   }) {
     if (options.managementStore && options.authorizeManagement && options.leaseManagement) this.managementOperations = new AgentManagementOperations(options.managementStore, options.authorizeManagement)
   }
@@ -282,6 +285,8 @@ export class AgentCoordinator {
     if (previous) return { instance, previous }
     if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance is being managed')
     const { definition, provider } = this.options.registry.resolve(scope.profileId, instance.agentTypeId)
+    const nativeMcp = instance.config.studioMcp as { enabled?: boolean } | undefined
+    if (nativeMcp?.enabled === true && (!definition.capabilities.nativeMcp || !this.options.nativeContext)) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Native Studio MCP is unavailable in this host')
     if (!input || typeof input !== 'object' || Object.keys(input).some(key => !['content', 'model', 'timeoutMs'].includes(key))) throw new StudioError('INVALID_ARGUMENT', 'Invalid run input')
     if (!Array.isArray(input.content) || !input.content.length || input.content.length > 100) throw new StudioError('INVALID_ARGUMENT', 'Run content is required')
     for (const block of input.content) {
@@ -451,7 +456,7 @@ export class AgentCoordinator {
     // factory result. A timeout bounds the caller's wait; it cannot certify exit.
     const cleanup = lease.runtime.then(runtime => runtime.dispose(reason), () => {})
       .finally(async () => {
-        const results = await Promise.allSettled([lease.processes.close(), lease.mcp.close(), lease.settling])
+        const results = await Promise.allSettled([lease.processes.close(), lease.mcp.close(), lease.nativeContext?.close(), lease.settling])
         const failed = results.find(result => result.status === 'rejected')
         if (failed?.status === 'rejected') throw failed.reason
       })
@@ -510,6 +515,7 @@ export class AgentCoordinator {
         // Install the lease before invoking user code, including factories that
         // start a process and then throw synchronously.
         const creating = Promise.resolve().then(async () => {
+          if (resolved.definition.capabilities.nativeMcp) pending.nativeContext = this.options.nativeContext?.(instance, scope, run.provider, controller.signal)
           const stateDirectory = instance.mode === 'scoped' && this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, run.provider,
             this.options.store.state.stateRevision(instance.id, run.provider, instance.revision)) : undefined
           assertDispatch()
@@ -528,7 +534,9 @@ export class AgentCoordinator {
       assertDispatch()
       this.options.store.state.bindLease(run.id, lease.id)
       const context = this.options.context({ ...scope, runId: run.id }, active.controller.signal)
-      const runContext: AgentRunContext = { ...context, scope: { ...context.scope, runId: run.id, runtimeSessionId: lease.id } }
+      const nativeContext = await Promise.race([lease.nativeContext?.prepare(run.id, active.controller.signal), aborted])
+      assertDispatch()
+      const runContext: AgentRunContext = { ...context, scope: { ...context.scope, runId: run.id, runtimeSessionId: lease.id }, ...(nativeContext ? { nativeContext } : {}) }
       this.options.store.transition(run.id, ['starting'], 'running')
       const starting = runtime.run(input, runContext)
       void starting.then(late => { if (ended) { void late.result.catch(() => {}); void late.cancel('Run start exceeded deadline').catch(() => {}) } }).catch(() => {})
@@ -564,6 +572,7 @@ export class AgentCoordinator {
         if (tools.size || this.options.store.state.interactions(run.id).some(item => !['resolved', 'withdrawn'].includes(item.status))) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent ended with unresolved work')
         if (!this.options.store.transition(run.id, ['running', 'waiting_input'], 'finalizing')) throw new StudioError('REVISION_CONFLICT', 'Run cannot finalize')
         await Promise.race([settle(), aborted])
+        await Promise.race([lease.nativeContext?.end(), aborted])
         if (result.checkpoint !== undefined) checkpoint = jsonCopy(result.checkpoint)
         if (checkpoint === undefined && resolved.definition.capabilities.resume && runtime.checkpoint) {
           checkpoint = jsonCopy(await Promise.race([runtime.checkpoint(), aborted]))
@@ -580,6 +589,7 @@ export class AgentCoordinator {
       if (finalizationDeadline) clearTimeout(finalizationDeadline)
       active.controller.abort()
       const lease = this.leases.get(instance.id)
+      try { await lease?.nativeContext?.end() } catch { retain = false }
       if (lease && !lease.disposing) lease.settling = settle()
       try { await settle() } catch { retain = false }
       const dispose = (reason: string) => this.disposeLease(instance.id, reason)

@@ -5,7 +5,12 @@ import { StudioError } from './errors'
 export interface AgentContextConfiguration {
   systemPrompt?: string
   mcpServers?: Record<string, AgentMcpServerConfiguration>
+  /** Explicitly opt in to host toolsets. Interaction tools require a bound chat context. */
+  studioMcp?: { enabled: boolean; api?: boolean; browser?: boolean; devices?: boolean; use?: boolean }
 }
+
+/** Host-only turn metadata, separate from saved instance configuration. */
+export interface AgentNativeContextConfiguration extends AgentContextConfiguration { turnInstructions?: string }
 
 export type AgentMcpServerConfiguration = {
   enabled?: boolean
@@ -21,6 +26,9 @@ const enabled = { enabled: { type: 'boolean' }, disabled: { type: 'boolean' } }
 /** Spread into a plugin's configSchema.properties to expose the same configuration in every client. */
 export const agentContextConfigurationProperties: JsonObject = {
   systemPrompt: { type: 'string', maxLength: 65536 },
+  studioMcp: { type: 'object', additionalProperties: false, required: ['enabled'], properties: {
+    enabled: { type: 'boolean' }, api: { type: 'boolean' }, browser: { type: 'boolean' }, devices: { type: 'boolean' }, use: { type: 'boolean' },
+  } },
   mcpServers: {
     type: 'object', maxProperties: 32,
     propertyNames: { pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$', not: { enum: ['constructor', 'prototype'] } },

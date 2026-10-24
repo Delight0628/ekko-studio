@@ -14,19 +14,21 @@ import { AgentRegistry } from '../../packages/server/src/modules/studio/services
 import { AgentCoordinator } from '../../packages/server/src/modules/studio/services/agents/coordinator'
 import { PluginEventBus } from '../../packages/server/src/modules/studio/services/events/plugin-events'
 import { createExecutionContext } from '../../packages/server/src/modules/studio/services/context/execution'
-import type { ExecutionScope } from '../../packages/studio-plugin-sdk/src'
+import { createNativeAgentContext } from '../../packages/server/src/modules/studio/services/agents/native-context'
+import { StudioError, type ExecutionScope } from '../../packages/studio-plugin-sdk/src'
 
 let root: string, runner: string
 const cleanups: Array<() => Promise<void>> = []
-const scope: ExecutionScope = { scopeId: 'scope', principal: { kind: 'user', id: 'caller' }, profileId: 'one', surface: 'api', traceId: 'trace' }
+const scope: ExecutionScope = { scopeId: 'scope', principal: { kind: 'user', id: '7' }, profileId: 'one', surface: 'api', traceId: 'trace' }
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'qwen-plugin-中文 '))
+  vi.stubEnv('HERMES_WEB_UI_HOME', join(root, 'webui'))
   runner = join(root, 'runner.cjs')
   await build({ entryPoints: ['packages/studio-plugin-runner/src/main.ts'], bundle: true, platform: 'node', target: 'node24.22.1', format: 'cjs', outfile: runner, logLevel: 'silent' })
   await buildAgentPlugins(join(root, 'plugins'))
 })
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
-afterAll(async () => { await rm(root, { recursive: true, force: true }) })
+afterAll(async () => { await rm(root, { recursive: true, force: true }); vi.unstubAllEnvs() })
 
 const fixture = `const fs = require('node:fs');
 if (process.argv.includes('--version')) { process.stdout.write('native-cli 1.2.3\\n'); process.exit(0); }
@@ -87,12 +89,16 @@ async function setup(mode: 'global' | 'scoped' = 'global') {
   })
   const executionStore = new AgentExecutionStore(db)
   const artifacts = new AgentArtifacts(db, executionStore, () => {})
-  const coordinator = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, validateInput: (scope, input) => artifacts.validate(scope, input), context, stateRoot: join(directory, 'state') })
+  const coordinator = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, validateInput: (scope, input) => artifacts.validate(scope, input), context, stateRoot: join(directory, 'state'),
+    nativeContext: (instance, current, provider, signal) => createNativeAgentContext(instance, current, signal, runId => {
+      host.authorizeNativeMcp(provider, current.profileId)
+      if (!['starting', 'running', 'waiting_input'].includes(executionStore.get(runId)?.status || '')) throw new StudioError('RUN_FINALIZING', 'Turn ended')
+    }) })
   const host = new PluginHost({ store, registry, events, context, logger, runnerPath: runner, artifactsRoot: join(root, 'installed'),
     eventContext: async (_state, _event, signal) => context(scope, signal), acceptEvents: async batch => { for (const event of batch) events.publish(event) } })
   cleanups.push(async () => { await coordinator.close(); await host.close(); events.close(); db.close() })
   await host.registerSystemArtifact(join(root, 'plugins/qwen-code'))
-  await host.configure({ pluginId: 'studio.agent-qwen', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'processes.spawn', 'models.gateway', 'artifacts.read'] }, 0)
+  await host.configure({ pluginId: 'studio.agent-qwen', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'processes.spawn', 'mcp.studio', 'models.gateway', 'artifacts.read'] }, 0)
   const instance = coordinator.createInstance(scope, { agentTypeId: 'qwen', mode, config: { ...(mode === 'scoped' ? { model: 'fixture/model' } : {}),
     cwd: directory, command: process.execPath, args: [cli], env: { PID_FILE: pidFile, TRACE_FILE: traceFile },
   } })
@@ -341,4 +347,25 @@ it.each(['global', 'scoped'] as const)('returns qwen setup instructions through 
   if (mode === 'global') expect(result.authentication).toMatchObject({ command: process.execPath, input: '/auth' })
   expect(f.gateway).not.toHaveBeenCalled()
   await expect(f.trace()).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('injects only selected Studio MCP servers into ACP and keeps the private path stable across native session restoration', async () => {
+  const f = await setup()
+  await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, mode: 'global', config: { ...f.instance.config,
+    studioMcp: { enabled: true, browser: false, devices: false, use: false },
+  } })
+  expect(await f.run('first native MCP turn')).toMatchObject({ status: 'completed' })
+  const first = (await f.trace()).find(frame => frame.method === 'session/new').params.mcpServers
+  expect(first.map((server: any) => server.name)).toEqual(['ekko-studio-api'])
+  const env = Object.fromEntries(first[0].env.map((item: any) => [item.name, item.value]))
+  expect(env).toMatchObject({ ELECTRON_RUN_AS_NODE: '1', HERMES_WEB_UI_PROFILE: 'one', HERMES_WEB_UI_TOKEN: '', AUTH_TOKEN: '' })
+  expect(env.HERMES_WEB_UI_RUN_TOKEN_FILE).toEqual(expect.any(String))
+  await expect(readFile(String(env.HERMES_WEB_UI_RUN_TOKEN_FILE), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await f.run('second native MCP turn')).toMatchObject({ status: 'completed' })
+  const next = (await f.trace()).find(frame => frame.method === 'session/load').params.mcpServers
+  expect(next).toEqual(first)
+  expect(JSON.stringify(await f.trace())).not.toContain('studio_run_')
+  const completed = (await f.trace()).filter(frame => frame.method === 'session/prompt')
+  expect(completed[0].params.prompt[0].text).toContain('ekko_studio_api_openapi_get')
+  expect(completed[1].params.prompt[0].text).toContain('second native MCP turn')
 })

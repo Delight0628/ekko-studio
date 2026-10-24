@@ -13,8 +13,8 @@ async function setup(page: Page, brightness = 'light', wallpaper = false, active
     await page.route('**/api/theme/background?*', route => route.fulfill({ contentType: 'image/png', body: png }))
   }
   const types = [{ id: 'qwen', name: 'Qwen Code', configSchema: { type: 'object', required: ['cwd'], additionalProperties: false, properties: {
-    cwd: { type: 'string' }, model: { type: 'string' }, env: { type: 'object' }, args: { type: 'array' }, systemPrompt: { type: 'string' },
-  } }, capabilities: { text: true, modes: ['scoped', 'global'] }, management: { inspect: true, setup: true } }]
+    cwd: { type: 'string' }, model: { type: 'string' }, env: { type: 'object' }, args: { type: 'array' }, systemPrompt: { type: 'string' }, studioMcp: { type: 'object' },
+  } }, capabilities: { text: true, nativeMcp: true, modes: ['scoped', 'global'] }, management: { inspect: true, setup: true } }]
   let instances: any[] = [], conflict = false
   const writes: any[] = [], enables: any[] = [], checks: any[] = []
   await page.route('**/api/studio/agent-types?*', route => route.fulfill({ json: { data: { agents: active ? types : [] } } }))
@@ -59,10 +59,14 @@ for (const brightness of ['light', 'dark']) for (const wallpaper of [false, true
   expect(api.writes).toEqual([])
   await modal.getByLabel('env', { exact: true }).fill('{"QWEN_HOME":"/native-home"}')
   await modal.getByLabel('args', { exact: true }).fill('["literal argument"]')
+  await modal.getByLabel('studioMcp', { exact: true }).fill('{"enabled":true,"browser":false}')
   await modal.getByRole('button', { name: 'Create', exact: true }).click()
   await expect(page).toHaveURL(/instance=managed/)
-  expect(api.writes[0]).toEqual({ agentTypeId: 'qwen', mode: 'scoped', config: { cwd: '/workspace with spaces', env: { QWEN_HOME: '/native-home' }, args: ['literal argument'] } })
+  expect(api.writes[0]).toEqual({ agentTypeId: 'qwen', mode: 'scoped', config: { cwd: '/workspace with spaces', env: { QWEN_HOME: '/native-home' }, args: ['literal argument'], studioMcp: { enabled: true, browser: false } } })
   await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
+  await expect(modal.getByLabel('studioMcp', { exact: true })).toHaveValue(/"enabled": true/)
+  await modal.getByLabel('studioMcp', { exact: true }).scrollIntoViewIfNeeded()
+  await page.screenshot({ path: info.outputPath('native-mcp-config.png') })
   await modal.getByRole('button', { name: 'Check installation and login', exact: true }).click()
   await expect(modal.getByText('CLI available', { exact: false })).toBeVisible()
   await expect(modal.getByText('Native login', { exact: true })).toHaveCount(0)

@@ -20,6 +20,7 @@ const schema: JsonObject = {
     developerInstructions: { type: 'string', maxLength: 65536 },
     systemPrompt: agentContextConfigurationProperties.systemPrompt,
     mcpServers: agentContextConfigurationProperties.mcpServers,
+    studioMcp: agentContextConfigurationProperties.studioMcp,
     approvalPolicy: { type: 'string', enum: ['untrusted', 'on-request', 'never'] },
     sandbox: { type: 'string', enum: ['read-only', 'workspace-write', 'danger-full-access'] },
   },
@@ -39,12 +40,12 @@ export const apply: StudioPlugin['apply'] = plugin => {
     id: 'codex', name: 'Codex', configSchema: schema,
     management,
     capabilities: { text: true, images: true, streaming: true, reasoning: true, approvals: true, clarifications: true, resume: true,
-      resumeConfigKeys: ['model', 'effort', 'developerInstructions', 'systemPrompt', 'mcpServers', 'approvalPolicy', 'sandbox'], persistentSession: true, modes: ['scoped', 'global'] },
+      resumeConfigKeys: ['model', 'effort', 'developerInstructions', 'systemPrompt', 'mcpServers', 'studioMcp', 'approvalPolicy', 'sandbox'], nativeMcp: true, persistentSession: true, modes: ['scoped', 'global'] },
     async create(input, runtime) {
       const config = input.config, cwd = String(config.cwd), scoped = input.mode === 'scoped'
       const contextConfiguration = mergeAgentContextConfiguration(config as AgentContextConfiguration,
         { systemPrompt: config.developerInstructions as string | undefined })
-      const nativeConfiguration = codexContextConfiguration(contextConfiguration)
+      codexContextConfiguration(contextConfiguration) // Validate saved overrides before opening the native process.
       if (scoped && !runtime.stateDirectory) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Scoped Codex requires host-managed storage')
       if (!isAbsolute(cwd)) throw new StudioError('INVALID_ARGUMENT', 'Codex working directory must be absolute')
       let threadId: string | undefined, resumed = false
@@ -141,9 +142,11 @@ export const apply: StudioPlugin['apply'] = plugin => {
                 if (turn.cancelled) return { status: 'cancelled' }
               }
               if (!resumed) {
+                const effectiveContext = mergeAgentContextConfiguration(contextConfiguration, ctx.nativeContext || {})
+                const nativeConfiguration = codexContextConfiguration(effectiveContext)
                 const overrides = { ...nativeConfiguration, ...(gateway?.transport === 'translated' ? { web_search: 'disabled' } : {}) }
                 const parameters = { ...Object.fromEntries(['model', 'approvalPolicy', 'sandbox'].filter(key => config[key] !== undefined).map(key => [key, config[key]])),
-                  ...(contextConfiguration.systemPrompt ? { developerInstructions: contextConfiguration.systemPrompt } : {}),
+                  ...(effectiveContext.systemPrompt ? { developerInstructions: effectiveContext.systemPrompt } : {}),
                   ...(Object.keys(overrides).length ? { config: overrides } : {}) }
                 const response = await rpc.request(threadId ? 'thread/resume' : 'thread/start', { ...parameters, ...(gateway ? { model: gateway.model } : {}), cwd, ...(threadId ? { threadId } : {}) })
                 if (typeof response?.thread?.id !== 'string' || !response.thread.id || response.thread.id.length > 4096
@@ -155,7 +158,7 @@ export const apply: StudioPlugin['apply'] = plugin => {
                 if (block.type === 'text') return block
                 const image = images.get(block.artifactId)!
                 return { type: 'image', url: `data:${image.mediaType};base64,${image.data}` }
-              }),
+              }).concat(ctx.nativeContext?.turnInstructions ? [{ type: 'text' as const, text: ctx.nativeContext.turnInstructions }] : []),
                 ...(input.model || config.model ? { model: input.model || config.model } : {}), ...(config.effort ? { effort: config.effort } : {}) })
               if (typeof response?.turn?.id !== 'string' || !response.turn.id || response.turn.id.length > 256) throw new Error('Invalid Codex turn identity')
               turn.id = response.turn.id; ready()

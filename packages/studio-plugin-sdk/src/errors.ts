@@ -13,13 +13,18 @@ export interface StudioErrorData {
 }
 
 export class StudioError extends Error implements StudioErrorData {
+  readonly code: StudioErrorCode
+  readonly retryable: boolean
+
   constructor(
-    public readonly code: StudioErrorCode,
+    code: StudioErrorCode,
     message: string,
-    public readonly retryable = false,
+    retryable = false,
   ) {
     super(message)
     this.name = 'StudioError'
+    this.code = code
+    this.retryable = retryable
   }
 
   toJSON(): StudioErrorData {

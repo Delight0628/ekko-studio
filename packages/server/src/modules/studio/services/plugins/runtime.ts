@@ -37,6 +37,7 @@ import { resolveNativeModel } from '../models/hosted-provider'
 import { PluginModels } from '../models/plugin'
 import { listApiModels, prepareModelResponse } from '../model-api/service'
 import { AgentManagementStore } from '../../repositories/agent-management-store'
+import { createNativeAgentContext } from '../agents/native-context'
 
 const logger: ScopedLogger = {
   info: (message, data) => applicationLogger.info(data || {}, message),
@@ -132,6 +133,13 @@ export function createStudioPluginRuntime(runnerPath: string) {
     },
   })
   const coordinator: AgentCoordinator = new AgentCoordinator({ store: executionStore, registry, events, logger,
+    nativeContext: (instance, scope, provider, signal) => createNativeAgentContext(instance, scope, signal, runId => {
+      authorizePluginScope(scope)
+      host.authorizeNativeMcp(provider, scope.profileId)
+      const run = executionStore.get(runId)
+      if (!run || run.instanceId !== instance.id || run.ownerId !== scope.principal.id || run.profileId !== scope.profileId
+        || !['starting', 'running', 'waiting_input'].includes(run.status)) throw new StudioError('RUN_FINALIZING', 'Native MCP turn is unavailable')
+    }),
     managementStore, authorizeManagement: scope => {
       authorizePluginScope(scope)
       if (findUserById(scope.principal.id)?.role !== 'super_admin') throw new StudioError('FORBIDDEN', 'Native terminal requires a super administrator')

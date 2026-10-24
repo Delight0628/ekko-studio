@@ -2,6 +2,11 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 export const STUDIO_MANAGED_MCP_ENV = 'HERMES_WEB_UI_MANAGED_MCP'
+export function isStudioManagedMcpServer(name: string, value: unknown): boolean {
+  const server = value as { env?: Record<string, string>; enabled?: boolean; disabled?: boolean } | null
+  return /^ekko-studio-(api|browser|devices|use|interaction|plan)$/.test(name)
+    && !!server && server.enabled !== false && server.disabled !== true && server.env?.[STUDIO_MANAGED_MCP_ENV] === '1'
+}
 export interface ManagedMcpLaunch {
   command: string
   args: string[]

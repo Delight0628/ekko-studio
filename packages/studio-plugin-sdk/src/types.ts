@@ -223,6 +223,7 @@ export interface AgentCapabilities {
   approvals?: boolean
   clarifications?: boolean
   steering?: boolean
+  nativeMcp?: boolean
   modes: Array<'scoped' | 'global'>
 }
 
@@ -364,6 +365,8 @@ export interface RuntimeMcp { connect(input: McpConnectInput): Promise<McpConnec
 
 export interface AgentRunContext extends ExecutionContext {
   readonly scope: ExecutionScope & { readonly runId: string; readonly runtimeSessionId: string }
+  /** Host-owned per-turn configuration; never accepted from Run input. */
+  readonly nativeContext?: import('./agent-configuration').AgentNativeContextConfiguration
 }
 
 export interface RuntimeCreateInput {

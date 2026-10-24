@@ -247,7 +247,9 @@ peer.handle('run.start', async value => {
   const runId = string(params.runId)
   if (runs.has(runId)) throw new StudioError('REGISTRATION_CONFLICT', 'Run already exists')
   const controller = new AbortController()
-  const ctx = executionContext(object(params.scope) as unknown as ExecutionScope, string(params.scopeHandle), controller.signal) as AgentRunContext
+  // Preserve the exact host context registered in contextHandles for services.call.
+  const ctx = Object.freeze(Object.assign(executionContext(object(params.scope) as unknown as ExecutionScope, string(params.scopeHandle), controller.signal),
+    params.nativeContext ? { nativeContext: object(params.nativeContext) } : {})) as AgentRunContext
   const handle = await callbackScope.run(string(params.scopeHandle), () => runtime.runtime.run(object(params.input) as unknown as AgentRunInput, ctx))
   runs.set(runId, { handle, controller })
   void callbackScope.run(string(params.scopeHandle), async () => {

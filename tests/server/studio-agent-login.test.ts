@@ -45,7 +45,8 @@ async function setup(options: { crash?: boolean; grant?: boolean } = {}) {
     let count = 0, pending = ''; process.stdin.on('data', data => { pending += data;
       let end; while ((end = pending.search(/[\\r\\n]/)) >= 0) {
         const line = pending.slice(0, end); pending = pending.slice(end + 1); if (!line) continue;
-        process.stdout.write('ACK:' + (++count) + ':' + line + '\\r\\n');
+        require('node:fs').writeFileSync(${JSON.stringify(pidPath + '.count')}, String(++count));
+        process.stdout.write('ACK:' + count + ':' + line + '\\r\\n');
         if(line === 'exit') setTimeout(() => process.exit(0), 10);
       } });`)
   const capabilities = ['agents.register', ...(options.grant === false ? [] : ['processes.spawn'])]
@@ -68,7 +69,7 @@ async function setup(options: { crash?: boolean; grant?: boolean } = {}) {
     return Number(await readFile(pidPath, 'utf8'))
   }
   const ended = async (id: string, status: string) => { await operations.wait(scope, id); expect(operations.get(scope, id).status).toBe(status) }
-  return { db, store, managementStore, coordinator, host, registry, logger, authorize, instance, operations, profile, start, ready, ended, crashPath }
+  return { db, store, managementStore, coordinator, host, registry, logger, authorize, instance, operations, profile, start, ready, ended, crashPath, pidPath }
 }
 
 it('runs native login through a real worker and PTY with retry-safe receipts and input', async () => {
@@ -92,6 +93,7 @@ it('runs native login through a real worker and PTY with retry-safe receipts and
   await f.ended(receipt.id, 'completed')
   await expect(f.operations.input(scope, receipt.id, 2, 'exit\r')).resolves.toBeUndefined()
   expect(alive(pid)).toBe(false)
+  expect(Number(await readFile(`${f.pidPath}.count`, 'utf8'))).toBe(2)
   const ended = f.operations.get(scope, receipt.id)
   expect(ended).toMatchObject({ status: 'completed', exit: { code: 0 }, errorCode: null })
   expect(ended).not.toHaveProperty('authentication')

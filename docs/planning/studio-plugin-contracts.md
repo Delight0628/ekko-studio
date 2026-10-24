@@ -580,7 +580,19 @@ PTY 与管道共用 `processes.spawn` 权限、runtime 归属、总数配额、�
 
 同一连接还提供 `listResources(cursor?)`、`listResourceTemplates(cursor?)`、`readResource(uri)`、`listPrompts(cursor?)` 和 `getPrompt(name, arguments?)`。列表返回 `{ items, nextCursor? }`，每次只请求原生一页，不自动遍历，首次不发送空 cursor；每页最多 256 项，cursor 最多 4 KiB。未声明所需能力时返回 `CAPABILITY_UNSUPPORTED`，已支持但目录为空时返回空 items。资源支持文本与 base64 blob；prompt 支持标准文本、图片、音频、嵌入资源与资源链接，其他内容类型显式拒绝，不由宿主执行 prompt。规范字段以外的远端 `_meta` 等附加数据不跨公共边界。
 
-每个 runtime 最多 16 个连接，宿主最多 64 个；默认单个进行中请求，显式允许并行时最多四个。工具定义最多 256 个，工具输入最多 128 KiB，prompt 参数最多 64 KiB/64 项，DTO 结果最多 512 KiB，stdio 帧和 HTTP 响应流最多 1 MiB。HTTP 不跟随重定向。取消连接、工厂失败、worker 退出和 runtime 清理均等待所持连接及请求结算，未确认的清理保留租约隔离。旧厂商原生 Studio MCP 配置注入、平台交互凭据绑定、订阅/补全及其他协议操作仍需后续迁移。
+每个 runtime 最多 16 个连接，宿主最多 64 个；默认单个进行中请求，显式允许并行时最多四个。工具定义最多 256 个，工具输入最多 128 KiB，prompt 参数最多 64 KiB/64 项，DTO 结果最多 512 KiB，stdio 帧和 HTTP 响应流最多 1 MiB。HTTP 不跟随重定向。取消连接、工厂失败、worker 退出和 runtime 清理均等待所持连接及请求结算，未确认的清理保留租约隔离。平台交互凭据绑定、订阅/补全及其他协议操作仍需后续迁移。
+
+### 9.1 原生 Studio MCP 的逐轮注入
+
+独立 Agent 实例可显式保存 `studioMcp: { enabled: true, api?, browser?, devices?, use? }`；缺省关闭，启用后各未指定工具集默认开启。准入前检查适配器的 `capabilities.nativeMcp` 及宿主原生上下文工厂；签发、注入和实际请求时另校验插件当前声明并获授的 `mcp.studio`。独立 Run 尚无 Studio 聊天交互上下文，因此此配置不开放任务卡、会话目标或澄清工具集。现有原生 Home 中的历史全局 MCP 配置不在本增量中迁移或删除。
+
+宿主构造 `AgentRunContext.nativeContext`，仅经可信 run.start RPC 注入，不从 Run 输入接受。其内容包括受管 stdio 配置、工具使用指引和每轮 `turnInstructions`；不含原始令牌。Qwen 在 ACP 会话参数和当前提示词中应用，Codex 在线程配置及每轮末尾的独立文本块中应用。Studio 同名受管条目覆盖实例保存的同名定义；其他显式原生 MCP 定义仍由插件适配。
+
+原生进程可缓存 MCP 启动配置，宿主因此为 runtime 创建私有稳定凭据文件路径，每轮签发独立 context/令牌并在完成、取消、撤权或关闭时回收。目录权限 0700，凭据来自宿主生成的 0600 文件；旧轮次清理确认后才能签发下一轮。运行主体、profile、实例、提供方 generation、当前 grants 和 Run 状态在实际 HTTP 请求时重新校验。
+
+原生启动器要求每次工具调用携带当前 `context_id`，包括 compact 工具集包装器。调用起始时固定该值，内部异步 OpenAPI 获取及后续请求都按同一 context 读取凭据；文件轮换后，迟到请求不能取得下一轮令牌。浏览器工具通过 Studio 已认证代理访问 broker，不能绕过逐请求鉴权。正常全局 MCP 启动模式不启用这一原生专用要求。
+
+Codex 的 `mcpServer/elicitation/request` 当前只支持无字段的 form 确认，投影为持久化的允许一次/拒绝审批；取消返回 cancel。带输入字段、URL、秘密或其他 schema 的请求在发布交互前明确拒绝，不能把普通持久化问答当作凭据输入。完整交互绑定和凭据专用契约仍待实现。
 
 ## 10 配置和权限
 

@@ -333,7 +333,9 @@ export class PluginWorker {
     ctx.signal.addEventListener('abort', aborted, { once: true })
     let canRespond = false
     try {
-      const response = await this.peer.request('run.start', toJson({ runId, runtimeSessionId, input, scope: ctx.scope, scopeHandle }))
+      if (ctx.nativeContext) this.authorizeNativeMcp()
+      const response = await this.peer.request('run.start', toJson({ runId, runtimeSessionId, input, scope: ctx.scope, scopeHandle,
+        ...(ctx.nativeContext ? { nativeContext: ctx.nativeContext } : {}) }))
       canRespond = !!(response && typeof response === 'object' && !Array.isArray(response) && response.respond === true)
     }
     catch (error) { channel.finish(error); reject(error); await release(); this.runs.delete(runId); throw error }
@@ -405,6 +407,11 @@ export class PluginWorker {
 
   hasLeases(): boolean { return this.managementLeases.size > 0 || this.commandCalls.size > 0 || this.runtimes.size > 0 || this.runs.size > 0 || this.serviceCalls > 0 || this.consumerCalls > 0 || this.hookCalls > 0 || this.managementCalls > 0 }
   isAvailable(): boolean { return !this.closed }
+
+  authorizeNativeMcp(): void {
+    if (this.closed) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin worker exited')
+    this.authorize('agents.register'); this.authorize('mcp.studio')
+  }
 
   close(): Promise<void> {
     return this.closing ??= (async () => {

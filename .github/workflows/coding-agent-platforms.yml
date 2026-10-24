@@ -78,6 +78,7 @@ jobs:
           tests/server/studio-agent-artifacts.test.ts
           tests/server/studio-qwen-plugin.test.ts
           tests/server/studio-codex-plugin.test.ts
+          tests/server/studio-codex-mcp-approval.test.ts
           tests/server/studio-managed-mcp.test.ts
           tests/server/studio-mcp-tools.test.ts
           tests/server/studio-plugin-mcp-bridge.test.ts
@@ -90,6 +91,7 @@ jobs:
           tests/server/studio-agent-management.test.ts
           tests/server/studio-agent-login.test.ts
           tests/server/studio-mcp-resources.test.ts
+          tests/server/run-mcp-credentials.test.ts
           tests/server/studio-agent-state-directory.test.ts
           tests/server/studio-model-gateway.test.ts
           --maxWorkers=1

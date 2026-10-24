@@ -11,6 +11,7 @@ import { TaskPlanError, TaskPlanRuns } from '../../packages/server/src/modules/s
 import { groupRunUser } from '../../packages/server/src/modules/studio/services/group-chat/run-user'
 import { isSensitivePath } from '../../packages/server/src/modules/studio/services/files/file-policy'
 import { leaseStudioMcpServers } from '../../packages/server/src/modules/studio/services/mcp/credential-lease'
+import { NativeMcpCredentialSlot } from '../../packages/server/src/modules/studio/services/mcp/native-credential-slot'
 
 const users = vi.hoisted(() => ({
   findUserById: vi.fn(), userCanAccessProfile: vi.fn(() => true),
@@ -224,10 +225,10 @@ it('uses local member records and never borrows the room owner or a remote sende
   expect(groupRunUser(local, 'room', 'research', message)).toBeUndefined()
 })
 
-function mcpClient(url: string, file: string, contextLookup = false) {
-  const child: ChildProcessWithoutNullStreams = spawn(process.execPath, ['bin/ekko-studio-mcp.mjs', 'plan'], {
+function mcpClient(url: string, file: string, contextLookup = false, boundContext = false, toolset = 'plan') {
+  const child: ChildProcessWithoutNullStreams = spawn(process.execPath, ['bin/ekko-studio-mcp.mjs', toolset], {
     env: { ...process.env, HERMES_WEB_UI_URL: url, HERMES_WEB_UI_PROFILE: 'research', HERMES_WEB_UI_RUN_TOKEN_FILE: file,
-      HERMES_MCP_CONTEXT_CREDENTIALS: contextLookup ? '1' : '',
+      HERMES_MCP_CONTEXT_CREDENTIALS: contextLookup ? '1' : '', HERMES_MCP_RUN_BOUND_CONTEXT: boundContext ? '1' : '',
       HERMES_WEB_UI_TOKEN: 'stale-env-token', AUTH_TOKEN: 'stale-static-token', HERMES_MCP_USER_CLARIFICATION: '1' },
   })
   const responses = new Map<number, any>()
@@ -241,15 +242,14 @@ function mcpClient(url: string, file: string, contextLookup = false) {
       if (line.trim()) { const message = JSON.parse(line); responses.set(message.id, message) }
     }
   })
-  return {
-    child,
-    async call(args: any, tool = 'ekko_studio_update_plan') {
-      const requestId = ++id
-      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: requestId, method: 'tools/call', params: { name: tool, arguments: args } })}\n`)
-      await vi.waitFor(() => expect(responses.has(requestId)).toBe(true), { timeout: 5000 })
-      return responses.get(requestId).result
-    },
+  const rpc = async (method: string, params: unknown) => {
+    const requestId = ++id
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: requestId, method, params })}\n`)
+    await vi.waitFor(() => expect(responses.has(requestId)).toBe(true), { timeout: 5000 })
+    return responses.get(requestId).result
   }
+  return { child, list: () => rpc('tools/list', {}), call: (args: unknown, tool = 'ekko_studio_update_plan') => rpc('tools/call', { name: tool, arguments: args }) }
+
 }
 
 it('never grants account permissions to credentials selected by a shared MCP context', async () => {
@@ -388,5 +388,156 @@ it('does not let a turn credential mint account-wide API keys or enumerate other
     await requireUserJwt(ctx, next)
     expect(ctx.status).toBe(403)
     expect(next).not.toHaveBeenCalled()
+  }
+})
+
+it('rotates one native MCP process through a stable private path while revoking each previous turn', async () => {
+  const slot = new NativeMcpCredentialSlot(), servers = { 'ekko-studio-interaction': { env: { HERMES_WEB_UI_MANAGED_MCP: '1' } } }
+  const first = await slot.begin(servers, { sessionId: 'native-slot', profile: 'research', agentId: 'test.plugin/agent', userId: 7, signal: new AbortController().signal })
+  const file = (first.servers['ekko-studio-interaction'] as any).env.HERMES_WEB_UI_RUN_TOKEN_FILE
+  const credential = JSON.parse(readFileSync(file, 'utf8'))
+  expect(isSensitivePath(file)).toBe(true)
+  if (process.platform !== 'win32') { expect(statSync(file).mode & 0o777).toBe(0o600); expect(statSync(dirname(file)).mode & 0o777).toBe(0o700) }
+  const app = new Koa()
+  app.use(bodyParser()); app.use(requireUserJwt); app.use(resolveUserProfile)
+  app.use(ctx => { ctx.body = { ok: true, context_id: (ctx.request.body as any).context_id } })
+  const server = app.listen(0, '127.0.0.1')
+  await new Promise<void>(resolve => server.once('listening', resolve))
+  const client = mcpClient(`http://127.0.0.1:${(server.address() as any).port}`, file, false, true)
+  const input = (contextId: string) => ({ context_id: contextId, plan: [{ id: 'work', step: 'Implement', status: 'in_progress' }] })
+  try {
+    expect(JSON.parse((await client.call(input(credential.context_id))).content[0].text).context_id).toBe(credential.context_id)
+    await expect(slot.begin(servers, { sessionId: 'overlap', profile: 'research', agentId: 'test.plugin/agent', userId: 7, signal: new AbortController().signal })).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+    expect(runMcpCredentials.authenticate(credential.token)).toBeDefined()
+    await first.dispose()
+    expect(existsSync(file)).toBe(false)
+    expect(runMcpCredentials.authenticate(credential.token)).toBeUndefined()
+    expect((await client.call(input(credential.context_id))).isError).toBe(true)
+    const controller = new AbortController()
+    const second = await slot.begin(servers, { sessionId: 'native-slot', profile: 'research', agentId: 'test.plugin/agent', userId: 7, signal: controller.signal })
+    expect((second.servers['ekko-studio-interaction'] as any).env.HERMES_WEB_UI_RUN_TOKEN_FILE).toBe(file)
+    const next = JSON.parse(readFileSync(file, 'utf8'))
+    expect(next.token).not.toBe(credential.token)
+    expect(next.context_id).not.toBe(credential.context_id)
+    expect((await client.call(input(credential.context_id))).isError).toBe(true)
+    expect(JSON.parse((await client.call(input(next.context_id))).content[0].text).context_id).toBe(next.context_id)
+    await first.dispose() // late cleanup cannot remove the next turn's file
+    expect(existsSync(file)).toBe(true)
+    controller.abort(); await second.dispose()
+    expect(existsSync(file)).toBe(false)
+    expect(runMcpCredentials.authenticate(next.token)).toBeUndefined()
+    expect(client.child.exitCode).toBeNull()
+  } finally {
+    await slot.close(); client.child.kill(); server.closeAllConnections()
+    await new Promise<void>(resolve => server.close(() => resolve()))
+  }
+})
+
+it('keeps custom native MCP definitions unchanged and never aliases caller-selected credential paths', async () => {
+  const slot = new NativeMcpCredentialSlot(), servers = {
+    custom: { command: 'custom', env: { HERMES_WEB_UI_RUN_TOKEN_FILE: '/not-a-host-credential', HERMES_WEB_UI_MANAGED_MCP: '1' } },
+    'ekko-studio-interaction': { disabled: true, command: 'disabled', env: { HERMES_WEB_UI_MANAGED_MCP: '1' } },
+  }
+  try {
+    const lease = await slot.begin(servers, { sessionId: 'custom-native-slot', profile: 'research', agentId: 'test.plugin/agent', signal: new AbortController().signal })
+    expect(lease.servers).toEqual(servers)
+    await lease.dispose()
+  } finally { await slot.close() }
+})
+
+it('cleans an aborted native credential preparation before allowing another turn, and rejects use after runtime close', async () => {
+  const slot = new NativeMcpCredentialSlot(), controller = new AbortController()
+  const servers = { 'ekko-studio-use': { env: { HERMES_WEB_UI_MANAGED_MCP: '1' } } }
+  const pending = slot.begin(servers, { sessionId: 'aborted-native-slot', profile: 'research', agentId: 'test.plugin/agent', signal: controller.signal })
+  controller.abort()
+  await expect(pending).rejects.toMatchObject({ code: 'CANCELLED' })
+  const next = await slot.begin(servers, { sessionId: 'aborted-native-slot', profile: 'research', agentId: 'test.plugin/agent', signal: new AbortController().signal })
+  const file = (next.servers['ekko-studio-use'] as any).env.HERMES_WEB_UI_RUN_TOKEN_FILE
+  const credential = JSON.parse(readFileSync(file, 'utf8'))
+  await slot.close()
+  expect(existsSync(file)).toBe(false)
+  expect(runMcpCredentials.authenticate(credential.token)).toBeUndefined()
+  await expect(slot.begin(servers, { sessionId: 'closed-slot', profile: 'research', agentId: 'test.plugin/agent', signal: new AbortController().signal })).rejects.toMatchObject({ code: 'RUNTIME_UNAVAILABLE' })
+})
+
+it.each(['api', 'browser'])('binds cached native %s tools to the supplied turn context and fresh HTTP authorization', async toolset => {
+  const slot = new NativeMcpCredentialSlot(), name = `ekko-studio-${toolset}`
+  const servers = { [name]: { env: { HERMES_WEB_UI_MANAGED_MCP: '1' } } }
+  const begin = () => slot.begin(servers, { sessionId: 'strict-native-context', profile: 'research', agentId: 'test.plugin/agent', userId: 7, signal: new AbortController().signal })
+  const first = await begin(), file = (first.servers[name] as any).env.HERMES_WEB_UI_RUN_TOKEN_FILE
+  expect((first.servers[name] as any).env.HERMES_MCP_RUN_BOUND_CONTEXT).toBe('1')
+  const requests: string[] = [], app = new Koa()
+  app.use(bodyParser()); app.use(async (ctx, next) => { requests.push(ctx.path); await next() })
+  app.use(requireUserJwt); app.use(resolveUserProfile)
+  app.use(ctx => { ctx.body = { ok: true, context_id: ctx.get('x-studio-run-context'), tabs: [] } })
+  const server = app.listen(0, '127.0.0.1')
+  await new Promise<void>(resolve => server.once('listening', resolve))
+  const url = `http://127.0.0.1:${(server.address() as any).port}`
+  if (toolset === 'browser') {
+    mkdirSync(join(home, 'desktop-browser'), { mode: 0o700 })
+    writeFileSync(join(home, 'desktop-browser', 'broker.json'), JSON.stringify({ schema: 1, endpoint: `${url}/v1`, token: 'direct-broker-token', desktopPid: process.pid, instanceId: 'broker-fixture' }), { mode: 0o600 })
+  }
+  const client = mcpClient(url, file, false, true, toolset)
+  const tool = toolset === 'api' ? 'ekko_studio_api_request' : 'ekko_studio_browser_toolset'
+  const args = toolset === 'api' ? { method: 'GET', path: '/api/openapi.json' } : { action: 'call', tool: 'ekko_studio_browser_tabs', arguments: { action: 'list' } }
+  const contextId = (result: any) => { const payload = JSON.parse(result.content[0].text); return (payload.body || payload).context_id }
+  try {
+    expect((await client.list()).tools.every((entry: any) => entry.inputSchema.required.includes('context_id'))).toBe(true)
+    expect((await client.call(args, tool)).isError).toBe(true)
+    expect(requests).toEqual([])
+    expect(contextId(await client.call({ ...args, context_id: first.contextId }, tool))).toBe(first.contextId)
+    expect(requests).toEqual([toolset === 'api' ? '/api/openapi.json' : '/api/studio/desktop-browser/request'])
+    await first.dispose()
+    const second = await begin()
+    expect(second.contextId).not.toBe(first.contextId)
+    expect((await client.call({ ...args, context_id: first.contextId }, tool)).isError).toBe(true)
+    expect(requests).toHaveLength(1)
+    expect(contextId(await client.call({ ...args, context_id: second.contextId, token: 'ignored-profile-token' }, tool))).toBe(second.contextId)
+    users.userCanAccessProfile.mockReturnValue(false)
+    const revoked = await client.call({ ...args, context_id: second.contextId }, tool)
+    if (toolset === 'api') expect(JSON.parse(revoked.content[0].text).status).toBe(403)
+    else expect(revoked.isError).toBe(true)
+    expect(client.child.exitCode).toBeNull()
+    await second.dispose()
+  } finally {
+    await slot.close(); client.child.kill(); server.closeAllConnections()
+    await new Promise<void>(resolve => server.close(() => resolve()))
+  }
+})
+
+it('rejects a delayed native API call after credential rotation before dispatching its mutation', async () => {
+  const slot = new NativeMcpCredentialSlot(), servers = { 'ekko-studio-api': { env: { HERMES_WEB_UI_MANAGED_MCP: '1' } } }
+  const begin = () => slot.begin(servers, { sessionId: 'delayed-native-api', profile: 'research', agentId: 'test.plugin/agent', userId: 7, signal: new AbortController().signal })
+  const first = await begin(), file = (first.servers['ekko-studio-api'] as any).env.HERMES_WEB_UI_RUN_TOKEN_FILE
+  let entered!: () => void, release!: () => void
+  const reading = new Promise<void>(resolve => { entered = resolve }), barrier = new Promise<void>(resolve => { release = resolve })
+  const requests: string[] = [], app = new Koa()
+  app.use(bodyParser()); app.use(requireUserJwt); app.use(resolveUserProfile)
+  app.use(async ctx => {
+    requests.push(ctx.path)
+    if (ctx.path === '/api/openapi.json') {
+      entered(); await barrier
+      ctx.body = { openapi: '3.1.0', paths: { '/api/studio/fixture-mutation': { post: { responses: { '200': { description: 'Fixture' } } } } } }
+    } else ctx.body = { context_id: ctx.get('x-studio-run-context') }
+  })
+  const server = app.listen(0, '127.0.0.1')
+  await new Promise<void>(resolve => server.once('listening', resolve))
+  const client = mcpClient(`http://127.0.0.1:${(server.address() as any).port}`, file, false, true, 'api')
+  const args = { method: 'POST', path: '/api/studio/fixture-mutation' }
+  try {
+    const oldCall = client.call({ ...args, context_id: first.contextId }, 'ekko_studio_api_request')
+    await reading
+    await first.dispose()
+    const second = await begin()
+    release()
+    expect((await oldCall).isError).toBe(true)
+    expect(requests).toEqual(['/api/openapi.json'])
+    const response = await client.call({ ...args, context_id: second.contextId }, 'ekko_studio_api_request')
+    expect(JSON.parse(response.content[0].text).body.context_id).toBe(second.contextId)
+    expect(requests).toEqual(['/api/openapi.json', '/api/studio/fixture-mutation'])
+    await second.dispose()
+  } finally {
+    release(); await slot.close(); client.child.kill(); server.closeAllConnections()
+    await new Promise<void>(resolve => server.close(() => resolve()))
   }
 })

@@ -12,6 +12,7 @@ import sharp from "sharp";
 const project = fileURLToPath(new URL("..", import.meta.url));
 async function main() {
   const root = await mkdtemp(join(tmpdir(), "studio-real-plugin-turns-"));
+  process.env.HERMES_WEB_UI_HOME = join(root, 'studio-home');
   const mcpFixture = join(root, "mcp-fixture.cjs");
   await writeFile(mcpFixture, String.raw`const readline = require('node:readline');
 readline.createInterface({ input: process.stdin }).on('line', line => {
@@ -34,6 +35,9 @@ export { AgentRegistry } from './packages/server/src/modules/studio/services/age
 export { PluginEventBus } from './packages/server/src/modules/studio/services/events/plugin-events';
 export { AgentExecutionStore } from './packages/server/src/modules/studio/repositories/agent-execution-store';
 export { ManagedProcessScope } from './packages/server/src/modules/studio/services/processes/managed';
+export { createNativeAgentContext } from './packages/server/src/modules/studio/services/agents/native-context';
+export { runMcpCredentials } from './packages/server/src/modules/studio/services/auth/run-mcp-credentials';
+export { config as studioConfig } from './packages/server/src/modules/studio/public/config';
 export { PluginModelGateways } from './packages/server/src/modules/studio/services/models/gateway';
 export { PluginModelCallStore } from './packages/server/src/modules/studio/repositories/plugin-model-call-store';
 export { OpenAIResponsesModelClient } from './packages/ekko-agent/src/model/providers/openai-responses';
@@ -47,9 +51,12 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
     outfile: managedModule,
     logLevel: "silent"
   });
-  const { AgentCoordinator, AgentRegistry, PluginEventBus, AgentExecutionStore, ManagedProcessScope, PluginModelGateways, PluginModelCallStore, OpenAIResponsesModelClient, AnthropicMessagesModelClient, OpenAICompatibleModelClient, translatedNativeRequest } = createRequire(import.meta.url)(managedModule);
+  const { AgentCoordinator, AgentRegistry, PluginEventBus, AgentExecutionStore, ManagedProcessScope, createNativeAgentContext, runMcpCredentials, studioConfig, PluginModelGateways, PluginModelCallStore, OpenAIResponsesModelClient, AnthropicMessagesModelClient, OpenAICompatibleModelClient, translatedNativeRequest } = createRequire(import.meta.url)(managedModule);
   let calls = 0;
   let activeTarget = 'native', activeVendor, searchIssued = false;
+  let nativeMcpEnabled = false, nativeMcpIssued = false, nativeMcpContext;
+  const nativeMcpRequests = [];
+  const nativeClientRequests = [];
   const requests = [];
   const imageData = (await sharp({ create: { width: 32, height: 32, channels: 3, background: 'red' } }).png().toBuffer()).toString('base64');
   const hasImage = value => value && typeof value === 'object' && (['input_image', 'image', 'image_url'].includes(value.type) || Object.values(value).some(hasImage));
@@ -57,6 +64,19 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    if (req.url?.startsWith('/api/')) {
+      const credential = runMcpCredentials.authenticate(String(req.headers.authorization || '').replace(/^Bearer /, ''));
+      const current = credential && credential.contextId === req.headers['x-studio-run-context'] && credential.profile === req.headers['x-hermes-profile'];
+      res.writeHead(current ? 200 : 403, { 'Content-Type': 'application/json' });
+      if (!current) { res.end(JSON.stringify({ error: 'Native MCP turn authorization failed' })); return; }
+      if (req.url.startsWith('/api/openapi.json')) {
+        res.end(JSON.stringify({ openapi: '3.1.0', paths: { '/api/studio/fixture-native-context': { get: { responses: { '200': { description: 'Local native MCP fixture' } } } } } }));
+      } else {
+        nativeMcpRequests.push({ vendor: activeVendor, sessionId: credential.sessionId, contextId: credential.contextId });
+        res.end(JSON.stringify({ message: 'Native Studio MCP fixture reached', context_id: credential.contextId }));
+      }
+      return;
+    }
     if (!req.url?.includes("responses") && !req.url?.includes("messages") && !req.url?.includes('chat/completions')) {
       res.writeHead(404);
       res.end("{}");
@@ -70,11 +90,22 @@ data: ${JSON.stringify({ type, ...data })}
 `);
     const id = `response-${calls}`, messageId = `message-${calls}`, text = `Native fixture answer ${calls}`;
     const searchTool = body.tools?.find(tool => (tool.name || tool.function?.name) === 'tool_search');
-    if (activeVendor === 'qwen-code' && searchTool && !searchIssued) {
-      searchIssued = true;
-      const toolId = `search-${calls}`, args = JSON.stringify({ query: 'continuity', max_results: 5 });
+    const flattenedTools = (body.tools || []).flatMap(tool => tool.type === 'namespace' ? (tool.tools || []).map(child => ({ ...child, namespace: tool.name })) : [tool]);
+    const deferredTools = (body.messages || []).flatMap(message => Array.isArray(message.content) ? message.content : []).filter(part => part.type === 'tool_result')
+      .flatMap(part => [...String(part.content).matchAll(/<function>(.*?)<\/function>/gs)].map(match => JSON.parse(match[1])));
+    const apiTool = flattenedTools.find(tool => (tool.name || tool.function?.name || '').includes('ekko_studio_api_request'))
+      || deferredTools.find(tool => tool.name?.includes('ekko_studio_api_request'));
+    const discover = activeVendor === 'qwen-code' && searchTool && !searchIssued;
+    if (discover || (nativeMcpEnabled && apiTool && !nativeMcpIssued)) {
+      if (discover) searchIssued = true; else nativeMcpIssued = true;
+      const deferred = !discover && !!apiTool.parametersJsonSchema;
+      const toolName = discover ? 'tool_search' : deferred ? 'tool_call' : apiTool.name || apiTool.function.name;
+      const nativeArgs = { method: 'GET', path: '/api/studio/fixture-native-context', context_id: nativeMcpContext };
+      const toolId = `tool-${calls}`, args = JSON.stringify(discover
+        ? { query: nativeMcpEnabled ? 'continuity ekko_studio_api_request' : 'continuity', max_results: nativeMcpEnabled ? 10 : 5 }
+        : deferred ? { name: apiTool.name, arguments: nativeArgs } : nativeArgs);
       if (req.url.includes('responses')) {
-        const item = { type: 'function_call', id: toolId, call_id: toolId, name: 'tool_search', arguments: args };
+        const item = { type: 'function_call', id: toolId, call_id: toolId, name: toolName, arguments: args, ...(!discover && apiTool.namespace ? { namespace: apiTool.namespace } : {}) };
         send('response.created', { response: { id, object: 'response', status: 'in_progress', output: [] } });
         send('response.output_item.added', { output_index: 0, item: { ...item, arguments: '' } });
         send('response.function_call_arguments.delta', { item_id: toolId, output_index: 0, delta: args });
@@ -82,12 +113,12 @@ data: ${JSON.stringify({ type, ...data })}
         send('response.output_item.done', { output_index: 0, item });
         send('response.completed', { response: { id, object: 'response', status: 'completed', output: [item], usage: { input_tokens: 12, output_tokens: 5, total_tokens: 17 } } });
       } else if (req.url.includes('chat/completions')) {
-        res.write(`data: ${JSON.stringify({ id, choices: [{ delta: { tool_calls: [{ index: 0, id: toolId, type: 'function', function: { name: 'tool_search', arguments: args } }] } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ id, choices: [{ delta: { tool_calls: [{ index: 0, id: toolId, type: 'function', function: { name: toolName, arguments: args } }] } }] })}\n\n`);
         res.write(`data: ${JSON.stringify({ id, choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 12, completion_tokens: 5 } })}\n\n`);
         res.write('data: [DONE]\n\n');
       } else {
         send('message_start', { message: { id: messageId, type: 'message', role: 'assistant', model: body.model, content: [], stop_reason: null, usage: { input_tokens: 12, output_tokens: 0 } } });
-        send('content_block_start', { index: 0, content_block: { type: 'tool_use', id: toolId, name: 'tool_search', input: {} } });
+        send('content_block_start', { index: 0, content_block: { type: 'tool_use', id: toolId, name: toolName, input: {} } });
         send('content_block_delta', { index: 0, delta: { type: 'input_json_delta', partial_json: args } });
         send('content_block_stop', { index: 0 });
         send('message_delta', { delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { output_tokens: 5 } });
@@ -121,6 +152,7 @@ data: ${JSON.stringify({ type, ...data })}
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${server.address().port}`;
+  studioConfig.port = server.address().port;
   const db = new DatabaseSync(':memory:'), modelStore = new PluginModelCallStore(db), executionStore = new AgentExecutionStore(db), state = executionStore.state;
   const gateways = new PluginModelGateways({ store: modelStore, state, authorize() {}, resolve: async (_profile, publicModel, protocol) => {
     const Client = activeTarget === 'chat' ? OpenAICompatibleModelClient
@@ -135,6 +167,7 @@ data: ${JSON.stringify({ type, ...data })}
     for (const [mode, target] of [['global', 'native'], ['scoped', 'native'], ['scoped', 'chat'], ['scoped', 'other'], ['scoped', 'switch']]) for (const vendor of ["codex", "qwen-code"]) {
       activeTarget = target === 'switch' ? 'native' : target;
       activeVendor = vendor;
+      nativeMcpEnabled = mode === 'global' && target === 'native';
       const home = join(root, `${vendor}-${mode}-${target}`);
       await mkdir(home);
       const controller = new AbortController(), scope = new ManagedProcessScope(controller.signal, () => {
@@ -142,6 +175,7 @@ data: ${JSON.stringify({ type, ...data })}
       let coordinator, events;
       try {
         const config = { cwd: home, mcpServers: mcpServers(1), env: { HOME: home, USERPROFILE: home } };
+        if (nativeMcpEnabled) config.studioMcp = { enabled: true, browser: false, devices: false, use: false };
         if (vendor === "codex") {
           await writeFile(join(home, "config.toml"), `model = "fixture-model"
 model_provider = "fixture"
@@ -153,7 +187,7 @@ requires_openai_auth = false
 `, { mode: 384 });
           config.command = process.env.STUDIO_CODEX_COMMAND || "codex";
           config.env.CODEX_HOME = home;
-          config.approvalPolicy = "never";
+          config.approvalPolicy = nativeMcpEnabled ? 'on-request' : 'never';
           config.sandbox = "read-only";
         } else {
           config.command = process.env.STUDIO_QWEN_COMMAND || "qwen";
@@ -166,6 +200,28 @@ requires_openai_auth = false
         plugin.apply({ agents: { register(value) {
           definition = value;
         } } });
+        if (nativeMcpEnabled) {
+          const create = definition.create;
+          definition.create = (input, context) => create(input, { ...context, processes: { spawn: async launch => {
+            const process = await context.processes.spawn(launch);
+            let pending = '';
+            const decoder = new TextDecoder();
+            return { ...process, read: async () => {
+              const batch = await process.read();
+              for (const chunk of batch.chunks) if (chunk.stream === 'stdout') pending += decoder.decode(chunk.data, { stream: true });
+              let end;
+              while ((end = pending.indexOf('\n')) >= 0) {
+                const line = pending.slice(0, end); pending = pending.slice(end + 1);
+                try {
+                  const message = JSON.parse(line);
+                  if (message.method && message.id !== undefined) nativeClientRequests.push({ method: message.method, keys: Object.keys(message.params || {}), mode: message.params?.mode, schema: message.params?.requestedSchema,
+                    ...(Array.isArray(message.params?.options) ? { options: message.params.options.map(option => ({ id: option.optionId, kind: option.kind })) } : {}) });
+                } catch {}
+              }
+              return batch;
+            } };
+          } } });
+        }
         if (mode === 'scoped') { config.args = []; config.model = 'fixture/model'; }
         if (mode === 'global') {
           const inspectionTimer = setTimeout(() => controller.abort(), 25000);
@@ -176,12 +232,22 @@ requires_openai_auth = false
             console.log(JSON.stringify({ vendor, inspection: true, authentication: inspection.authentication.state, modelCatalog: inspection.models.status, models: inspection.models.items.length }));
           } finally { clearTimeout(inspectionTimer); }
         }
-        const caller = { scopeId: 'acceptance', principal: { kind: 'user', id: 'fixture-owner' }, profileId: 'fixture-profile', surface: 'api', traceId: 'fixture' };
+        const caller = { scopeId: 'acceptance', principal: { kind: 'user', id: '7' }, profileId: 'fixture-profile', surface: 'api', traceId: 'fixture' };
         const registry = new AgentRegistry(), provider = { kind: 'plugin', pluginId: `studio.agent-${definition.id}`, version: '1.0.0', generation: 'first' };
         const register = generation => { const registration = registry.stage(caller.profileId, { ...provider, generation }, [definition.id]); registration.register(definition); registration.commit(); };
         register('first');
         events = new PluginEventBus();
         const options = { store: executionStore, registry, events, stateRoot: join(home, 'state'), logger: { info() {}, warn() {}, error() {} }, authorize() {}, validateInput() {},
+          nativeContext: (instance, scope, _provider, signal) => {
+            const native = createNativeAgentContext(instance, scope, signal, runId => {
+              if (!['starting', 'running', 'waiting_input'].includes(executionStore.get(runId)?.status)) throw new Error('Native turn ended');
+            });
+            return native && { ...native, prepare: async (runId, runSignal) => {
+              const prepared = await native.prepare(runId, runSignal);
+              nativeMcpContext = prepared.turnInstructions?.match(/context_id="([^"]+)"/)?.[1];
+              return prepared;
+            } };
+          },
           settleRun: id => gateways.settleRun(id), context: (scope, signal) => ({ scope, signal,
             artifacts: { read: async (id, offset) => {
               if (id !== '00000000-0000-0000-0000-000000000001' || offset !== 0) throw new Error('Invalid native image read');
@@ -204,6 +270,7 @@ Follow fixture instructions.`, etag: 'missing' }, catalog.snapshot);
         let checkpoint;
         for (let turn = 0; turn < (target === 'switch' ? 3 : 2); turn++) {
           searchIssued = false;
+          nativeMcpIssued = false;
           if (target === 'switch') activeTarget = turn === 1 ? 'chat' : 'native';
           if (turn) {
             instance = await coordinator.updateInstance(caller, instance.id, { revision: instance.revision, mode,
@@ -220,10 +287,26 @@ Follow fixture instructions.`, etag: 'missing' }, catalog.snapshot);
             const content = [{ type: "text", text: `Respond with a brief greeting. Turn ${turn}.` },
               ...(turn ? [{ type: 'image', artifactId: '00000000-0000-0000-0000-000000000001', mediaType: 'image/png' }] : [])];
             const accepted = coordinator.start(caller, instance.id, { content, timeoutMs: 20000 }, `${vendor}-${mode}-${target}-${turn}`);
-            await coordinator.wait(accepted.id);
+            let finished = false;
+            const answerFixtureApprovals = async () => {
+              while (!finished) {
+                for (const interaction of coordinator.interactions(caller, accepted.id).filter(item => item.status === 'pending' && item.kind === 'approval')) {
+                  const nativeOptions = nativeClientRequests.filter(request => request.options).at(-1)?.options || [];
+                  const choice = interaction.choices.find(option => option.id === 'accept' || nativeOptions.some(native => native.id === option.id && native.kind === 'allow_once'));
+                  if (!choice) throw new Error(`Unsupported native fixture approval: ${JSON.stringify({ choices: interaction.choices, nativeOptions })}`);
+                  await coordinator.respond(caller, accepted.id, { interactionId: interaction.id, idempotencyKey: `fixture-${interaction.id}`, choiceId: choice.id });
+                }
+                await new Promise(resolve => setTimeout(resolve, 10));
+              }
+            };
+            await Promise.all([coordinator.wait(accepted.id).finally(() => { finished = true; }), answerFixtureApprovals()]);
             const result = coordinator.get(caller, accepted.id), output = coordinator.output(caller, accepted.id, -1);
             const nextCheckpoint = state.checkpoint(instance.id, result.provider, instance.revision);
             if (result.status !== 'completed') throw new Error(`${vendor} ${mode} native turn failed: ${result.errorCode}`);
+            if (nativeMcpEnabled && !nativeMcpRequests.some(call => call.sessionId === `agent-run:${result.id}` && call.contextId === nativeMcpContext)) {
+              const summary = tools => (tools || []).map(tool => ({ type: tool.type, name: tool.name || tool.function?.name, ...(tool.tools ? { tools: summary(tool.tools) } : {}) }));
+              throw new Error(`${vendor} did not call the host-injected Studio MCP with its current turn context: ${JSON.stringify({ issued: nativeMcpIssued, nativeClientRequests, tools: requests.slice(requestOffset).map(body => summary(body.tools)), outputs: requests.slice(requestOffset).flatMap(body => body.input || []).filter(item => item.type === 'function_call_output').map(item => item.output) })}`);
+            }
             const nativeInput = JSON.stringify(requests.slice(requestOffset));
             const nativeTools = JSON.stringify(requests.slice(requestOffset).map(body => body.tools));
             // Qwen exposes deferred MCP declarations through tool_search results.
@@ -261,7 +344,7 @@ Follow fixture instructions.`, etag: 'missing' }, catalog.snapshot);
     await new Promise((resolve) => server.close(() => resolve()));
     await rm(root, { recursive: true, force: true });
   }
-  console.log(JSON.stringify({ passed: true, localModelRequests: calls, remoteProvider: false, accountLogin: false }));
+  console.log(JSON.stringify({ passed: true, localModelRequests: calls, nativeStudioMcpRequests: nativeMcpRequests.length, remoteProvider: false, accountLogin: false }));
 }
 main().catch((error) => {
   console.error(error);

@@ -62,6 +62,22 @@ export function codexInteractions(emit: (event: Output) => void) {
 
   return {
     async request(method: string, params: Record<string, any>, signal: AbortSignal): Promise<unknown> {
+      if (method === 'mcpServer/elicitation/request') {
+        const schema = params.requestedSchema
+        if (params.mode !== 'form' || !text(params.serverName, 128) || !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(params.serverName) || !text(params.message, 15000)
+          || !schema || typeof schema !== 'object' || Array.isArray(schema) || schema.type !== 'object'
+          || Object.keys(schema).some(key => !['type', 'properties', 'required', 'additionalProperties', 'title', 'description'].includes(key))
+          || !schema.properties || typeof schema.properties !== 'object' || Array.isArray(schema.properties) || Object.keys(schema.properties).length
+          || (schema.required !== undefined && (!Array.isArray(schema.required) || schema.required.length))
+          || (schema.additionalProperties !== undefined && typeof schema.additionalProperties !== 'boolean')
+          || ['title', 'description'].some(key => schema[key] !== undefined && (typeof schema[key] !== 'string' || schema[key].length > 4096))) {
+          throw new StudioError('CAPABILITY_UNSUPPORTED', 'MCP elicitation fields require a supported form or credential interaction')
+        }
+        const action = await ask({ prompt: `${params.serverName}\n${params.message}`, allowText: false,
+          choices: [{ id: 'accept', label: 'Allow once' }, { id: 'decline', label: 'Decline' }],
+        }, 'approval', signal)
+        return { action: action ?? 'cancel', ...(action === 'accept' ? { content: {} } : {}) }
+      }
       if (method === 'item/tool/requestUserInput') {
         const list = questions(params.questions)
         if (pending.size + list.length > 64 || count + list.length > 512) throw new Error('Codex interaction limit exceeded')

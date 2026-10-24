@@ -16,6 +16,7 @@ const schema = {
     reasoningEffort: { type: 'string', minLength: 1, maxLength: 64 },
     systemPrompt: agentContextConfigurationProperties.systemPrompt,
     mcpServers: agentContextConfigurationProperties.mcpServers,
+    studioMcp: agentContextConfigurationProperties.studioMcp,
   },
 } as const
 
@@ -25,7 +26,7 @@ const plugin: StudioPlugin = {
       id: 'qwen', name: 'Qwen Code', configSchema: schema as unknown as JsonObject,
       management,
       capabilities: { text: true, images: true, streaming: true, reasoning: true, approvals: true, resume: true,
-        resumeConfigKeys: ['model', 'reasoningEffort', 'systemPrompt', 'mcpServers'], persistentSession: true, modes: ['scoped', 'global'] },
+        resumeConfigKeys: ['model', 'reasoningEffort', 'systemPrompt', 'mcpServers', 'studioMcp'], nativeMcp: true, persistentSession: true, modes: ['scoped', 'global'] },
       async create(input, runtime) {
         const config = input.config
         const contextConfiguration = mergeAgentContextConfiguration(config as AgentContextConfiguration)
@@ -67,6 +68,7 @@ const plugin: StudioPlugin = {
             const result = (async (): Promise<AgentRunResult> => {
               try {
                 if (cancelled) return { status: 'cancelled' }
+                const effectiveContext = mergeAgentContextConfiguration(contextConfiguration, ctx.nativeContext || {})
                 const images = await readAgentImages(input.content, ctx)
                 const model = input.model || config.model as string | undefined
                 if (scoped && !model) throw new StudioError('INVALID_ARGUMENT', 'Scoped Qwen requires a Studio model')
@@ -122,10 +124,10 @@ const plugin: StudioPlugin = {
                     })
                   },
                 })
-                const text = input.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
-                const reason = await connection.prompt({ cwd, text: contextConfiguration.systemPrompt ? `${contextConfiguration.systemPrompt}\n\n${text}` : text,
+                const text = [input.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), ctx.nativeContext?.turnInstructions].filter(Boolean).join('\n\n')
+                const reason = await connection.prompt({ cwd, text: effectiveContext.systemPrompt ? `${effectiveContext.systemPrompt}\n\n${text}` : text,
                   images: input.content.flatMap(block => block.type === 'image' ? [images.get(block.artifactId)!] : []),
-                  nativeSessionId, mcpServers: acpMcpServers(contextConfiguration.mcpServers || {}),
+                  nativeSessionId, mcpServers: acpMcpServers(effectiveContext.mcpServers || {}),
                   model: input.model || config.model as string | undefined, reasoningEffort: config.reasoningEffort as string | undefined })
                 if (!cancelled && !['end_turn', 'max_tokens'].includes(reason)) throw new Error(`Qwen stopped: ${reason}`)
                 // A result frame does not prove that the CLI drained or exited.

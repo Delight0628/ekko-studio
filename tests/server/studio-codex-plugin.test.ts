@@ -14,19 +14,22 @@ import { AgentRegistry } from '../../packages/server/src/modules/studio/services
 import { AgentCoordinator } from '../../packages/server/src/modules/studio/services/agents/coordinator'
 import { PluginEventBus } from '../../packages/server/src/modules/studio/services/events/plugin-events'
 import { createExecutionContext } from '../../packages/server/src/modules/studio/services/context/execution'
-import type { ExecutionScope } from '../../packages/studio-plugin-sdk/src'
+import { createNativeAgentContext } from '../../packages/server/src/modules/studio/services/agents/native-context'
+import { runMcpCredentials } from '../../packages/server/src/modules/studio/services/auth/run-mcp-credentials'
+import { StudioError, type ExecutionScope } from '../../packages/studio-plugin-sdk/src'
 
 let root: string, runner: string
 const cleanups: Array<() => Promise<void>> = []
-const scope: ExecutionScope = { scopeId: 'scope', principal: { kind: 'user', id: 'caller' }, profileId: 'one', surface: 'api', traceId: 'trace' }
+const scope: ExecutionScope = { scopeId: 'scope', principal: { kind: 'user', id: '7' }, profileId: 'one', surface: 'api', traceId: 'trace' }
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'codex-plugin-中文 '))
+  vi.stubEnv('HERMES_WEB_UI_HOME', join(root, 'webui'))
   runner = join(root, 'runner.cjs')
   await build({ entryPoints: ['packages/studio-plugin-runner/src/main.ts'], bundle: true, platform: 'node', target: 'node24.22.1', format: 'cjs', outfile: runner, logLevel: 'silent' })
   await buildAgentPlugins(join(root, 'plugins'))
 })
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
-afterAll(async () => { await rm(root, { recursive: true, force: true }) })
+afterAll(async () => { await rm(root, { recursive: true, force: true }); vi.unstubAllEnvs() })
 
 const fixture = `const fs = require('node:fs');
 if (process.argv.includes('--version')) { process.stdout.write('native-cli 1.2.3\\n'); process.exit(0); }
@@ -123,12 +126,16 @@ async function setup(env: Record<string, string> = {}, mode: 'global' | 'scoped'
   })
   const executionStore = new AgentExecutionStore(db)
   const artifacts = new AgentArtifacts(db, executionStore, () => {})
-  const coordinator = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, validateInput: (scope, input) => artifacts.validate(scope, input), context, stateRoot: join(directory, 'state') })
+  const coordinator = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, validateInput: (scope, input) => artifacts.validate(scope, input), context, stateRoot: join(directory, 'state'),
+    nativeContext: (instance, current, provider, signal) => createNativeAgentContext(instance, current, signal, runId => {
+      host.authorizeNativeMcp(provider, current.profileId)
+      if (!['starting', 'running', 'waiting_input'].includes(executionStore.get(runId)?.status || '')) throw new StudioError('RUN_FINALIZING', 'Turn ended')
+    }) })
   const host = new PluginHost({ store, registry, events, context, logger, runnerPath: runner, artifactsRoot: join(root, 'installed'),
     eventContext: async (_state, _event, signal) => context(scope, signal), acceptEvents: async batch => { for (const event of batch) events.publish(event) } })
   cleanups.push(async () => { await coordinator.close(); await host.close(); events.close(); db.close() })
   await host.registerSystemArtifact(join(root, 'plugins/codex'))
-  await host.configure({ pluginId: 'studio.agent-codex', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'processes.spawn', 'models.gateway', 'artifacts.read'] }, 0)
+  await host.configure({ pluginId: 'studio.agent-codex', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'processes.spawn', 'mcp.studio', 'models.gateway', 'artifacts.read'] }, 0)
   const instance = coordinator.createInstance(scope, { agentTypeId: 'codex', mode, config: { ...(mode === 'scoped' ? { model: 'fixture/model' } : {}),
     cwd: directory, command: process.execPath, args: [cli], env: { PID_FILE: pidFile, TRACE_FILE: traceFile, CONTROL_FILE: controlFile, ...env },
   } })
@@ -526,4 +533,44 @@ it.each(['global', 'scoped'] as const)('returns codex setup instructions through
   if (mode === 'global') expect(result.authentication).toMatchObject({ command: process.execPath })
   expect(f.gateway).not.toHaveBeenCalled()
   await expect(f.trace()).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('injects Studio MCP through worker RPC, rotating its credential without restarting a retained native process', async () => {
+  const f = await setup()
+  const configured = await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, mode: 'global', config: { ...f.instance.config,
+    studioMcp: { enabled: true, browser: false, devices: false, use: false },
+    mcpServers: { 'ekko-studio-api': { command: 'must-not-receive-studio-credentials', env: { PRIVATE: 'must-not-forward' } } },
+  } })
+  const first = f.start('approval')
+  await vi.waitFor(() => expect(f.coordinator.get(scope, first.id).status).toBe('waiting_input'))
+  const start = (await f.trace()).find(frame => frame.method === 'thread/start')
+  const nativeMcp = start.params.config.mcp_servers['ekko-studio-api']
+  expect(nativeMcp.command).not.toBe('must-not-receive-studio-credentials')
+  expect(nativeMcp.env).toMatchObject({ ELECTRON_RUN_AS_NODE: '1', HERMES_WEB_UI_PROFILE: 'one', HERMES_WEB_UI_TOKEN: '', AUTH_TOKEN: '' })
+  expect(nativeMcp.env).not.toHaveProperty('PRIVATE')
+  expect(Object.keys(start.params.config.mcp_servers)).toEqual(['ekko-studio-api'])
+  const file = nativeMcp.env.HERMES_WEB_UI_RUN_TOKEN_FILE, a = JSON.parse(await readFile(file, 'utf8')), pid = await f.pid()
+  expect(runMcpCredentials.authenticate(a.token)).toMatchObject({ userId: 7, profile: 'one', sessionId: `agent-run:${first.id}` })
+  const approval = f.coordinator.interactions(scope, first.id)[0]
+  await f.coordinator.respond(scope, first.id, { interactionId: approval.id, idempotencyKey: 'first-approval', choiceId: 'accept' })
+  await f.coordinator.wait(first.id)
+  expect(f.coordinator.get(scope, first.id).status).toBe('completed')
+  expect(runMcpCredentials.authenticate(a.token)).toBeUndefined()
+  await expect(readFile(file, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  const second = f.start('approval-next')
+  await vi.waitFor(() => expect(f.coordinator.get(scope, second.id).status).toBe('waiting_input'))
+  expect(await f.pid()).toBe(pid)
+  expect((await f.trace()).filter(frame => frame.method === 'thread/start')).toHaveLength(1)
+  const b = JSON.parse(await readFile(file, 'utf8'))
+  expect(b.token).not.toBe(a.token)
+  expect(runMcpCredentials.authenticate(b.token)).toMatchObject({ sessionId: `agent-run:${second.id}`, userId: 7 })
+  const profile = f.store.profile('studio.agent-codex', 'one')!
+  f.store.saveProfile({ ...profile, grants: profile.grants.filter(capability => capability !== 'mcp.studio') }, profile.revision)
+  expect(runMcpCredentials.authenticate(b.token)).toBeUndefined()
+  await f.coordinator.cancel(scope, second.id)
+  await f.coordinator.wait(second.id)
+  await expect(readFile(file, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(JSON.stringify(await f.trace())).not.toContain(a.token)
+  expect(JSON.stringify(await f.trace())).not.toContain(b.token)
+  expect(f.executionStore.instance(f.instance.id)?.revision).toBe(configured.revision)
 })
