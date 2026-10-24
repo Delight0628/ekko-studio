@@ -199,8 +199,31 @@ describe('iframes', () => {
     expect(snapshot.nodes.map(node => `${node.ref} ${node.role} ${node.name}`)).toEqual([
       '@e1 button Top', '@e2 Iframe Local', '@e3 textbox Card', '@e4 Iframe Remote', '@e5 button Pay',
     ])
+    await new Promise(resolve => setImmediate(resolve))
     expect(page.sent.find(item => item.method === 'Target.detachFromTarget')?.params).toEqual({ sessionId: 'worker' })
     expect(page.sent.some(item => item.method === 'Network.enable' && item.sessionId === 'oopif')).toBe(true)
+  })
+
+  it('never sends commands re-entrantly while Chromium is auto-attaching', async () => {
+    const reentrant: string[] = []
+    let inside = false
+    let emit: (method: string, params?: Record<string, any>, sessionId?: string) => void = () => {}
+    const page = fakePage((method, _params, sessionId) => {
+      if (inside) reentrant.push(method)
+      if (method === 'Target.setAutoAttach' && !sessionId) {
+        inside = true
+        emit('Target.attachedToTarget', { sessionId: 'oopif', targetInfo: { type: 'iframe', targetId: 'remote-frame' } })
+        emit('Target.attachedToTarget', { sessionId: 'worker', targetInfo: { type: 'worker', targetId: 'w' } })
+        inside = false
+      }
+      return undefined
+    })
+    emit = page.emit
+    await new BrowserAutomation().snapshot('tab', page.contents)
+    await new Promise(resolve => setImmediate(resolve))
+    expect(reentrant).toEqual([])
+    expect(page.sent.some(item => item.method === 'Target.detachFromTarget' && item.params.sessionId === 'worker')).toBe(true)
+    expect(page.sent.some(item => item.method === 'Page.enable' && item.sessionId === 'oopif')).toBe(true)
   })
 
   it('keeps refs with the same DOM id distinct and clicks inside an out-of-process iframe at main-viewport coordinates', async () => {

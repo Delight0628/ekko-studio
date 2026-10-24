@@ -131,12 +131,15 @@ export class CdpTabState {
     switch (method) {
       case 'Target.attachedToTarget': {
         const child = params.sessionId as string
+        // Electron emits this synchronously from inside Chromium's auto-attach loop;
+        // sending a command re-entrantly there crashes the browser process.
         if (params.targetInfo?.type !== 'iframe' || this.sessions.size >= MAX_FRAME_SESSIONS) {
-          void this.send('Target.detachFromTarget', { sessionId: child }, sessionId).catch(() => undefined)
+          setImmediate(() => void this.send('Target.detachFromTarget', { sessionId: child }, sessionId).catch(() => undefined))
           return
         }
         const session: FrameSession = { sessionId: child, targetId: params.targetInfo.targetId, parentSessionId: sessionId, ready: Promise.resolve() }
-        session.ready = this.configureSession(child)
+        session.ready = new Promise<void>(resolve => setImmediate(resolve)).then(() =>
+          this.sessions.has(child) ? this.configureSession(child) : undefined)
         this.sessions.set(child, session)
         return
       }
