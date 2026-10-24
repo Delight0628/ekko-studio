@@ -3,7 +3,9 @@ import { PluginMcpBridge } from '../../packages/server/src/modules/studio/servic
 import { StudioError, type AgentRuntimeContext, type McpConnectionHandle, type McpToolResult } from '../../packages/studio-plugin-sdk/src'
 
 function connection(id: string): McpConnectionHandle {
-  return { id, listTools: vi.fn(async () => []), callTool: vi.fn(async () => ({ ok: true, content: 'private' })), dispose: vi.fn(async () => {}) }
+  return { id, listTools: vi.fn(async () => []), callTool: vi.fn(async () => ({ ok: true, content: 'private' })), dispose: vi.fn(async () => {}),
+    listResources: vi.fn(async () => ({ items: [] })), listResourceTemplates: vi.fn(async () => ({ items: [] })), readResource: vi.fn(async () => []),
+    listPrompts: vi.fn(async () => ({ items: [] })), getPrompt: vi.fn(async () => ({ messages: [] })) }
 }
 function context(connect: AgentRuntimeContext['mcp']['connect']): AgentRuntimeContext {
   return { ownerId: 'owner', profileId: 'profile', runtimeSessionId: 'runtime', provider: { kind: 'builtin', module: 'ekko', implementationVersion: '1' },
@@ -20,6 +22,20 @@ it('scopes connection IDs and rejects authority overrides before dispatch', asyn
   expect(second.callTool).not.toHaveBeenCalled()
   await a.close(); expect(first.dispose).toHaveBeenCalledOnce(); expect(second.dispose).not.toHaveBeenCalled()
   await b.close(); await bridge.close()
+})
+
+it('validates content operations and rejects foreign connections before dispatch', async () => {
+  const bridge = new PluginMcpBridge(() => {}, () => {}), child = connection('content')
+  bridge.mount(context(async () => child), 'first'); await open(bridge)
+  await bridge.call({ runtimeHandle: 'first', method: 'listResources', id: child.id, input: { cursor: 'next' } })
+  await bridge.call({ runtimeHandle: 'first', method: 'readResource', id: child.id, input: { uri: 'fixture://one' } })
+  await bridge.call({ runtimeHandle: 'first', method: 'getPrompt', id: child.id, name: 'greeting', input: { whom: 'test' } })
+  expect(child.listResources).toHaveBeenCalledWith('next')
+  expect(child.readResource).toHaveBeenCalledWith('fixture://one')
+  expect(child.getPrompt).toHaveBeenCalledWith('greeting', { whom: 'test' })
+  await expect(bridge.call({ runtimeHandle: 'first', method: 'readResource', id: child.id, input: { uri: 'fixture://one', ownerId: 'forged' } })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+  await expect(bridge.call({ runtimeHandle: 'first', method: 'listResources', id: 'foreign' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  await bridge.close()
 })
 
 it('waits for a late connection and retains its cleanup failure after the binding is removed', async () => {

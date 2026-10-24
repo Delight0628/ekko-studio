@@ -26,7 +26,7 @@ afterAll(async () => { await rm(root, { recursive: true, force: true }) })
 const scope: ExecutionScope = { scopeId: 'scope', principal: { kind: 'user', id: 'caller' }, profileId: 'one', surface: 'api', traceId: 'trace' }
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
 
-async function setup(options: { granted?: boolean; crash?: boolean; shared?: boolean; hook?: boolean; acp?: boolean; mcp?: boolean; mcpSdk?: boolean } = {}) {
+async function setup(options: { granted?: boolean; crash?: boolean; shared?: boolean; hook?: boolean; acp?: boolean; mcp?: boolean; mcpSdk?: boolean; mcpRead?: boolean } = {}) {
   const directory = await mkdtemp(join(root, 'artifact-')), pidPath = join(directory, 'pid')
   const db = new DatabaseSync(':memory:'), store = new PluginStore(db), registry = new AgentRegistry(), events = new PluginEventBus(), hooks = new PluginHookRegistry()
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
@@ -107,7 +107,7 @@ async function setup(options: { granted?: boolean; crash?: boolean; shared?: boo
         } } }); } }`)
   }
   if (options.mcpSdk) {
-    await writeFile(join(directory, 'cli.cjs'), await readFile('tests/fixtures/fake-mcp-server.cjs'))
+    await writeFile(join(directory, 'cli.cjs'), await readFile(options.mcpRead ? 'tests/fixtures/mcp-content-server.cjs' : 'tests/fixtures/fake-mcp-server.cjs'))
     await writeFile(join(directory, 'index.cjs'), `let shared;
       module.exports = { apply(plugin) {
         ${options.hook ? `plugin.hooks.before('sessions.remove', async () => { await shared.callTool('fake_echo', { text: 'forbidden' }); return { action: 'continue' } }, { key: 'readonly' });` : ''}
@@ -120,7 +120,10 @@ async function setup(options: { granted?: boolean; crash?: boolean; shared?: boo
                 ${options.crash ? 'process.exit(17);' : ''}
                 const reply = await connection.callTool('fake_echo', { text: input.content[0].text });
                 const image = await connection.callTool('fake_image', {});
-                yield { type: 'message.delta', producerSequence: 1, messageId: 'answer', text: JSON.stringify({ text: reply.content, pid, image: image.contentParts.find(part => part.type === 'image') }) };
+                ${options.mcpRead ? `const resources = await connection.listResources(); const next = await connection.listResources(resources.nextCursor);
+                  const templates = await connection.listResourceTemplates(); const resource = await connection.readResource(resources.items[0].uri);
+                  const prompts = await connection.listPrompts(); const prompt = await connection.getPrompt(prompts.items[0].name, { whom: input.content[0].text });` : ''}
+                yield { type: 'message.delta', producerSequence: 1, messageId: 'answer', text: JSON.stringify({ text: reply.content, pid, image: image.contentParts.find(part => part.type === 'image')${options.mcpRead ? ', resources, next, templates, resource, prompts, prompt' : ''} }) };
                 resolve({ status: 'completed' });
               } catch (error) { reject(error); throw error }
             })() };
@@ -245,4 +248,20 @@ it('reclaims hosted MCP connections when the plugin grant is revoked while idle'
   f.store.saveProfile({ ...f.state, grants: ['agents.register'] }, 1)
   await vi.waitFor(() => expect(alive(pid)).toBe(false))
   expect(await f.run(instance.id, 'revoked')).toMatchObject({ status: 'failed', errorCode: 'FORBIDDEN' })
+})
+
+it('reads native resources and expands prompts through real worker RPC on the retained MCP connection', async () => {
+  const f = await setup({ mcpSdk: true, mcpRead: true }), instance = f.instance()
+  const first = await f.run(instance.id, 'content-first'), second = await f.run(instance.id, 'content-second')
+  expect(first.status).toBe('completed'); expect(second.status).toBe('completed')
+  const output = (id: string) => JSON.parse((f.coordinator.output(scope, id, -1)[0] as { text: string }).text)
+  expect(output(first.id)).toMatchObject({
+    pid: output(second.id).pid,
+    resources: { items: [{ uri: 'fixture://one' }], nextCursor: 'next' }, next: { items: [{ uri: 'fixture://two' }] },
+    templates: { items: [{ uriTemplate: 'fixture://item/{id}' }] }, resource: [{ uri: 'fixture://one', text: '中文 resource' }],
+    prompts: { items: [{ name: 'greeting' }] }, prompt: { messages: [{ role: 'user', content: { type: 'text', text: 'Hello content-first' } }, { role: 'assistant' }] },
+  })
+  expect(JSON.stringify(output(first.id))).not.toContain('private')
+  const pid = output(first.id).pid
+  await f.coordinator.close(); expect(alive(pid)).toBe(false)
 })

@@ -566,11 +566,13 @@ worker 崩溃使租约失效，当前 Run 标记 interrupted，未确认 RPC 明
 
 当前已实现 runtime `processes.spawn` 和管道 `ProcessHandle.read/write/end/stop/dispose`；读取为有界长轮询，返回 stdout/stderr 字节、截断标志与退出结果，空批次不表示 EOF。身份、runtime 生命周期和能力来自宿主；PTY/resize、秘密注入及厂商驱动切换仍为后续范围。实现限制和退出语义见[受管进程实施记录](studio-plugin-progress.md#t05-进展runtime-受管管道进程)。
 
-当前 runtime 还提供 `mcp.connect(McpConnectInput)`，插件须声明并获授 `mcp.connect`。此权限包含启动 MCP 子进程或连接显式 HTTP 端点及调用工具；不自动扩展账户或 profile 凭据。stdio 使用 `{ type: 'stdio', command, args, cwd, env? }`，HTTP 使用 `{ type: 'streamable_http', url, headers? }`，可选 `timeoutMs`（100 ms–300 秒，默认 30 秒）和 `supportsParallelToolCalls`。
+当前 runtime 还提供 `mcp.connect(McpConnectInput)`，插件须声明并获授 `mcp.connect`。此权限包含启动 MCP 子进程或连接显式 HTTP 端点、调用工具和访问该服务声明的 resources/prompts；不自动扩展账户或 profile 凭据。stdio 使用 `{ type: 'stdio', command, args, cwd, env? }`，HTTP 使用 `{ type: 'streamable_http', url, headers? }`，可选 `timeoutMs`（100 ms–300 秒，默认 30 秒）和 `supportsParallelToolCalls`。
 
 返回句柄通过 `listTools()` 读取模型可用的工具定义，通过 `callTool(name, arguments)` 取得文本、图片及 JSON 结果，`dispose()` 等待连接实际关闭。非法模型工具名沿用公共 MCP 提供者的代理工具表示，调用方应使用返回的工具名和 schema。连接归 runtime 租约所有，可跨成功轮次复用；其他用户/runtime/hook 不能借用。宿主和 RPC 前后重查授权，空闲撤权也会回收连接；关闭后迟到的结果不再交付。调用失败不自动重发可能已有副作用的工具。
 
-每个 runtime 最多 16 个连接，宿主最多 64 个；默认单个进行中请求，显式允许并行时最多四个。工具定义最多 256 个，输入最多 128 KiB，DTO 结果最多 512 KiB，stdio 帧和 HTTP 响应流最多 1 MiB。HTTP 不跟随重定向。取消连接、工厂失败、worker 退出和 runtime 清理均等待所持连接及请求结算，未确认的清理保留租约隔离。旧厂商原生配置注入、平台交互凭据绑定和 MCP resources/prompts 等其他协议操作仍需后续迁移。
+同一连接还提供 `listResources(cursor?)`、`listResourceTemplates(cursor?)`、`readResource(uri)`、`listPrompts(cursor?)` 和 `getPrompt(name, arguments?)`。列表返回 `{ items, nextCursor? }`，每次只请求原生一页，不自动遍历，首次不发送空 cursor；每页最多 256 项，cursor 最多 4 KiB。未声明所需能力时返回 `CAPABILITY_UNSUPPORTED`，已支持但目录为空时返回空 items。资源支持文本与 base64 blob；prompt 支持标准文本、图片、音频、嵌入资源与资源链接，其他内容类型显式拒绝，不由宿主执行 prompt。规范字段以外的远端 `_meta` 等附加数据不跨公共边界。
+
+每个 runtime 最多 16 个连接，宿主最多 64 个；默认单个进行中请求，显式允许并行时最多四个。工具定义最多 256 个，工具输入最多 128 KiB，prompt 参数最多 64 KiB/64 项，DTO 结果最多 512 KiB，stdio 帧和 HTTP 响应流最多 1 MiB。HTTP 不跟随重定向。取消连接、工厂失败、worker 退出和 runtime 清理均等待所持连接及请求结算，未确认的清理保留租约隔离。旧厂商原生 Studio MCP 配置注入、平台交互凭据绑定、订阅/补全及其他协议操作仍需后续迁移。
 
 ## 10 配置和权限
 

@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { StreamableHTTPClientTransport, parseJSONRPCMessage } from '@modelcontextprotocol/client'
-import { createMcpToolProvider, type AgentTool, type AgentToolContext } from '../../../../../../ekko-agent/src/mcp'
+import { createMcpToolProvider, McpCapabilityUnavailableError, type McpReadRequest, type AgentTool, type AgentToolContext } from '../../../../../../ekko-agent/src/mcp'
 import { ManagedJsonRpcTransport } from '../../../../../../studio-agent-drivers/src'
-import { StudioError, type McpConnectInput, type McpConnectionHandle, type McpToolDefinition, type McpToolResult, type JsonObject, type RuntimeMcp } from '../../contracts/plugins'
+import { StudioError, type McpConnectInput, type McpConnectionHandle, type McpToolDefinition, type McpToolResult, type JsonObject, type RuntimeMcp, type McpPage, type McpResource, type McpResourceTemplate, type McpPrompt } from '../../contracts/plugins'
 import { ManagedProcessScope, parseProcessSpawn } from '../processes/managed'
 import { jsonCopy } from '../plugins/validation'
+import { mcpReadString, mcpReadArguments, parseMcpPage, parseMcpResource, parseMcpPrompt } from './read-contract'
 
 let liveConnections = 0
 const MAX_RESULT = 524_288, MAX_WIRE = 1_048_576
@@ -111,7 +112,23 @@ export class ManagedMcpScope {
       const definitions = jsonCopy(listed.map(tool => ({ ...tool.definition, concurrency: tool.concurrency || 'serial' })), MAX_RESULT) as McpToolDefinition[]
       tools = new Map(listed.map(tool => [tool.definition.name, tool])); return definitions
     })
+    const read = <T>(request: McpReadRequest, parse: (value: unknown) => T) => operation(async () => {
+      let result: unknown
+      try { result = await provider.read('remote', request, context) }
+      catch (error) {
+        check()
+        if (error instanceof McpCapabilityUnavailableError) throw new StudioError('CAPABILITY_UNSUPPORTED', 'MCP server does not advertise this capability')
+        throw new StudioError('RUNTIME_UNAVAILABLE', 'MCP resource or prompt request failed')
+      }
+      return parse(result)
+    })
+    const pageParams = (cursor?: string) => cursor === undefined ? {} : { cursor: mcpReadString(cursor, 4096) }
     const handle: McpConnectionHandle = Object.freeze({ id: randomUUID(), listTools,
+      listResources: (cursor?: string) => read({ method: 'resources/list', params: pageParams(cursor) }, value => parseMcpPage(value, 'resources') as McpPage<McpResource>),
+      listResourceTemplates: (cursor?: string) => read({ method: 'resources/templates/list', params: pageParams(cursor) }, value => parseMcpPage(value, 'resourceTemplates') as McpPage<McpResourceTemplate>),
+      readResource: (uri: string) => read({ method: 'resources/read', params: { uri: mcpReadString(uri) } }, parseMcpResource),
+      listPrompts: (cursor?: string) => read({ method: 'prompts/list', params: pageParams(cursor) }, value => parseMcpPage(value, 'prompts') as McpPage<McpPrompt>),
+      getPrompt: (name: string, args?: Record<string, string>) => read({ method: 'prompts/get', params: { name: mcpReadString(name, 256), ...(args === undefined ? {} : { arguments: mcpReadArguments(args) }) } }, parseMcpPrompt),
       callTool: (name: string, args: JsonObject) => {
         const snapshot = jsonCopy(args, 131_072)
         if (typeof name !== 'string' || !name || name.length > 64 || !snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) throw new StudioError('INVALID_ARGUMENT', 'Invalid MCP tool call')

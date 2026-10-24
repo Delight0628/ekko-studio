@@ -323,11 +323,23 @@ export interface McpToolResult {
   data?: JsonValue
   error?: string
 }
+export interface McpPage<T> { items: T[]; nextCursor?: string }
+export interface McpResource { uri: string; name: string; title?: string; description?: string; mimeType?: string; size?: number }
+export interface McpResourceTemplate { uriTemplate: string; name: string; title?: string; description?: string; mimeType?: string }
+export type McpResourceContents = { uri: string; mimeType?: string } & ({ text: string } | { blob: string })
+export interface McpPrompt { name: string; title?: string; description?: string; arguments?: Array<{ name: string; description?: string; required?: boolean }> }
+export interface McpPromptResult { description?: string; messages: Array<{ role: 'user' | 'assistant'; content: JsonObject }> }
 export interface McpConnectionHandle {
   readonly id: string
   listTools(): Promise<McpToolDefinition[]>
   /** Transport failures are not replayed; callers must decide whether a side effect may have occurred. */
   callTool(name: string, input: JsonObject): Promise<McpToolResult>
+  /** One bounded page. Missing remote capability is distinct from an empty list. */
+  listResources(cursor?: string): Promise<McpPage<McpResource>>
+  listResourceTemplates(cursor?: string): Promise<McpPage<McpResourceTemplate>>
+  readResource(uri: string): Promise<McpResourceContents[]>
+  listPrompts(cursor?: string): Promise<McpPage<McpPrompt>>
+  getPrompt(name: string, args?: Record<string, string>): Promise<McpPromptResult>
   dispose(): Promise<void>
 }
 export interface RuntimeMcp { connect(input: McpConnectInput): Promise<McpConnectionHandle> }

@@ -2,7 +2,7 @@
 
 本文档对应 `ekko-agent` 的公共 TypeScript API。推荐入口是 `new EkkoAgent()`：它是安装级容器，每个 Profile 会创建一个独立的 `EkkoProfileAgent`，Profile 的模块由该实例统一提供。
 
-MCP-only hosts may import `createMcpToolProvider` and its connection types from `ekko-agent/mcp`. This public entrypoint avoids loading the agent runtime graph; `closeScope()` and `dispose()` return the owned transport cleanup barrier.
+MCP-only hosts may import `createMcpToolProvider` and its connection types from `ekko-agent/mcp`. This public entrypoint avoids loading the agent runtime graph; `closeScope()` and `dispose()` return the owned transport cleanup barrier. `read(serverName, request, context)` supports resource and prompt discovery/reads on that same connection. List requests return one wire page with the original cursor; an unadvertised capability throws `McpCapabilityUnavailableError` instead of pretending the directory is empty. The caller owns request/result limits and must retain the same context signal.
 
 ## 安装与最小示例
 
@@ -3507,12 +3507,19 @@ export type McpServerConfig = StdioMcpServerConfig | StreamableHttpMcpServerConf
 
 export type McpClientTransport = Parameters<Client['connect']>[0]
 
+export type McpReadRequest = | { method: 'resources/list' | 'resources/templates/list' | 'prompts/list'; params?: { cursor?: string } } | { method: 'resources/read'; params: { uri: string } } | { method: 'prompts/get'; params: { name: string; arguments?: Record<string, string> } }
+
+export class McpCapabilityUnavailableError extends Error {
+  constructor(readonly capability: 'resources' | 'prompts')
+}
+
 export interface McpToolProviderOptions {
   failOnConnectionError?: boolean
   createTransport?: (server: McpServerConfig, context: { serverName: string; signal: AbortSignal }) => McpClientTransport | Promise<McpClientTransport>
 }
 
 export interface McpToolProvider extends AgentToolProvider {
+  read(serverName: string, request: McpReadRequest, context?: AgentToolContext): Promise<unknown>
   closeScope(signal?: AbortSignal): Promise<void>
   dispose(): Promise<void>
 }

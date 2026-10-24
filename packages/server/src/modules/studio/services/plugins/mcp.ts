@@ -1,5 +1,6 @@
 import { StudioError, type AgentRuntimeContext, type JsonObject, type JsonValue, type McpConnectInput, type McpConnectionHandle } from '../../contracts/plugins'
 import { toJson } from './validation'
+import { mcpReadArguments, mcpReadString } from '../mcp/read-contract'
 
 interface Binding {
   context: AgentRuntimeContext
@@ -46,11 +47,22 @@ export class PluginMcpBridge {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new StudioError('INVALID_ARGUMENT', 'Invalid MCP request')
     const { runtimeHandle, originHandle, method, id, input, name } = value
     if (typeof runtimeHandle !== 'string' || typeof method !== 'string'
-      || !['connect', 'listTools', 'callTool', 'dispose'].includes(method)
+      || !['connect', 'listTools', 'callTool', 'listResources', 'listResourceTemplates', 'readResource', 'listPrompts', 'getPrompt', 'dispose'].includes(method)
       || Object.keys(value).some(key => !['runtimeHandle', 'originHandle', 'method', 'id', 'input', 'name'].includes(key))
       || (method === 'connect' ? id !== undefined || name !== undefined : typeof id !== 'string')
-      || (method !== 'callTool' && name !== undefined)
-      || (!['connect', 'callTool'].includes(method) && input !== undefined)) throw new StudioError('INVALID_ARGUMENT', 'Invalid MCP request')
+      || (!['callTool', 'getPrompt'].includes(method) && name !== undefined)
+      || (['listTools', 'dispose'].includes(method) && input !== undefined)) throw new StudioError('INVALID_ARGUMENT', 'Invalid MCP request')
+    const page = ['listResources', 'listResourceTemplates', 'listPrompts'].includes(method)
+    let cursor: string | undefined, uri: string | undefined, args: Record<string, string> | undefined
+    if (page && input !== undefined) {
+      if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => key !== 'cursor')) throw new StudioError('INVALID_ARGUMENT', 'Invalid MCP page request')
+      if (input.cursor !== undefined) cursor = mcpReadString(input.cursor, 4096)
+    }
+    if (method === 'readResource') {
+      if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => key !== 'uri')) throw new StudioError('INVALID_ARGUMENT', 'Invalid MCP resource request')
+      uri = mcpReadString(input.uri)
+    }
+    if (method === 'getPrompt') { mcpReadString(name, 256); if (input !== undefined) args = mcpReadArguments(input) }
     const binding = this.bindings.get(runtimeHandle)
     if (!binding) {
       if (method === 'dispose') return null
@@ -83,7 +95,14 @@ export class PluginMcpBridge {
         throw new StudioError('FORBIDDEN', 'MCP connection is outside the runtime scope')
       }
       if (method === 'dispose') { await connection.dispose(); binding.handles.delete(String(id)); return null }
-      const result = method === 'listTools' ? await connection.listTools() : await connection.callTool(name as string, input as JsonObject)
+      let result: unknown
+      if (method === 'listTools') result = await connection.listTools()
+      else if (method === 'listResources') result = await connection.listResources(cursor)
+      else if (method === 'listResourceTemplates') result = await connection.listResourceTemplates(cursor)
+      else if (method === 'readResource') result = await connection.readResource(uri!)
+      else if (method === 'listPrompts') result = await connection.listPrompts(cursor)
+      else if (method === 'getPrompt') result = await connection.getPrompt(name as string, args)
+      else result = await connection.callTool(name as string, input as JsonObject)
       check()
       return toJson(result)
     })()

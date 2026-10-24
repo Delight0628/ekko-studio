@@ -1,4 +1,4 @@
-import { StudioError, type JsonValue, type McpConnectInput, type McpConnectionHandle, type McpToolDefinition, type McpToolResult, type RuntimeMcp } from '../../studio-plugin-sdk/src'
+import { StudioError, type JsonValue, type McpConnectInput, type McpConnectionHandle, type McpToolDefinition, type McpToolResult, type RuntimeMcp, type McpPage, type McpResource, type McpResourceTemplate, type McpResourceContents, type McpPrompt, type McpPromptResult } from '../../studio-plugin-sdk/src'
 import type { RpcPeer } from '../../studio-plugin-sdk/src/rpc'
 
 export function remoteMcp(peer: RpcPeer, runtimeHandle: string, signal: AbortSignal, origin: () => string | undefined, assertMutation: () => void): RuntimeMcp {
@@ -16,6 +16,11 @@ export function remoteMcp(peer: RpcPeer, runtimeHandle: string, signal: AbortSig
       id: result.id,
       listTools: async () => await call('listTools', { id: result.id }, timeout) as unknown as McpToolDefinition[],
       callTool: async (name, args) => await call('callTool', { id: result.id, name, input: JSON.parse(JSON.stringify(args)) }, timeout) as unknown as McpToolResult,
+      listResources: async cursor => await call('listResources', { id: result.id, ...(cursor === undefined ? {} : { input: { cursor } }) }, timeout) as unknown as McpPage<McpResource>,
+      listResourceTemplates: async cursor => await call('listResourceTemplates', { id: result.id, ...(cursor === undefined ? {} : { input: { cursor } }) }, timeout) as unknown as McpPage<McpResourceTemplate>,
+      readResource: async uri => await call('readResource', { id: result.id, input: { uri } }, timeout) as unknown as McpResourceContents[],
+      listPrompts: async cursor => await call('listPrompts', { id: result.id, ...(cursor === undefined ? {} : { input: { cursor } }) }, timeout) as unknown as McpPage<McpPrompt>,
+      getPrompt: async (name, args) => await call('getPrompt', { id: result.id, name, ...(args === undefined ? {} : { input: JSON.parse(JSON.stringify(args)) }) }, timeout) as unknown as McpPromptResult,
       dispose: () => {
         assertMutation()
         if (disposed) return disposed

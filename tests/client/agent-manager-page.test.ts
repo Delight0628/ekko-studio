@@ -18,6 +18,7 @@ const api = vi.hoisted(() => ({
 }))
 const route = vi.hoisted(() => ({ query: {} as Record<string, string> }))
 const replaceRoute = vi.hoisted(() => vi.fn())
+const pushRoute = vi.hoisted(() => vi.fn())
 const dialogWarning = vi.hoisted(() => vi.fn())
 const newChat = vi.hoisted(() => vi.fn())
 const restartApp = vi.hoisted(() => vi.fn())
@@ -58,9 +59,15 @@ vi.mock('@/components/layout/VersionManagementModal.vue', () => ({
   }),
 }))
 
+// Instance forms and their API/router graph have browser coverage. These page
+// tests isolate the legacy engine cards and verify the new navigation boundary.
+vi.mock('@/components/coding-agents/AgentInstanceManager.vue', () => ({
+  default: defineComponent({ name: 'AgentInstanceManager', emits: ['saved'], template: '<button>Manage instances</button>' }),
+}))
+
 vi.mock('vue-router', () => ({
   useRoute: () => route,
-  useRouter: () => ({ push: vi.fn(), replace: replaceRoute }),
+  useRouter: () => ({ push: pushRoute, replace: replaceRoute }),
 }))
 
 vi.mock('vue-i18n', () => ({
@@ -194,6 +201,13 @@ function agentStatusSnapshot() {
 }
 
 describe('Agent Manager page', () => {
+  it('opens a saved dynamic instance in its own configuration page', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    wrapper.findComponent({ name: 'AgentInstanceManager' }).vm.$emit('saved', 'owned-instance', 'acme.custom/agent')
+    expect(pushRoute).toHaveBeenCalledWith({ name: 'codingAgent.config', params: { agentId: 'acme.custom/agent', section: 'settings' }, query: { instance: 'owned-instance' } })
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     route.query = {}

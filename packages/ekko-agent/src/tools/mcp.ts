@@ -21,6 +21,13 @@ export interface StreamableHttpMcpServerConfig {
 
 export type McpServerConfig = StdioMcpServerConfig | StreamableHttpMcpServerConfig
 export type McpClientTransport = Parameters<Client['connect']>[0]
+export type McpReadRequest =
+  | { method: 'resources/list' | 'resources/templates/list' | 'prompts/list'; params?: { cursor?: string } }
+  | { method: 'resources/read'; params: { uri: string } }
+  | { method: 'prompts/get'; params: { name: string; arguments?: Record<string, string> } }
+export class McpCapabilityUnavailableError extends Error {
+  constructor(readonly capability: 'resources' | 'prompts') { super(`MCP server does not advertise ${capability}`); this.name = 'McpCapabilityUnavailableError' }
+}
 
 export interface McpToolProviderOptions {
   /** Fail discovery when a configured server cannot initialize instead of omitting its tools. */
@@ -29,6 +36,8 @@ export interface McpToolProviderOptions {
   createTransport?: (server: McpServerConfig, context: { serverName: string; signal: AbortSignal }) => McpClientTransport | Promise<McpClientTransport>
 }
 export interface McpToolProvider extends AgentToolProvider {
+  /** Single wire request on the same owned connection; list calls do not auto-page. */
+  read(serverName: string, request: McpReadRequest, context?: AgentToolContext): Promise<unknown>
   /** Permanently end one connection scope and wait for confirmed transport cleanup. */
   closeScope(signal?: AbortSignal): Promise<void>
   /** End all scopes; a failed cleanup stays failed on subsequent calls. */
@@ -159,6 +168,16 @@ class McpClientSession {
     const client = await this.ensureConnected(timeoutMs)
     const result = await client.listTools(undefined, { timeout: timeoutMs, cacheMode: 'refresh' })
     return result.tools
+  }
+
+  async read(request: McpReadRequest, timeoutMs: number): Promise<unknown> {
+    this.scope?.throwIfAborted()
+    const client = await this.ensureConnected(timeoutMs)
+    const capability = request.method.startsWith('resources/') ? 'resources' : 'prompts'
+    if (!client.getServerCapabilities()?.[capability]) throw new McpCapabilityUnavailableError(capability)
+    // The convenience list APIs auto-aggregate. Keep the first request cursorless
+    // and preserve each remote cursor so the host can enforce its own limits.
+    return client.request(request, { timeout: this.server.requestTimeoutMs ?? timeoutMs })
   }
 
   async callTool(name: string, input: Record<string, unknown>, timeoutMs: number, scope?: AbortSignal): Promise<AgentToolResult> {
@@ -378,6 +397,23 @@ export function createMcpToolProvider(options: McpToolProviderOptions = {}): Mcp
   }
   const provider: McpToolProvider = {
     id: 'mcp',
+    async read(serverName, request, context) {
+      if (disposed) throw new Error('MCP provider has ended')
+      if (!['resources/list', 'resources/templates/list', 'resources/read', 'prompts/list', 'prompts/get'].includes(request?.method)) throw new Error('Unsupported MCP content request')
+      const state = getScope(context?.mcpSessionSignal)
+      const snapshot = { request: structuredClone(request), context: { ...context, mcpServers: structuredClone(context?.mcpServers || {}) } }
+      const operation = state.pending.then(async () => {
+        state.lifecycle.signal.throwIfAborted()
+        const server = normalizeServerConfig(snapshot.context.mcpServers[serverName], !options.createTransport)
+        if (!server) throw new Error('MCP server is unavailable')
+        const session = await sessionFor(state, serverName, server, snapshot.context)
+        const result = await session.read(snapshot.request, snapshot.context.timeoutMs || DEFAULT_MCP_TIMEOUT_MS)
+        state.lifecycle.signal.throwIfAborted()
+        return result
+      })
+      state.pending = operation.then(() => undefined, () => undefined)
+      return operation
+    },
     closeScope: signal => close(getScope(signal)),
     dispose() {
       disposed = true
@@ -397,6 +433,21 @@ export function createMcpToolProvider(options: McpToolProviderOptions = {}): Mcp
       return operation
     },
   }
+  async function sessionFor(state: Scope, serverName: string, server: McpServerConfig, context?: AgentToolContext): Promise<McpClientSession> {
+    const fingerprint = JSON.stringify(server), scope = state.lifecycle.signal
+    let session = state.sessions.get(serverName)
+    if (!session || session.fingerprint !== fingerprint) {
+      await session?.dispose()
+      scope.throwIfAborted()
+      session = new McpClientSession(fingerprint, server, context?.mcpSessionSignal, () => options.createTransport
+        ? options.createTransport(server, { serverName, signal: scope })
+        : server.type === 'streamable_http'
+          ? new StreamableHTTPClientTransport(new URL(server.url), { requestInit: { headers: server.headers } })
+          : new StdioClientTransport({ command: server.command, args: server.args, env: server.env, stderr: 'ignore' }))
+      state.sessions.set(serverName, session)
+    }
+    return session
+  }
   async function discover(state: Scope, context?: AgentToolContext): Promise<AgentTool[]> {
     const scope = state.lifecycle.signal, sessions = state.sessions
     scope.throwIfAborted()
@@ -410,18 +461,7 @@ export function createMcpToolProvider(options: McpToolProviderOptions = {}): Mcp
       const server = normalizeServerConfig(rawConfig, !options.createTransport)
       if (!server) continue
       configuredServerNames.add(serverName)
-      const fingerprint = JSON.stringify(server)
-      let session = sessions.get(serverName)
-      if (!session || session.fingerprint !== fingerprint) {
-        await session?.dispose()
-        scope.throwIfAborted()
-        session = new McpClientSession(fingerprint, server, context?.mcpSessionSignal, () => options.createTransport
-          ? options.createTransport(server, { serverName, signal: scope })
-          : server.type === 'streamable_http'
-            ? new StreamableHTTPClientTransport(new URL(server.url), { requestInit: { headers: server.headers } })
-            : new StdioClientTransport({ command: server.command, args: server.args, env: server.env, stderr: 'ignore' }))
-        sessions.set(serverName, session)
-      }
+      const session = await sessionFor(state, serverName, server, context)
 
       try {
         const remoteTools = (await session.listTools(timeoutMs))
