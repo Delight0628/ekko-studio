@@ -44,6 +44,10 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
   else if (r.method === 'turn/start') {
     turnId = 'turn-' + (++index);
     const text = r.params.input[0].text;
+    if (text === 'approval-slow') process.on('SIGTERM', () => {
+      fs.appendFileSync(process.env.TRACE_FILE, JSON.stringify({ stopping: true }) + '\\n');
+      setTimeout(() => process.exit(0), 300);
+    });
     if (text === 'crash') { process.exit(7); return; }
     if (text === 'broken') { process.stdout.write('{bad\\n'); return; }
     // Send events before the admission response, including unrelated identities.
@@ -52,7 +56,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
     notify('item/agentMessage/delta', { turnId: 'old-turn', itemId: 'answer', delta: 'stale' });
     notify('item/started', { item: { id: 'tool', type: 'commandExecution', command: 'echo fixture', status: 'inProgress' } });
     send({ id: r.id, result: { turn: { id: turnId, status: 'inProgress' } } });
-    if (text === 'approval') send({ id: 'approval', method: 'item/commandExecution/requestApproval', params: {
+    if (text.startsWith('approval')) send({ id: 'approval', method: 'item/commandExecution/requestApproval', params: {
       threadId: 'native-thread', turnId, itemId: 'tool', command: 'echo fixture', cwd: process.cwd(), availableDecisions: ['accept','decline','cancel'] } });
     else if (text === 'unresolved') notify('turn/completed', { turn: { id: turnId, status: 'completed' } });
     else finish();
@@ -141,6 +145,19 @@ it('restores the committed native thread after releasing its runtime lease', asy
   expect((await f.trace()).filter(r => r.method === 'thread/resume')).toEqual([
     expect.objectContaining({ params: expect.objectContaining({ threadId: 'native-thread' }) }),
   ])
+})
+
+it.skipIf(process.platform === 'win32')('keeps cancellation pending until the native process actually exits', async () => {
+  const f = await setup(), run = f.start('approval-slow')
+  await vi.waitFor(() => expect(f.coordinator.get(scope, run.id).status).toBe('waiting_input'))
+  const pid = await f.pid()
+  await f.coordinator.cancel(scope, run.id)
+  await vi.waitFor(async () => expect((await f.trace()).some(frame => frame.stopping)).toBe(true))
+  expect(alive(pid)).toBe(true)
+  expect(f.coordinator.get(scope, run.id).status).toBe('cancelling')
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(scope, run.id).status).toBe('cancelled')
+  expect(alive(pid)).toBe(false)
 })
 
 it.each(['crash', 'broken', 'unresolved'])('fails an incomplete native run and leaves the plugin usable: %s', async text => {

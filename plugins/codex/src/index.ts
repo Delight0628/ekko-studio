@@ -72,10 +72,10 @@ export const apply: StudioPlugin['apply'] = plugin => {
           const emit = (event: Output) => events.push({ ...event, producerSequence: ++sequence } as AgentOutputEvent)
           const project = codexEvents(emit)
           const buffered: Array<[string, Record<string, any>]> = []
-          let bufferedBytes = 0, cancelTask: Promise<void> | undefined
+          let bufferedBytes = 0, cancelTask: Promise<void> | undefined, closing: Promise<void> | undefined
           const turn: Turn = { cancelled: ctx.signal.aborted, handle: undefined!,
             notification(method, params) {
-              if (params.threadId !== threadId) return
+              if (!threadId || params.threadId !== threadId) return
               if (!turn.id) {
                 bufferedBytes += Buffer.byteLength(JSON.stringify(params))
                 if (buffered.length >= 128 || bufferedBytes > 4 * 1024 * 1024) throw new Error('Codex startup event limit exceeded')
@@ -87,7 +87,7 @@ export const apply: StudioPlugin['apply'] = plugin => {
             },
             async request(method, params, signal) {
               await Promise.race([started, rpc.closed])
-              if (params.threadId !== threadId || params.turnId !== turn.id || turn.cancelled || signal.aborted) throw new Error('Codex request is outside the current turn')
+              if (current !== turn || params.threadId !== threadId || params.turnId !== turn.id || turn.cancelled || signal.aborted) throw new Error('Codex request is outside the current turn')
               if (!['item/commandExecution/requestApproval', 'item/fileChange/requestApproval'].includes(method)) throw new Error('Unsupported Codex client request')
               const choices = ['accept', 'decline', 'cancel'].filter(choice => !Array.isArray(params.availableDecisions) || params.availableDecisions.includes(choice))
               if (!choices.length) return { decision: 'cancel' }
@@ -110,6 +110,8 @@ export const apply: StudioPlugin['apply'] = plugin => {
           const onAbort = () => { void turn.handle.cancel('Cancelled').catch(() => {}) }
           const result = (async (): Promise<AgentRunResult> => {
             try {
+              // Install the handle and cancellation listener before admission.
+              await Promise.resolve()
               if (turn.cancelled) return { status: 'cancelled' }
               if (!resumed) {
                 const parameters = Object.fromEntries(['model', 'developerInstructions', 'approvalPolicy', 'sandbox'].filter(key => config[key] !== undefined).map(key => [key, config[key]]))
@@ -125,7 +127,8 @@ export const apply: StudioPlugin['apply'] = plugin => {
               turn.id = response.turn.id; ready()
               for (const [method, params] of buffered.splice(0)) turn.notification(method, params)
               const status = await Promise.race([terminal, rpc.closed])
-              if (turn.cancelled || status === 'interrupted') return { status: 'cancelled' }
+              if (status === 'interrupted') turn.cancelled = true
+              if (turn.cancelled) return { status: 'cancelled' }
               if (status !== 'completed') throw new StudioError('RUNTIME_UNAVAILABLE', 'Codex turn failed')
               return { status: 'completed', checkpoint: { threadId: threadId! } }
             } catch (error) {
@@ -135,7 +138,8 @@ export const apply: StudioPlugin['apply'] = plugin => {
             } finally {
               ready(); ctx.signal.removeEventListener('abort', onAbort)
               for (const entry of pending.values()) entry.resolve('cancel')
-              events.end(); current = undefined
+              try { if (turn.cancelled) await (closing ??= rpc.close()) }
+              finally { events.end(); current = undefined }
             }
           })()
           void result.catch(() => {})
@@ -143,15 +147,16 @@ export const apply: StudioPlugin['apply'] = plugin => {
             cancel() {
               if (cancelTask) return cancelTask
               turn.cancelled = true
-              cancelTask = (async () => {
+              closing = (async () => {
                 // The process barrier also covers cancellation during thread/turn admission.
                 if (turn.id) {
                   let timer: ReturnType<typeof setTimeout> | undefined
                   try { await Promise.race([rpc.request('turn/interrupt', { threadId, turnId: turn.id }, 2000).then(() => terminal),
                     new Promise(resolve => { timer = setTimeout(resolve, 2000) })]) } catch {} finally { clearTimeout(timer) }
                 }
-                await rpc.close(); await result.catch(() => {})
+                await rpc.close()
               })()
+              cancelTask = closing.then(async () => { await result.catch(() => {}) })
               return cancelTask
             },
             async respond(response) {
