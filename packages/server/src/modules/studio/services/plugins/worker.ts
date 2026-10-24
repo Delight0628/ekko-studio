@@ -180,6 +180,16 @@ export class PluginWorker {
     const params = value as JsonObject
     const ctx = this.scopes.get(String(params.scopeHandle))
     if (!ctx || ctx.signal.aborted) throw new StudioError('FORBIDDEN', 'Execution scope is unavailable')
+    if (params.method === 'workflows.run') {
+      this.authorize('workflows.run')
+      return toJson(await ctx.workflows.run(params.args as unknown as Parameters<ExecutionContext['workflows']['run']>[0]))
+    }
+    if (params.method === 'workflows.get' || params.method === 'workflows.cancel') {
+      this.authorize(params.method === 'workflows.get' ? 'workflows.read' : 'workflows.cancel')
+      const args = params.args as JsonObject
+      if (!args || typeof args.id !== 'string' || Object.keys(args).some(key => key !== 'id')) throw new StudioError('INVALID_ARGUMENT', 'Only a workflow run id is accepted')
+      return toJson(params.method === 'workflows.get' ? await ctx.workflows.get(args.id) : await ctx.workflows.cancel(args.id))
+    }
     if (params.method === 'chat.start') {
       this.authorize('chat.start')
       return toJson(await ctx.chat.start(params.args as unknown as Parameters<ExecutionContext['chat']['start']>[0]))

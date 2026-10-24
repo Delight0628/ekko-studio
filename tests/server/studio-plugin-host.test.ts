@@ -30,13 +30,13 @@ beforeAll(async () => {
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close() })
 afterAll(async () => { await rm(root, { recursive: true, force: true }) })
 
-function setup(sessions: ContextServices['sessions'] = { get: async () => null }, chatFactory?: (db: DatabaseSync) => ContextServices['chat']) {
+function setup(sessions: ContextServices['sessions'] = { get: async () => null }, chatFactory?: (db: DatabaseSync) => ContextServices['chat'], workflows?: ContextServices['workflows']) {
   const db = new DatabaseSync(':memory:')
   const chat = chatFactory?.(db)
   const store = new PluginStore(db), registry = new AgentRegistry(), events = new PluginEventBus(), eventStore = new PluginEventStore(db)
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
   const context = (scope: ExecutionScope, signal: AbortSignal): ExecutionContext => createExecutionContext(scope, signal, logger, {
-    authorize: async () => {}, sessions, chat, agents: { list: async profile => registry.list(profile) },
+    authorize: async () => {}, sessions, chat, workflows, agents: { list: async profile => registry.list(profile) },
     runs: {
       start: async (scope, input, signal) => startStudioAgentRun(scope, input, signal, coordinator),
       get: async (scope, id) => coordinator.get(scope, id), output: async (scope, id, after) => coordinator.output(scope, id, after),
@@ -60,6 +60,42 @@ function setup(sessions: ContextServices['sessions'] = { get: async () => null }
 }
 
 describe('plugin worker integration', () => {
+  it.each([true, false])('calls workflow services through scoped worker RPC and rejects revoked grants (granted: %s)', async granted => {
+    const receipt = { id: 'workflow-run', workflowId: 'workflow', profileId: 'default', ownerId: '1', status: 'running' as const, createdAt: 1, startedAt: 1, finishedAt: null }
+    const run = vi.fn(async () => receipt), get = vi.fn(async () => receipt), cancel = vi.fn(async () => ({ ...receipt, status: 'canceled' as const }))
+    const { host, events, store, logger } = setup(undefined, undefined, { run, get, cancel })
+    const directory = await mkdtemp(join(root, 'workflow-context-'))
+    const manifest = { schemaVersion: 1, id: 'test.workflow', version: '1.0.0', engines: { studioSdk: '^0.1.0', rpc: 1 }, backend: 'index.cjs', activation: 'profile',
+      contributes: { agents: [] }, requires: { capabilities: ['events.subscribe:plugin.ready', ...(granted ? ['workflows.run', 'workflows.read', 'workflows.cancel'] : [])] } }
+    await writeFile(join(directory, 'studio-plugin.json'), JSON.stringify(manifest))
+    await writeFile(join(directory, 'index.cjs'), `module.exports = { apply(plugin) { plugin.on('plugin.ready', async (_event, ctx) => {
+      const results = [], input = { workflowId: 'workflow', input: 'go', idempotencyKey: 'one' };
+      for (const fn of [() => ctx.workflows.run({ ...input, ownerId: 'foreign' }), () => ctx.workflows.run(input),
+        () => ctx.workflows.get('workflow-run'), () => ctx.workflows.cancel('workflow-run')]) {
+        try { results.push((await fn()).status) } catch (error) { results.push(error.code) }
+      }
+      ctx.logger.info('workflow-results', { results });
+    }) } }`)
+    await host.install(directory)
+    await host.configure({ pluginId: manifest.id, profileId: 'default', ownerId: '1', enabled: true, config: {}, grants: manifest.requires.capabilities }, 0)
+    const outputs = () => logger.info.mock.calls.filter(call => call[0] === 'Plugin stdout')
+      .flatMap(call => String((call[1] as { text: string }).text).trim().split('\n')).map(line => JSON.parse(line))
+      .filter(line => line.message === 'workflow-results').map(line => line.data.results)
+    await events.idle(); await vi.waitFor(() => expect(outputs()).toHaveLength(1))
+    expect(outputs()[0]).toEqual(granted ? ['INVALID_ARGUMENT', 'running', 'running', 'canceled'] : ['FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN'])
+    expect(run).toHaveBeenCalledTimes(granted ? 1 : 0)
+    if (granted) {
+      expect(run).toHaveBeenCalledWith(expect.objectContaining({ principal: { id: '1', kind: 'user' }, profileId: 'default' }), { workflowId: 'workflow', input: 'go', idempotencyKey: 'one' }, expect.any(AbortSignal))
+      const current = store.profile(manifest.id, 'default')!
+      store.saveProfile({ ...current, grants: ['events.subscribe:plugin.ready'] }, current.revision)
+      events.publish({ schemaVersion: 1, id: 'revoked', type: 'plugin.ready', occurredAt: Date.now(), partitionKey: 'plugin', sequence: 2,
+        subject: { profileId: 'default', pluginId: manifest.id }, data: { pluginId: manifest.id }, correlationId: 'trace' })
+      await events.idle(); await vi.waitFor(() => expect(outputs()).toHaveLength(2))
+      expect(outputs()[1]).toEqual(['FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN'])
+      expect(run).toHaveBeenCalledOnce(); expect(get).toHaveBeenCalledOnce(); expect(cancel).toHaveBeenCalledOnce()
+    }
+  })
+
   it('keeps a real worker runtime across turns and routes persisted interaction responses and cancellation', async () => {
     const { host, coordinator } = setup()
     const directory = await mkdtemp(join(root, 'interactive-'))

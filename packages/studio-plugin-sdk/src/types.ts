@@ -50,6 +50,11 @@ export interface SessionRemovalResult {
 }
 
 export interface StudioDomainServices {
+  readonly workflows: {
+    run(input: WorkflowRunStartInput): Promise<WorkflowRunReceipt>
+    get(id: string): Promise<WorkflowRunReceipt>
+    cancel(id: string): Promise<WorkflowRunReceipt>
+  }
   readonly chat: {
     start(input: ChatRunStartInput): Promise<ChatRunReceipt>
     get(id: string): Promise<ChatRunRecord>
@@ -71,6 +76,26 @@ export interface StudioDomainServices {
     respond(id: string, input: AgentInteractionResponse): Promise<AgentInteractionReceipt>
     usage(id: string): Promise<AgentUsage[]>
   }
+}
+
+export interface WorkflowRunStartInput {
+  workflowId: string
+  idempotencyKey: string
+  input?: string
+  startNodeIds?: string[]
+  timeoutMs?: number
+}
+
+/** Workflow scheduling state; no native credentials, graph configuration or error text. */
+export interface WorkflowRunReceipt {
+  id: string
+  workflowId: string
+  profileId: string
+  ownerId: string
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'canceled'
+  createdAt: number
+  startedAt: number | null
+  finishedAt: number | null
 }
 
 /** Continue an owned chat using its stored Agent/model configuration. */

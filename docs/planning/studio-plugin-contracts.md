@@ -155,6 +155,8 @@ interface AgentRunContext extends ExecutionContext {
 
 HTTP 与 SDK 共用内部直调端口和旧执行器，SDK 不暴露 `ChatRunCallerTarget`，不产生第二套消息/usage/业务事件。新回执表不代表旧队列已持久化或 T06 统一协调已完成。新建会话、附件、管理命令、交互回复和其他运行入口仍在后续范围，详见[SDK 接入实施记录](studio-plugin-progress.md#t02-进展旧聊天-sdk-接入)。
 
+当前 `ctx.workflows.run({ workflowId, idempotencyKey, input?, startNodeIds?, timeoutMs? })` 与 HTTP 共用启动服务，返回 `WorkflowRunReceipt`；`workflows.get/cancel(id)` 查询/取消原始 owner 的工作流 Run。三个方法分别要求 `workflows.run/read/cancel`。独立调用要求无 session/workspace/Run 绑定；用户和 profile 由宿主确定。输入快照、最后一刻授权、定义快照和 owner/profile 幂等绑定均在接收边界核验，请求绑定与原 Run 原子提交。回执只含身份、时间和原调度状态；取消回执不证明每个原生进程均已退出。当前仍使用原工作流引擎，不代表上表预算与统一 Run 调度已完成；见[工作流实施记录](studio-plugin-progress.md#t02-进展工作流共用启动服务与-sdk)。
+
 写操作接受 `idempotencyKey` 或领域 revision；是否可重试由方法契约明确。RPC 断线不能触发无条件重试付款、消息发送、文件写入或启动 Run。会话删除等跨运行时操作采用可恢复操作记录，不声称远程清理和 SQLite 可以组成一个原子事务。
 
 通用错误包含 `code`、安全 `message`、`retryable` 和可选 `details/operationId`。建议稳定错误码：`INVALID_ARGUMENT`、`FORBIDDEN`、`NOT_FOUND`、`REVISION_CONFLICT`、`CAPABILITY_UNSUPPORTED`、`PLUGIN_UNAVAILABLE`、`PLUGIN_VERSION_INCOMPATIBLE`、`SYSTEM_PLUGIN_PROTECTED`、`RUNTIME_UNAVAILABLE`、`CANCELLED`、`DEADLINE_EXCEEDED`。HTTP 状态码由传输适配，不向插件暴露内部堆栈和凭据。

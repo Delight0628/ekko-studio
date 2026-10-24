@@ -21,6 +21,7 @@ import { removeStudioSession } from '../sessions/removal'
 import { PluginChatRunStore } from '../../repositories/plugin-chat-run-store'
 import { PluginChatRuns, authorizeOwnedChatSession } from '../chat-run/plugin'
 import { getChatRunServer } from '../chat-run/server-registry'
+import { PluginWorkflows } from '../workflow/plugin'
 
 const logger: ScopedLogger = {
   info: (message, data) => applicationLogger.info(data || {}, message),
@@ -53,9 +54,15 @@ export function createStudioPluginRuntime(runnerPath: string) {
   const chatStore = new PluginChatRunStore(db)
   chatStore.recover()
   const chat = new PluginChatRuns({ store: chatStore, server: getChatRunServer, authorize: authorizeOwnedChatSession })
+  const workflows = new PluginWorkflows(authorizePluginScope)
   const context = (scope: ExecutionScope, signal: AbortSignal): ExecutionContext => createExecutionContext(scope, signal, logger, {
     authorize: async (current, operation, resourceId) => authorizePluginScope(current, operation, resourceId),
     agents: { list: async profileId => registry.list(profileId) },
+    workflows: {
+      run: (current, input, signal) => workflows.run(current, input, signal),
+      get: async (current, id) => workflows.get(current, id),
+      cancel: (current, id) => workflows.cancel(current, id),
+    },
     chat: {
       start: async (current, input, signal) => chat.start(current, input, signal),
       get: async (current, id) => chat.get(current, id),

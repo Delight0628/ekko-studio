@@ -3,11 +3,17 @@ import { jsonCopy } from '../plugins/validation'
 import { parseAgentRunStart } from '../agents/start'
 import { parseChatRunStart } from '../chat-run/input'
 import { parseInteractionResponse } from '../agents/coordinator'
+import { parseWorkflowRunStart } from '../workflow/input'
 
-export type ContextOperation = 'sessions.read' | 'sessions.remove' | 'agents.read' | 'runs.read' | 'runs.start' | 'runs.cancel' | 'runs.respond' | 'chat.start' | 'chat.read' | 'chat.cancel'
+export type ContextOperation = 'sessions.read' | 'sessions.remove' | 'agents.read' | 'runs.read' | 'runs.start' | 'runs.cancel' | 'runs.respond' | 'chat.start' | 'chat.read' | 'chat.cancel' | 'workflows.run' | 'workflows.read' | 'workflows.cancel'
 
 export interface ContextServices {
   authorize(scope: ExecutionScope, operation: ContextOperation, resourceId?: string): Promise<void>
+  workflows?: {
+    run(scope: ExecutionScope, input: Parameters<StudioDomainServices['workflows']['run']>[0], signal: AbortSignal): ReturnType<StudioDomainServices['workflows']['run']>
+    get(scope: ExecutionScope, id: string): ReturnType<StudioDomainServices['workflows']['get']>
+    cancel(scope: ExecutionScope, id: string): ReturnType<StudioDomainServices['workflows']['cancel']>
+  }
   chat?: {
     start(scope: ExecutionScope, input: Parameters<StudioDomainServices['chat']['start']>[0], signal: AbortSignal): ReturnType<StudioDomainServices['chat']['start']>
     get(scope: ExecutionScope, id: string): ReturnType<StudioDomainServices['chat']['get']>
@@ -55,6 +61,21 @@ export function createExecutionContext(
   }
   return Object.freeze({
     scope, signal, logger,
+    workflows: Object.freeze({
+      run: async (input: Parameters<StudioDomainServices['workflows']['run']>[0]) => {
+        const request = parseWorkflowRunStart(input)
+        if (!services.workflows) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Workflow services are unavailable')
+        return call('workflows.run', request.workflowId, () => services.workflows!.run(scope, request, signal), true)
+      },
+      get: async (id: string) => {
+        if (!services.workflows) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Workflow services are unavailable')
+        return call('workflows.read', id, () => services.workflows!.get(scope, id))
+      },
+      cancel: async (id: string) => {
+        if (!services.workflows) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Workflow services are unavailable')
+        return call('workflows.cancel', id, () => services.workflows!.cancel(scope, id), true)
+      },
+    }),
     chat: Object.freeze({
       start: async (input: Parameters<StudioDomainServices['chat']['start']>[0]) => {
         const request = parseChatRunStart(input)

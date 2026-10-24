@@ -44,6 +44,11 @@ function executionContext(scope: ExecutionScope, scopeHandle: string, signal: Ab
   }
   return {
     scope: Object.freeze({ ...scope, principal: Object.freeze({ ...scope.principal }) }), signal, logger,
+    workflows: {
+      run: async input => await call('workflows.run', json(input)) as unknown as Awaited<ReturnType<ExecutionContext['workflows']['run']>>,
+      get: async id => await call('workflows.get', { id }) as unknown as Awaited<ReturnType<ExecutionContext['workflows']['get']>>,
+      cancel: async id => await call('workflows.cancel', { id }) as unknown as Awaited<ReturnType<ExecutionContext['workflows']['cancel']>>,
+    },
     chat: {
       start: async input => await call('chat.start', json(input)) as unknown as Awaited<ReturnType<ExecutionContext['chat']['start']>>,
       get: async id => await call('chat.get', { id }) as unknown as Awaited<ReturnType<ExecutionContext['chat']['get']>>,
