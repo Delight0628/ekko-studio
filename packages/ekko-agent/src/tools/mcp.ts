@@ -43,7 +43,7 @@ function normalizeServerType(value: unknown): string {
 }
 
 function normalizeServerConfig(value: unknown): McpServerConfig | null {
-  if (!isRecord(value) || value.enabled === false) return null
+  if (!isRecord(value) || value.enabled === false || value.disabled === true) return null
   const supportsParallelToolCalls = value.supports_parallel_tool_calls === true
   const requestTimeoutMs = typeof value.requestTimeoutMs === 'number'
     && Number.isInteger(value.requestTimeoutMs) && value.requestTimeoutMs > 0 ? value.requestTimeoutMs : undefined

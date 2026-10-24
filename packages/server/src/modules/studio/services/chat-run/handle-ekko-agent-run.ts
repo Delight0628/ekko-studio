@@ -2,7 +2,7 @@ import { chatRunCaller, isDirectChatRunCaller, type ChatRunCallerTarget } from '
 import { studioSessionAccount } from '../../contracts/runs/usage'
 import { completeRunUsage } from '../../repositories/run-usage-store'
 import { studioMcpUsageGuidelines } from '../../public/runs/prompt'
-import { leaseEkkoMcpServers } from './ekko-mcp-lease'
+import { leaseStudioMcpServers } from '../mcp/credential-lease'
 import { studioMcpCapabilities } from '../../public/runs/mcp-capabilities'
 import { saveTaskPlan } from '../../repositories/task-plan-store'
 import { getSessionTasks, updateSessionTasks } from '../session-tasks'
@@ -1287,7 +1287,7 @@ export async function handleEkkoAgentRun(
   }
 
   try {
-    const mcpLease = await leaseEkkoMcpServers(mcpServers, { sessionId, profile,
+    const mcpLease = await leaseStudioMcpServers(mcpServers, { sessionId, profile, agentId: 'ekko-agent', nativeTaskPlan: true,
       userId: chatRunCaller(socket).user?.id, signal: abortController.signal })
     releaseMcp = mcpLease.dispose
     logger.info('[chat-run-socket] starting ekko-agent run for session %s', sessionId)
