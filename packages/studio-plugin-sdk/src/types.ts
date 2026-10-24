@@ -308,6 +308,14 @@ export interface EventEnvelope<T = JsonObject> {
 export type EventHandler<K extends keyof StudioEventMap> =
   (event: EventEnvelope<StudioEventMap[K]>, ctx: ExecutionContext) => void | Promise<void>
 
+/** Stable names retain their cursor across reloads. A reset must be explicit. */
+export interface EventConsumerSpec {
+  types: Array<keyof StudioEventMap>
+  start: 'now' | 'earliest'
+  resume: 'continue' | 'from-now'
+}
+export type ReliableEventHandler = (event: EventEnvelope, ctx: ExecutionContext) => void | Promise<void>
+
 export interface ServiceToken {
   /** Publisher namespace plus service name and major, e.g. acme.search/index@1. */
   id: string
@@ -344,6 +352,7 @@ export interface PluginContext {
     use(dependency: ServiceDependency): ServiceClient
   }
   readonly lifecycle: { onDispose(dispose: Disposer): Disposer }
+  readonly events: { consume(name: string, spec: EventConsumerSpec, handler: ReliableEventHandler): Disposer }
   on<K extends keyof StudioEventMap>(type: K, handler: EventHandler<K>): Disposer
   once<K extends keyof StudioEventMap>(type: K, handler: EventHandler<K>): Disposer
   emit(type: string, data: JsonObject): Promise<{ id: string }>

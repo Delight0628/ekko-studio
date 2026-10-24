@@ -1956,7 +1956,7 @@ for (const [path, methods] of Object.entries(openapi.paths)) {
       '401': { $ref: '#/components/responses/Unauthorized' }, '403': { description: 'Access denied or SYSTEM_PLUGIN_PROTECTED; no deletion side effects.' },
       '404': { description: 'Plugin not installed.' }, '409': { description: 'Revision conflict, registration conflict or active runtime leases.' },
       '422': { description: 'Plugin requests unsupported capabilities.' }, '503': { description: 'Plugin host or runtime unavailable.' } }
-    if (path.endsWith('/profile') || path.endsWith('/diagnostic') || path.startsWith('/api/studio/agent-')) {
+    if (path.endsWith('/profile') || path.endsWith('/diagnostic') || path.includes('/consumers') || path.startsWith('/api/studio/agent-')) {
       operation.parameters = [...(operation.parameters || []).filter(parameter => parameter.name !== 'profile'), studioPluginProfile]
     }
   }
@@ -1964,6 +1964,19 @@ for (const [path, methods] of Object.entries(openapi.paths)) {
 openapi.paths['/api/studio/plugins'].post.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, required: ['path'], properties: {
   path: { type: 'string', minLength: 1, description: 'Local trusted plugin directory containing studio-plugin.json and compiled backend entry. Installation copies an immutable artifact without executing package scripts.' },
 } })
+openapi.paths['/api/studio/plugins/{id}/consumers/{consumerId}/control'].post.requestBody = studioPluginBody({ type: 'object', additionalProperties: false,
+  required: ['action', 'revision'], properties: { action: { type: 'string', enum: ['pause', 'resume', 'reset-now'] }, revision: { type: 'integer', minimum: 1 }, profile: { type: 'string' } },
+})
+openapi.paths['/api/studio/plugins/{id}/consumers/{consumerId}/retry'].post.requestBody = studioPluginBody({ type: 'object', additionalProperties: false,
+  required: ['position', 'revision'], properties: { position: { type: 'integer', minimum: 1 }, revision: { type: 'integer', minimum: 1 }, profile: { type: 'string' } },
+})
+for (const [path, methods] of Object.entries(openapi.paths)) {
+  if (!path.startsWith('/api/studio/plugins/') || !path.includes('/consumers')) continue
+  for (const operation of Object.values(methods)) {
+    operation.description += ' Durable consumers are scoped to this plugin and authorized profile. Diagnostics expose delivery metadata, never event payloads or lease tokens. Pause preserves pending deliveries; reset-now explicitly discards them and moves to the current event position. Retry requires the dead letter revision.'
+    operation.responses['409'].description = 'Revision conflict or EVENT_CURSOR_EXPIRED; expired cursors require an explicit reset.'
+  }
+}
 openapi.paths['/api/studio/plugins/{id}/diagnostic'].get.responses['200'] = {
   description: 'Profile activation state and stable error code. Does not expose configuration, credentials, paths or raw worker errors.',
   content: { 'application/json': { schema: { type: 'object', required: ['ok', 'data'], properties: {

@@ -4,7 +4,7 @@ import { RpcPeer, type RpcFrame } from '../../../../../../studio-plugin-sdk/src/
 import {
   StudioError, STUDIO_ERROR_CODES, STUDIO_PLUGIN_RPC_VERSION, type StudioErrorCode, type AgentTypeDefinition, type AgentRuntime,
   type AgentRunContext, type AgentRunHandle, type AgentOutputEvent, type AgentRunResult,
-  type ExecutionContext, type JsonValue, type JsonObject, type PluginIdentity, type ScopedLogger, type ServiceToken,
+  type ExecutionContext, type JsonValue, type JsonObject, type PluginIdentity, type ScopedLogger, type ServiceToken, type EventConsumerSpec, type EventEnvelope,
 } from '../../contracts/plugins'
 import type { ServiceAuthority } from './services'
 import { jsonCopy, toJson, parseAgentOutput } from './validation'
@@ -14,6 +14,7 @@ export interface WorkerActivation {
   agents: Array<Omit<AgentTypeDefinition, 'create'>>
   subscriptions: Array<{ id: string; type: string; once: boolean }>
   services: ServiceToken[]
+  consumers: Array<{ name: string; spec: EventConsumerSpec }>
 }
 interface RemoteRun {
   channel: AsyncChannel<AgentOutputEvent>
@@ -37,6 +38,7 @@ export class PluginWorker {
   private readonly scopes = new Map<string, ExecutionContext>()
   private readonly authorities = new Map<string, ServiceAuthority>()
   private serviceCalls = 0
+  private consumerCalls = 0
   callService?: (context: ExecutionContext, args: JsonObject, authority: ServiceAuthority) => Promise<JsonValue>
   private readonly runs = new Map<string, RemoteRun>()
   private readonly runtimes = new Set<string>()
@@ -97,7 +99,7 @@ export class PluginWorker {
 
   async activate(entry: string, identity: PluginIdentity, config: JsonObject): Promise<WorkerActivation> {
     const result = await this.peer.request('activate', toJson({ entry, identity, config, rpc: STUDIO_PLUGIN_RPC_VERSION })) as JsonObject
-    if (!result || result.rpc !== STUDIO_PLUGIN_RPC_VERSION || !Array.isArray(result.agents) || !Array.isArray(result.subscriptions) || !Array.isArray(result.services)) {
+    if (!result || result.rpc !== STUDIO_PLUGIN_RPC_VERSION || !Array.isArray(result.agents) || !Array.isArray(result.subscriptions) || !Array.isArray(result.services) || !Array.isArray(result.consumers)) {
       throw new StudioError('INVALID_ARGUMENT', 'Invalid plugin activation response')
     }
     return result as unknown as WorkerActivation
@@ -186,7 +188,21 @@ export class PluginWorker {
     }
   }
 
-  hasLeases(): boolean { return this.runtimes.size > 0 || this.runs.size > 0 || this.serviceCalls > 0 }
+  async deliverConsumer(name: string, event: EventEnvelope, ctx: ExecutionContext): Promise<void> {
+    if (ctx.signal.aborted) throw new StudioError('CANCELLED', 'Consumer ended')
+    const deliveryId = randomUUID(); this.consumerCalls++
+    try {
+      await this.withContext(ctx, async scopeHandle => {
+        const abort = () => { void this.peer.request('consumer.cancel', { deliveryId }, 1_000).catch(() => {}) }
+        ctx.signal.addEventListener('abort', abort, { once: true })
+        try { await this.peer.request('consumer.deliver', toJson({ name, event, deliveryId, scopeHandle, scope: ctx.scope }), 30_000) }
+        finally { ctx.signal.removeEventListener('abort', abort) }
+      })
+    } finally { this.consumerCalls-- }
+  }
+
+  hasLeases(): boolean { return this.runtimes.size > 0 || this.runs.size > 0 || this.serviceCalls > 0 || this.consumerCalls > 0 }
+  isAvailable(): boolean { return !this.closed }
 
   close(): Promise<void> {
     return this.closing ??= (async () => {

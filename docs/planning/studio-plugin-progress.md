@@ -13,7 +13,7 @@
 | 注册 | profile 隔离、内置/插件提供方联合类型、激活阶段暂存、完整声明及冲突校验、事务发布、generation 资源释放 |
 | 插件宿主 | 本地目录校验、摘要工件、独立子进程、有限 RPC 并发、请求超时、输出背压、进程树清理、配置 revision、运行时租约；profile 服务依赖图、schema RPC 和持久化激活诊断 |
 | 安装策略 | 14 个系统插件 ID 已保留；用户安装不能覆盖，删除在接触工件/worker 前返回 `SYSTEM_PLUGIN_PROTECTED`；profile 选择不会被重复系统登记覆盖 |
-| 事件 | `ctx.on` / `ctx.once`、profile/owner 授权、每分区有序通知、队列及超时上限；仅把明确允许的旧业务事件字段投影到公共事件表 |
+| 事件 | `ctx.on` / `ctx.once`、profile/owner 授权、每分区有序通知；`ctx.events.consume` 持久化游标、租约、重试/死信和保留期；仅把明确允许的旧业务事件字段投影到公共事件表 |
 | Agent API 执行 | 实例、接受请求、幂等、启动、流输出、完成屏障、取消、终态与事件事务落库；崩溃恢复标记 interrupted，不自动重放输入 |
 | 协议抽取 | 标准 ACP 连接及事件转换移入独立 `studio-agent-drivers`；旧调用通过兼容入口复用，原有协议测试继续通过 |
 | 旧聊天启动 | 准入已迁为共用服务，HTTP 直接调用；直调入口已绑定宿主 ExecutionScope、复制输入与身份并区分准入前取消和准入后排队；SDK 已通过 `chat.start/get/cancel` 接入已有会话文本运行 |
@@ -31,6 +31,10 @@
 | `POST /api/studio/plugins` | 从服务器本地目录安装；超级管理员；不自动启用 |
 | `GET /api/studio/plugins/:id/profile` | 读取 profile 配置及 revision；超级管理员 |
 | `GET /api/studio/plugins/:id/diagnostic` | 读取当前 profile 的激活状态、公共错误码和租约占用；超级管理员 |
+| `GET /api/studio/plugins/:id/consumers` | 列出当前插件/profile 的可靠消费者；超级管理员 |
+| `GET /api/studio/plugins/:id/consumers/:consumerId/deliveries` | 最多 1,000 条待投递/处理中/死信元数据；不返回 payload 或租约凭据 |
+| `POST /api/studio/plugins/:id/consumers/:consumerId/control` | 带 revision 暂停、恢复或显式 reset-now；超级管理员 |
+| `POST /api/studio/plugins/:id/consumers/:consumerId/retry` | 选择 position 与死信 revision 重试；超级管理员 |
 | `PUT /api/studio/plugins/:id/profile` | 配置、授予声明的能力、启停；超级管理员；活动租约阻止切换 |
 | `DELETE /api/studio/plugins/:id` | 卸载用户插件；超级管理员；保留配置及运行历史 |
 | `GET /api/studio/agent-types` | 当前已激活插件提供的目录；尚未合并旧内置目录 |
@@ -51,7 +55,7 @@
 | T01 | SDK 和边界检查已有实现；仍需与完整契约对齐，包括交互、管理、可靠消费等 |
 | T02 | 会话删除、Agent 实例启动、旧聊天准入及工作流启动已与 SDK 共用服务；已覆盖作用域、幂等与真实 worker RPC。群聊、全局任务及其余领域仍未完成；工作流原引擎尚未统一 |
 | T03 | 进程、RPC、注册回滚、资源回收、profile 服务 DAG 与调用、激活诊断已有实现；服务变更通知、完整运行诊断和限额验收仍未完成 |
-| T04 | 通知与持久化事件已有实现；可靠消费者、重试/死信、保留期、hooks 和旧投影的事务统一未完成 |
+| T04 | 通知、持久化事件、可靠消费者、重试/死信和保留期已有实现；hooks、完整事件族、旧投影的事务统一与负载验收未完成 |
 | T05 | ACP 驱动已抽取；受管进程/MCP/模型、其他协议驱动仍需迁移 |
 | T06 | 实例 API 已有多轮租约、交互、取消、token 归并和成功 checkpoint；模型服务计量关联、父子 Run、原聊天及其他入口统一写入未完成 |
 | T07 | 新注册表与实例开放 ID；旧枚举、历史别名及客户端目录尚未迁移 |
@@ -266,7 +270,24 @@ manifest 可声明 `contributes.services` 的版本和方法输入/输出 schema
 
 服务增量之前的完整 coverage 复验为 892 个文件、9,149 项通过，12 个文件/32 项跳过，573.48 秒；保留仓库默认时限。此前全量中失败的路由注册用例把整个应用导入耗时计入行为断言，现将导入移至 fixture 初始化，仍执行原路由及顺序断言；单文件 coverage 的 24 项通过。
 
-浏览器首轮为 1,021 项通过、3 项失败，未记为全绿。空缓存复现定位到 XLSX worker 的 `read-excel-file/web-worker` 未被初始依赖扫描覆盖，运行中补打包导致页面重载并关闭同时打开的 DOCX；已加入 Vite 预构建，空缓存预览/侧栏专项 12 项通过。侧栏几何断言改为等待路由初始化后的稳定位置，保持原尺寸条件与默认时限。完整浏览器矩阵正在复验，服务增量也须以其自身后续全量结果为准。
+浏览器首轮为 1,021 项通过、3 项失败，未记为全绿。空缓存复现定位到 XLSX worker 的 `read-excel-file/web-worker` 未被初始依赖扫描覆盖，运行中补打包导致页面重载并关闭同时打开的 DOCX；已加入 Vite 预构建，空缓存预览/侧栏专项 12 项通过。侧栏几何断言改为等待路由初始化后的稳定位置，保持原尺寸条件与默认时限。完整浏览器复验为 **1,024 项全部通过**，34.2 分钟。
+
+服务增量 `816b28ac9` 的独立全量 coverage 为 890 个文件/9,159 项通过，3 项失败，12 个文件/32 项跳过。失败项是 Windows Pi 撤销测试超时、TTS 路由导入超时、Cursor 进程树心跳就绪超时；三个文件复验中 Windows/Cursor 通过，TTS 稳定复现。TTS 现将完整应用导入移到 fixture 初始化，保留实际注册断言和默认时限，23 项 coverage 通过。此处不将专项复验合并记作全量通过，后续增量继续执行完整回归。
+
+## T04 进展：可靠消费者与管理
+
+`ctx.events.consume(name, { types, start, resume }, handler)` 已通过真实 worker 接入。名称在 plugin/profile/owner 下唯一；激活阶段验证全部贡献后登记。`start` 明确选择 now/earliest，`resume` 明确选择 continue/from-now，类型变化必须显式重置。注销或卸载保留游标及死信；消费者代码应按 event.id 处理重复。
+
+- 分发器轮询已提交的公共事件表，进程内通知丢失不影响补发；当前支持 SDK 已声明的九个核心类型。每次重放重新取得宿主上下文并检查当前 grants，拒绝的资源在调用插件前被过滤。
+- 成功后才确认；处理租约和确认令牌持久化，旧租约的迟到确认/失败不会覆盖重投。每 partition 有序，其他 partition 可并发；系统时钟跳变不会回收本进程仍在处理的租约。
+- 默认每次 30 秒、最多 5 次尝试、指数退避上限 30 秒；死信只阻塞所在 partition。正常注销取消不消耗尝试，worker 崩溃计入失败；回调超时撤销上下文并关闭 worker。
+- 每消费者最多 10,000 条待处理记录、4 个并行 partition，分发器最多 64 个活动投递。批量扫描和诊断读取有上限；队列满时保持游标，不丢弃下一条匹配事件。
+- 公共事件默认保留 7 天，分批清理；partition 序号独立持久化，不随事件删除归零。低于保留水位或待投递记录已过期时返回 `EVENT_CURSOR_EXPIRED`，不会悄悄跳过；管理端必须明确 reset-now。
+- 管理 API 复用超级管理员/profile 鉴权，并再次限定 pluginId 与 consumerId；控制和死信重试携带 revision，诊断不含事件内容或租约令牌。
+
+本增量只保证已进入公共事件表的可靠消费。Agent 实例终态与事件已有同事务写入；旧业务通知仍由提交后的内存通知投影，生产端崩溃窗口尚未消除，不能称为全入口可靠事件。完整事件族、hook、事件因果预算、宿主配置界面与压力验收仍未完成。
+
+专项验证为 8 个文件、75 项通过，包含真实 worker 重投、撤权、激活失败保留游标、HTTP 范围和 revision、队列/分区/保留期故障；生产构建、服务端类型、harness 与差异检查通过。后续完整 coverage 单独记录，不将这些专项数量代替全量结果。
 
 ## CI 修复：JEV harness 重复解析
 

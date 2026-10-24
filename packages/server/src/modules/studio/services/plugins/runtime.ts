@@ -7,6 +7,8 @@ import { findUserById, userCanAccessProfile } from '../../repositories/users-sto
 import { getSessionMetadata } from '../../repositories/session-store'
 import { PluginStore } from '../../repositories/plugin-store'
 import { PluginEventStore } from '../../repositories/plugin-event-store'
+import { PluginConsumerStore } from '../../repositories/plugin-consumer-store'
+import { ReliablePluginConsumers } from '../events/reliable-consumers'
 import { AgentExecutionStore } from '../../repositories/agent-execution-store'
 import { StudioError, type ExecutionScope, type ExecutionContext, type EventEnvelope, type ScopedLogger } from '../../contracts/plugins'
 import { AgentRegistry } from '../agents/registry'
@@ -49,6 +51,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
   if (!db) throw new StudioError('RUNTIME_UNAVAILABLE', 'Plugins require SQLite')
   const store = new PluginStore(db)
   const eventStore = new PluginEventStore(db)
+  const consumers = new ReliablePluginConsumers(new PluginConsumerStore(db), { onError: () => logger.warn('Plugin consumer delivery failed') })
   const registry = new AgentRegistry()
   const events = new PluginEventBus({ onError: () => logger.warn('Plugin event callback failed') })
   const chatStore = new PluginChatRunStore(db)
@@ -90,7 +93,7 @@ export function createStudioPluginRuntime(runnerPath: string) {
   executionStore.recover()
   const coordinator: AgentCoordinator = new AgentCoordinator({ store: executionStore, registry, events, logger,
     authorize: authorizePluginScope, context })
-  const host = new PluginHost({ store, registry, events, runnerPath, artifactsRoot: resolve(config.appHome, 'plugins', 'artifacts'), logger, context,
+  const host = new PluginHost({ store, registry, events, consumers, runnerPath, artifactsRoot: resolve(config.appHome, 'plugins', 'artifacts'), logger, context,
     eventContext: async (state, event, signal) => {
       const run = event.subject.runId ? executionStore.get(event.subject.runId) : null
       if (run && run.ownerId !== state.ownerId) throw new StudioError('FORBIDDEN', 'Run is outside the subscription owner scope')
@@ -109,8 +112,8 @@ export function createStudioPluginRuntime(runnerPath: string) {
     const projected = projectPluginBusinessEvent(event, ++notificationSequence)
     if (projected) for (const accepted of eventStore.append([projected])) events.publish(accepted)
   })
-  return { host, store, eventStore, executionStore, coordinator, registry, events, context,
-    async close() { unsubscribe(); chat.close(); await coordinator.close(); await host.close(); events.close() } }
+  return { host, store, eventStore, executionStore, coordinator, registry, events, consumers, context,
+    async close() { unsubscribe(); chat.close(); await coordinator.close(); await host.close(); await consumers.close(); events.close() } }
 }
 
 export type StudioPluginRuntime = ReturnType<typeof createStudioPluginRuntime>

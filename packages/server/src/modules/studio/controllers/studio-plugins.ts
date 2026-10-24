@@ -8,7 +8,7 @@ const statusFor = (code: string): number => ({ INVALID_ARGUMENT: 400, FORBIDDEN:
   SYSTEM_PLUGIN_PROTECTED: 403, REVISION_CONFLICT: 409, REGISTRATION_CONFLICT: 409,
   PLUGIN_UNAVAILABLE: 503, PLUGIN_VERSION_INCOMPATIBLE: 409, CAPABILITY_UNSUPPORTED: 422,
   RUNTIME_UNAVAILABLE: 503, DEADLINE_EXCEEDED: 504, CANCELLED: 409, RUN_FINALIZING: 409,
-  RESOURCE_EXHAUSTED: 429 }[code] || 500)
+  RESOURCE_EXHAUSTED: 429, EVENT_CURSOR_EXPIRED: 409 }[code] || 500)
 
 async function respond(ctx: Context, action: () => unknown | Promise<unknown>): Promise<void> {
   ctx.set('Cache-Control', 'no-store')
@@ -61,6 +61,27 @@ export const configurePlugin = (ctx: Context) => respond(ctx, async () => {
 
 export const getPluginProfile = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().store.profile(ctx.params.id, profile(ctx)))
 export const getPluginDiagnostic = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().host.diagnostic(ctx.params.id, profile(ctx)))
+export const listPluginConsumers = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().consumers.store.list(ctx.params.id, profile(ctx)))
+function consumer(ctx: Context) {
+  const consumers = getStudioPluginRuntime().consumers
+  const record = consumers.requireRecord(ctx.params.id, profile(ctx), ctx.params.consumerId)
+  return { consumers, record }
+}
+export const getPluginConsumerDeliveries = (ctx: Context) => respond(ctx, () => {
+  const { consumers, record } = consumer(ctx)
+  return consumers.store.deliveries(record.id)
+})
+export const controlPluginConsumer = (ctx: Context) => respond(ctx, () => {
+  const { consumers, record } = consumer(ctx), input = body(ctx, ['action', 'revision', 'profile'])
+  if (!['pause', 'resume', 'reset-now'].includes(String(input.action)) || !Number.isSafeInteger(input.revision) || Number(input.revision) < 1) throw new StudioError('INVALID_ARGUMENT', 'Invalid consumer control')
+  return consumers.control(record.id, input.action as 'pause' | 'resume' | 'reset-now', Number(input.revision))
+})
+export const retryPluginConsumerDelivery = (ctx: Context) => respond(ctx, () => {
+  const { consumers, record } = consumer(ctx), input = body(ctx, ['position', 'revision', 'profile'])
+  if (!Number.isSafeInteger(input.position) || Number(input.position) < 1 || !Number.isSafeInteger(input.revision) || Number(input.revision) < 1) throw new StudioError('INVALID_ARGUMENT', 'Invalid dead letter retry')
+  consumers.store.retry(record.id, Number(input.position), Number(input.revision))
+  return { accepted: true }
+})
 export const removePlugin = (ctx: Context) => respond(ctx, async () => {
   await getStudioPluginRuntime().host.uninstall(ctx.params.id)
   return { removed: true }

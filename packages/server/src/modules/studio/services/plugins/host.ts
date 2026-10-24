@@ -13,12 +13,15 @@ import { ResourceScope } from './resources'
 import { PluginWorker } from './worker'
 import { pluginActivationOrder, requiredServiceDependents } from './dependencies'
 import { PluginServiceRegistry } from './services'
+import { ReliablePluginConsumers } from '../events/reliable-consumers'
+import { parseConsumerSpec } from '../../repositories/plugin-consumer-store'
 
 interface ActivePlugin { worker: PluginWorker; resources: ResourceScope; generation: string }
 export interface PluginHostOptions {
   store: PluginStore
   registry: AgentRegistry
   events: PluginEventBus
+  consumers?: ReliablePluginConsumers
   artifactsRoot: string
   runnerPath: string
   logger: ScopedLogger
@@ -35,6 +38,7 @@ const SUPPORTED_CAPABILITIES = new Set([
   'workflows.run', 'workflows.read', 'workflows.cancel',
   'agents.register', 'agents.read', 'sessions.read', 'sessions.remove', 'runs.read', 'runs.start', 'runs.cancel', 'runs.respond', 'chat.start', 'chat.read', 'chat.cancel',
   ...CORE_EVENTS.map(name => `events.subscribe:${name}`),
+  ...CORE_EVENTS.map(name => `events.consume:${name}`),
 ])
 
 export class PluginHost {
@@ -222,10 +226,12 @@ export class PluginHost {
     })
     const removers = new Map<string, Disposer>()
     const subscriptions = new Map<string, Disposer>()
+    const consumers = new Map<string, Disposer>()
     const pendingEvents: EventEnvelope[] = []
     let committed = false
     worker.peer.handle('agent.remove', value => { const dispose = removers.get(String((value as JsonObject).id)); if (dispose) void dispose(); return null })
     worker.peer.handle('subscription.remove', value => { const dispose = subscriptions.get(String((value as JsonObject).id)); if (dispose) void dispose(); return null })
+    worker.peer.handle('consumer.remove', async value => { await consumers.get(String((value as JsonObject).name))?.(); return null })
     worker.peer.handle('event.emit', async value => {
       const { type, data } = value as JsonObject
       if (typeof type !== 'string' || !Object.hasOwn(manifest.contributes.events || {}, type)) throw new StudioError('FORBIDDEN', 'Undeclared plugin event')
@@ -262,13 +268,40 @@ export class PluginHost {
           subscriptions.set(subscription.id, resources.add(dispose))
         })
       }
+      if (!Array.isArray(activated.consumers) || activated.consumers.length > 32) throw new StudioError('INVALID_ARGUMENT', 'Invalid consumer registrations')
+      if (activated.consumers.length && !this.options.consumers) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Reliable consumers are unavailable')
+      const names = new Set<string>()
+      const stagedConsumers = activated.consumers.map(({ name, spec: input }) => {
+        if (typeof name !== 'string' || !/^[a-z][a-z0-9.-]{0,127}$/.test(name) || names.has(name)) throw new StudioError('INVALID_ARGUMENT', 'Invalid or duplicate consumer name')
+        names.add(name)
+        const spec = parseConsumerSpec(input)
+        for (const type of spec.types) {
+          if (!CORE_EVENTS.includes(type as keyof StudioEventMap)) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Unsupported reliable event type')
+          authorize(`events.consume:${type}`)
+        }
+        return { identity: { pluginId: manifest.id, profileId: state.profileId, ownerId: state.ownerId, name }, spec }
+      })
       if (resources.signal.aborted) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin exited during activation')
       for (const required of manifest.requires.services || []) {
         if (!required.optional && !this.services.status(state.profileId, required).available) throw new StudioError('PLUGIN_UNAVAILABLE', 'Required service disappeared during activation')
       }
+      registration.validate()
+      const registeredConsumers = this.options.consumers?.store.registerMany(stagedConsumers) || []
       registration.commit()
       serviceRegistration.commit()
       stagedSubscriptions.forEach(subscribe => subscribe())
+      for (const consumer of registeredConsumers) {
+        const dispose = this.options.consumers!.mount(consumer, {
+          context: async (event, signal) => {
+            authorize(`events.consume:${event.type}`)
+            return this.options.eventContext(state, event, signal)
+          },
+          deliver: (event, ctx) => worker.deliverConsumer(consumer.name, event, ctx),
+          deadline: () => worker.close(),
+          available: () => worker.isAvailable(),
+        })
+        consumers.set(consumer.name, resources.add(dispose))
+      }
       this.active.set(key, { worker, resources, generation: installation.generation })
       this.options.store.recordDiagnostic(installation.id, state.profileId, 'ready')
       committed = true

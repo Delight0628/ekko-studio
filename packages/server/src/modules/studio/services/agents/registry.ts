@@ -33,7 +33,19 @@ export class AgentRegistry {
       const key = `${profileId}:${id}`
       if (this.entries.get(key)?.token === token) { this.entries.delete(key); this.revision++ }
     }
+    const validate = (): void => {
+      if (state !== 'staging') throw new StudioError('PLUGIN_UNAVAILABLE', 'Registration is no longer pending')
+      if (pending.size !== allowedIds.length) throw new StudioError('INVALID_ARGUMENT', 'Plugin did not register every declared Agent type')
+      for (const entry of pending.values()) {
+        for (const existing of this.entries.values()) {
+          if (existing.definition.id !== entry.definition.id) continue
+          if (existing.profileId !== profileId && existing.profileId !== '*' && profileId !== '*') continue
+          if (owner(existing.provider) !== owner(provider)) throw new StudioError('REGISTRATION_CONFLICT', 'Agent type already belongs to another provider')
+        }
+      }
+    }
     return {
+      validate,
       register: (definition: AgentTypeDefinition): Disposer => {
         if (state !== 'staging') throw new StudioError('PLUGIN_UNAVAILABLE', 'Agent registration is only allowed during activation')
         validateAgentDefinition(definition)
@@ -57,15 +69,7 @@ export class AgentRegistry {
         return () => { if (!disposed) { disposed = true; revoke(definition.id) } }
       },
       commit: (): void => {
-        if (state !== 'staging') throw new StudioError('PLUGIN_UNAVAILABLE', 'Registration is no longer pending')
-        if (pending.size !== allowedIds.length) throw new StudioError('INVALID_ARGUMENT', 'Plugin did not register every declared Agent type')
-        for (const entry of pending.values()) {
-          for (const existing of this.entries.values()) {
-            if (existing.definition.id !== entry.definition.id) continue
-            if (existing.profileId !== profileId && existing.profileId !== '*' && profileId !== '*') continue
-            if (owner(existing.provider) !== owner(provider)) throw new StudioError('REGISTRATION_CONFLICT', 'Agent type already belongs to another provider')
-          }
-        }
+        validate()
         for (const [id, entry] of pending) this.entries.set(`${profileId}:${id}`, entry)
         state = 'committed'
         this.revision++

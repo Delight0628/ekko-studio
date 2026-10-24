@@ -350,6 +350,8 @@ Run 文本 delta 是高频流，不默认写成可靠业务通知；需要它的
 
 第一版默认通知回调超时为 5 秒，可靠消费单次超时 30 秒、最多 5 次尝试；具体值进入宿主配置，并以压力验收调整。可靠事件默认保留 7 天，游标早于保留水位时返回 `EVENT_CURSOR_EXPIRED`，要求明确选择跳到当前或从业务快照重建。暂停不意味着无限保留。
 
+当前实现的 consumer spec 为 `{ types, start: 'now' | 'earliest', resume: 'continue' | 'from-now' }`；三个字段均必填，消费类型要求对应的 `events.consume:<type>` grant。管理操作 `pause/resume/reset-now` 使用消费者 revision，死信 retry 使用投递 position/revision。持久化全局保留水位采用保守失效策略；低于水位的消费者必须显式重置，即使删除的部分记录属于其他 profile。旧内存通知到公共表的生产端事务迁移尚未完成，不能把消费者可靠性等同于所有旧业务事件的可靠生产。
+
 ### 5.3 扩展事件
 
 manifest 中声明 `acme.research:report.created` 一类命名空间及 schema。`ctx.emit` 只允许发布声明且获准的插件事件，返回持久化接收凭据；不能伪造核心 `run.completed`。

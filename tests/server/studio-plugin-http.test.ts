@@ -4,18 +4,22 @@ import { once } from 'node:events'
 import { afterAll, beforeAll, expect, it, vi } from 'vitest'
 import type { Server } from 'node:http'
 import { StudioError } from '../../packages/studio-plugin-sdk/src'
+import { DatabaseSync } from 'node:sqlite'
+import { PluginConsumerStore } from '../../packages/server/src/modules/studio/repositories/plugin-consumer-store'
+import { ReliablePluginConsumers } from '../../packages/server/src/modules/studio/services/events/reliable-consumers'
 
 const state = vi.hoisted(() => ({ remove: vi.fn(), configure: vi.fn(), install: vi.fn(), diagnostic: vi.fn(), list: vi.fn(() => []),
-  respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), role: 'super_admin' }))
+  respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), role: 'super_admin', consumers: null as unknown as ReliablePluginConsumers }))
 vi.mock('../../packages/server/src/modules/studio/services/plugins/runtime', () => ({
   authorizePluginScope: vi.fn(),
   getStudioPluginRuntime: () => ({ host: { uninstall: state.remove, configure: state.configure, install: state.install, list: state.list, diagnostic: state.diagnostic },
-    registry: { list: () => [], getRevision: () => 1 }, coordinator: { respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel } }),
+    consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel } }),
 }))
 import { studioPluginRoutes } from '../../packages/server/src/modules/studio/routes/studio-plugins'
 
-let server: Server, base: string
+let server: Server, base: string, db: DatabaseSync
 beforeAll(async () => {
+  db = new DatabaseSync(':memory:'); state.consumers = new ReliablePluginConsumers(new PluginConsumerStore(db))
   const app = new Koa()
   app.use(bodyParser())
   app.use(async (ctx, next) => {
@@ -28,7 +32,7 @@ beforeAll(async () => {
   await once(server, 'listening')
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
 })
-afterAll(async () => { server.close(); await once(server, 'close') })
+afterAll(async () => { server.close(); await once(server, 'close'); await state.consumers.close(); db.close() })
 
 it('returns a stable protection error for system deletion', async () => {
   state.remove.mockImplementation(() => { throw new StudioError('SYSTEM_PLUGIN_PROTECTED', 'System plugins cannot be uninstalled') })
@@ -95,4 +99,44 @@ it('returns a finalization conflict without reporting cancellation', async () =>
   const response = await fetch(`${base}/api/studio/agent-runs/run/cancel?profile=default`, { method: 'POST' })
   expect(response.status).toBe(409)
   expect(await response.json()).toMatchObject({ ok: false, error: { code: 'RUN_FINALIZING' } })
+})
+
+it('scopes consumer management to an administrator, plugin and profile and requires explicit revisions', async () => {
+  const record = state.consumers.store.register({ pluginId: 'test.consumer', profileId: 'one', ownerId: '7', name: 'history' }, { types: ['run.completed'], start: 'now', resume: 'continue' })
+  const path = `/api/studio/plugins/test.consumer/consumers/${record.id}`
+  expect((await fetch(`${base}/api/studio/plugins/test.consumer/consumers`)).status).toBe(400)
+  state.role = 'admin'
+  try { expect((await fetch(`${base}${path}/deliveries?profile=one`)).status).toBe(403) }
+  finally { state.role = 'super_admin' }
+  expect((await fetch(`${base}${path}/deliveries?profile=two`)).status).toBe(404)
+  expect((await fetch(`${base}${path.replace('test.consumer', 'other.plugin')}/deliveries?profile=one`)).status).toBe(404)
+  const request = (input: unknown) => fetch(`${base}${path}/control?profile=one`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+  expect((await request({ action: 'pause', revision: 1, ownerId: 'forged' })).status).toBe(400)
+  expect((await request({ action: 'reset', revision: 1 })).status).toBe(400)
+  expect((await request({ action: 'pause', revision: 2 })).status).toBe(409)
+  expect((await request({ action: 'pause', revision: 1 })).status).toBe(200)
+  expect(state.consumers.store.get(record.id)).toMatchObject({ state: 'paused', revision: 2 })
+  expect((await request({ action: 'resume', revision: 2 })).status).toBe(200)
+  expect(await (await fetch(`${base}${path}/deliveries?profile=one`)).json()).toEqual({ ok: true, data: [] })
+  expect(await (await fetch(`${base}/api/studio/plugins/test.consumer/consumers?profile=one`)).json()).toMatchObject({ ok: true, data: [{ id: record.id, name: 'history' }] })
+})
+
+it('retries only the selected dead letter revision and reports expired cursors without silently resetting', async () => {
+  const store = state.consumers.store
+  const record = store.register({ pluginId: 'test.consumer', profileId: 'one', ownerId: '7', name: 'dead' }, { types: ['run.completed'], start: 'now', resume: 'continue' })
+  store.events.append([{ schemaVersion: 1, id: 'dead-event', type: 'run.completed', occurredAt: 1, partitionKey: 'one:run', sequence: 0, subject: { profileId: 'one' }, data: { hidden: 'payload' }, correlationId: 'trace' }])
+  store.fill(record.id)
+  const delivery = store.claim(record.id, 0)!
+  store.fail(delivery, 'INTERNAL', 0, 1)
+  const metadata = store.deliveries(record.id)[0], path = `${base}/api/studio/plugins/test.consumer/consumers/${record.id}`
+  const retry = (revision: number) => fetch(`${path}/retry?profile=one`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ position: metadata.position, revision }) })
+  const diagnostics = JSON.stringify(await (await fetch(`${path}/deliveries?profile=one`)).json())
+  expect(diagnostics).not.toContain('payload'); expect(diagnostics).not.toContain(delivery.lease)
+  expect((await retry(metadata.revision - 1)).status).toBe(409)
+  expect((await retry(metadata.revision)).status).toBe(200)
+  store.events.prune(2)
+  const expired = await fetch(`${path}/control?profile=one`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'resume', revision: record.revision }) })
+  expect(expired.status).toBe(409)
+  expect(await expired.json()).toMatchObject({ ok: false, error: { code: 'EVENT_CURSOR_EXPIRED' } })
+  expect(store.get(record.id)?.state).toBe('expired')
 })
