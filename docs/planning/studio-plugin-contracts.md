@@ -1,6 +1,6 @@
 # Studio 上下文与插件接口契约
 
-日期：2026-10-23
+日期：2026-10-24
 
 状态：设计草案 v0.3，配套[架构总案](studio-plugin-architecture.md)与[实施计划](studio-plugin-execution.md)。类型片段用于约束完整接口形状；开发中的 SDK 实际能力见[实施记录](studio-plugin-progress.md)，尚未发布，未实现部分仍需在 T01、T02 等任务中补全。
 
@@ -63,6 +63,7 @@ interface PluginContext {
   readonly config: Readonly<JsonObject>
   readonly logger: PluginLogger
   readonly agents: AgentContributions
+  readonly commands: CommandContributions
   readonly services: ServiceContributions
   readonly http: HttpContributions
   readonly scheduler: ScheduleContributions
@@ -236,6 +237,7 @@ Hermes/Ekko 使用同一 `AgentTypeDefinition` 与 `AgentRuntime`，由 bootstra
 | 交互 | approvals、clarifications、steering、queueInsertion | UI 不提供不存在的控制；不伪造批准或插入成功 |
 | 模型与模式 | scoped/global、模型目录、reasoning 参数 | 保持现有模式和原生配置优先级 |
 | 工具接入 | MCP、Skills、工具事件、后台任务 | 仅在有实现和配置的情况下启用 |
+| 输入框命令 | 静态命令贡献、原生动态目录、参数提示、命令调用 | 未提供时不展示插件命令；加载失败与空目录分别呈现 |
 | 管理 | detect、install、update、uninstall、login、config、terminal | 不支持时给出原因或明确手工操作方式 |
 
 静态声明是最大支持集合，运行时探测形成当前实例的有效集合；插件不能通过探测扩大 manifest 授权。内置 Agent 同样受静态声明、平台授权及实例范围约束。与 OS、CLI 版本或模型有关的结果包含 provenance 和 revision。用户不能在请求中自报 capabilities。
@@ -248,25 +250,68 @@ Hermes/Ekko 使用同一 `AgentTypeDefinition` 与 `AgentRuntime`，由 bootstra
 
 Codex 使用 `account/read`（`refreshToken: false`）和有界分页 `model/list`，不返回账号标识、原生 Home 或秘密。Qwen 仅执行 ACP v1 initialize，投影客户端信息和认证方法；该握手不提供当前认证状态，无会话模型发现不支持。登录/退出、配置文件、安装升级、终端、Skills/MCP 管理与相应交互仍未实现，不将此检查接口计为完整原生管理迁移。
 
-### 3.3 原生管理资源与固定页面（待实现）
+### 3.3 多个资源位置与固定页面
 
-Coding Agent 插件负责发现并向 Studio 提供当前实例可管理的 Skills、Agent 原生配置文件及原生插件管理能力。Studio 通过统一管理服务读取这些资源，以固定页面展示和编辑；保存请求再交给所属插件校验、写入和刷新。管理资源发现独立于 `create`/`run`，打开页面不应先执行一次聊天。
+Coding Agent 插件通过 `management.locations(input, context)` 告诉 Studio Skills 在哪里、Agent 原生配置在哪里。返回 `AgentResourceLocations`：`skills` 是多个技能根目录的数组；`configs` 是多个配置文件或配置目录的数组。一个技能根目录下还可包含多个技能及各自的附属文件。插件不实现文件扫描、读取或保存 RPC；这些操作归 Studio，复用现有文件能力与固定编辑页面。
 
-| 资源 | 插件向 Studio 提供 | Studio 固定页面负责 |
+| 描述 | 每项字段 | Studio 的职责 |
 | --- | --- | --- |
-| Skills | 技能目录清单、来源与作用域、启用状态（原生支持时）、文件树、内容和可用读写操作 | 列表、详情、文件编辑及操作结果展示 |
-| Agent 配置文件 | 稳定文件标识、名称、格式、存在状态、作用域、可写状态、内容 revision，以及读取、校验和保存操作 | 文件选择、对应格式编辑、错误提示及保存 |
-| 原生插件管理 | 原生插件清单、状态、可用操作及已有受控配置页面的生命周期 | 现有管理入口、列表与原生页面载体 |
+| `skills[]` | 稳定 `id`、`name`、绝对 `path`、`scope`、`readOnly` | 扫描各根目录，呈现技能及文件树，读取和编辑 |
+| `configs[]` | 同上，加 `kind: file / directory` 和可选 `format` | 展示多个配置文件，扫描配置目录，按格式编辑和保存 |
 
-以上是目标契约，不是当前 SDK 已导出的接口。管理能力缺失、插件不可用、读取失败与“成功读取但没有资源”必须分别返回和展示，不能统一投影为空列表。第三方 Agent 使用相同管理契约后即可由固定页面呈现基础资源，不要求每个第三方插件提供前端代码。
+位置 ID 在各自数组内唯一；相同名称可以来自不同目录，Studio 用来源 ID 和相对路径区分，不能按名称合并覆盖。字段省略表示该类能力未提供，空数组表示已提供但当前没有位置。位置目录暂未创建不等于插件不可用；配置文件缺失沿用现有创建/保存体验。共享与内置资源必须声明只读；目录嵌套、同一路径别名和符号链接仍由 Studio 文件访问规则处理，不能绕过只读来源。
 
-`configSchema` 描述 Studio 保存的实例参数，不等于 Agent 的原生配置文件。`create({ config }, runtimeCtx)` 可以接收提示词、MCP 等实例输入；这类输入不能替代插件向 Studio 提供的管理目录，也不能作为 Skills 页面的唯一数据源。Studio 管理的 MCP 及其运行凭据仍由宿主提供，插件负责原生适配；Skills 的发现、实际原生加载方式与配置优先级由对应插件负责，管理页面必须反映这个范围。
+宿主根据自有实例的配置 revision、global/scoped 模式和工作区调用位置声明，提供 scoped 状态目录；不需要先执行聊天或 `create`。用户、profile、实例与提供方由宿主绑定，HTTP 不接受调用者指定路径。目录能力为 `{ management: { locations: true } }`，HTTP 入口为 `POST /api/studio/agent-instances/:id/locations`，请求 `{ revision }`，响应包含实例、提供方、配置 revision 及两个位置数组。现阶段要求实例空闲，使用既有管理调用的超时、取消和资源回收边界。
 
-插件根据宿主确定的实例、global/scoped 模式和工作区解析实际目录，读取与保存必须使用同一资源范围。宿主负责身份、权限和实例绑定；前端使用插件返回的资源标识，不自行推导厂商 Home。资源描述包含来源、只读原因和版本信息；共享 `.agents/skills` 在 Coding Agent 页面继续只读，Agent 私有可写技能保留编辑能力。保存须检查版本冲突，并返回实际生效时机；模型、工作区或配置切换后重新发现资源，不能继续展示或写入旧范围的文件。
+`configSchema` 描述 Studio 保存的实例参数，不等于 Agent 原生配置文件清单。`create({ config }, runtimeCtx)` 的提示词、MCP 等输入也不替代此位置声明。Studio 管理的 MCP 及其运行凭据仍由宿主提供，插件负责原生适配；插件描述的 Skills 与配置位置应对应 Agent 实际使用的范围。模式或工作区改变后重新解析整个位置清单，不能继续使用旧位置缓存。
 
-DSH 保留现有固定插件管理入口、原生配置 iframe、插件清单及其打开/关闭生命周期，原生管理实现随 DSH 插件迁移。本阶段不增加通用前端插件加载、动态页面注册或任意第三方 JavaScript 注入；DSH 原生插件、Studio 后端插件和前端扩展是不同概念。
+Qwen/Codex 已实现多个位置的声明，尚未接入旧 Skills 和配置编辑页面。后续接入保留现有固定页面及 Studio 文件操作链路，不引入独立资源编辑页面或插件文件读写接口。DSH 保留现有原生配置 iframe、插件清单及其打开/关闭生命周期；本阶段不做通用前端插件化。
 
-### 3.4 一个最小插件
+### 3.4 插件向 Studio 提供输入框命令
+
+本节定义完整目标契约；激活期注册、worker 调用和 Web 输入框已实现，动态原生目录及跨入口迁移仍待完成。**插件自己注册命令、解析参数、处理调用，并按现有命令返回格式输出；Studio 不实现插件命令的业务逻辑。** Studio 提供注册容器、输入框补全、通用鉴权、按注册关系转发、生命周期管理及既有结果呈现。普通功能插件也可贡献命令，不要求先注册 Agent；前端沿用现有输入框，不加载插件 JavaScript。
+
+#### 注册与调用归属
+
+插件通过 `PluginContext.commands.register(definition, handler)` 注册命令描述及其处理器，返回 Disposer。定义包含稳定的命名空间 `id`、`name`、可选 `aliases`、`description`、`argsHint` / `examples`，以及适用的 Agent 类型/实例范围和输入入口。描述和参数提示用于前端展示；子命令、参数语法、默认值、校验和执行全部由插件 handler 负责。宿主只校验注册/调用 DTO、来源、目标范围和资源限额，不解析业务参数。
+
+用户选择补全项时只更新草稿；提交时 Studio 根据命令 ID 或已注册名称找到处理器，将完整原始输入、实际输入的命令名称和原始参数尾部交给插件。宿主只识别路由所需的命令名，不重写参数、不展开提示词、不决定调用哪个原生 API，也不按厂商或命令名称维护执行分支。插件自行决定如何处理，包括调用自身服务、原生 CLI/ACP/RPC 或经授权的 ctx 能力。需要启动或控制 Run 时，由插件显式调用相应受管服务，Studio 不从命令文本或返回字段推断并启动 Run。
+
+不设置由 Studio 调度的 `prompt/action/native` 命令分类，不为插件新建另一套命令业务执行器。所有插件命令使用同一个注册与调用机制；原生命令的发现、参数和协议适配也属于插件。
+
+注册时在 manifest 声明命令贡献及允许的目标范围，并获授 `commands.register`；这不授予命令实际使用的业务权限。调用时宿主注入可信 ExecutionContext，按用户资源权限与插件当前 grants 的交集鉴权；profile、会话、实例及原生租约不能由插件伪造。共享会话等现有限制保持，排队后派发时重新检查权限与绑定。
+
+命令 ID 与短名称分开处理。同一插件重复 ID 属于注册冲突；不同 Agent 的 `/compact` 等命令按当前目标定位到各自插件。有效目标内短名称有歧义时显示来源，并提供宿主生成的限定名称，例如 `/acme.research:review`；不按安装顺序猜测 handler，也不覆盖该范围内的平台保留命令。命令不可用、插件失效或选择过期时明确返回错误，不改投其他处理器。未匹配任何注册的 `/...` 文本沿用现有输入规则。
+
+#### 沿用现有命令返回格式
+
+插件返回现有 `session.command` 的业务 payload，宿主补充并校验传输信封中的 `event: 'session.command'`、`session_id` 与调用关联。插件不拿 Socket 对象，不直接写消息或用量表。SDK 应从当前返回格式提取公共 DTO/schema，不另包一层不兼容的结果格式。
+
+| 现有字段 | 保留的语义 |
+| --- | --- |
+| `command`、`action` | 实际命令名及结果动作；插件提供，宿主核验命令绑定，现有客户端据此展示 |
+| `ok`、`message` | 成功/失败及可读消息；未知扩展动作仍可按通用命令消息呈现 |
+| `messageKey` | 现有本地化消息标识；不认识的标识回退到 `message` |
+| `started`、`terminal` | 保留当前命令开始/会话忙碌与结束语义；支持先开始、后续结果的异步命令 |
+| 既有结构化字段 | 按当前动作保留，例如 `available`、`contextTokens/contextWindow/contextPercent`、token 统计、`isWorking`、`compacted` 等；不重命名、不任意套入新的 `data` 层 |
+
+当前 `terminal` 会影响客户端会话运行状态，不能把“这次查询已返回”一律写成 `terminal: true`。例如运行中查询 `/status` 可以已返回结果但保持 `terminal: false`；`/compact` 可以先返回 `started: true, terminal: false`，后续再返回结束结果。插件负责正确生成这些字段，宿主只检查其归属及生命周期一致性，防止旧调用的迟到事件终止另一轮 Run。调用回执的结束和会话状态分开记录，不用 `terminal` 一项替代两者。
+
+单次返回和异步返回均沿用上述 payload；异步处理使用 SDK 受管结果通道，绑定同一次调用并传播取消/超时。现有客户端的 `role: command`、`commandAction`、`commandData` 及状态呈现继续使用；既有持久化和广播由宿主共用链路唯一执行，不能插件与宿主各写一次。`action` 只是处理结果，不是让 Studio 再执行删除、改标题、压缩等业务的指令；此类业务由插件调用获准的领域服务完成后报告结果。身份、跨会话引用及结果字段仍受通用 schema/授权校验。
+
+迁移时以 [Coding Agent 命令返回](../../packages/server/src/modules/coding-agents/services/session-command.ts)、[Ekko 命令返回](../../packages/server/src/modules/studio/services/chat-run/ekko-session-command.ts) 和 [客户端 handleSessionCommandEvent](../../packages/client/src/stores/hermes/chat.ts) 为兼容基线。输入、成功、失败、运行中查询及异步完成均保留 fixture；通用插件的新命令只需按该格式返回即可展示，不要求 Studio 新增命令业务分支。
+
+#### 动态注册与生命周期
+
+静态贡献随插件激活暂存并原子发布。插件发现原生会话的新命令后，自行更新该目标范围内的注册/可用性；宿主只验证声明范围、发布目录 revision，并绑定 generation 和 runtime lease。原生协议解析和调用由插件保留，不引入 Studio 厂商专用命令适配器。没有会话时可先提供静态命令及未就绪状态，打开补全菜单不得隐式触发聊天、登录或推理。
+
+Disposer、停用、卸载和 generation/原生租约回收撤销对应注册。切换 profile、Agent/实例、模式、工作区或配置时重新获取当前目标的命令；客户端保留草稿但清除旧选择绑定，旧租约的迟到目录/结果不能污染新目标。Hermes/Ekko 及平台命令由各自内置模块注册和处理，不依赖插件 worker；一个插件的失败不影响其他提供方的命令。
+
+通用转发服务维护调用 ID、幂等回执、deadline、取消及资源清理。重复提交不自动重复执行插件 handler，未确认的外部副作用不自动重试；“已派发”不等于处理成功。目录大小、文本长度、RPC 帧及并发有界。Web/Desktop/App 共用命令目录、通用转发和当前返回格式；HTTP/Socket 只适配传输，旧客户端保留现有协议投影。
+
+当前 SDK 已开放 `commands.register`、`CommandInput/Result/Context`，manifest 声明命令 ID；Web 输入框消费已激活插件的命令目录，通过带 revision 和幂等键的 HTTP 调用插件 handler，实时事件和轮询回执共用现有结果渲染。激活期注册支持 `id/name/aliases/description/argsHint/agentTypeIds`；暂不支持 examples、实例/入口范围及运行期动态注册。现阶段只面向已有自有直接聊天的文本输入，旧平台命令继续使用固定目录与旧处理链；保留短名称不被插件覆盖，插件始终可用限定名称。插件回执不直接清空聊天、删除消息、终止其他 Run 或跳转到返回数据中的会话；业务变更仍须经获权领域服务。`ctx.chat.start` 当前拒绝斜杠管理命令的限制保持，不能因本节目标契约而视为已开放。完整验收见实施计划 A35–A39。
+
+### 3.5 一个最小插件
 
 以下示例展示入口关系，`createEchoRuntime` 等实现由样例包提供：
 
@@ -421,6 +466,7 @@ hook 可按授权作用于内置 Agent 的 Run。插件停用或故障清理时�
 | --- | --- |
 | `ctx.services.provide(token, implementation)` | token 包含发布者、服务名、major 和方法 schema；激活时检查冲突 |
 | `ctx.services.use(token)` | 返回 RPC 代理，版本必须满足 manifest 依赖；不能获取服务内部实例 |
+| `ctx.commands.register(definition, handler)` | 插件注册并自行处理输入框命令，按现有格式返回；宿主仅发布目录、鉴权转发并绑定执行上下文，详见 §3.4；已实现激活期注册和 Web 文本调用，原生动态目录及其他入口待迁移 |
 | `ctx.http.route(definition, handler)` | 方法、相对路径、输入输出 schema、访问范围、限额；提供 ExecutionContext |
 | `ctx.scheduler.register(definition, handler)` | 持久化计划、执行身份、时区、重叠策略和幂等任务 ID |
 | `ctx.storage` | 插件命名空间内的事务 KV/文档接口；区分 profile 和插件公共数据 |
@@ -453,6 +499,7 @@ hook 可按授权作用于内置 Agent 的 Run。插件停用或故障清理时�
   "activation": "profile",
   "contributes": {
     "agents": ["acme.research/assistant"],
+    "commands": [],
     "events": [],
     "services": []
   },

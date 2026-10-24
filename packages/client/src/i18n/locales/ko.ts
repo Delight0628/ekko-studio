@@ -1078,6 +1078,10 @@ export default {
 
   // 채팅
   chat: {
+    pluginCommandChanged: "명령 또는 대화가 변경되었습니다. 명령을 다시 선택하세요.",
+    pluginCommandAmbiguous: "여러 플러그인이 이 명령을 제공합니다. 출처가 포함된 이름을 선택하세요.",
+    pluginCommandTextOnly: "플러그인 명령은 현재 텍스트만 지원합니다.",
+    pluginCommandsUnavailable: "플러그인 명령을 불러올 수 없습니다.",
     selectMessages: "메시지 선택",
     messagesSelected: "{count}개 선택됨",
     deleteSelectedMessages: "선택 항목 삭제",

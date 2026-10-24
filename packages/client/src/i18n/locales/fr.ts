@@ -1078,6 +1078,10 @@ export default {
 
   // Chat
   chat: {
+    pluginCommandChanged: "La commande ou la conversation a changé. Sélectionnez à nouveau la commande.",
+    pluginCommandAmbiguous: "Plusieurs extensions proposent cette commande. Choisissez un nom avec sa source.",
+    pluginCommandTextOnly: "Les commandes des extensions acceptent uniquement du texte pour le moment.",
+    pluginCommandsUnavailable: "Impossible de charger les commandes des extensions.",
     selectMessages: "Sélectionner des messages",
     messagesSelected: "{count} sélectionnés",
     deleteSelectedMessages: "Supprimer la sélection",

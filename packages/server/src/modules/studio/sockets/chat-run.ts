@@ -2738,6 +2738,22 @@ export class ChatRunSocket {
     deleteSession(sid)
   }
 
+  pluginCommandSessionState(sessionId: string): { isWorking: boolean } {
+    const state = this.sessionMap.get(sessionId)
+    return { isWorking: !!(state?.isWorking || state?.isAborting || state?.isCompressing) }
+  }
+
+  publishPluginCommandResult(event: import('../repositories/plugin-command-store').CommandEvent): void {
+    // Command payloads are results, never instructions to run the legacy command dispatcher.
+    this.nsp.to(`session:${event.session_id}`).emit('session.command', event)
+  }
+
+  cachePluginCommandMessage(sessionId: string, content: string, messageId: number | undefined): void {
+    const state = this.sessionMap.get(sessionId)
+    if (!state || messageId === undefined || state.messages.some(message => String(message.id) === String(messageId))) return
+    state.messages.push({ id: messageId, session_id: sessionId, role: 'command', content, timestamp: Math.floor(Date.now() / 1000) })
+  }
+
   emitExternalEvent(sessionId: string, event: string, payload: any) {
     this.finishTaskPlanRun(sessionId, event, payload)
     const tagged = { ...payload, session_id: sessionId }

@@ -4,7 +4,7 @@ import { getDb } from '../../infrastructure/database'
 import { config } from '../../public/config'
 import { logger as applicationLogger } from '../../public/logging'
 import { findUserById, userCanAccessProfile } from '../../repositories/users-store'
-import { getSessionMetadata } from '../../repositories/session-store'
+import { addMessage, updateSessionStats, getSessionMetadata } from '../../repositories/session-store'
 import { PluginStore } from '../../repositories/plugin-store'
 import { PluginEventStore } from '../../repositories/plugin-event-store'
 import { PluginConsumerStore } from '../../repositories/plugin-consumer-store'
@@ -21,6 +21,8 @@ import { PluginHost } from './host'
 import { businessEvents } from '../webhooks/business-events'
 import { projectPluginBusinessEvent } from '../events/plugin-business-events'
 import { removeStudioSession } from '../sessions/removal'
+import { PluginCommandStore } from '../../repositories/plugin-command-store'
+import { PluginCommands } from '../commands/plugin'
 import { PluginChatRunStore } from '../../repositories/plugin-chat-run-store'
 import { PluginChatRuns, authorizeOwnedChatSession } from '../chat-run/plugin'
 import { getChatRunServer } from '../chat-run/server-registry'
@@ -148,6 +150,24 @@ export function createStudioPluginRuntime(runnerPath: string) {
     },
     acceptEvents: async (batch: EventEnvelope[]) => { for (const event of eventStore.append(batch)) events.publish(event) },
   })
+  const commandStore = new PluginCommandStore(db)
+  commandStore.recover()
+  const commands = new PluginCommands({ registry: host.commands, store: commandStore, context,
+    authorize: (scope, id) => {
+      const { session } = authorizeOwnedChatSession(scope, id)
+      const server = getChatRunServer()
+      if (!server?.pluginCommandSessionState) throw new StudioError('RUNTIME_UNAVAILABLE', 'Chat command transport is unavailable')
+      return { agentTypeId: session.agent || 'hermes', isWorking: server.pluginCommandSessionState(id).isWorking,
+        fingerprint: JSON.stringify([session.agent, session.agent_mode, session.workspace, session.model, session.provider, session.api_mode]) }
+    },
+    persist: (id, text) => {
+      const messageId = addMessage({ session_id: id, role: 'command', content: text })
+      updateSessionStats(id)
+      return messageId
+    },
+    committed: (id, text, messageId) => { getChatRunServer()?.cachePluginCommandMessage(id, text, messageId) },
+    publish: event => { getChatRunServer()?.publishPluginCommandResult(event) },
+  })
   let notificationSequence = 0
   const unsubscribe = businessEvents.subscribe('studio-plugin-notifications', event => {
     const projected = projectPluginBusinessEvent(event, ++notificationSequence)
@@ -159,8 +179,8 @@ export function createStudioPluginRuntime(runnerPath: string) {
       if (notification) events.publish(notification)
     }
   })
-  return { host, store, eventStore, executionStore, artifacts, coordinator, registry, events, consumers, hooks, models, context,
-    async close() { unsubscribe(); await removeHook(); chat.close(); await coordinator.close(); await host.close(); await models.close(); await consumers.close(); events.close() } }
+  return { host, commands, store, eventStore, executionStore, artifacts, coordinator, registry, events, consumers, hooks, models, context,
+    async close() { unsubscribe(); await removeHook(); chat.close(); await commands.close(); await coordinator.close(); await host.close(); await models.close(); await consumers.close(); events.close() } }
 }
 
 export type StudioPluginRuntime = ReturnType<typeof createStudioPluginRuntime>

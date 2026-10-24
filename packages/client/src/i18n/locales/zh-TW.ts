@@ -1092,6 +1092,10 @@ export default {
 
   // 對話
   chat: {
+    pluginCommandChanged: "命令或對話已變更，請重新選擇命令。",
+    pluginCommandAmbiguous: "多個外掛提供此命令，請選擇含來源的名稱。",
+    pluginCommandTextOnly: "外掛命令目前僅支援文字。",
+    pluginCommandsUnavailable: "無法載入外掛命令。",
     selectMessages: "多選訊息",
     messagesSelected: "已選 {count} 則",
     deleteSelectedMessages: "刪除所選",

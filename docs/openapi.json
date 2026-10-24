@@ -12939,6 +12939,238 @@
         }
       }
     },
+    "/api/studio/agent-instances/{id}/locations": {
+      "post": {
+        "tags": [
+          "Studio Plugins"
+        ],
+        "summary": "Get native Agent resource locations",
+        "description": "Operates on registered Agent types and owner-bound instances/runs in the authorized profile. Plugin migration is in progress; existing native Agent execution remains separate until migration completes. Resolves multiple skill roots and multiple configuration files/directories from the owned idle instance and its current revision. The plugin only declares locations; Studio owns scanning and file operations. Does not start a Run or accept caller-selected paths. Omitted categories are unsupported; empty arrays have no configured locations. Stable source IDs distinguish identical names.",
+        "operationId": "agentInstanceLocations",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Host-bound resource location arrays; no file contents.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "instanceId",
+                        "configRevision",
+                        "provider"
+                      ],
+                      "properties": {
+                        "instanceId": {
+                          "type": "string"
+                        },
+                        "configRevision": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "provider": {
+                          "type": "object"
+                        },
+                        "skills": {
+                          "type": "array",
+                          "maxItems": 64,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "id",
+                              "name",
+                              "path",
+                              "scope",
+                              "readOnly"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128,
+                                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                              },
+                              "name": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256
+                              },
+                              "path": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 4096,
+                                "description": "Absolute native filesystem path."
+                              },
+                              "scope": {
+                                "type": "string",
+                                "enum": [
+                                  "global",
+                                  "scoped",
+                                  "workspace",
+                                  "shared",
+                                  "builtin"
+                                ]
+                              },
+                              "readOnly": {
+                                "type": "boolean"
+                              }
+                            }
+                          }
+                        },
+                        "configs": {
+                          "type": "array",
+                          "maxItems": 64,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "id",
+                              "name",
+                              "path",
+                              "scope",
+                              "readOnly",
+                              "kind"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128,
+                                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                              },
+                              "name": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256
+                              },
+                              "path": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 4096,
+                                "description": "Absolute native filesystem path."
+                              },
+                              "scope": {
+                                "type": "string",
+                                "enum": [
+                                  "global",
+                                  "scoped",
+                                  "workspace",
+                                  "shared",
+                                  "builtin"
+                                ]
+                              },
+                              "readOnly": {
+                                "type": "boolean"
+                              },
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "file",
+                                  "directory"
+                                ]
+                              },
+                              "format": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or manifest."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Access denied or SYSTEM_PLUGIN_PROTECTED; no deletion side effects."
+          },
+          "404": {
+            "description": "Plugin not installed."
+          },
+          "409": {
+            "description": "Revision conflict, registration conflict or active runtime leases."
+          },
+          "422": {
+            "description": "Plugin requests unsupported capabilities."
+          },
+          "503": {
+            "description": "Plugin host or runtime unavailable."
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "profile",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Authorized Studio profile."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "revision"
+                ],
+                "properties": {
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "profile": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/studio/agent-instances/{id}/runs": {
       "post": {
         "tags": [
@@ -14071,6 +14303,775 @@
           }
         },
         "x-session-share-permission": "input"
+      }
+    },
+    "/api/studio/command-calls": {
+      "post": {
+        "tags": [
+          "Studio Plugins"
+        ],
+        "summary": "Dispatch a registered plugin command",
+        "description": "Plugin-owned composer commands for an existing owned direct chat in the authorized profile. The plugin parses original arguments and returns legacy session.command payloads. Accepted calls survive HTTP disconnects, use durable idempotent receipts and are not replayed after a restart. Results contain no caller-selectable identity. Dynamic native commands, draft instances and other chat surfaces are not migrated yet.",
+        "operationId": "startPluginCommand",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "sessionId",
+                        "commandId",
+                        "status",
+                        "results",
+                        "errorCode"
+                      ],
+                      "properties": {
+                        "inputMessageId": {
+                          "type": "integer",
+                          "description": "Persisted command input message, for reconnect deduplication."
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "sessionId": {
+                          "type": "string"
+                        },
+                        "commandId": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "running",
+                            "completed",
+                            "failed",
+                            "cancelled",
+                            "interrupted"
+                          ]
+                        },
+                        "results": {
+                          "type": "array",
+                          "maxItems": 32,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "required": [
+                              "event",
+                              "session_id",
+                              "commandCallId",
+                              "commandSequence",
+                              "command",
+                              "action",
+                              "ok",
+                              "message"
+                            ],
+                            "properties": {
+                              "event": {
+                                "type": "string",
+                                "enum": [
+                                  "session.command"
+                                ]
+                              },
+                              "session_id": {
+                                "type": "string"
+                              },
+                              "commandCallId": {
+                                "type": "string"
+                              },
+                              "commandSequence": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "command": {
+                                "type": "string"
+                              },
+                              "action": {
+                                "type": "string"
+                              },
+                              "ok": {
+                                "type": "boolean"
+                              },
+                              "message": {
+                                "type": "string"
+                              },
+                              "messageKey": {
+                                "type": "string"
+                              },
+                              "started": {
+                                "type": "boolean"
+                              },
+                              "terminal": {
+                                "type": "boolean",
+                                "description": "Legacy session state flag, distinct from command-call completion."
+                              },
+                              "messageId": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        },
+                        "errorCode": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Caller, profile or session access denied."
+          },
+          "404": {
+            "description": "Session or call unavailable."
+          },
+          "409": {
+            "description": "Stale command/target, conflicting input or runtime state."
+          },
+          "422": {
+            "description": "Unsupported scope."
+          },
+          "429": {
+            "description": "Command concurrency or result limit exceeded."
+          },
+          "503": {
+            "description": "Command provider unavailable."
+          }
+        },
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Authorized Studio profile."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "sessionId",
+                  "commandId",
+                  "revision",
+                  "text",
+                  "idempotencyKey"
+                ],
+                "properties": {
+                  "sessionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "commandId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "revision": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 16384,
+                    "description": "Complete input; arguments are not rewritten or parsed by Studio."
+                  },
+                  "profile": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/command-calls/{id}": {
+      "get": {
+        "tags": [
+          "Studio Plugins"
+        ],
+        "summary": "Read a plugin command receipt and results",
+        "description": "Plugin-owned composer commands for an existing owned direct chat in the authorized profile. The plugin parses original arguments and returns legacy session.command payloads. Accepted calls survive HTTP disconnects, use durable idempotent receipts and are not replayed after a restart. Results contain no caller-selectable identity. Dynamic native commands, draft instances and other chat surfaces are not migrated yet.",
+        "operationId": "getPluginCommand",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "sessionId",
+                        "commandId",
+                        "status",
+                        "results",
+                        "errorCode"
+                      ],
+                      "properties": {
+                        "inputMessageId": {
+                          "type": "integer",
+                          "description": "Persisted command input message, for reconnect deduplication."
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "sessionId": {
+                          "type": "string"
+                        },
+                        "commandId": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "running",
+                            "completed",
+                            "failed",
+                            "cancelled",
+                            "interrupted"
+                          ]
+                        },
+                        "results": {
+                          "type": "array",
+                          "maxItems": 32,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "required": [
+                              "event",
+                              "session_id",
+                              "commandCallId",
+                              "commandSequence",
+                              "command",
+                              "action",
+                              "ok",
+                              "message"
+                            ],
+                            "properties": {
+                              "event": {
+                                "type": "string",
+                                "enum": [
+                                  "session.command"
+                                ]
+                              },
+                              "session_id": {
+                                "type": "string"
+                              },
+                              "commandCallId": {
+                                "type": "string"
+                              },
+                              "commandSequence": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "command": {
+                                "type": "string"
+                              },
+                              "action": {
+                                "type": "string"
+                              },
+                              "ok": {
+                                "type": "boolean"
+                              },
+                              "message": {
+                                "type": "string"
+                              },
+                              "messageKey": {
+                                "type": "string"
+                              },
+                              "started": {
+                                "type": "boolean"
+                              },
+                              "terminal": {
+                                "type": "boolean",
+                                "description": "Legacy session state flag, distinct from command-call completion."
+                              },
+                              "messageId": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        },
+                        "errorCode": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Caller, profile or session access denied."
+          },
+          "404": {
+            "description": "Session or call unavailable."
+          },
+          "409": {
+            "description": "Stale command/target, conflicting input or runtime state."
+          },
+          "422": {
+            "description": "Unsupported scope."
+          },
+          "429": {
+            "description": "Command concurrency or result limit exceeded."
+          },
+          "503": {
+            "description": "Command provider unavailable."
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "profile",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Authorized Studio profile."
+          }
+        ]
+      }
+    },
+    "/api/studio/command-calls/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Studio Plugins"
+        ],
+        "summary": "Cancel a plugin command and wait for handler cleanup",
+        "description": "Plugin-owned composer commands for an existing owned direct chat in the authorized profile. The plugin parses original arguments and returns legacy session.command payloads. Accepted calls survive HTTP disconnects, use durable idempotent receipts and are not replayed after a restart. Results contain no caller-selectable identity. Dynamic native commands, draft instances and other chat surfaces are not migrated yet.",
+        "operationId": "cancelPluginCommand",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "sessionId",
+                        "commandId",
+                        "status",
+                        "results",
+                        "errorCode"
+                      ],
+                      "properties": {
+                        "inputMessageId": {
+                          "type": "integer",
+                          "description": "Persisted command input message, for reconnect deduplication."
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "sessionId": {
+                          "type": "string"
+                        },
+                        "commandId": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "running",
+                            "completed",
+                            "failed",
+                            "cancelled",
+                            "interrupted"
+                          ]
+                        },
+                        "results": {
+                          "type": "array",
+                          "maxItems": 32,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "required": [
+                              "event",
+                              "session_id",
+                              "commandCallId",
+                              "commandSequence",
+                              "command",
+                              "action",
+                              "ok",
+                              "message"
+                            ],
+                            "properties": {
+                              "event": {
+                                "type": "string",
+                                "enum": [
+                                  "session.command"
+                                ]
+                              },
+                              "session_id": {
+                                "type": "string"
+                              },
+                              "commandCallId": {
+                                "type": "string"
+                              },
+                              "commandSequence": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "command": {
+                                "type": "string"
+                              },
+                              "action": {
+                                "type": "string"
+                              },
+                              "ok": {
+                                "type": "boolean"
+                              },
+                              "message": {
+                                "type": "string"
+                              },
+                              "messageKey": {
+                                "type": "string"
+                              },
+                              "started": {
+                                "type": "boolean"
+                              },
+                              "terminal": {
+                                "type": "boolean",
+                                "description": "Legacy session state flag, distinct from command-call completion."
+                              },
+                              "messageId": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        },
+                        "errorCode": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Caller, profile or session access denied."
+          },
+          "404": {
+            "description": "Session or call unavailable."
+          },
+          "409": {
+            "description": "Stale command/target, conflicting input or runtime state."
+          },
+          "422": {
+            "description": "Unsupported scope."
+          },
+          "429": {
+            "description": "Command concurrency or result limit exceeded."
+          },
+          "503": {
+            "description": "Command provider unavailable."
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "profile",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Authorized Studio profile."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "profile": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/commands": {
+      "get": {
+        "tags": [
+          "Studio Plugins"
+        ],
+        "summary": "List plugin input commands",
+        "description": "Plugin-owned composer commands for an existing owned direct chat in the authorized profile. The plugin parses original arguments and returns legacy session.command payloads. Accepted calls survive HTTP disconnects, use durable idempotent receipts and are not replayed after a restart. Results contain no caller-selectable identity. Dynamic native commands, draft instances and other chat surfaces are not migrated yet.",
+        "operationId": "listPluginCommands",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "name",
+                          "description",
+                          "qualifiedName",
+                          "revision",
+                          "provider"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "argsHint": {
+                            "type": "string"
+                          },
+                          "aliases": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "agentTypeIds": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "qualifiedName": {
+                            "type": "string"
+                          },
+                          "revision": {
+                            "type": "string"
+                          },
+                          "provider": {
+                            "type": "object",
+                            "required": [
+                              "kind",
+                              "pluginId",
+                              "version",
+                              "generation"
+                            ],
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "plugin"
+                                ]
+                              },
+                              "pluginId": {
+                                "type": "string"
+                              },
+                              "version": {
+                                "type": "string"
+                              },
+                              "generation": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Caller, profile or session access denied."
+          },
+          "404": {
+            "description": "Session or call unavailable."
+          },
+          "409": {
+            "description": "Stale command/target, conflicting input or runtime state."
+          },
+          "422": {
+            "description": "Unsupported scope."
+          },
+          "429": {
+            "description": "Command concurrency or result limit exceeded."
+          },
+          "503": {
+            "description": "Command provider unavailable."
+          }
+        },
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Authorized Studio profile."
+          },
+          {
+            "name": "sessionId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        ]
       }
     },
     "/api/studio/desktop-browser/request": {

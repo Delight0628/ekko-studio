@@ -11,6 +11,7 @@ import { ManagedMcpScope } from '../mcp/managed'
 import { ManagedProcessScope } from '../processes/managed'
 import { agentStateDirectory } from './state-directory'
 import { AgentManagement } from './management'
+import { parseAgentResourceLocations } from './resource-contract'
 
 interface ActiveRun {
   controller: AbortController; handle?: AgentRunHandle; completed: Promise<void>; resolve(): void
@@ -80,7 +81,7 @@ export class AgentCoordinator {
       return { instance, ...this.options.registry.resolve(scope.profileId, instance.agentTypeId) }
     }
     const original = inspect(), { instance, provider, definition } = original
-    if (!definition.management) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent does not support native inspection')
+    if (!definition.management?.inspect) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent does not support native inspection')
     if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance is being managed')
     this.configuring.add(instanceId)
     const authorize = () => {
@@ -122,6 +123,39 @@ export class AgentCoordinator {
       if (current.provider !== previous.provider) throw new StudioError('REVISION_CONFLICT', 'Agent provider changed during configuration')
       return this.options.store.configureInstance(current.instance, input)
     } finally { this.configuring.delete(instanceId) }
+  }
+
+  async resourceLocations(scope: ExecutionScope, instanceId: string, revision: number, signal?: AbortSignal) {
+    scope = jsonCopy(scope)
+    if (!Number.isSafeInteger(revision) || revision < 1) throw new StudioError('INVALID_ARGUMENT', 'Configuration revision is required')
+    const inspect = () => {
+      if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent coordinator is shutting down')
+      this.options.authorize(scope)
+      if (scope.sessionId !== undefined || scope.runId !== undefined || scope.workspaceId !== undefined) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent management requires an unbound scope')
+      const instance = this.options.store.instance(instanceId)
+      if (!instance || instance.ownerId !== scope.principal.id || instance.profileId !== scope.profileId) throw new StudioError('NOT_FOUND', 'Agent instance is unavailable')
+      if (instance.revision !== revision || this.queues.has(instanceId) || this.options.store.hasActiveRuns(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance changed or has active runs')
+      return { instance, ...this.options.registry.resolve(scope.profileId, instance.agentTypeId) }
+    }
+    const { instance, provider, definition } = inspect()
+    const adapter = definition.management?.locations
+    if (!adapter) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent does not expose native resources')
+    if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance is being managed')
+    this.configuring.add(instanceId)
+    const authorize = () => {
+      const current = inspect()
+      if (JSON.stringify(current.provider) !== JSON.stringify(provider)) throw new StudioError('REVISION_CONFLICT', 'Agent provider changed during management')
+    }
+    try {
+      if (signal?.aborted) throw new StudioError('CANCELLED', 'Resource operation cancelled')
+      const stateDirectory = instance.mode === 'scoped' && this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, provider) : undefined
+      authorize()
+      const input = { instanceId, config: instance.config, configRevision: instance.revision, mode: instance.mode }
+      const result = await this.management.execute(input, scope, provider, async context =>
+        parseAgentResourceLocations(await adapter(input, context)), authorize, this.options.logger, signal, stateDirectory)
+      authorize()
+      return { instanceId, configRevision: instance.revision, provider, ...result }
+    } finally { if (!this.management.isBlocked(instanceId)) this.configuring.delete(instanceId) }
   }
 
   inspectStart(scope: ExecutionScope, instanceId: string, input: AgentRunInput, idempotencyKey: string): { instance: AgentInstance; previous: AgentExecution | null; provider?: AgentProviderRef } {

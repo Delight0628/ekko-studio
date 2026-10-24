@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { AcpConnection, AgentEventQueue, ManagedProcessTransport, acpMcpServers } from '@ekko-studio/agent-drivers'
-import { StudioError, readAgentImages, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
+import { StudioError, readAgentImages, agentContextConfigurationProperties, mergeAgentContextConfiguration, type AgentContextConfiguration, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
 import { scopedQwen } from './scoped'
 import { management } from './management'
 
@@ -14,8 +14,8 @@ const schema = {
     env: { type: 'object', maxProperties: 128, additionalProperties: { type: 'string', maxLength: 32768 } },
     model: { type: 'string', minLength: 1, maxLength: 256 },
     reasoningEffort: { type: 'string', minLength: 1, maxLength: 64 },
-    systemPrompt: { type: 'string', maxLength: 65536 },
-    mcpServers: { type: 'object', maxProperties: 32, additionalProperties: { type: 'object' } },
+    systemPrompt: agentContextConfigurationProperties.systemPrompt,
+    mcpServers: agentContextConfigurationProperties.mcpServers,
   },
 } as const
 
@@ -27,6 +27,7 @@ const plugin: StudioPlugin = {
       capabilities: { text: true, images: true, streaming: true, reasoning: true, approvals: true, resume: true, persistentSession: true, modes: ['scoped', 'global'] },
       async create(input, runtime) {
         const config = input.config
+        const contextConfiguration = mergeAgentContextConfiguration(config as AgentContextConfiguration)
         const cwd = String(config.cwd), scoped = input.mode === 'scoped'
         if (scoped && !runtime.stateDirectory) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Scoped Qwen requires host-managed storage')
         if (!isAbsolute(cwd)) throw new StudioError('INVALID_ARGUMENT', 'Qwen working directory must be absolute')
@@ -121,9 +122,9 @@ const plugin: StudioPlugin = {
                   },
                 })
                 const text = input.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
-                const reason = await connection.prompt({ cwd, text: config.systemPrompt ? `${config.systemPrompt}\n\n${text}` : text,
+                const reason = await connection.prompt({ cwd, text: contextConfiguration.systemPrompt ? `${contextConfiguration.systemPrompt}\n\n${text}` : text,
                   images: input.content.flatMap(block => block.type === 'image' ? [images.get(block.artifactId)!] : []),
-                  nativeSessionId, mcpServers: acpMcpServers(config.mcpServers as Record<string, unknown> || {}),
+                  nativeSessionId, mcpServers: acpMcpServers(contextConfiguration.mcpServers || {}),
                   model: input.model || config.model as string | undefined, reasoningEffort: config.reasoningEffort as string | undefined })
                 if (!cancelled && !['end_turn', 'max_tokens'].includes(reason)) throw new Error(`Qwen stopped: ${reason}`)
                 // A result frame does not prove that the CLI drained or exited.

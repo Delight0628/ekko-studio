@@ -1,6 +1,6 @@
 # Studio 插件体系与统一上下文架构规划
 
-日期：2026-10-23
+日期：2026-10-24
 
 状态：设计草案 v0.3，已进入实施。本文定义完整交付目标；具体已实现接口与剩余工作见[实施记录](studio-plugin-progress.md)，不能把本篇所有目标当成当前能力。
 
@@ -17,11 +17,11 @@ Studio 将现有后端能力组织为有类型、有作用域的 `ctx`。内置�
 完整交付包含：
 
 1. 后端能力目录、公共 DTO、统一错误、调用身份与资源作用域。
-2. `ctx.agents.register()`、服务扩展、事件订阅、执行钩子和资源清理入口。
+2. `ctx.agents.register()`、`ctx.commands.register()` 输入框命令贡献、服务扩展、事件订阅、执行钩子和资源清理入口。
 3. Agent 类型、配置实例、原生会话和 Run 的明确分离，以及统一执行协调器。
 4. 插件发现、安装、版本检查、启停、升级、配置、数据迁移和诊断；用户安装的插件可卸载，系统插件不可卸载。
 5. 全部 14 个 Coding Agent 的独立适配插件作为系统插件随 Studio 默认安装、不可删除；Hermes、Ekko 保留内置模块，通过相同 Agent 执行契约接入，无需插件化。
-6. Web、Desktop、App 使用动态 Agent 目录；现有管理能力和历史数据保持可用。
+6. Web、Desktop、App 使用动态 Agent 和输入框命令目录；现有管理能力、命令语义和历史数据保持可用。
 7. 独立插件开发样例、SDK 契约测试、打包和三平台验收。
 
 本轮后端架构不包含公开插件商城、任意第三方前端代码注入、任意语言的原生 SDK，以及对不可信本地代码的操作系统沙箱。第三方 Agent 的基础界面通过元数据、配置 schema、能力描述和标准事件呈现。未来增加这些能力时必须继续沿用本文的身份、版本和资源归属。
@@ -42,6 +42,7 @@ Studio 将现有后端能力组织为有类型、有作用域的 `ctx`。内置�
 | [contracts/agents/runtime.ts](../../packages/server/src/modules/studio/contracts/agents/runtime.ts) | 固定运行时枚举及 family 映射 | 使用运行时校验的开放 ID 与注册目录 |
 | [webhooks/business-events.ts](../../packages/server/src/modules/studio/services/webhooks/business-events.ts) | 进程内消费者分发，含内部 payload | 建立类型化公开投影；可靠投递单独持久化 |
 | [config/agents.json](../../config/agents.json) 与 [客户端目录](../../packages/client/src/utils/agent-catalog.ts) | 静态 Agent 元数据和别名 | 改为后端有效目录；静态内容仅作为内置类型/随包插件元数据种子和旧协议投影 |
+| [ChatInput.vue](../../packages/client/src/components/hermes/chat/ChatInput.vue) 与 [固定命令表](../../packages/client/src/utils/hermes/bridge-session-commands.ts) | `/` 补全、固定厂商过滤；服务端另有 session-command 分流 | 插件自己注册、解析并处理命令，按现有 session.command 格式返回；宿主只聚合目录、鉴权转发及呈现 |
 | [bootstrap/coding-agent-adapters.ts](../../packages/server/src/bootstrap/coding-agent-adapters.ts) | 将运行状态和服务函数注入共享门面 | 作为迁移切入点，最终由统一协调器和平台服务替代 |
 
 仓库已有分层和注入基础，但部分门面仍直接暴露存储、Socket 或宽泛的 `any`。新增一个包含这些对象的大型全局变量不能达到目标。新的公共边界必须明确数据、行为、调用权限和副作用的负责方。
@@ -63,6 +64,7 @@ Studio 将现有后端能力组织为有类型、有作用域的 `ctx`。内置�
 | D09 | 历史 ID 和数据保持可读，升级采用可重入的增量迁移 | 卸载插件也不删除会话、工作流证据和用量 |
 | D10 | 先在隔离环境完成迁移，再统一切换；移除重复业务执行路径，保留 Hermes/Ekko 内置模块及其运行适配 | 多个实施阶段服务于同一个完整交付目标 |
 | D11 | 现有 14 个 Coding Agent 是默认安装且不可卸载的系统插件；身份和删除策略由宿主随包清单确定 | UI 与所有管理入口统一执行保护，第三方插件仍可安装和卸载 |
+| D12 | 插件自己注册并处理输入框命令，参数解析、原生调用和结果生成均归插件；结果沿用现有命令格式 | Studio 只做目录补全、通用鉴权转发、生命周期与既有结果呈现，不按厂商/命令名编写业务分支 |
 
 ## 4 架构与代码归属
 
@@ -125,6 +127,7 @@ Hermes、Ekko 保留在现有内置模块中。bootstrap 将它们的运行工�
 | 命名空间 | 领域能力 | 边界 |
 | --- | --- | --- |
 | `agents` | 类型贡献、实例、目录、状态、配置和管理操作 | 插件经 ctx 注册，内置 Agent 经 bootstrap 注册；执行上下文只操作获准实例 |
+| `commands` | 插件向 Studio 注册输入框命令及自身 handler；宿主提供目录与通用转发 | 插件解析参数、执行并按现有格式返回；通用插件与限定 Agent 命令均支持，详见[命令契约](studio-plugin-contracts.md#34-插件向-studio-提供输入框命令) |
 | `runs` | 发起、读取、订阅、取消、交互响应 | 协调器拥有状态；插件不能任意设置终态 |
 | `sessions` | 会话、消息、分类、归档、分享、删除 | 包含授权、关联清理和通知的完整用例 |
 | `tasks`、`plans` | 会话目标与步骤计划 | 保留当前 revision、运行绑定和适用入口限制 |
@@ -220,5 +223,6 @@ Studio 启动时从随包清单和 `config.appHome` 下的安装记录读取插�
 - 系统插件自动安装与卸载保护、用户插件安装到卸载、失败恢复、升级排空、历史可读和数据回滚有可重复证据。
 - 公共契约无 Koa/Socket/SQLite 类型和无约束 `any`；机械边界检查阻止插件导入 server 私有实现。
 - Web、Desktop、App 的新目录和配置体验验收完成；Desktop/npm/Docker 工件可在干净环境装载插件。
+- 插件自己注册和处理的 `/` 命令可在输入框发现、补全和调用；Studio 无插件命令业务分支，现有返回格式与语义保留；原生动态目录、同名冲突、配置/会话切换、撤权及停用清理有证据，结果不重复写入。
 
 具体任务、删除清单、迁移顺序和验收编号以[实施计划](studio-plugin-execution.md)为准。

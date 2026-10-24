@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { StudioError, type AgentInspection, type AgentManagementInput, type AgentProviderRef, type AgentManagementAdapter, type ExecutionScope, type ScopedLogger } from '../../contracts/plugins'
+import { StudioError, type AgentInspection, type AgentManagementInput, type AgentProviderRef, type AgentManagementAdapter, type ExecutionScope, type ScopedLogger, type AgentRuntimeContext } from '../../contracts/plugins'
 import { ManagedProcessScope } from '../processes/managed'
 import { ManagedMcpScope } from '../mcp/managed'
 import { parseAgentInspection } from '../plugins/validation'
@@ -12,6 +12,11 @@ export class AgentManagement {
 
   async inspect(input: AgentManagementInput, scope: ExecutionScope, provider: AgentProviderRef, adapter: AgentManagementAdapter,
     authorize: () => void, logger: ScopedLogger, signal?: AbortSignal): Promise<AgentInspection> {
+    return this.execute(input, scope, provider, async context => parseAgentInspection(await adapter.inspect!(input, context)), authorize, logger, signal)
+  }
+
+  async execute<T>(input: AgentManagementInput, scope: ExecutionScope, provider: AgentProviderRef, operation: (context: AgentRuntimeContext) => Promise<T>,
+    authorize: () => void, logger: ScopedLogger, signal?: AbortSignal, stateDirectory?: string): Promise<T> {
     if (this.active.size >= 16) throw new StudioError('RESOURCE_EXHAUSTED', 'Agent inspection limit reached')
     if (signal?.aborted) throw new StudioError('CANCELLED', 'Inspection cancelled')
     authorize()
@@ -29,18 +34,18 @@ export class AgentManagement {
     const processes = new ManagedProcessScope(controller.signal, check), mcp = new ManagedMcpScope(controller.signal, check)
     const timeout = setTimeout(() => controller.abort(new StudioError('DEADLINE_EXCEEDED', 'Agent inspection timed out')), 25_000)
     const watch = setInterval(() => { try { check() } catch (error) { controller.abort(error) } }, 250)
-    let task: Promise<AgentInspection> | undefined, settled = false
+    let task: Promise<T> | undefined, settled = false
     try {
       if (signal?.aborted) cancel()
       check()
       task = Promise.resolve().then(() => {
         check()
-        return adapter.inspect(input, { provider, runtimeSessionId: randomUUID(), profileId: scope.profileId, ownerId: scope.principal.id,
+        return operation({ ...(stateDirectory ? { stateDirectory } : {}), provider, runtimeSessionId: randomUUID(), profileId: scope.profileId, ownerId: scope.principal.id,
           signal: controller.signal, logger, processes: processes.api, mcp: mcp.api })
       }).finally(() => { settled = true })
       const result = await Promise.race([task, aborted])
       check()
-      return parseAgentInspection(result)
+      return result
     } catch (error) {
       throw error instanceof StudioError ? error : new StudioError('RUNTIME_UNAVAILABLE', 'Agent inspection failed')
     } finally {

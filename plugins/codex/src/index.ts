@@ -1,10 +1,11 @@
 import { isAbsolute } from 'node:path'
 import { AgentEventQueue, NativeRpcConnection } from '@ekko-studio/agent-drivers'
-import { StudioError, readAgentImages, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
+import { StudioError, readAgentImages, agentContextConfigurationProperties, mergeAgentContextConfiguration, type AgentContextConfiguration, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type JsonObject, type StudioPlugin } from '@ekko-studio/plugin-sdk'
 import { codexEvents } from './events'
 import { codexInteractions } from './interactions'
 import { scopedCodex } from './scoped'
 import { management } from './management'
+import { codexContextConfiguration } from './configuration'
 
 type Output = AgentOutputEvent extends infer T ? T extends AgentOutputEvent ? Omit<T, 'producerSequence'> : never : never
 const schema: JsonObject = {
@@ -17,6 +18,8 @@ const schema: JsonObject = {
     model: { type: 'string', minLength: 1, maxLength: 256 },
     effort: { type: 'string', minLength: 1, maxLength: 64 },
     developerInstructions: { type: 'string', maxLength: 65536 },
+    systemPrompt: agentContextConfigurationProperties.systemPrompt,
+    mcpServers: agentContextConfigurationProperties.mcpServers,
     approvalPolicy: { type: 'string', enum: ['untrusted', 'on-request', 'never'] },
     sandbox: { type: 'string', enum: ['read-only', 'workspace-write', 'danger-full-access'] },
   },
@@ -38,6 +41,9 @@ export const apply: StudioPlugin['apply'] = plugin => {
     capabilities: { text: true, images: true, streaming: true, reasoning: true, approvals: true, clarifications: true, resume: true, persistentSession: true, modes: ['scoped', 'global'] },
     async create(input, runtime) {
       const config = input.config, cwd = String(config.cwd), scoped = input.mode === 'scoped'
+      const contextConfiguration = mergeAgentContextConfiguration(config as AgentContextConfiguration,
+        { systemPrompt: config.developerInstructions as string | undefined })
+      const nativeConfiguration = codexContextConfiguration(contextConfiguration)
       if (scoped && !runtime.stateDirectory) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Scoped Codex requires host-managed storage')
       if (!isAbsolute(cwd)) throw new StudioError('INVALID_ARGUMENT', 'Codex working directory must be absolute')
       let threadId: string | undefined, resumed = false
@@ -134,7 +140,9 @@ export const apply: StudioPlugin['apply'] = plugin => {
                 if (turn.cancelled) return { status: 'cancelled' }
               }
               if (!resumed) {
-                const parameters = Object.fromEntries(['model', 'developerInstructions', 'approvalPolicy', 'sandbox'].filter(key => config[key] !== undefined).map(key => [key, config[key]]))
+                const parameters = { ...Object.fromEntries(['model', 'approvalPolicy', 'sandbox'].filter(key => config[key] !== undefined).map(key => [key, config[key]])),
+                  ...(contextConfiguration.systemPrompt ? { developerInstructions: contextConfiguration.systemPrompt } : {}),
+                  ...(Object.keys(nativeConfiguration).length ? { config: nativeConfiguration } : {}) }
                 const response = await rpc.request(threadId ? 'thread/resume' : 'thread/start', { ...parameters, ...(gateway ? { model: gateway.model } : {}), cwd, ...(threadId ? { threadId } : {}) })
                 if (typeof response?.thread?.id !== 'string' || !response.thread.id || response.thread.id.length > 4096
                   || (threadId && response.thread.id !== threadId)) throw new Error('Invalid Codex thread identity')

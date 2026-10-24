@@ -1997,6 +1997,50 @@ openapi.paths['/api/studio/plugins/{id}/profile'].put.requestBody = studioPlugin
     profile: { type: 'string' },
   },
 })
+// Plugin handlers own command semantics; these endpoints only discover and dispatch.
+const commandResultSchema = { type: 'object', additionalProperties: true, required: ['event', 'session_id', 'commandCallId', 'commandSequence', 'command', 'action', 'ok', 'message'], properties: {
+  event: { type: 'string', enum: ['session.command'] }, session_id: { type: 'string' }, commandCallId: { type: 'string' }, commandSequence: { type: 'integer', minimum: 0 },
+  command: { type: 'string' }, action: { type: 'string' }, ok: { type: 'boolean' }, message: { type: 'string' }, messageKey: { type: 'string' },
+  started: { type: 'boolean' }, terminal: { type: 'boolean', description: 'Legacy session state flag, distinct from command-call completion.' }, messageId: { type: 'integer' },
+} }
+const commandCallSchema = { type: 'object', additionalProperties: false, required: ['id', 'sessionId', 'commandId', 'status', 'results', 'errorCode'], properties: {
+  inputMessageId: { type: 'integer', description: 'Persisted command input message, for reconnect deduplication.' },
+  id: { type: 'string' }, sessionId: { type: 'string' }, commandId: { type: 'string' }, status: { type: 'string', enum: ['running', 'completed', 'failed', 'cancelled', 'interrupted'] },
+  results: { type: 'array', maxItems: 32, items: commandResultSchema }, errorCode: { type: 'string', nullable: true },
+} }
+for (const [path, methods] of Object.entries(openapi.paths)) {
+  if (path !== '/api/studio/commands' && !path.startsWith('/api/studio/command-calls')) continue
+  for (const operation of Object.values(methods)) {
+    operation.tags = ['Studio Plugins']; operation.security = [{ BearerAuth: [] }]
+    operation.description = 'Plugin-owned composer commands for an existing owned direct chat in the authorized profile. The plugin parses original arguments and returns legacy session.command payloads. Accepted calls survive HTTP disconnects, use durable idempotent receipts and are not replayed after a restart. Results contain no caller-selectable identity. Dynamic native commands, draft instances and other chat surfaces are not migrated yet.'
+    operation.parameters = [...(operation.parameters || []).filter(parameter => parameter.name !== 'profile'), studioPluginProfile]
+    operation.responses = { '200': { description: 'Command result.', content: { 'application/json': { schema: { type: 'object', required: ['ok', 'data'], properties: { ok: { type: 'boolean', enum: [true] }, data: commandCallSchema } } } } },
+      '400': { description: 'Invalid request.' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { description: 'Caller, profile or session access denied.' },
+      '404': { description: 'Session or call unavailable.' }, '409': { description: 'Stale command/target, conflicting input or runtime state.' },
+      '422': { description: 'Unsupported scope.' }, '429': { description: 'Command concurrency or result limit exceeded.' }, '503': { description: 'Command provider unavailable.' } }
+  }
+}
+const commandList = openapi.paths['/api/studio/commands'].get
+commandList.summary = 'List plugin input commands'
+commandList.parameters.push({ name: 'sessionId', in: 'query', required: true, schema: { type: 'string', minLength: 1, maxLength: 256 } })
+commandList.responses['200'].content['application/json'].schema.properties.data = { type: 'array', items: { type: 'object', additionalProperties: false,
+  required: ['id', 'name', 'description', 'qualifiedName', 'revision', 'provider'], properties: {
+    id: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' }, argsHint: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } },
+    agentTypeIds: { type: 'array', items: { type: 'string' } }, qualifiedName: { type: 'string' }, revision: { type: 'string' },
+    provider: { type: 'object', required: ['kind', 'pluginId', 'version', 'generation'], properties: { kind: { type: 'string', enum: ['plugin'] }, pluginId: { type: 'string' }, version: { type: 'string' }, generation: { type: 'string' } } },
+  },
+} }
+openapi.paths['/api/studio/command-calls'].post.summary = 'Dispatch a registered plugin command'
+openapi.paths['/api/studio/command-calls'].post.requestBody = studioPluginBody({ type: 'object', additionalProperties: false,
+  required: ['sessionId', 'commandId', 'revision', 'text', 'idempotencyKey'], properties: Object.fromEntries([
+    ...['sessionId', 'commandId', 'revision', 'idempotencyKey'].map(name => [name, { type: 'string', minLength: 1, maxLength: 256 }]),
+    ['text', { type: 'string', maxLength: 16384, description: 'Complete input; arguments are not rewritten or parsed by Studio.' }], ['profile', { type: 'string' }],
+  ]),
+})
+openapi.paths['/api/studio/command-calls/{id}'].get.summary = 'Read a plugin command receipt and results'
+openapi.paths['/api/studio/command-calls/{id}/cancel'].post.summary = 'Cancel a plugin command and wait for handler cleanup'
+openapi.paths['/api/studio/command-calls/{id}/cancel'].post.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, properties: { profile: { type: 'string' } } })
+
 const agentImageUpload = openapi.paths['/api/studio/agent-images'].post
 agentImageUpload.summary = 'Upload an Agent image artifact'
 agentImageUpload.description += ' Upload raw single-frame PNG, JPEG, WebP or GIF bytes, at most 4 MiB and 40 million pixels. The host detects the media type. Returns an immutable artifact reference owned by the current user/profile; no client path, URL or identity is accepted. Up to 64 MiB/256 images per user and 256 MiB/4096 images per host.'
@@ -2039,6 +2083,29 @@ openapi.paths['/api/studio/agent-instances/{id}'].put.description += ' Replaces 
 openapi.paths['/api/studio/agent-instances/{id}'].put.summary = 'Update Agent instance configuration'
 openapi.paths['/api/studio/agent-instances/{id}'].put.responses['404'].description = 'Agent instance is unavailable in this owner/profile scope.'
 const agentInspection = openapi.paths['/api/studio/agent-instances/{id}/inspect'].post
+const agentLocations = openapi.paths['/api/studio/agent-instances/{id}/locations'].post
+agentLocations.summary = 'Get native Agent resource locations'
+agentLocations.description += ' Resolves multiple skill roots and multiple configuration files/directories from the owned idle instance and its current revision. The plugin only declares locations; Studio owns scanning and file operations. Does not start a Run or accept caller-selected paths. Omitted categories are unsupported; empty arrays have no configured locations. Stable source IDs distinguish identical names.'
+agentLocations.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, required: ['revision'], properties: {
+  revision: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER }, profile: { type: 'string' },
+} })
+const locationFields = {
+  id: { type: 'string', minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*$' },
+  name: { type: 'string', minLength: 1, maxLength: 256 }, path: { type: 'string', minLength: 1, maxLength: 4096, description: 'Absolute native filesystem path.' },
+  scope: { type: 'string', enum: ['global', 'scoped', 'workspace', 'shared', 'builtin'] }, readOnly: { type: 'boolean' },
+}
+const locationRequired = ['id', 'name', 'path', 'scope', 'readOnly']
+agentLocations.responses['200'] = { description: 'Host-bound resource location arrays; no file contents.', content: { 'application/json': { schema: {
+  type: 'object', required: ['ok', 'data'], properties: { ok: { type: 'boolean', enum: [true] }, data: {
+    type: 'object', additionalProperties: false, required: ['instanceId', 'configRevision', 'provider'], properties: {
+      instanceId: { type: 'string' }, configRevision: { type: 'integer', minimum: 1 }, provider: { type: 'object' },
+      skills: { type: 'array', maxItems: 64, items: { type: 'object', additionalProperties: false, required: locationRequired, properties: locationFields } },
+      configs: { type: 'array', maxItems: 64, items: { type: 'object', additionalProperties: false, required: [...locationRequired, 'kind'], properties: {
+        ...locationFields, kind: { type: 'string', enum: ['file', 'directory'] }, format: { type: 'string', minLength: 1, maxLength: 64 },
+      } } },
+    },
+  } },
+} } } }
 agentInspection.summary = 'Inspect native Agent metadata'
 agentInspection.description += ' Requires an idle owned instance and a declared management adapter. Starts short-lived managed resources; does not create a Studio Run or native chat session, log in, refresh credentials or change configuration. Serializes with instance changes and new runs. Results contain only native name/version, authentication state/method labels and native model choices. Unknown authentication and unsupported model discovery are explicit. Rechecks access and provider/configuration revision; cancellation, revocation and the 25-second deadline dispose resources.'
 agentInspection.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, properties: { profile: { type: 'string' } } })

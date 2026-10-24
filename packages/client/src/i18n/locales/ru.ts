@@ -1005,6 +1005,10 @@ export default {
 
 
   chat: {
+    pluginCommandChanged: "Команда или разговор изменились. Выберите команду снова.",
+    pluginCommandAmbiguous: "Эту команду предоставляют несколько плагинов. Выберите имя с указанием источника.",
+    pluginCommandTextOnly: "Команды плагинов пока поддерживают только текст.",
+    pluginCommandsUnavailable: "Не удалось загрузить команды плагинов.",
     selectMessages: "Выбрать сообщения",
     messagesSelected: "Выбрано: {count}",
     deleteSelectedMessages: "Удалить выбранное",

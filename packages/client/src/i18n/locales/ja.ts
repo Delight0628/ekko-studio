@@ -1078,6 +1078,10 @@ export default {
 
   // チャット
   chat: {
+    pluginCommandChanged: "コマンドまたは会話が変更されました。もう一度選択してください。",
+    pluginCommandAmbiguous: "複数のプラグインがこのコマンドを提供しています。提供元を含む名前を選択してください。",
+    pluginCommandTextOnly: "プラグインコマンドは現在テキストのみ対応しています。",
+    pluginCommandsUnavailable: "プラグインコマンドを読み込めません。",
     selectMessages: "メッセージを選択",
     messagesSelected: "{count} 件選択中",
     deleteSelectedMessages: "選択項目を削除",

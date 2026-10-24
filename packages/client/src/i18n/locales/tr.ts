@@ -525,6 +525,10 @@ export default {
   },
 
   chat: {
+    pluginCommandChanged: "Komut veya konuşma değişti. Komutu yeniden seçin.",
+    pluginCommandAmbiguous: "Birden fazla eklenti bu komutu sağlıyor. Kaynağı içeren bir ad seçin.",
+    pluginCommandTextOnly: "Eklenti komutları şu anda yalnızca metin kabul ediyor.",
+    pluginCommandsUnavailable: "Eklenti komutları yüklenemedi.",
     selectMessages: "Mesajları seç",
     messagesSelected: "{count} seçildi",
     deleteSelectedMessages: "Seçilenleri sil",

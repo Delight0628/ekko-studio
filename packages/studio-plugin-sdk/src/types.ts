@@ -229,7 +229,7 @@ export interface AgentTypeSummary {
   configSchema: JsonSchema
   capabilities: AgentCapabilities
   provider: AgentProviderRef
-  management?: { inspect: true }
+  management?: { inspect?: true; locations?: true }
 }
 
 /** Native metadata only: never return credentials, config files or account identifiers. */
@@ -244,7 +244,9 @@ export interface AgentInspection {
 export type AgentManagementInput = Pick<RuntimeCreateInput, 'instanceId' | 'config' | 'configRevision' | 'mode'>
 export interface AgentManagementAdapter {
   /** Short-lived resources; no prompt, login, credential refresh or config mutation. */
-  inspect(input: AgentManagementInput, context: AgentRuntimeContext): Promise<AgentInspection>
+  inspect?(input: AgentManagementInput, context: AgentRuntimeContext): Promise<AgentInspection>
+  /** Declare all native resource locations. Studio scans, reads and edits their contents. */
+  locations?(input: AgentManagementInput, context: AgentRuntimeContext): Promise<import('./agent-resources').AgentResourceLocations>
 }
 
 export interface AgentRuntimeContext {
@@ -541,7 +543,7 @@ export interface PluginManifest {
   engines: { studioSdk: string; rpc: 1 }
   backend: string
   activation: 'profile'
-  contributes: { agents: string[]; events?: Record<string, JsonSchema>; services?: ServiceToken[] }
+  contributes: { agents: string[]; commands?: string[]; events?: Record<string, JsonSchema>; services?: ServiceToken[] }
   requires: { capabilities: string[]; services?: ServiceDependency[] }
   configSchema?: JsonSchema
 }
@@ -550,6 +552,7 @@ export interface PluginContext {
   readonly plugin: PluginIdentity
   readonly config: Readonly<JsonObject>
   readonly logger: ScopedLogger
+  readonly commands: import('./commands').CommandContributions
   readonly agents: { register(definition: AgentTypeDefinition): Disposer }
   readonly services: {
     provide(token: ServiceToken, implementation: ServiceImplementation): Disposer

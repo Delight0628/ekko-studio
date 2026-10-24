@@ -74,6 +74,7 @@ const manifestSchema = {
     backend: { type: 'string', minLength: 1, maxLength: 512 }, activation: { const: 'profile' },
     contributes: { type: 'object', additionalProperties: false, required: ['agents'], properties: {
       agents: { type: 'array', maxItems: 64, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 256 } },
+      commands: { type: 'array', maxItems: 64, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 256 } },
       events: { type: 'object', maxProperties: 64, additionalProperties: { type: ['object', 'boolean'] } },
       services: { type: 'array', maxItems: 64, items: serviceSchema },
     } },
@@ -99,6 +100,9 @@ export function parseManifest(value: unknown): PluginManifest {
     throw new StudioError('INVALID_ARGUMENT', 'Plugin entry must be a relative path inside its artifact')
   }
   if (result.configSchema !== undefined) compileSchema(result.configSchema)
+  for (const id of result.contributes.commands || []) {
+    if (!id.startsWith(`${result.id}/`) || !/^[a-z][a-z0-9.-]+\/[a-z][a-z0-9-]*$/.test(id)) throw new StudioError('INVALID_ARGUMENT', 'Invalid command namespace')
+  }
   const provided = new Set<string>(), required = new Set<string>()
   for (const value of result.contributes.services || []) {
     const token = parseServiceToken(value)
@@ -124,8 +128,8 @@ export function validateAgentDefinition(definition: AgentTypeDefinition): void {
     throw new StudioError('INVALID_ARGUMENT', 'Agent requires a name and runtime factory')
   }
   const capabilities = definition.capabilities
-  if (definition.management !== undefined && (!definition.management || typeof definition.management.inspect !== 'function'
-    || Object.keys(definition.management).some(key => key !== 'inspect'))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent management adapter')
+  if (definition.management !== undefined && (!definition.management || !Object.keys(definition.management).length
+    || Object.entries(definition.management).some(([key, value]) => !['inspect', 'locations'].includes(key) || typeof value !== 'function'))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent management adapter')
   if (!capabilities || typeof capabilities.text !== 'boolean' || !Array.isArray(capabilities.modes) || !capabilities.modes.length
     || capabilities.modes.some(mode => mode !== 'scoped' && mode !== 'global')) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent capabilities')
   const flags = ['text', 'images', 'files', 'streaming', 'reasoning', 'resume', 'persistentSession', 'compact', 'approvals', 'clarifications', 'steering']

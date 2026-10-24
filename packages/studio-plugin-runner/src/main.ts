@@ -13,6 +13,7 @@ import {
   type ScopedLogger, type RuntimeCreateInput, type AgentRunInput, type AgentProviderRef, type EventEnvelope,
   type ServiceToken, type ServiceImplementation, type EventConsumerSpec, type ReliableEventHandler,
   type HookPoint, type HookOptions, type HookHandler, type HookContext,
+  type CommandDefinition, type CommandHandler, type CommandInput, type CommandContext,
 } from '../../studio-plugin-sdk/src'
 
 const peer = new RpcPeer({ send: frame => new Promise((resolve, reject) => {
@@ -26,6 +27,8 @@ const runs = new Map<string, { handle: AgentRunHandle; controller: AbortControll
 const callbacks = new Map<string, { type: string; once: boolean; handler: (event: EventEnvelope, ctx: ExecutionContext) => void | Promise<void> }>()
 const services = new Map<string, { token: ServiceToken; implementation: ServiceImplementation }>()
 const serviceCalls = new Map<string, AbortController>()
+const commands = new Map<string, { definition: CommandDefinition; handler: CommandHandler }>()
+const commandCalls = new Map<string, AbortController>()
 const consumers = new Map<string, { spec: EventConsumerSpec; handler: ReliableEventHandler }>()
 const deliveries = new Map<string, AbortController>()
 const contextHandles = new WeakMap<object, string>()
@@ -117,6 +120,14 @@ peer.handle('activate', async value => {
   }
   const ctx: PluginContext = {
     plugin: Object.freeze(identity), config: Object.freeze(object(params.config)), logger,
+    commands: { register: (definition, handler) => {
+      assertContributionMutation()
+      if (active || commands.has(definition.id)) throw new StudioError('REGISTRATION_CONFLICT', 'Register commands during activation')
+      if (typeof handler !== 'function' || commands.size >= 64) throw new StudioError('INVALID_ARGUMENT', 'Invalid command handler or registration limit')
+      const captured = json(definition) as unknown as CommandDefinition
+      commands.set(captured.id, { definition: captured, handler })
+      return registerDisposer(async () => { commands.delete(captured.id); if (active) await peer.request('command.remove', { id: captured.id }) })
+    } },
     services: {
       provide: (token, implementation) => {
         if (active || services.has(token.id)) throw new StudioError('REGISTRATION_CONFLICT', 'Service already registered or activation ended')
@@ -183,27 +194,32 @@ peer.handle('activate', async value => {
   return json({
     rpc: STUDIO_PLUGIN_RPC_VERSION,
     agents: [...definitions.values()].map(({ create: _create, management, ...definition }) => ({ ...definition,
-      ...(management ? { management: { inspect: typeof management.inspect === 'function' } } : {}) })),
+      ...(management ? { management: { ...(management.inspect ? { inspect: true } : {}), ...(management.locations ? { locations: true } : {}) } } : {}) })),
     subscriptions: [...callbacks].map(([id, { type, once }]) => ({ id, type, once })),
     services: [...services.values()].map(value => value.token),
+    commands: [...commands.values()].map(value => value.definition),
     consumers: [...consumers].map(([name, { spec }]) => ({ name, spec })),
     hooks: [...hooks.values()].map(({ point, options }) => ({ point, options })),
   })
 })
 
-peer.handle('management.inspect', async value => {
+for (const method of ['inspect', 'locations'] as const) peer.handle(`management.${method}`, async value => {
   const params = object(value), callId = string(params.callId), definition = definitions.get(string(params.agentTypeId))
-  if (!active || !identity || !definition?.management) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent inspection is unavailable')
+  if (!active || !identity || !definition?.management?.[method]) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent management is unavailable')
   if (managementCalls.has(callId) || managementCalls.size >= 16) throw new StudioError('RESOURCE_EXHAUSTED', 'Agent inspection limit reached')
   const controller = new AbortController(), handle = string(params.runtimeHandle)
   managementCalls.set(callId, controller)
   try {
-    return json(await runtimeScope.run(handle, () => definition.management!.inspect(object(params.input) as unknown as import('../../studio-plugin-sdk/src').AgentManagementInput, {
+    const context: import('../../studio-plugin-sdk/src').AgentRuntimeContext = {
+      ...(params.stateDirectory ? { stateDirectory: string(params.stateDirectory) } : {}),
       provider: { kind: 'plugin', pluginId: identity!.id, generation: identity!.generation, version: identity!.version },
       runtimeSessionId: callId, profileId: identity!.profileId, ownerId: string(params.ownerId), logger, signal: controller.signal,
       processes: remoteProcesses(peer, handle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation),
       mcp: remoteMcp(peer, handle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation),
-    })))
+    }
+    const input = object(params.input) as unknown as import('../../studio-plugin-sdk/src').AgentManagementInput
+    return json(await runtimeScope.run(handle, () => method === 'inspect' ? definition.management!.inspect!(input, context)
+      : definition.management!.locations!(input, context)))
   } finally { controller.abort(); managementCalls.delete(callId) }
 })
 peer.handle('management.cancel', async value => { managementCalls.get(string(object(value).callId))?.abort(); return null })
@@ -276,6 +292,29 @@ peer.handle('runtime.checkpoint', async value => {
   if (!runtime?.runtime.checkpoint) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Checkpoint is unsupported')
   return runtimeScope.run(runtime.handle, () => runtime.runtime.checkpoint!())
 })
+peer.handle('command.invoke', async value => {
+  const params = object(value), command = commands.get(string(params.id)), callId = string(params.callId)
+  if (!active || !command) throw new StudioError('PLUGIN_UNAVAILABLE', 'Command is unavailable')
+  if (commandCalls.has(callId) || commandCalls.size >= 16) throw new StudioError('RESOURCE_EXHAUSTED', 'Command concurrency limit reached')
+  const controller = new AbortController(), scopeHandle = string(params.scopeHandle)
+  commandCalls.set(callId, controller)
+  try {
+    const context: CommandContext = Object.assign(executionContext(object(params.scope) as unknown as ExecutionScope, scopeHandle, controller.signal), {
+      session: Object.freeze(object(params.session)) as unknown as CommandContext['session'],
+      reply: async (result: import('../../studio-plugin-sdk/src').CommandResult) => {
+        if (controller.signal.aborted) throw new StudioError('CANCELLED', 'Command has ended')
+        await peer.request('command.result', { callId, result: json(result) })
+      },
+    })
+    await callbackScope.run(scopeHandle, async () => {
+      const result = await command.handler(object(params.input) as unknown as CommandInput, context)
+      if (result !== undefined) await context.reply(result)
+    })
+    return null
+  } finally { controller.abort(); commandCalls.delete(callId) }
+})
+peer.handle('command.cancel', value => { commandCalls.get(string(object(value).callId))?.abort(); return null })
+
 peer.handle('service.invoke', async value => {
   const params = object(value), service = services.get(string(params.id)), method = string(params.method), callId = string(params.callId)
   if (!active || !service || !Object.hasOwn(service.implementation, method)) throw new StudioError('NOT_FOUND', 'Service method is unavailable')

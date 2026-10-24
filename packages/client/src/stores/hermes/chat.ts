@@ -1,3 +1,5 @@
+import { shallowReactive } from 'vue'
+import { startPluginCommand, getPluginCommand, cancelPluginCommand, type PluginCommand } from '@/api/studio/commands'
 import { deploymentUrl } from '@/utils/deployment-url'
 import { chatSessionAgentAvatar } from '@/utils/chat-agent-avatar'
 import { deleteSessionMessages, type MessageDeletionResult } from '@/api/studio/sessions'
@@ -1348,6 +1350,9 @@ export const useChatStore = defineStore('chat', () => {
   const messageHistoryRevisions = new Map<string, number>()
   const runtimeMode = ref<ChatRuntimeMode>(activeRuntimeMode)
   const seenSessionCommandEvents = new WeakSet<RunEvent>()
+  const seenPluginCommandResults = new Set<string>()
+  const pendingCommandSubmissions = new Map<string, string>()
+  const pluginCommandCalls = shallowReactive(new Map<string, { id?: string; profile: string; controller: AbortController }>())
   const sessions = ref<Session[]>([])
   const activeSessionId = ref<string | null>(null)
   const focusMessageId = ref<string | null>(null)
@@ -1368,12 +1373,18 @@ export const useChatStore = defineStore('chat', () => {
   const unsubscribeAuthInvalidation = onAuthInvalidated(() => {
     runtimeGeneration += 1
     clearBackgroundObservers()
+    for (const call of pluginCommandCalls.values()) call.controller.abort()
+    pluginCommandCalls.clear()
+    seenPluginCommandResults.clear()
+    pendingCommandSubmissions.clear()
     streamStates.value.clear()
     serverWorking.value.clear()
   })
 
   onScopeDispose(() => {
     unsubscribeAuthInvalidation()
+    for (const call of pluginCommandCalls.values()) call.controller.abort()
+    pluginCommandCalls.clear()
     runtimeGeneration += 1
     clearBackgroundObservers()
   })
@@ -1501,7 +1512,7 @@ export const useChatStore = defineStore('chat', () => {
   const isStreaming = computed(() => {
     const sid = activeSessionId.value
     if (sid == null) return false
-    return streamStates.value.has(sid) || serverWorking.value.has(sid)
+    return pluginCommandCalls.has(sid) || streamStates.value.has(sid) || serverWorking.value.has(sid)
   })
   const isForkPending = computed(() => {
     const sid = activeSessionId.value
@@ -3004,23 +3015,30 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function handleSessionCommandEvent(evt: RunEvent) {
+    const pluginCall = typeof (evt as any).commandCallId === 'string'
+    if (pluginCall) {
+      const key = `${(evt as any).commandCallId}:${(evt as any).commandSequence}`
+      if (seenPluginCommandResults.has(key)) return
+      seenPluginCommandResults.add(key)
+      if (seenPluginCommandResults.size > 2048) seenPluginCommandResults.delete(seenPluginCommandResults.values().next().value!)
+    }
     if (seenSessionCommandEvents.has(evt)) return
     seenSessionCommandEvents.add(evt)
 
     const sid = evt.session_id
     if (!sid) return
-    if ((evt as any).action === 'messages_deleted') {
+    if (!pluginCall && (evt as any).action === 'messages_deleted') {
       applyMessageDeletion(sid, evt as unknown as MessageDeletionResult)
       return
     }
     const target = sessions.value.find(s => s.id === sid)
     const action = (evt as any).action as string | undefined
     const command = String((evt as any).command || '').toLowerCase()
-    if ((evt as any).started === true && (evt as any).terminal === false) {
+    if (!pluginCall && (evt as any).started === true && (evt as any).terminal === false) {
       serverWorking.value.add(sid)
       setRunStartedAt(sid, Date.now())
     }
-    if ((evt as any).terminal === true) {
+    if (!pluginCall && (evt as any).terminal === true) {
       streamStates.value.delete(sid)
       serverWorking.value.delete(sid)
       clearRunStartedAt(sid)
@@ -3034,7 +3052,7 @@ export const useChatStore = defineStore('chat', () => {
       })
     }
 
-    if (action === 'clear' && command === 'clear') {
+    if (!pluginCall && action === 'clear' && command === 'clear') {
       if (target) target.messages = []
       queuedUserMessages.value.delete(sid)
       queueLengths.value.delete(sid)
@@ -3044,7 +3062,7 @@ export const useChatStore = defineStore('chat', () => {
         const message = String((evt as any).message || '')
         if (message) {
           addMessage(sid, {
-            id: uid(),
+            id: (evt as any).messageId != null ? String((evt as any).messageId) : uid(),
             role: 'command',
             content: message,
             timestamp: Date.now(),
@@ -3066,7 +3084,7 @@ export const useChatStore = defineStore('chat', () => {
       applySessionTokenUsage(target, evt as any)
     }
 
-    if (action === 'destroy') {
+    if (!pluginCall && action === 'destroy') {
       streamStates.value.delete(sid)
       serverWorking.value.delete(sid)
       clearRunStartedAt(sid)
@@ -3082,7 +3100,7 @@ export const useChatStore = defineStore('chat', () => {
       })
     }
 
-    if (action === 'branch' && (evt as any).ok !== false) {
+    if (!pluginCall && action === 'branch' && (evt as any).ok !== false) {
       const branch = ((evt as any).branchSession || {}) as Record<string, unknown>
       const newSessionId = String((evt as any).newSessionId || branch.id || '').trim()
       if (newSessionId) {
@@ -3118,8 +3136,12 @@ export const useChatStore = defineStore('chat', () => {
 
     const message = String((evt as any).message || '')
     if (message) {
+      if (pluginCall && (evt as any).messageId != null && getSessionMsgs(sid).some(msg => msg.id === String((evt as any).messageId))) {
+        updateMessage(sid, String((evt as any).messageId), { content: message, commandAction: action, commandData: { ...(evt as any) }, systemType: (evt as any).ok === false ? 'error' : 'command' })
+        return
+      }
       addMessage(sid, {
-        id: uid(),
+        id: (evt as any).messageId != null ? String((evt as any).messageId) : uid(),
         role: 'command',
         content: message,
         timestamp: Date.now(),
@@ -3702,6 +3724,45 @@ export const useChatStore = defineStore('chat', () => {
       icon: agent.icon,
       tag: `hermes-complete-${sessionId}-${message?.id || Date.now()}`,
     })
+  }
+
+  async function sendPluginCommand(sessionId: string, command: PluginCommand, text: string, profile: string): Promise<void> {
+    if (pluginCommandCalls.has(sessionId)) throw new Error('A command is already running')
+    const generation = runtimeGeneration, controller = new AbortController()
+    const active = { id: undefined as string | undefined, profile, controller }
+    pluginCommandCalls.set(sessionId, active)
+    try {
+      const submission = JSON.stringify([sessionId, command.id, command.revision, text, profile])
+      const key = pendingCommandSubmissions.get(submission) || uid()
+      pendingCommandSubmissions.set(submission, key)
+      if (pendingCommandSubmissions.size > 64) pendingCommandSubmissions.delete(pendingCommandSubmissions.keys().next().value!)
+      let record = await startPluginCommand(sessionId, command, text, profile, key)
+      pendingCommandSubmissions.delete(submission)
+      active.id = record.id
+      if (generation !== runtimeGeneration || controller.signal.aborted) {
+        if (pluginCommandCalls.get(sessionId) === active) pluginCommandCalls.delete(sessionId)
+        return
+      }
+      if (record.inputMessageId == null || !getSessionMsgs(sessionId).some(msg => msg.id === String(record.inputMessageId))) {
+        addMessage(sessionId, { id: record.inputMessageId != null ? String(record.inputMessageId) : uid(), role: 'command', content: text, timestamp: Date.now(), systemType: 'command' })
+      }
+      void (async () => {
+        try {
+          while (!controller.signal.aborted && generation === runtimeGeneration) {
+            for (const event of record.results) handleSessionCommandEvent(event as RunEvent)
+            if (record.status !== 'running') {
+              if (record.errorCode) addMessage(sessionId, { id: uid(), role: 'command', content: record.errorCode, timestamp: Date.now(), systemType: 'error' })
+              return
+            }
+            await new Promise<void>(resolve => setTimeout(resolve, 300))
+            if (controller.signal.aborted || generation !== runtimeGeneration) return
+            record = await getPluginCommand(record.id, profile, controller.signal)
+          }
+        } catch (error) {
+          if (!controller.signal.aborted && generation === runtimeGeneration) addAgentErrorMessage(sessionId, error)
+        } finally { if (pluginCommandCalls.get(sessionId) === active) pluginCommandCalls.delete(sessionId) }
+      })()
+    } catch (error) { pluginCommandCalls.delete(sessionId); throw error }
   }
 
   async function sendMessage(content: string, attachments?: Attachment[]) {
@@ -5420,6 +5481,12 @@ export const useChatStore = defineStore('chat', () => {
   })
 
   function stopStreaming() {
+    const command = activeSessionId.value ? pluginCommandCalls.get(activeSessionId.value) : undefined
+    if (command) {
+      const sid = activeSessionId.value!
+      if (command.id) void cancelPluginCommand(command.id, command.profile).catch(error => addAgentErrorMessage(sid, error))
+      return
+    }
     const sid = activeSessionId.value
     if (!sid) return
     if (isAborting.value) return
@@ -5710,6 +5777,7 @@ export const useChatStore = defineStore('chat', () => {
     deleteSession,
     archiveSession,
     sendMessage,
+    sendPluginCommand,
     stopStreaming,
     respondApproval,
     respondApprovalFor,

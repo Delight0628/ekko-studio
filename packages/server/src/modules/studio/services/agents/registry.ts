@@ -1,5 +1,6 @@
 import { StudioError, type AgentProviderRef, type AgentTypeDefinition, type AgentTypeSummary, type Disposer } from '../../contracts/plugins'
 import { compileSchema, jsonCopy, parseAgentInspection, validateAgentDefinition } from '../plugins/validation'
+import { parseAgentResourceLocations } from './resource-contract'
 
 interface Entry { profileId: string; provider: AgentProviderRef; definition: AgentTypeDefinition; summary: AgentTypeSummary; token: object }
 
@@ -55,21 +56,25 @@ export class AgentRegistry {
           id: definition.id, name: definition.name,
           ...(definition.description === undefined ? {} : { description: definition.description }),
           configSchema: definition.configSchema, capabilities: definition.capabilities, provider,
-          ...(definition.management ? { management: { inspect: true } } : {}),
+          ...(definition.management ? { management: { ...(definition.management.inspect ? { inspect: true } : {}), ...(definition.management.locations ? { locations: true } : {}) } } : {}),
         })
         const validateConfig = compileSchema(summary.configSchema)
         const factory = definition.create
         const inspector = definition.management?.inspect
+        const locations = definition.management?.locations
         const { management: _management, ...metadata } = jsonCopy(summary)
         const check = (input: { config: import('../../contracts/plugins').JsonObject; mode: 'scoped' | 'global' }, context: { profileId: string }) => {
           validateConfig(input.config)
           if (!summary.capabilities.modes.includes(input.mode)) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent does not support the requested mode')
           if (profileId !== '*' && context.profileId !== profileId) throw new StudioError('FORBIDDEN', 'Runtime profile does not match its registration')
         }
-        const captured: AgentTypeDefinition = { ...metadata, ...(inspector ? { management: { inspect: async (input, context) => {
+        const captured: AgentTypeDefinition = { ...metadata, ...(inspector || locations ? { management: { ...(inspector ? { inspect: async (input, context) => {
           check(input, context)
           return parseAgentInspection(await inspector(jsonCopy(input), context))
-        } } } : {}), create: async (input, context) => {
+        } } : {}), ...(locations ? { locations: async (input, context) => {
+          check(input, context)
+          return parseAgentResourceLocations(await locations(jsonCopy(input), context))
+        } } : {}) } } : {}), create: async (input, context) => {
           check(input, context)
           return factory(jsonCopy(input), context)
         } }

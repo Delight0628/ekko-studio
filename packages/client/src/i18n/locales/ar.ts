@@ -1092,6 +1092,10 @@ export default {
 
   // Chat
   chat: {
+    pluginCommandChanged: "تغيّر الأمر أو المحادثة. اختر الأمر مجددًا.",
+    pluginCommandAmbiguous: "توفّر عدة إضافات هذا الأمر. اختر اسمًا يتضمن المصدر.",
+    pluginCommandTextOnly: "تقبل أوامر الإضافات النص فقط حاليًا.",
+    pluginCommandsUnavailable: "تعذّر تحميل أوامر الإضافات.",
     selectMessages: "تحديد الرسائل",
     messagesSelected: "تم تحديد {count}",
     deleteSelectedMessages: "حذف المحدد",

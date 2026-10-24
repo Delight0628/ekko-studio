@@ -598,6 +598,9 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
       return
     }
 
+    if (pathname === '/api/studio/commands' && request.method() === 'GET') {
+      await route.fulfill({ json: { ok: true, data: [] } }); return
+    }
     if (pathname === '/api/studio/sessions') {
       await route.fulfill(jsonResponse({ sessions: options.sessions ?? [] }, tokenValidationStatus))
       return

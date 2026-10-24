@@ -147,7 +147,7 @@ function alive(pid: number) { try { process.kill(pid, 0); return true } catch { 
 
 it('inspects account state and paginated native models through a worker without exposing private fields', async () => {
   const f = await setup()
-  expect(f.registry.list('one')[0].management).toEqual({ inspect: true })
+  expect(f.registry.list('one')[0].management).toEqual({ inspect: true, locations: true })
   const result = await f.coordinator.inspectInstance(scope, f.instance.id)
   expect(result).toMatchObject({ native: { name: 'Codex' }, authentication: { state: 'authenticated', methods: [] }, models: { status: 'available', items: [
     { id: 'first', name: 'Model first', isDefault: true, reasoningEfforts: ['high'] },
@@ -428,4 +428,25 @@ it('rechecks the image grant after a delayed worker read and never sends revoked
   await f.coordinator.wait(run.id)
   expect(f.coordinator.get(scope, run.id)).toMatchObject({ status: 'failed', errorCode: 'FORBIDDEN' })
   expect((await f.trace()).some(request => request.method === 'turn/start')).toBe(false)
+})
+
+
+it.each(['global', 'scoped'] as const)('declares multiple codex skill roots and configuration files without starting a Run (%s)', async mode => {
+  const f = await setup({}, mode)
+  const first = await f.coordinator.resourceLocations(scope, f.instance.id, 1)
+  expect(first.skills).toHaveLength(4)
+  expect(first.configs).toHaveLength(3)
+  expect(new Set(first.skills!.map(item => item.id)).size).toBe(4)
+  expect(first.configs!.filter(item => item.name === 'AGENTS.md')).toHaveLength(2)
+  expect(first.skills!.find(item => item.id === 'shared-skills')).toMatchObject({ readOnly: true, scope: 'shared' })
+  expect(first.configs!.find(item => item.id === 'workspace-instructions')!.path).toBe(join(f.directory, 'AGENTS.md'))
+  await expect(readFile(join(f.directory, 'pid'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await f.coordinator.resourceLocations(scope, f.instance.id, 1)).toEqual(first)
+  const cwd = join(f.directory, 'another-workspace')
+  await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, mode, config: { ...f.instance.config, cwd } })
+  await expect(f.coordinator.resourceLocations(scope, f.instance.id, 1)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  const next = await f.coordinator.resourceLocations(scope, f.instance.id, 2)
+  expect(next.configs!.find(item => item.id === 'workspace-instructions')!.path).toBe(join(cwd, 'AGENTS.md'))
+  await expect(f.coordinator.resourceLocations({ ...scope, principal: { kind: 'user', id: 'other' } }, f.instance.id, 2)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  await expect(f.coordinator.resourceLocations({ ...scope, profileId: 'other' }, f.instance.id, 2)).rejects.toMatchObject({ code: 'NOT_FOUND' })
 })

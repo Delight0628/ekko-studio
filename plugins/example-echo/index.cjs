@@ -1,6 +1,10 @@
 /** @type {import('@ekko-studio/plugin-sdk').StudioPlugin} */
 module.exports = {
   apply(ctx) {
+    ctx.commands.register({ id: 'example.echo/echo', name: 'echo', description: 'Echo text using the plugin command handler', argsHint: '<text>' }, (input, commandCtx) => ({
+      command: input.command, action: 'echo', ok: true,
+      message: String(ctx.config.prefix || '') + input.rawArguments.trimStart(), terminal: !commandCtx.session.isWorking,
+    }))
     ctx.agents.register({
       id: 'example.echo/assistant',
       name: 'Echo',

@@ -13,6 +13,7 @@ import { ResourceScope } from './resources'
 import { PluginWorker } from './worker'
 import { pluginActivationOrder, requiredServiceDependents } from './dependencies'
 import { PluginServiceRegistry } from './services'
+import { PluginCommandRegistry } from './commands'
 import { ReliablePluginConsumers } from '../events/reliable-consumers'
 import { parseConsumerSpec } from '../../repositories/plugin-consumer-store'
 import { PluginHookRegistry } from '../events/plugin-hooks'
@@ -39,7 +40,7 @@ const CORE_EVENTS: Array<keyof StudioEventMap> = [
 ]
 const SUPPORTED_CAPABILITIES = new Set([
   'workflows.run', 'workflows.read', 'workflows.cancel',
-  'agents.register', 'agents.read', 'sessions.read', 'sessions.remove', 'runs.read', 'runs.start', 'runs.cancel', 'runs.respond', 'chat.start', 'chat.read', 'chat.cancel',
+  'commands.register', 'agents.register', 'agents.read', 'sessions.read', 'sessions.remove', 'runs.read', 'runs.start', 'runs.cancel', 'runs.respond', 'chat.start', 'chat.read', 'chat.cancel',
   ...CORE_EVENTS.map(name => `events.subscribe:${name}`),
   ...CORE_EVENTS.map(name => `events.consume:${name}`),
   'hooks.before:runs.start', 'hooks.before:sessions.remove',
@@ -48,6 +49,7 @@ const SUPPORTED_CAPABILITIES = new Set([
 ])
 
 export class PluginHost {
+  readonly commands = new PluginCommandRegistry()
   private readonly active = new Map<string, ActivePlugin>()
   private readonly operations = new Map<string, Promise<unknown>>()
   private readonly services = new PluginServiceRegistry()
@@ -206,6 +208,20 @@ export class PluginHost {
     }, authorize)
     resources.add(() => worker.close())
     resources.add(() => registration.dispose())
+    const commandRegistration = this.commands.stage(state.profileId, provider, manifest.contributes.commands || [], manifest.contributes.agents,
+      async (id, input, ctx) => {
+        authorize('commands.register')
+        await worker.invokeCommand(id, input, { ...this.options.context(ctx.scope, AbortSignal.any([ctx.signal, resources.signal])), session: ctx.session, reply: ctx.reply })
+        authorize('commands.register')
+      }, () => authorize('commands.register'))
+    resources.add(() => commandRegistration.dispose())
+    worker.peer.handle('command.remove', value => {
+      if (worker.isExecutingHook()) throw new StudioError('FORBIDDEN', 'Hook cannot alter contributions')
+      const params = value as JsonObject
+      authorize('commands.register')
+      if (!params || Object.keys(params).some(key => key !== 'id') || typeof params.id !== 'string' || !manifest.contributes.commands?.includes(params.id)) throw new StudioError('FORBIDDEN', 'Undeclared command')
+      commandRegistration.remove(params.id); return null
+    })
     const serviceRegistration = this.services.stage(state.profileId, manifest.contributes.services || [], async (id, ctx, method, input, authority) => {
       authorize(`services.provide:${id}`)
       const controller = new AbortController()
@@ -265,7 +281,7 @@ export class PluginHost {
       const events = [...removers.keys()].map(id => agentEvent('agent.unavailable', id))
       events.push(...[...providedServices.values()].map(service => serviceEvent('service.unavailable', service)))
       removers.clear(); providedServices.clear()
-      registration.dispose(); serviceRegistration.dispose()
+      registration.dispose(); serviceRegistration.dispose(); commandRegistration.dispose()
       return events
     }
     worker.peer.handle('agent.remove', async value => {
@@ -298,6 +314,8 @@ export class PluginHost {
       const activated = await worker.activate(artifact.entry, { id: manifest.id, version: manifest.version, generation: installation.generation, profileId: state.profileId }, state.config)
       for (const service of activated.services) authorize(`services.provide:${service.id}`)
       serviceRegistration.validate(activated.services)
+      if (activated.commands.length) authorize('commands.register')
+      commandRegistration.validate(activated.commands)
       if (activated.agents.length) authorize('agents.register')
       for (const meta of activated.agents) removers.set(meta.id, registration.register(worker.definition(meta)))
       const stagedSubscriptions: Array<() => void> = []
@@ -342,6 +360,7 @@ export class PluginHost {
       const registeredConsumers = this.options.consumers?.store.registerMany(stagedConsumers) || []
       registration.commit()
       serviceRegistration.commit()
+      commandRegistration.commit()
       for (const service of activated.services) providedServices.set(service.id, service)
       stagedSubscriptions.forEach(subscribe => subscribe())
       for (const consumer of registeredConsumers) {

@@ -138,6 +138,14 @@ export const createAgentInstance = (ctx: Context) => respond(ctx, () => {
     || (input.mode !== 'scoped' && input.mode !== 'global')) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent instance')
   return getStudioPluginRuntime().coordinator.createInstance(executionScope(ctx), { agentTypeId: input.agentTypeId, config: input.config, mode: input.mode })
 })
+export const agentInstanceLocations = (ctx: Context) => respond(ctx, async () => {
+  const input = body(ctx, ['revision', 'profile'])
+  const controller = new AbortController(), abort = () => controller.abort()
+  ctx.res.once('close', abort)
+  if (ctx.res.destroyed) abort()
+  try { return await getStudioPluginRuntime().coordinator.resourceLocations(executionScope(ctx), ctx.params.id, input.revision as number, controller.signal) }
+  finally { ctx.res.removeListener('close', abort) }
+})
 export const startAgentExecution = (ctx: Context) => respond(ctx, () => {
   const input = body(ctx, ['input', 'idempotencyKey', 'profile'])
   const context = getStudioPluginRuntime().context(executionScope(ctx), new AbortController().signal)
@@ -157,4 +165,23 @@ export const respondAgentExecution = (ctx: Context) => respond(ctx, () => {
   const input = body(ctx, ['interactionId', 'idempotencyKey', 'choiceId', 'text', 'profile'])
   const { profile: _profile, ...response } = input
   return getStudioPluginRuntime().coordinator.respond(executionScope(ctx), ctx.params.id, response as unknown as import('../contracts/plugins').AgentInteractionResponse)
+})
+
+
+export const listPluginCommands = (ctx: Context) => respond(ctx, () => {
+  if (typeof ctx.query.sessionId !== 'string' || !ctx.query.sessionId || ctx.query.sessionId.length > 256) throw new StudioError('INVALID_ARGUMENT', 'Session is required')
+  return getStudioPluginRuntime().commands.list(executionScope(ctx), ctx.query.sessionId)
+})
+const commandReceipt = (record: import('../repositories/plugin-command-store').CommandCall) => {
+  const { ownerId: _owner, profileId: _profile, ...receipt } = record
+  return receipt
+}
+export const startPluginCommand = (ctx: Context) => respond(ctx, () => {
+  const { profile: _profile, ...input } = body(ctx, ['sessionId', 'commandId', 'revision', 'text', 'idempotencyKey', 'profile'])
+  return commandReceipt(getStudioPluginRuntime().commands.start(executionScope(ctx), input as unknown as import('../repositories/plugin-command-store').CommandStart))
+})
+export const getPluginCommand = (ctx: Context) => respond(ctx, () => commandReceipt(getStudioPluginRuntime().commands.get(executionScope(ctx), ctx.params.id)))
+export const cancelPluginCommand = (ctx: Context) => respond(ctx, async () => {
+  body(ctx, ['profile'])
+  return commandReceipt(await getStudioPluginRuntime().commands.cancel(executionScope(ctx), ctx.params.id))
 })

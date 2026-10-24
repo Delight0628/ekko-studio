@@ -1,8 +1,10 @@
+import { locations } from './resources'
 import { isAbsolute } from 'node:path'
 import { AcpConnection, ManagedProcessTransport } from '@ekko-studio/agent-drivers'
 import { StudioError, type AgentManagementAdapter } from '@ekko-studio/plugin-sdk'
 
 export const management: AgentManagementAdapter = {
+  locations,
   async inspect({ config, mode }, context) {
     if (mode === 'scoped') throw new StudioError('CAPABILITY_UNSUPPORTED', 'Scoped inspection requires a model-bound management context')
     const cwd = String(config.cwd)

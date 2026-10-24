@@ -1078,6 +1078,10 @@ export default {
 
   // Chat
   chat: {
+    pluginCommandChanged: "O comando ou a conversa mudou. Selecione o comando novamente.",
+    pluginCommandAmbiguous: "Vários plugins oferecem este comando. Selecione um nome com a origem.",
+    pluginCommandTextOnly: "Os comandos de plugins aceitam apenas texto no momento.",
+    pluginCommandsUnavailable: "Não foi possível carregar os comandos de plugins.",
     selectMessages: "Selecionar mensagens",
     messagesSelected: "{count} selecionados",
     deleteSelectedMessages: "Excluir seleção",

@@ -1099,6 +1099,10 @@ export default {
 
   // 对话
   chat: {
+    pluginCommandChanged: "命令或会话已变化，请重新选择命令。",
+    pluginCommandAmbiguous: "多个插件提供此命令，请选择带来源的名称。",
+    pluginCommandTextOnly: "插件命令目前仅支持文本。",
+    pluginCommandsUnavailable: "无法加载插件命令。",
     selectMessages: "多选消息",
     messagesSelected: "已选 {count} 条",
     deleteSelectedMessages: "删除所选",
