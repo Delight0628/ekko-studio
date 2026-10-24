@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createConnection, createServer } from 'node:net'
-import { chmodSync } from 'node:fs'
+import { chmodSync, mkdirSync, rmdirSync, lstatSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -36,7 +36,30 @@ export async function ownDeviceWindow(endpoint: string, focus: () => void): Prom
     server.close()
     if (error.code !== 'EADDRINUSE') throw error
     if (await focusDeviceWindow(endpoint)) return null
-    throw new Error('Device window owner unavailable; restart the stale owner before retrying')
+    if (process.platform === 'win32') throw new Error('Device window owner unavailable')
+    const recovery = `${endpoint}.recovery`
+    try { mkdirSync(recovery, { mode: 0o700 }) }
+    catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
+      await new Promise(resolve => setTimeout(resolve, 100))
+      continue
+    }
+    try {
+      // Refuse to remove a live, unresponsive, foreign-owned or replaced path.
+      const before = (() => { try { return lstatSync(endpoint) } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;throw e } })()
+      if (!before) continue
+      if (!before.isSocket() || (process.getuid && before.uid !== process.getuid())) throw new Error('Unexpected device socket owner')
+      const stale = await new Promise<boolean>(resolve => {
+        const probe = createConnection(endpoint)
+        probe.once('connect', () => { probe.destroy();resolve(false) })
+        probe.once('error', (e: NodeJS.ErrnoException) => resolve(e.code === 'ECONNREFUSED'))
+        probe.setTimeout(1500, () => { probe.destroy();resolve(false) })
+      })
+      if (!stale) throw new Error('Device window owner unavailable')
+      const current = lstatSync(endpoint)
+      if (current.dev !== before.dev || current.ino !== before.ino) continue
+      unlinkSync(endpoint)
+    } finally { rmdirSync(recovery) }
   }
   throw new Error('Device window ownership race')
 }

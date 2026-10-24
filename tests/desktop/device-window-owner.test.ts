@@ -18,3 +18,18 @@ it('reuses a live device owner and permits reopening after it exits', async () =
     expect(reopened).toBeTypeOf('function');reopened!()
   } finally { release?.();rmSync(root, { recursive: true, force: true }) }
 })
+
+it('recovers a Unix socket left by a killed owner', async () => {
+  if (process.platform === 'win32') return
+  const { spawn } = await import('node:child_process')
+  const { once } = await import('node:events')
+  const root = mkdtempSync(join(tmpdir(), 'device-crash-'))
+  const endpoint = deviceWindowEndpoint(root, 'https://nas.test')
+  const child = spawn(process.execPath, ['-e', `require('net').createServer().listen(${JSON.stringify(endpoint)},()=>console.log('ready'))`], { stdio: ['ignore', 'pipe', 'pipe'] })
+  try {
+    await once(child.stdout!, 'data')
+    child.kill('SIGKILL');await once(child, 'close')
+    const release = await ownDeviceWindow(endpoint, vi.fn())
+    expect(release).toBeTypeOf('function');release!()
+  } finally {child.kill();rmSync(root,{recursive:true,force:true})}
+})
