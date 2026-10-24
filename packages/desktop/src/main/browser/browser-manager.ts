@@ -1,3 +1,4 @@
+import { downloadBrowserFile } from './browser-download'
 import { t } from '../desktop-i18n'
 import { realpathSync, mkdirSync } from 'node:fs'
 import { isAbsolute, relative } from 'node:path'
@@ -606,25 +607,11 @@ export class BrowserManager {
     }
     // The tab session carries the page's cookies and proxy, so authenticated files download like a user click.
     // Redirects are followed manually so every hop passes the same address policy as navigation.
-    const signal = AbortSignal.timeout(120_000)
-    // Like the default referrer policy for cross-origin requests, send only the page origin.
     const referer = /^https?:/i.test(contents.getURL()) ? `${new URL(contents.getURL()).origin}/` : undefined
-    let response: Response | undefined
-    for (let hop = 0; hop <= 5; hop++) {
-      if (!isAllowedBrowserRequest(url)) throw new Error('This address is blocked by the browser security policy')
-      response = await contents.session.fetch(url, { credentials: 'include', redirect: 'manual', headers: referer ? { Referer: referer } : {}, signal })
-      const location = response.status >= 300 && response.status < 400 ? response.headers.get('location') : null
-      if (!location) break
-      await response.body?.cancel().catch(() => undefined)
-      url = new URL(location, url).toString()
-      response = undefined
-    }
-    if (!response) throw new Error('Download redirected too many times')
-    if (!response.ok) throw new Error(`Download failed with HTTP ${response.status}`)
-    const data = await readLimitedBody(response, MAX_BROWSER_DOWNLOAD_BYTES)
-    return this.agentDownloads.add(data, {
-      fileName: fileNameFromResponse(url, response.headers.get('content-disposition'), suggested),
-      mimeType: (response.headers.get('content-type') || '').split(';')[0], sourceUrl: publicBrowserUrl(url),
+    const downloaded = await downloadBrowserFile(contents.session, url, referer)
+    return this.agentDownloads.add(downloaded.data, {
+      fileName: fileNameFromResponse(downloaded.url, downloaded.contentDisposition, suggested),
+      mimeType: downloaded.mimeType, sourceUrl: publicBrowserUrl(downloaded.url),
     })
   }
 
