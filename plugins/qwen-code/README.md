@@ -40,10 +40,24 @@ Scoped inspection is explicitly unsupported instead of reading the global accoun
 modes, including two-turn continuation and scoped host accounting, using temporary
 homes and local model fixtures. It does not perform account login or paid inference.
 
-Image turns use host-owned artifact references and require the `artifacts.read`
-grant. The SDK reads only images attached to the live Run in bounded chunks;
-paths and remote URLs are not accepted. Scoped runs require the gateway's image
-capability and write it into Qwen's native model configuration. Global models
-must have native vision support configured; ACP image support alone does not
-establish that the selected model can see images. The native verifier checks
-image arrival at the local model endpoint, in addition to turn completion.
+Image input uses immutable host artifacts: upload raw bytes to
+`POST /api/studio/agent-images?profile=…`, then attach
+`{ type: "image", artifactId: result.data.id, mediaType: result.data.mediaType }`.
+The plugin requires `artifacts.read`; existing installations need the new grant.
+No filesystem path or remote URL is accepted as an image reference. The host
+checks owner/profile before admission and allows bounded reads only for images
+in the current live Run. PNG/JPEG/WebP/single-frame GIF are accepted, up to 4 MiB
+and 40 million pixels per image; a Run may attach eight images totaling 6 MiB.
+Unused uploads may be deleted; accepted attachments are retained with history.
+
+`npm run verify:plugins:native` also verifies that the second real CLI turn in
+each mode forwards an image to the local model service and retains its native
+session. Scoped image input requires the host model gateway to advertise vision;
+gateway handles without positive image capability are rejected before native turn admission. Global
+mode uses the native CLI's model configuration. This does not establish visual
+understanding by a real provider or complete the remaining migration/UI work.
+
+Scoped Qwen configuration projects the host capability to
+`modelProviders.anthropic[].generationConfig.modalities.image`. For custom global
+models, configure native modalities explicitly; Qwen may otherwise treat an
+unknown model as text-only and replace images with a vision-bridge fallback.

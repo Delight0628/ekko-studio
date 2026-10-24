@@ -51,9 +51,19 @@ not an OS sandbox. Old state reclamation and upgrade migration remain pending.
 Scoped management inspection explicitly returns unsupported until a model-bound
 management context exists; it never falls back to the global account.
 
-Image turns use host-owned artifact references and require the `artifacts.read`
-grant. The SDK reads only images attached to the live Run in bounded chunks and
-sends data URLs to the native turn; paths and remote URLs are not accepted.
-Scoped runs reject image input when the host model does not declare vision.
-The native verifier checks image arrival at the local model endpoint in both
-modes without remote inference or account login.
+Image input uses immutable host artifacts: upload raw bytes to
+`POST /api/studio/agent-images?profile=…`, then attach
+`{ type: "image", artifactId: result.data.id, mediaType: result.data.mediaType }`.
+The plugin requires `artifacts.read`; existing installations need the new grant.
+No filesystem path or remote URL is accepted as an image reference. The host
+checks owner/profile before admission and allows bounded reads only for images
+in the current live Run. PNG/JPEG/WebP/single-frame GIF are accepted, up to 4 MiB
+and 40 million pixels per image; a Run may attach eight images totaling 6 MiB.
+Unused uploads may be deleted; accepted attachments are retained with history.
+
+`npm run verify:plugins:native` also verifies that the second real CLI turn in
+each mode forwards an image to the local model service and retains its native
+session. Scoped image input requires the host model gateway to advertise vision;
+gateway handles without positive image capability are rejected before native turn admission. Global
+mode uses the native CLI's model configuration. This does not establish visual
+understanding by a real provider or complete the remaining migration/UI work.
