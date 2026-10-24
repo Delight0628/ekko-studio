@@ -97,6 +97,16 @@ function keyDescriptor(key: string): { key: string; code: string; keyCode: numbe
   return { key: value, code: /^[A-Z]$/.test(upper) ? `Key${upper}` : value, keyCode: upper.charCodeAt(0) || 0 }
 }
 
+// macOS Chromium runs Cmd shortcuts through native key bindings, so synthetic key events need explicit editing commands.
+const MAC_EDITING_COMMANDS: Record<string, string> = { KeyA: 'selectAll', KeyC: 'copy', KeyX: 'cut', KeyV: 'paste', KeyZ: 'undo' }
+
+export function editingCommands(code: string, modifiers: number, platform: NodeJS.Platform = process.platform): string[] {
+  if (platform !== 'darwin' || (modifiers & ~8) !== 4) return []
+  if (code === 'KeyZ' && modifiers & 8) return ['redo']
+  const command = MAC_EDITING_COMMANDS[code]
+  return command && !(modifiers & 8) ? [command] : []
+}
+
 export class BrowserAutomation {
   private readonly snapshots = new Map<string, StoredSnapshot>()
 
@@ -369,7 +379,12 @@ export class BrowserAutomation {
                 if (setter) setter.call(this, ''); else this.value = '';
                 this.dispatchEvent(new Event('input', { bubbles: true }));
               } else if (this.isContentEditable) {
-                this.textContent = '';
+                // Select instead of clearing the DOM so editor-managed fields (React/Draft.js/ProseMirror) replace it via their own input handling.
+                const selection = this.ownerDocument.getSelection();
+                const range = this.ownerDocument.createRange();
+                range.selectNodeContents(this);
+                selection?.removeAllRanges();
+                selection?.addRange(range);
               }
               return true;
             }`,
@@ -403,7 +418,8 @@ export class BrowserAutomation {
     const key = parts.pop() || 'Enter'
     const modifiers = parts.reduce((mask, item) => mask | ({ alt: 1, control: 2, ctrl: 2, meta: 4, command: 4, shift: 8 }[item.toLowerCase()] || 0), 0)
     const descriptor = keyDescriptor(key)
-    await contents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', modifiers, ...descriptor, windowsVirtualKeyCode: descriptor.keyCode })
+    const commands = editingCommands(descriptor.code, modifiers)
+    await contents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', modifiers, ...descriptor, windowsVirtualKeyCode: descriptor.keyCode, ...(commands.length ? { commands } : {}) })
     await contents.debugger.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', modifiers, ...descriptor, windowsVirtualKeyCode: descriptor.keyCode })
     this.invalidate(tabId)
   }

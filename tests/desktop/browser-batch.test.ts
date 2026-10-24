@@ -238,3 +238,48 @@ describe('batch request validation', () => {
     expect(() => parseBrowserBatchActions(value)).toThrow()
   })
 })
+
+describe('desktop browser editing input', () => {
+  it('selects existing contenteditable content instead of rewriting the editor DOM', async () => {
+    const { JSDOM } = await import('jsdom')
+    const { batch, contents } = await setup()
+    await batch([{ action: 'type', ref: '@e3', text: 'Example' }])
+    const focus = contents.debugger.sendCommand.mock.calls.find(([method, params]: any[]) => method === 'Runtime.callFunctionOn' && params.functionDeclaration.includes('isContentEditable'))
+    expect(focus).toBeDefined()
+    const dom = new JSDOM('<div contenteditable="true"><div data-block="true"><span>old draft</span></div></div>')
+    const editor = dom.window.document.querySelector('[contenteditable]') as HTMLElement & { isContentEditable: boolean }
+    Object.defineProperty(editor, 'isContentEditable', { value: true })
+    editor.scrollIntoView = () => {}
+    const block = editor.firstElementChild
+    const run = new dom.window.Function(`return (${focus![1].functionDeclaration})`)() as (this: HTMLElement) => boolean
+    expect(run.call(editor)).toBe(true)
+    expect(editor.firstElementChild).toBe(block)
+    expect(dom.window.document.getSelection()?.toString()).toBe('old draft')
+  })
+
+  it('adds macOS editing commands to Cmd shortcuts only', async () => {
+    const { editingCommands } = await import('../../packages/desktop/src/main/browser/browser-automation')
+    expect(editingCommands('KeyA', 4, 'darwin')).toEqual(['selectAll'])
+    expect(editingCommands('KeyV', 4, 'darwin')).toEqual(['paste'])
+    expect(editingCommands('KeyZ', 4 | 8, 'darwin')).toEqual(['redo'])
+    expect(editingCommands('KeyV', 4 | 8, 'darwin')).toEqual([])
+    expect(editingCommands('KeyA', 2, 'darwin')).toEqual([])
+    expect(editingCommands('KeyA', 4 | 1, 'darwin')).toEqual([])
+    expect(editingCommands('KeyA', 2, 'linux')).toEqual([])
+    expect(editingCommands('KeyA', 4, 'win32')).toEqual([])
+  })
+
+  it('sends the editing command with the synthetic Cmd key press', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+    Object.defineProperty(process, 'platform', { value: 'darwin' })
+    try {
+      const { batch, contents } = await setup()
+      await batch([{ action: 'press', key: 'Meta+A' }], null)
+      const keyEvents = contents.debugger.sendCommand.mock.calls.filter(([method]: any[]) => method === 'Input.dispatchKeyEvent').map(([, params]: any[]) => params)
+      expect(keyEvents[0]).toMatchObject({ type: 'keyDown', code: 'KeyA', modifiers: 4, commands: ['selectAll'] })
+      expect(keyEvents[1]).not.toHaveProperty('commands')
+    } finally {
+      Object.defineProperty(process, 'platform', platform)
+    }
+  })
+})
