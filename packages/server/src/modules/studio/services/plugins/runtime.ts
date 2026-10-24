@@ -81,7 +81,8 @@ export function createStudioPluginRuntime(runnerPath: string) {
   const events = new PluginEventBus({ onError: () => logger.warn('Plugin event callback failed') })
   const chatStore = new PluginChatRunStore(db)
   chatStore.recover()
-  const chat = new PluginChatRuns({ store: chatStore, server: getChatRunServer, authorize: authorizeOwnedChatSession })
+  const chat = new PluginChatRuns({ store: chatStore, server: getChatRunServer, authorize: authorizeOwnedChatSession,
+    canonical: (scope, sessionId, runId) => agentChats.text(scope, sessionId, runId) })
   const workflows = new PluginWorkflows(authorizePluginScope)
   const modelStore = new PluginModelCallStore(db)
   const context = (scope: ExecutionScope, signal: AbortSignal): ExecutionContext => createExecutionContext(scope, signal, logger, {

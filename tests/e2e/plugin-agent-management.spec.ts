@@ -193,6 +193,15 @@ for (const mobile of [false, true]) test(`opens an instance chat with images, re
     .toEqual([{ type: 'text', text: 'Describe this image' }, { type: 'image', name: 'picture.png', media_type: 'image/png', path: imagePath }])
   expect(uploads).toHaveLength(1)
   expect(uploads[0].equals(png)).toBe(true)
+  await page.evaluate(() => {
+    const state = (window as any).__PW_CHAT_SOCKET__
+    state.broadcast('run.started', { event: 'run.started', session_id: 'managed-chat', agent_run_id: 'image-run', run_marker: 'image-run' })
+    state.broadcast('message.persisted', { event: 'message.persisted', session_id: 'managed-chat', agent_run_id: 'first', run_marker: 'first', replayed: true, terminal: true,
+      messages: [{ id: 2, role: 'assistant', content: 'Ready. (replayed)', timestamp: 100, run_marker: 'first' }] })
+    state.broadcast('run.completed', { event: 'run.completed', session_id: 'managed-chat', agent_run_id: 'first', run_marker: 'first', replayed: true, queue_remaining: 1 })
+  })
+  await expect(page.getByText('Ready. (replayed)', { exact: true })).toHaveCount(1)
+  await expect(page.locator('.chat-input-area').getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
   const messages = [{ id: 3, role: 'user', content: JSON.stringify([{ type: 'text', text: 'Describe this image' }, { type: 'image', name: 'image.png', media_type: 'image/png', path: imagePath }]), timestamp: 101, run_marker: 'image-run' },
     { id: 4, role: 'assistant', content: 'Native picture answer.', timestamp: 101, run_marker: 'image-run' }]
   const interaction = { id: 'approval', requestId: 'native-request', runId: 'image-run', kind: 'approval', prompt: 'Allow native operation?', choices: [{ id: 'allow-native-once', label: 'Allow once' }], status: 'pending', expiresAt: null }

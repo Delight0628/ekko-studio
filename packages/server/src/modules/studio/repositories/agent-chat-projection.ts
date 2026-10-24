@@ -36,6 +36,28 @@ export class AgentChatProjection implements AgentExecutionProjection {
   hasSession(sessionId: string): boolean { return !!this.db.prepare(`SELECT 1 FROM ${SESSIONS_TABLE} WHERE id=?`).get(sessionId) }
   summary(sessionId: string) { return readAgentChatSummaries(this.db, [sessionId])[sessionId] }
 
+  /** Bounded SDK receipt view of the current snapshots. It never appends text
+   * from transport packets or creates another transcript copy. */
+  text(runId: string) {
+    let truncated = false
+    const field = (name: 'content' | 'reasoning') => {
+      let text = '', count = 0
+      for (const row of this.db.prepare(`SELECT substr(m.${name},1,65537) AS text FROM studio_agent_chat_messages p
+        JOIN ${MESSAGES_TABLE} m ON m.id=p.message_id WHERE p.run_id=? AND m.role='assistant'
+          AND p.kind IN ('message','tool-call') AND coalesce(m.${name},'')!='' ORDER BY m.id LIMIT 1025`).iterate(runId)) {
+        if (++count > 1024) { truncated = true; break }
+        const value = (text ? '\n\n' : '') + String(row.text)
+        const remaining = 65_536 - text.length
+        text += value.slice(0, Math.max(0, remaining))
+        if (value.length > remaining) { truncated = true; break }
+      }
+      return text
+    }
+    const output = field('content'), reasoning = field('reasoning')
+    const sequence = this.db.prepare('SELECT max(sequence) AS sequence FROM studio_agent_run_outputs WHERE run_id=?').get(runId)?.sequence
+    return { output, reasoning, truncated, producerSequence: typeof sequence === 'number' ? sequence : -1 }
+  }
+
   assertBinding(sessionId: string, instance: AgentInstance): AgentChatBinding {
     const binding = this.binding(sessionId)
     if (!binding || binding.instanceId !== instance.id || binding.ownerId !== instance.ownerId || binding.profileId !== instance.profileId) throw new StudioError('FORBIDDEN', 'Chat is outside the Agent binding')

@@ -101,6 +101,10 @@ export class AgentChats {
     this.ownedBinding(scope, sessionId)
     return this.deps.projection.summary(sessionId)
   }
+  text(scope: ExecutionScope, sessionId: string, runId: string) {
+    const run = this.get(scope, sessionId, runId)
+    return { run, ...this.deps.projection.text(runId) }
+  }
 
   output(scope: ExecutionScope, sessionId: string, runId: string, after: number) {
     this.get(scope, sessionId, runId)

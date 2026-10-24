@@ -4,13 +4,16 @@ import { StudioError, type ChatRunRecord, type ChatRunStartInput, type Execution
 
 export const chatRunTerminal = (status: ChatRunRecord['status']): boolean => ['completed', 'failed', 'cancelled', 'interrupted'].includes(status)
 
-/** Receipts only. The existing chat engine remains the sole message/usage/event writer. */
+/** Receipts only. Canonical Agent chat receipts hold a Run link and read text
+ * from its projection; legacy engine receipts keep their bounded output view. */
 export class PluginChatRunStore {
   constructor(private readonly db: DatabaseSync) {
     db.exec(`CREATE TABLE IF NOT EXISTS studio_plugin_chat_runs (
       id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, profile_id TEXT NOT NULL,
       idempotency_key TEXT NOT NULL, input_hash TEXT NOT NULL, record_json TEXT NOT NULL,
       UNIQUE(owner_id, profile_id, idempotency_key)
+    ); CREATE TABLE IF NOT EXISTS studio_plugin_chat_agent_runs (
+      receipt_id TEXT PRIMARY KEY, run_id TEXT NOT NULL UNIQUE
     )`)
   }
 
@@ -35,6 +38,15 @@ export class PluginChatRunStore {
   get(id: string): ChatRunRecord | null {
     const row = this.db.prepare('SELECT record_json FROM studio_plugin_chat_runs WHERE id=?').get(id) as { record_json: string } | undefined
     return row ? JSON.parse(row.record_json) as ChatRunRecord : null
+  }
+
+  bindCanonical(id: string, runId: string): void {
+    const previous = this.canonicalRun(id)
+    if (previous && previous !== runId) throw new StudioError('REVISION_CONFLICT', 'Chat receipt is already bound to a Run')
+    if (!previous) this.db.prepare('INSERT INTO studio_plugin_chat_agent_runs VALUES (?, ?)').run(id, runId)
+  }
+  canonicalRun(id: string): string | undefined {
+    return this.db.prepare('SELECT run_id FROM studio_plugin_chat_agent_runs WHERE receipt_id=?').get(id)?.run_id as string | undefined
   }
 
   update(id: string, patch: Partial<Pick<ChatRunRecord, 'status' | 'output' | 'reasoning' | 'truncated' | 'errorCode'>>): ChatRunRecord {

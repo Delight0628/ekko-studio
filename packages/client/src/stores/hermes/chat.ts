@@ -4259,7 +4259,8 @@ export const useChatStore = defineStore('chat', () => {
           if (generation !== runtimeGeneration || (evt.session_id && evt.session_id !== sid)) return
           applyBackgroundPendingEvent(sid, evt)
           const eventRunMarker = readRunMarker(evt)
-          if (eventRunMarker) activeRunMarker = eventRunMarker
+          if (evt.replayed && evt.agent_run_id && activeRunMarker && evt.agent_run_id !== activeRunMarker && evt.event !== 'run.queued') return
+          if (eventRunMarker && (!evt.replayed || !activeRunMarker)) activeRunMarker = eventRunMarker
           switch (evt.event) {
             case 'run.started':
               clearSessionCompletedUnread(sid)
@@ -4938,7 +4939,8 @@ export const useChatStore = defineStore('chat', () => {
       if (evt.session_id && evt.session_id !== sid) return
       applyBackgroundPendingEvent(sid, evt)
       const eventRunMarker = readRunMarker(evt)
-      if (eventRunMarker) activeRunMarker = eventRunMarker
+      if (evt.replayed && evt.agent_run_id && activeRunMarker && evt.agent_run_id !== activeRunMarker && evt.event !== 'run.queued') return
+      if (eventRunMarker && (!evt.replayed || !activeRunMarker)) activeRunMarker = eventRunMarker
       switch (evt.event) {
         case 'run.queued': {
           handleRunQueuedEvent(sid, evt)

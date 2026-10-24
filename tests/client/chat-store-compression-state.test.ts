@@ -184,6 +184,23 @@ describe('chat store compression state', () => {
     expect(session.contextTokens).toBeUndefined()
   })
 
+  it('ignores an older completed retry while a later canonical Run is streaming', async () => {
+    const store = useChatStore(), session = store.newChat({ model: 'managed-model' })
+    Object.assign(session, { agentInstanceId: 'instance', source: 'coding_agent', agent: 'codex' })
+    await store.sendMessage('Second')
+    const onEvent = chatApi.startRunViaSocket.mock.calls[0][1]
+    onEvent({ event: 'run.started', session_id: session.id, agent_run_id: 'second', run_marker: 'second' })
+    expect(store.isStreaming).toBe(true)
+    onEvent({ event: 'message.persisted', session_id: session.id, agent_run_id: 'first', run_marker: 'first', replayed: true, terminal: true, messages: [] })
+    onEvent({ event: 'run.completed', session_id: session.id, agent_run_id: 'first', run_marker: 'first', replayed: true, output: 'Old replay' })
+    expect(store.isStreaming).toBe(true)
+    expect(session.messages.some(message => message.content === 'Old replay')).toBe(false)
+    onEvent({ event: 'message.delta', session_id: session.id, agent_run_id: 'second', run_marker: 'second', delta: 'Current answer' })
+    onEvent({ event: 'run.completed', session_id: session.id, agent_run_id: 'second', run_marker: 'second', output: 'Current answer' })
+    expect(session.messages.some(message => message.content === 'Current answer')).toBe(true)
+    expect(store.isStreaming).toBe(false)
+  })
+
   it('restores native interaction choices from the canonical resume snapshot and removes stale questions', async () => {
     const store = useChatStore()
     store.sessions.push({ ...makeSession('managed'), agentInstanceId: 'instance' })

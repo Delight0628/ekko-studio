@@ -65,6 +65,16 @@ it('keeps image references renderable in historical rows without copying bytes o
   expect(f.messages('a')).toHaveLength(1)
 })
 
+it('bounds SDK text reads and replaces a truncated snapshot instead of retaining stale receipt text', () => {
+  const f = setup(), run = f.start('a', 'request')
+  f.store.appendOutput(run.id, { type: 'message.snapshot', producerSequence: 0, messageId: 'm', text: 'x'.repeat(70_000) })
+  const first = f.projection.text(run.id)
+  expect(first.output).toHaveLength(65_536)
+  expect(first.truncated).toBe(true)
+  f.store.appendOutput(run.id, { type: 'message.snapshot', producerSequence: 1, messageId: 'm', text: 'Short correction' })
+  expect(f.projection.text(run.id)).toEqual({ output: 'Short correction', reasoning: '', truncated: false, producerSequence: 1 })
+})
+
 it('projects existing tool-call/result fields, preserves unknown usage, and finishes once without another history write', () => {
   const f = setup(), run = f.start('a', 'request')
   f.store.appendOutput(run.id, { type: 'tool.started', producerSequence: 0, callId: 'call', name: 'search', data: { query: 'fixture' } })

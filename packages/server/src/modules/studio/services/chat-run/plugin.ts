@@ -8,6 +8,7 @@ import type { AuthenticatedUser } from '../../public/auth'
 import type { DirectChatRunHandle, DirectChatRunPort } from './direct'
 import type { ChatRunStartRequest } from './start'
 import { parseChatRunStart } from './input'
+import type { AgentChats } from '../agents/chats'
 
 interface ChatTarget { user: AuthenticatedUser; session: HermesSessionRow }
 
@@ -56,6 +57,7 @@ export class PluginChatRuns {
     store: PluginChatRunStore
     server(): DirectChatRunPort | null
     authorize(scope: ExecutionScope, sessionId: string): ChatTarget
+    canonical?: AgentChats['text']
   }) {}
 
   start(scope: ExecutionScope, value: ChatRunStartInput, signal: AbortSignal): ChatRunReceipt {
@@ -64,7 +66,7 @@ export class PluginChatRuns {
     if (signal.aborted) throw new StudioError('CANCELLED', 'Chat admission was cancelled')
     const target = this.deps.authorize(scope, input.sessionId)
     const previous = this.deps.store.find(scope, input)
-    if (previous) return receipt(previous)
+    if (previous) return receipt(this.get(scope, previous.id))
     if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Chat service is closed')
     if (this.active.size >= 128) throw new StudioError('RESOURCE_EXHAUSTED', 'Too many active plugin chat requests')
     const server = this.deps.server()
@@ -104,6 +106,13 @@ export class PluginChatRuns {
       throw new StudioError('FORBIDDEN', 'Chat receipt is outside the execution scope')
     }
     this.deps.authorize(scope, record.sessionId)
+    const canonicalId = this.deps.store.canonicalRun(id)
+    if (canonicalId) {
+      if (!this.deps.canonical) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent chat projection is unavailable')
+      const { run, output, reasoning, truncated, producerSequence } = this.deps.canonical(scope, record.sessionId, canonicalId)
+      return { ...record, status: run.status, output, reasoning, truncated, errorCode: run.errorCode,
+        revision: Math.min(Number.MAX_SAFE_INTEGER, record.revision + run.revision + Math.max(0, producerSequence + 1)), updatedAt: Math.max(record.updatedAt, run.updatedAt) }
+    }
     return record
   }
 
@@ -138,6 +147,11 @@ export class PluginChatRuns {
   private observe(id: string, event: string, payload: Record<string, unknown> = {}): void {
     const record = this.deps.store.get(id)
     if (!record || chatRunTerminal(record.status)) return
+    if (event === 'run.accepted' && typeof payload.agent_run_id === 'string') {
+      if (!payload.agent_run_id || payload.agent_run_id.length > 256) throw new StudioError('INVALID_ARGUMENT', 'Invalid canonical Run id')
+      this.deps.store.bindCanonical(id, payload.agent_run_id)
+    }
+    const canonical = this.deps.store.canonicalRun(id) !== undefined
     const patch: Partial<ChatRunRecord> = {}
     if (event === 'run.queued' && record.status !== 'cancelling') patch.status = 'queued'
     if (event === 'run.started' && record.status !== 'cancelling') patch.status = 'running'
@@ -149,12 +163,12 @@ export class PluginChatRuns {
       patch[field] = next.slice(0, 65_536)
       if (next.length > 65_536) patch.truncated = true
     }
-    if (event === 'message.delta') text('output', payload.delta, true)
-    if (event === 'reasoning.delta' || event === 'thinking.delta') text('reasoning', payload.delta, true)
+    if (!canonical && event === 'message.delta') text('output', payload.delta, true)
+    if (!canonical && (event === 'reasoning.delta' || event === 'thinking.delta')) text('reasoning', payload.delta, true)
     if (event === 'run.completed') {
       patch.status = 'completed'
-      if (payload.output) text('output', payload.output)
-      if (payload.reasoning) text('reasoning', payload.reasoning)
+      if (!canonical && payload.output) text('output', payload.output)
+      if (!canonical && payload.reasoning) text('reasoning', payload.reasoning)
     }
     if (event === 'run.failed') {
       patch.status = 'failed'

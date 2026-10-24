@@ -254,6 +254,22 @@ describe('ChatRunSocket global pending interactions', () => {
     } finally { setAgentChatService(undefined) }
   })
 
+  it('replies to a completed managed retry through the private replay port instead of following it in the shared lane', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { setAgentChatService } = await import('../../packages/server/src/modules/studio/services/agents/chat-registry')
+    const { io, socket } = makeServerHarness(), server = new ChatRunSocket(io as any)
+    Object.assign(socket.data, { user: { id: 7, role: 'super_admin' }, profile: 'default' })
+    setAgentChatService({ isBound: () => true, ownedBinding: vi.fn(), start: vi.fn(async () => ({ id: 'previous', status: 'completed' })) } as any)
+    const follow = vi.fn(), replay = vi.fn(async (_scope, sessionId, runId, _queueId, emit) => emit('run.completed', { event: 'run.completed', session_id: sessionId, agent_run_id: runId, replayed: true }))
+    ;(server as any).managedAgentDelivery = { follow, replay }
+    try {
+      await (server as any).handleRun(socket, { session_id: 'managed-session', input: 'Retry', managed_agent_protocol: 1, queue_id: 'original-key' }, 'default')
+      expect(follow).not.toHaveBeenCalled()
+      expect(replay).toHaveBeenCalledWith(expect.objectContaining({ principal: { kind: 'user', id: '7' } }), 'managed-session', 'previous', 'original-key', expect.any(Function))
+      expect(socket.emit).toHaveBeenCalledWith('run.completed', expect.objectContaining({ agent_run_id: 'previous', replayed: true }))
+    } finally { setAgentChatService(undefined) }
+  })
+
   it('binds managed plans, goals and questions to a canonical Run without a legacy session cache', async () => {
     const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
     const { io, emitted } = makeServerHarness(), server = new ChatRunSocket(io as any)

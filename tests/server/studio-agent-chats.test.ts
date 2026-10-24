@@ -14,6 +14,9 @@ import { createExecutionContext } from '../../packages/server/src/modules/studio
 import { StudioError, type ExecutionScope } from '../../packages/studio-plugin-sdk/src'
 import { AgentChatDelivery } from '../../packages/server/src/modules/studio/services/chat-run/agent-delivery'
 import { readAgentChatSummaries, readAgentChatRunSummaries, agentChatOwnerFilter } from '../../packages/server/src/modules/studio/repositories/agent-chat-summary'
+import { PluginChatRunStore } from '../../packages/server/src/modules/studio/repositories/plugin-chat-run-store'
+import { PluginChatRuns } from '../../packages/server/src/modules/studio/services/chat-run/plugin'
+import type { DirectChatRunOptions } from '../../packages/server/src/modules/studio/services/chat-run/direct'
 
 const scope: ExecutionScope = { scopeId: 'app', principal: { kind: 'user', id: '7' }, profileId: 'one', surface: 'api', traceId: 'trace' }
 const cleanup: Array<() => Promise<void>> = []
@@ -67,6 +70,43 @@ it('creates one owned chat and binding without starting the native Agent, includ
     agent: f.instance.agentTypeId, agent_mode: 'global', studio_user_id: '7', user_id: '7', workspace: '/owned-workspace', model: 'native-model' }])
   expect(f.chats.isBound(receipt.sessionId)).toBe(true)
   expect(f.chats.ownedBinding(scope, receipt.sessionId).instance.id).toBe(f.instance.id)
+})
+
+it('reads SDK chat receipts from canonical snapshots across retries and reconstruction without another text writer', async () => {
+  const f = setup(), chat = f.create(), receipts = new PluginChatRunStore(f.db)
+  let observer: DirectChatRunOptions | undefined
+  const authorize = (current: ExecutionScope, id: string) => {
+    f.chats.ownedBinding(current, id)
+    return { user: { id: 7, username: 'owner', role: 'super_admin' }, session: { id, profile: 'one', source: 'coding_agent', agent: f.instance.agentTypeId } } as any
+  }
+  const deps = { store: receipts, authorize, canonical: (current: ExecutionScope, id: string, runId: string) => f.chats.text(current, id, runId) }
+  const service = new PluginChatRuns({ ...deps, server: () => ({ startDirectRun: (_request, options) => {
+    observer = options; return { dispose: vi.fn(), dropQueued: vi.fn(), cancel: vi.fn(async () => {}) }
+  } }) })
+  f.hold()
+  const input = { sessionId: chat.sessionId, input: 'Question', idempotencyKey: 'sdk-chat' }
+  const receipt = service.start(scope, input, new AbortController().signal)
+  const run = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Question' }] }, 'sdk-canonical', new AbortController().signal)
+  observer!.onEvent('run.accepted', { agent_run_id: run.id })
+  await vi.waitFor(() => expect(service.get(scope, receipt.id).output).toBe('Native answer'))
+  const first = service.get(scope, receipt.id)
+  f.executions.appendOutput(run.id, { type: 'message.snapshot', messageId: 'm', producerSequence: 1, text: 'Corrected answer' })
+  f.executions.appendOutput(run.id, { type: 'reasoning.delta', messageId: 'm', producerSequence: 2, text: 'Native reasoning' })
+  const corrected = service.get(scope, receipt.id)
+  expect(corrected).toMatchObject({ output: 'Corrected answer', reasoning: 'Native reasoning', truncated: false })
+  expect(corrected.revision).toBeGreaterThan(first.revision)
+  observer!.onEvent('message.persisted', { messages: [{ id: 1, role: 'assistant', content: 'Corrected answer' }] })
+  observer!.onEvent('message.delta', { delta: 'A transport packet must not create another text writer' })
+  expect(service.get(scope, receipt.id).output).toBe('Corrected answer')
+  expect(receipts.get(receipt.id)).toMatchObject({ output: '', reasoning: '' })
+  f.release(); await f.chats.wait(run.id)
+  expect(service.start(scope, input, new AbortController().signal)).toMatchObject({ id: receipt.id, status: 'completed' })
+  const rebuilt = new PluginChatRuns({ ...deps, store: new PluginChatRunStore(f.db), server: () => null })
+  expect(rebuilt.get(scope, receipt.id)).toMatchObject({ status: 'completed', output: 'Corrected answer', reasoning: 'Native reasoning' })
+  expect(() => rebuilt.get({ ...scope, principal: { kind: 'user', id: '8' } }, receipt.id)).toThrow(/execution scope/)
+  f.db.prepare('UPDATE sessions SET studio_user_id=? WHERE id=?').run('8', chat.sessionId)
+  expect(() => rebuilt.get(scope, receipt.id)).toThrow(/binding/)
+  service.close(); rebuilt.close()
 })
 
 it('reads managed instance metadata and reports unmeasured usage as unknown without adding a legacy ledger', async () => {
@@ -334,4 +374,26 @@ it('drains the output cursor after terminal status before emitting completion an
   expect(() => delivery.follow(scope, chat.sessionId, run.id, 'one')).toThrow(expect.objectContaining({ code: 'FORBIDDEN' }))
   expect(onError).not.toHaveBeenCalled()
   delivery.close()
+})
+
+it('replays completed retries only to their observer without changing a later Run or rebroadcasting a start', async () => {
+  const f = setup(), chat = f.create()
+  const first = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'First' }] }, 'first', new AbortController().signal)
+  await f.chats.wait(first.id)
+  f.hold()
+  const second = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Second' }] }, 'second', new AbortController().signal)
+  const broadcast = vi.fn(), activity = vi.fn(), replayed = vi.fn()
+  const delivery = new AgentChatDelivery({ chats: f.chats, emit: broadcast, activity, onError: vi.fn() })
+  delivery.follow(scope, chat.sessionId, second.id, 'second')
+  await vi.waitFor(() => expect(broadcast.mock.calls.some(([, event]) => event === 'run.started')).toBe(true))
+  const emitted = broadcast.mock.calls.length, activities = activity.mock.calls.length
+  await delivery.replay(scope, chat.sessionId, first.id, 'first', replayed)
+  expect(broadcast).toHaveBeenCalledTimes(emitted)
+  expect(activity).toHaveBeenCalledTimes(activities)
+  expect(replayed.mock.calls.some(([event]) => event === 'run.started')).toBe(false)
+  expect(replayed.mock.calls.at(-1)).toMatchObject(['run.completed', { agent_run_id: first.id, replayed: true, terminal: true, queue_remaining: 1 }])
+  expect(replayed.mock.calls.filter(([event]) => event === 'message.persisted').every(([, data]) => data.terminal === true)).toBe(true)
+  await expect(delivery.replay(scope, chat.sessionId, second.id, 'second', replayed)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  expect(f.chats.get(scope, chat.sessionId, second.id).status).toBe('running')
+  f.release(); await delivery.idle(chat.sessionId); delivery.close()
 })

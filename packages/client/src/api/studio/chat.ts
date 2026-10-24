@@ -59,6 +59,8 @@ export interface StartRunResponse {
 
 // SSE event types from /v1/runs/{id}/events
 export interface RunEvent {
+  /** Private replay of a previously completed canonical invocation. */
+  replayed?: boolean
   agent_run_id?: string
   messages?: import('./sessions').HermesMessage[]
   interaction?: import('../../../../studio-plugin-sdk/src/types').AgentInteraction

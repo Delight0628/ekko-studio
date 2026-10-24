@@ -1405,6 +1405,10 @@ export class ChatRunSocket {
       activity: (sessionId, runs, current) => this.syncManagedAgentActivity(sessionId, runs, current),
       onError: runId => logger.warn({ runId }, '[chat-run-socket] Agent chat delivery unavailable'),
     })
+    if (['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status)) {
+      await this.managedAgentDelivery.replay(scope, data.session_id, run.id, queueId, (event, payload) => caller.reply(event, payload))
+      return
+    }
     this.syncManagedAgentActivity(data.session_id, chats.activity(scope, data.session_id))
     this.managedAgentDelivery.follow(scope, data.session_id, run.id, queueId)
   }
