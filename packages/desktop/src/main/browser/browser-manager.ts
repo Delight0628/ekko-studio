@@ -1,3 +1,7 @@
+import { t } from '../desktop-i18n'
+import { realpathSync, mkdirSync } from 'node:fs'
+import { isAbsolute, relative } from 'node:path'
+import { BrowserProfileLeases } from './browser-profile-lease'
 import { applyBrowserColorScheme, browserBackground, type BrowserColorScheme } from './browser-theme'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
@@ -109,6 +113,7 @@ export class BrowserManager {
   private readonly configuredSessions = new Set<string>()
   private readonly configuredSessionProxies = new Map<string, string>()
   private readonly automationVisibleTabs = new Set<string>()
+  private readonly profileLeases = new BrowserProfileLeases(release => app.once('will-quit', release))
   private readonly activeAnnotationTabs = new Set<string>()
   private readonly annotationMarkerCounts = new Map<string, number>()
   private readonly stateListeners = new Set<(state: DesktopBrowserState) => void>()
@@ -271,6 +276,11 @@ export class BrowserManager {
   }
 
   async createProfile(input: BrowserProfileCreateInput): Promise<DesktopBrowserProfile> {
+    if (input.rootDirectory) {
+      const sessionPath = join(input.rootDirectory, 'data')
+      this.validateSessionScope(sessionPath)
+      await this.profileLeases.acquire(sessionPath)
+    }
     const profile = await this.profileStore.create(input)
     this.emitState()
     return profile
@@ -324,6 +334,11 @@ export class BrowserManager {
       ? String(input.proxyRules ?? previous.proxyRules).trim()
       : ''
     const rootChanged = resolve(nextRoot) !== resolve(previous.rootPath)
+    if (rootChanged) {
+      this.validateSessionScope(join(nextRoot, 'data'))
+      await this.profileLeases.acquire(previous.sessionPath)
+      await this.profileLeases.acquire(join(nextRoot, 'data'))
+    }
     const connectionChanged = rootChanged
       || nextProxyMode !== previous.proxyMode
       || nextProxyRules !== previous.proxyRules
@@ -344,6 +359,7 @@ export class BrowserManager {
 
   async deleteProfile(profileId: string): Promise<DesktopBrowserState> {
     if (profileId === this.activeProfileId) throw new Error('Switch away from a profile before deleting it')
+    await this.profileLeases.acquire(this.requireProfile(profileId).sessionPath)
     const removed = await this.profileStore.deleteProfile(profileId)
     const managedRoot = resolve(this.profileStore.root, 'profiles')
     if (resolve(removed.sessionPath).startsWith(`${managedRoot}${process.platform === 'win32' ? '\\' : '/'}`)) {
@@ -360,7 +376,7 @@ export class BrowserManager {
         if (this.permissions[index].profileId === profileId) this.permissions.splice(index, 1)
       }
     } else {
-      const browserSession = this.profileSession(profile)
+      const browserSession = await this.profileSession(profile)
       await this.waitForSessionCookieRestore(profile)
       if (kind === 'cache') await browserSession.clearCache()
       else {
@@ -794,7 +810,7 @@ export class BrowserManager {
 
   private async buildTab(profile: DesktopBrowserProfile, url: string): Promise<TabRecord> {
     const id = randomUUID()
-    const browserSession = this.profileSession(profile)
+    const browserSession = await this.profileSession(profile)
     await this.configureSession(profile, browserSession)
     const view = new WebContentsView({
       webPreferences: {
@@ -883,7 +899,21 @@ export class BrowserManager {
     return record
   }
 
-  private profileSession(profile: DesktopBrowserProfile): Session {
+  private validateSessionScope(sessionPath: string): void {
+    if (process.platform === 'darwin') {
+      const root = realpathSync(app.getPath('sessionData'))
+      let parent = resolve(sessionPath)
+      const suffix: string[] = []
+      while (!existsSync(parent)) { suffix.unshift(basename(parent));parent = dirname(parent) }
+      const candidate = resolve(realpathSync(parent), ...suffix)
+      const subpath = relative(root, candidate)
+      if (subpath === '..' || subpath.startsWith('../') || isAbsolute(subpath)) throw new Error(t('browser.profileOutsideStorage', { root }))
+    }
+  }
+
+  private async profileSession(profile: DesktopBrowserProfile): Promise<Session> {
+    this.validateSessionScope(profile.sessionPath)
+    await this.profileLeases.acquire(profile.sessionPath)
     const existing = this.browserSessions.get(profile.sessionPath)
     if (existing) return existing
     const sessionProfile = { ...profile, tabs: [...profile.tabs] }
@@ -914,7 +944,7 @@ export class BrowserManager {
   }
 
   private async flushProfileSession(profile: DesktopBrowserProfile): Promise<void> {
-    const browserSession = this.profileSession(profile)
+    const browserSession = await this.profileSession(profile)
     this.clearSessionCookiePersistTimer(profile.sessionPath)
     await this.waitForSessionCookieRestore(profile)
     await this.persistSessionCookies(profile, browserSession)
