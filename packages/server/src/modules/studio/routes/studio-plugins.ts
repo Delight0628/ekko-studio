@@ -1,6 +1,7 @@
 import Router from '@koa/router'
 import * as controller from '../controllers/studio-plugins'
-import { requireSuperAdmin, requireUserProfile } from '../public/auth'
+import { requireSuperAdmin, requireInteractiveSuperAdmin, requireUserProfile } from '../public/auth'
+import * as management from '../controllers/agent-management'
 
 export const studioPluginRoutes = new Router()
 studioPluginRoutes.get('/api/studio/plugins', requireSuperAdmin, controller.listPlugins)
@@ -23,6 +24,13 @@ studioPluginRoutes.post('/api/studio/agent-instances', requireUserProfile, contr
 studioPluginRoutes.put('/api/studio/agent-instances/:id', requireUserProfile, controller.configureAgentInstance)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/inspect', requireUserProfile, controller.inspectAgentInstance)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/setup', requireUserProfile, controller.setupAgentInstance)
+studioPluginRoutes.post('/api/studio/agent-instances/:id/login', requireInteractiveSuperAdmin, requireUserProfile, management.startAgentLogin)
+studioPluginRoutes.get('/api/studio/agent-instances/:id/operations', requireInteractiveSuperAdmin, requireUserProfile, management.listAgentManagementOperations)
+studioPluginRoutes.get('/api/studio/agent-management-operations/:id', requireInteractiveSuperAdmin, requireUserProfile, management.getAgentManagementOperation)
+studioPluginRoutes.get('/api/studio/agent-management-operations/:id/output', requireInteractiveSuperAdmin, requireUserProfile, management.getAgentManagementOutput)
+studioPluginRoutes.post('/api/studio/agent-management-operations/:id/input', requireInteractiveSuperAdmin, requireUserProfile, management.sendAgentManagementInput)
+studioPluginRoutes.post('/api/studio/agent-management-operations/:id/resize', requireInteractiveSuperAdmin, requireUserProfile, management.resizeAgentManagementTerminal)
+studioPluginRoutes.post('/api/studio/agent-management-operations/:id/cancel', requireInteractiveSuperAdmin, requireUserProfile, management.cancelAgentManagementOperation)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/resources', requireUserProfile, controller.agentInstanceResources)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/locations', requireUserProfile, controller.agentInstanceLocations)
 studioPluginRoutes.post('/api/studio/agent-instances/:id/runs', requireUserProfile, controller.startAgentExecution)

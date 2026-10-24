@@ -15,7 +15,7 @@
 | 安装策略 | 14 个系统插件 ID 已保留；用户安装不能覆盖，删除在接触工件/worker 前返回 `SYSTEM_PLUGIN_PROTECTED`；profile 选择不会被重复系统登记覆盖 |
 | 事件 | `ctx.on` / `ctx.once`、profile/owner 授权、每分区有序通知；`ctx.events.consume` 持久化游标、租约、重试/死信和保留期；仅把明确允许的旧业务事件字段投影到公共事件表 |
 | Agent API 执行 | 实例、接受请求、幂等、启动、流输出、完成屏障、取消、终态与事件事务落库；崩溃恢复标记 interrupted，不自动重放输入 |
-| 原生管理检查 | 通用 `management.inspect/setup`、目录能力发现、独立短期资源和所有者/profile 鉴权；CLI 版本探测与手工安装/登录指引、Codex 脱敏账号状态及模型分页，Qwen ACP 信息/认证方式；交互登录等完整管理仍未迁移 |
+| 原生管理检查 | 通用 `management.inspect/setup/prepareLogin`、目录能力发现、独立管理操作、所有者/profile 鉴权及受管登录终端；CLI 版本探测与手工安装指引、Codex 脱敏账号状态及模型分页，Qwen ACP 信息/认证方式；完整管理和真实账号验收仍未完成 |
 | 管理页面 | 现有配置页可创建/修改自有实例，按注册 schema 展示字段，复杂类型使用 JSON；超级管理员可显式安装并启用两个已实现的随包插件，保留现有配置和 grants；不默认登记其余保留 ID |
 | 配置连续性 | 插件声明兼容字段；空闲实例更新原子保留目录关联和成功 checkpoint，完整提供方引用保持匹配；网关逐请求授权并允许协议直通/转换切换。跨模式、工作区或工件升级迁移仍待完成 |
 | 原生资源编辑 | Studio 扫描多个声明位置，现有 Skills/配置页按实例读取和保存；来源与文件版本校验、只读别名保护、运行互斥和下次启动重新加载；导入/删除及完整管理表单待完成 |
@@ -60,6 +60,13 @@
 | `PUT /api/studio/agent-instances/:id` | 按 revision 更新自身实例配置；活动 Run 阻止修改，旧租约确认回收后提交 |
 | `POST /api/studio/agent-instances/:id/inspect` | 检查空闲自有实例的原生元数据；与运行/配置修改互斥，不创建 Run 或聊天历史 |
 | `POST /api/studio/agent-instances/:id/setup` | 带 revision 的 CLI 可用性检查及手工安装/登录指引；不执行安装或登录 |
+| `POST /api/studio/agent-instances/:id/login` | 显式启动原生登录终端，带 revision/幂等键；交互登录的超级管理员，拒绝 Run MCP 凭据 |
+| `GET /api/studio/agent-instances/:id/operations` | 自有实例最近 32 条管理操作回执 |
+| `GET /api/studio/agent-management-operations/:id` | 管理操作状态与退出信息，不把退出等同于认证 |
+| `GET /api/studio/agent-management-operations/:id/output` | 有界内存中的终端字节输出、截断提示及重连游标 |
+| `POST /api/studio/agent-management-operations/:id/input` | 按序号发送终端输入，抑制最近一帧的相同重试 |
+| `POST /api/studio/agent-management-operations/:id/resize` | 修改自有终端尺寸 |
+| `POST /api/studio/agent-management-operations/:id/cancel` | 停止精确操作并等待实际进程清理 |
 | `POST /api/studio/agent-instances/:id/locations` | 空闲自有实例的多个原生资源位置声明，需配置 revision |
 | `POST /api/studio/agent-instances/:id/resources` | Studio 扫描/读取/保存资源；读取和保存需位置 snapshot，保存还需文件 etag |
 | `POST /api/studio/agent-instances/:id/runs` | 接受文本/图片引用及幂等键 |
@@ -90,11 +97,22 @@
 
 资源位置/输入框命令契约、命令基础链路、现有 Skills/配置编辑页接入和兼容配置连续性已交付。后续顺序：补齐 Qwen/Codex 管理、Studio MCP 和原生命令 → 接入聊天界面形成可体验闭环 → 扩展到其余 Agent 和业务入口 → 分发与最终验收。MCP 工具 SDK 已整合、提交并推送，原生配置注入等剩余能力随迁移继续推进。Hermes/Ekko 继续保持内置身份；14 个厂商插件须逐个迁移和验收，保留 ID 或 fixture 不计为交付。
 
+### Qwen/Codex 原生登录管理（2026-10-25）
+
+- 实例管理页增加显式登录终端。Qwen 使用原生交互 CLI 与 `/auth`，Codex 使用 device-auth；按注册能力展示，不给 scoped 模式请求原生账号。安装继续提供固定版本的手工指引，未自动升级或修改宿主 CLI。
+- 插件只提供私有启动 DTO，Studio 持有 PTY 和独立操作回执。登录期间实例运行、配置修改及插件替换/卸载受互斥和租约保护；短 RPC 结束后才获取外部租约，worker 崩溃、撤权、关闭和超时均走可等待的进程清理。此操作不创建聊天 Run、消息或计量；CLI 正常退出仍需独立检查账号状态，Qwen 继续显示 unknown。
+- 回执元数据持久化，重启标记 interrupted，不重放命令或输入。终端输出只在有界内存保留五分钟；页面关闭后最多运行十分钟，可重新连接并恢复输入序号。每帧输入使用序号/摘要抑制重复写入，网络结果不明时只能原样重试；输入不入库、不写应用日志。控制入口需要交互登录的超级管理员，Run MCP 凭据即使代表管理员也不能调用。
+- 全部 12 种语言、共享终端主题适配、输入队列和输出背压已接通；亮暗、壁纸和窄屏截图已检查。真实 worker/PTY 与现有管理/HTTP/表单专项 66 项通过；三平台 CI 增加 PTY、登录和 MCP 内容专项。登录浏览器首轮四个用例因错误地用 Escape 关闭终端而失败，随后改用实际关闭按钮，原 5 项（含输入丢包重试）通过；未改变产品按键语义或时限。
+
+最终验证（Node 24.22.1、默认时限）：生产构建、SDK/client/server 类型检查和 harness/公共 API 文档通过。补齐准入前取消/撤权、配额拒绝解锁和输入边界后，最终全量 coverage 为 929 文件、9,629 项通过，12 文件/33 项按原条件跳过，两 worker、292.68 秒。全量生产浏览器回归首轮 957 项全部通过，四 worker、无重试、10.9 分钟。此前覆盖率首轮 9,625 项通过，唯一失败是 Codex 目录断言尚未包含 prepareLogin；更新为完整能力集合后，相关 130 项专项和最终全量均通过。真实账号授权、跨平台实机与完整管理生命周期仍待验收，完整迁移仍为 0/14；本增量不关闭七大交付范围。
+
 ### 受管 PTY 基础能力（2026-10-25）
 
 - `processes.spawn` 通过显式 terminal 尺寸申请 PTY，沿用现有 SDK/RPC、runtime 句柄、能力检查、总数配额及环境白名单；resize 不接受身份或路径覆盖。宿主不自动选择 shell，不将 native PTY 对象交给 worker。缺少原生模块时明确报告能力不可用。
 - 输出仍以字节返回，PTY 的 stderr 与 stdout 合流；四个 16 KiB 块组成单次读取窗口，256 KiB 缓冲触发暂停，慢消费者可恢复读取。写入单次最多 64 KiB；原生 API 没有 drain 回执，因此累计输入设 1 MiB 限额，避免不读输入的程序积累无界缓冲。PTY 不支持半关闭 stdin，end 返回明确错误，stop/dispose 等待退出和进程树清理。
 - 已在 macOS/arm64 实际测试 TTY 检测、resize、中文/emoji、环境凭据不继承、慢消费者大输出、输入预算、取消/撤权、后代进程回收，以及真实 worker 的跨轮次复用与崩溃清理。PTY、进程 RPC、Qwen/Codex、MCP 与生命周期专项 8 文件、154 项通过；生产构建、类型检查、harness/公共 API 文档及差异检查通过。Node 24.22.1、默认测试时限的全量 coverage 为 928 文件、9,610 项通过，12 文件/33 项按原条件跳过，267.97 秒、两 worker。此项无页面改动，沿用下节实际浏览器回归记录；尚未接入管理页的登录终端，也不代表 Windows/Linux 实机矩阵或完整原生管理完成。
+
+后续 CI：`ba0855e4b` 的浏览器六分片、三平台原有流程、runtime 和 lockfile 共 12 项通过；Build 的 Linux PTY 慢读用例发现跨缓冲边界裁剪了部分数据，其余 9,683 项通过。`6119401f8` 改为达到半容量时提前暂停，为当前 native read 留出空间，仍保留严格容量与完整 512 KiB 字节断言。PTY、真实 worker 和登录专项带 coverage 共 38 项通过；远端复验继续跟踪，未通过放宽断言或延长时限处理。
 
 ### MCP resources/prompts SDK（2026-10-24）
 

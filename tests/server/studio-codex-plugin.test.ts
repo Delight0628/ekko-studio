@@ -148,7 +148,7 @@ function alive(pid: number) { try { process.kill(pid, 0); return true } catch { 
 
 it('inspects account state and paginated native models through a worker without exposing private fields', async () => {
   const f = await setup()
-  expect(f.registry.list('one')[0].management).toEqual({ inspect: true, locations: true, setup: true })
+  expect(f.registry.list('one')[0].management).toEqual({ inspect: true, locations: true, setup: true, prepareLogin: true })
   const result = await f.coordinator.inspectInstance(scope, f.instance.id)
   expect(result).toMatchObject({ native: { name: 'Codex' }, authentication: { state: 'authenticated', methods: [] }, models: { status: 'available', items: [
     { id: 'first', name: 'Model first', isDefault: true, reasoningEfforts: ['high'] },

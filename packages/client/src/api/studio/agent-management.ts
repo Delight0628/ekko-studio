@@ -1,7 +1,7 @@
 import { request } from '../client'
-import type { AgentSetup, AgentInspection, AgentTypeSummary, JsonObject } from '../../../../studio-plugin-sdk/src/types'
+import type { AgentSetup, AgentInspection, AgentTypeSummary, JsonObject, AgentManagementOperation, AgentManagementOutput } from '../../../../studio-plugin-sdk/src/types'
 
-export type { AgentSetup, AgentInspection, AgentTypeSummary, JsonObject }
+export type { AgentSetup, AgentInspection, AgentTypeSummary, JsonObject, AgentManagementOperation }
 export interface ManagedAgentInstance { id: string; agentTypeId: string; revision: number; mode: 'scoped' | 'global'; config: JsonObject }
 export interface BundledAgentPlugin { id: string; name: string; pluginId: string; installed: boolean; enabled: boolean; revision: number; state: string; requiredCapabilities: string[] }
 const query = (profile: string) => `?${new URLSearchParams({ profile })}`
@@ -18,3 +18,12 @@ export function fetchBundledAgentPlugins(profile: string) { return data<BundledA
 export function enableBundledAgentPlugin(profile: string, plugin: BundledAgentPlugin) { return data(`bundled-agent-plugins/${encodeURIComponent(plugin.id)}/enable`, profile, 'POST', { revision: plugin.revision }) }
 export function fetchAgentSetup(profile: string, instance: ManagedAgentInstance) { return data<AgentSetup>(`agent-instances/${encodeURIComponent(instance.id)}/setup`, profile, 'POST', { revision: instance.revision }) }
 export function inspectManagedAgent(profile: string, instance: ManagedAgentInstance) { return data<AgentInspection>(`agent-instances/${encodeURIComponent(instance.id)}/inspect`, profile, 'POST', {}) }
+export function startAgentLogin(profile: string, instance: ManagedAgentInstance, idempotencyKey: string) { return data<AgentManagementOperation>(`agent-instances/${encodeURIComponent(instance.id)}/login`, profile, 'POST', { revision: instance.revision, idempotencyKey }) }
+export function fetchAgentManagementOperations(profile: string, instanceId: string) { return data<AgentManagementOperation[]>(`agent-instances/${encodeURIComponent(instanceId)}/operations`, profile) }
+export function fetchAgentManagementOperation(profile: string, id: string) { return data<AgentManagementOperation>(`agent-management-operations/${encodeURIComponent(id)}`, profile) }
+export async function fetchAgentManagementOutput(profile: string, id: string, after: number) {
+  return (await request<{ data: AgentManagementOutput }>(`/api/studio/agent-management-operations/${encodeURIComponent(id)}/output?${new URLSearchParams({ profile, after: String(after) })}`)).data
+}
+export function sendAgentManagementInput(profile: string, id: string, sequence: number, text: string) { return data(`agent-management-operations/${encodeURIComponent(id)}/input`, profile, 'POST', { sequence, text }) }
+export function resizeAgentManagementTerminal(profile: string, id: string, cols: number, rows: number) { return data(`agent-management-operations/${encodeURIComponent(id)}/resize`, profile, 'POST', { cols, rows }) }
+export function cancelAgentManagementOperation(profile: string, id: string) { return data<AgentManagementOperation>(`agent-management-operations/${encodeURIComponent(id)}/cancel`, profile, 'POST', {}) }

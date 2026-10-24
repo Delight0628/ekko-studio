@@ -15,6 +15,9 @@ import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { AgentResourceFiles, type ResourceFileOperation } from './resource-files'
 import { parseAgentResourceLocations } from './resource-contract'
+import { AgentManagementOperations } from './management-operations'
+import type { AgentManagementStore } from '../../repositories/agent-management-store'
+import { parseAgentLogin } from './login-contract'
 
 interface ActiveRun {
   controller: AbortController; handle?: AgentRunHandle; completed: Promise<void>; resolve(): void
@@ -49,6 +52,7 @@ export class AgentCoordinator {
   private readonly leases = new Map<string, RuntimeLease>()
   private readonly configuring = new Set<string>()
   private readonly management = new AgentManagement()
+  readonly managementOperations?: AgentManagementOperations
   private closed = false
   constructor(private readonly options: {
     store: AgentExecutionStore; registry: AgentRegistry; events: PluginEventBus; logger: ScopedLogger
@@ -57,7 +61,58 @@ export class AgentCoordinator {
     stateRoot?: string
     settleRun?(runId: string): Promise<void>
     validateInput?(scope: ExecutionScope, input: AgentRunInput): void
-  }) {}
+    managementStore?: AgentManagementStore
+    authorizeManagement?(scope: ExecutionScope): void
+    leaseManagement?(provider: AgentProviderRef, profileId: string, cancel: () => void, completed: Promise<void>): { authorize(): void; release(): void }
+  }) {
+    if (options.managementStore && options.authorizeManagement && options.leaseManagement) this.managementOperations = new AgentManagementOperations(options.managementStore, options.authorizeManagement)
+  }
+
+  startLogin(scope: ExecutionScope, instanceId: string, revision: number, idempotencyKey: string) {
+    scope = jsonCopy(scope)
+    const operations = this.managementOperations
+    if (!operations || this.closed) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Interactive management is unavailable')
+    const previous = operations.previous(scope, instanceId, revision, idempotencyKey)
+    if (previous) return previous
+    const inspect = () => {
+      if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent coordinator is shutting down')
+      this.options.authorizeManagement!(scope)
+      const instance = this.options.store.instance(instanceId)
+      if (!instance || instance.ownerId !== scope.principal.id || instance.profileId !== scope.profileId) throw new StudioError('NOT_FOUND', 'Agent instance is unavailable')
+      if (instance.revision !== revision || this.queues.has(instanceId) || this.options.store.hasActiveRuns(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance changed or has active runs')
+      return { instance, ...this.options.registry.resolve(scope.profileId, instance.agentTypeId) }
+    }
+    const { instance, provider, definition } = inspect(), adapter = definition.management?.prepareLogin
+    if (!adapter) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Native login is unavailable')
+    if (this.configuring.has(instanceId)) throw new StudioError('REVISION_CONFLICT', 'Agent instance is being managed')
+    let lease: { authorize(): void; release(): void } | undefined
+    const authorize = () => {
+      if (!isDeepStrictEqual(inspect().provider, provider)) throw new StudioError('REVISION_CONFLICT', 'Agent provider changed during login')
+      lease?.authorize()
+    }
+    this.configuring.add(instanceId)
+    try {
+      return operations.start({ ownerId: scope.principal.id, profileId: scope.profileId, instanceId, revision, provider, idempotencyKey }, authorize, async control => {
+        await this.disposeLease(instanceId, 'Native login started')
+        authorize()
+        const stateDirectory = instance.mode === 'scoped' && this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, provider,
+          this.options.store.state.stateRevision(instance.id, provider, revision)) : undefined
+        const input = { instanceId, config: instance.config, configRevision: revision, mode: instance.mode }
+        return await this.management.execute(input, scope, provider, async context => {
+          const launch = parseAgentLogin(await adapter(input, context))
+          // Acquire only after the short RPC: worker timeout cleanup must not
+          // wait for an operation that is itself waiting for that same RPC.
+          authorize()
+          lease = this.options.leaseManagement!(provider, scope.profileId,
+            () => control.abort(new StudioError('PLUGIN_UNAVAILABLE', 'Login provider exited')), control.completed)
+          const terminal = await context.processes.spawn({ ...launch, terminal: { cols: 80, rows: 24 } })
+          return control.consume(terminal)
+        }, authorize, this.options.logger, control.signal, stateDirectory, 600_000)
+      }, () => {
+        if (!this.management.isBlocked(instanceId)) { lease?.release(); this.configuring.delete(instanceId) }
+      })
+    } catch (error) { this.configuring.delete(instanceId); throw error }
+  }
 
   createInstance(scope: ExecutionScope, input: { agentTypeId: string; config: JsonObject; mode: 'scoped' | 'global' }): AgentInstance {
     this.options.authorize(scope)
@@ -381,7 +436,7 @@ export class AgentCoordinator {
     this.closed = true
     const management = this.management.close()
     for (const id of [...this.active.keys()]) this.stop(id)
-    await Promise.allSettled([management, ...[...this.active.values()].map(active => active.completed)])
+    await Promise.allSettled([management, this.managementOperations?.close(), ...[...this.active.values()].map(active => active.completed)])
     await Promise.allSettled([...this.leases.keys()].map(id => this.disposeLease(id, 'Host shutdown')))
   }
 

@@ -244,13 +244,19 @@ Hermes/Ekko 使用同一 `AgentTypeDefinition` 与 `AgentRuntime`，由 bootstra
 
 `AgentManagementAdapter` 提供状态探测、安装/更新操作、配置文档、登录流程、模型列表、Skills/MCP 管理等可选能力。操作返回统一 operation/interaction 句柄和 DTO；原生 CLI 密钥、Home、配置覆盖规则由对应内置模块或插件处理。Studio 的共享 Skills 只读约定、global/scoped 边界以及人工安装策略必须保留。这里的原生管理操作不等于 Studio 插件包管理；Hermes/Ekko 继续提供原有引擎管理能力，不显示插件安装或卸载操作。
 
-当前已实现 `management.inspect(input, context): Promise<AgentInspection>`、资源位置与 `management.setup(input, context): Promise<AgentSetup>`。目录只公开各能力的 true 标志，不序列化函数。input 由宿主根据自有实例生成，包含 `instanceId/config/configRevision/mode`；context 使用独立短期资源作用域，没有当前聊天身份或领域服务。HTTP 检查入口为 `POST /api/studio/agent-instances/:id/inspect`，不接收配置、路径、owner 或 provider 覆盖。要求实例空闲；检查期间拒绝新运行及配置修改，不创建 Run、checkpoint 或原生聊天会话。
+当前已实现 `management.inspect(input, context): Promise<AgentInspection>`、资源位置、`management.setup(input, context): Promise<AgentSetup>` 和 `management.prepareLogin(input, context)`。目录只公开各能力的 true 标志，不序列化函数。input 由宿主根据自有实例生成，包含 `instanceId/config/configRevision/mode`；context 使用独立短期资源作用域，没有当前聊天身份或领域服务。HTTP 检查入口为 `POST /api/studio/agent-instances/:id/inspect`，不接收配置、路径、owner 或 provider 覆盖。要求实例空闲；检查期间拒绝新运行及配置修改，不创建 Run、checkpoint 或原生聊天会话。
 
 `POST /api/studio/agent-instances/:id/setup` 接受 `{ revision }`，返回宿主绑定的实例/revision/provider、`cli: { state: available|unavailable, version? }`、`installation: { command, args }` 与 `authentication: { kind: native|studio, command?, args?, input? }`。native 必须提供 command/args；studio 不允许附带原生登录字段。输出限 64 KiB，不接受 env、账号标识、凭据或任意附加字段；命令不能含控制字符。Qwen/Codex 仅执行有界版本检查并返回手工操作指引，不自动安装或登录，也不把可用 CLI 当作已认证。scoped 模式不读取全局账号；global 的认证状态另由 inspect 提供。此能力复用管理互斥、授权、25 秒期限与清理屏障。
 
 检查结果仅允许原生名称/版本、认证状态及方法 ID/名称、模型 ID/名称/默认项/推理级别，并附宿主 provider/configRevision 快照。认证状态区分 `authenticated/required/not_required/unknown`；模型发现区分 `available/unsupported`，不会把未知当成未登录或空目录。适配器不得借检查执行登录、刷新凭据、推理或改写配置。结果上限 256 KiB、512 个模型、32 个认证方法；宿主检查字段、重复 ID 和大小。并发上限 16，执行期限 25 秒；撤权、取消、断连和关闭均回收资源。取消后最多等待 5 秒确认回调与受管资源清理，不合作的 worker 会被终止；清理未确认时保留实例占用，不能启动下一轮。
 
-Codex 使用 `account/read`（`refreshToken: false`）和有界分页 `model/list`，不返回账号标识、原生 Home 或秘密。Qwen 仅执行 ACP v1 initialize，投影客户端信息和认证方法；该握手不提供当前认证状态，无会话模型发现不支持。登录/退出、安装升级、终端和 MCP 管理与相应交互仍未实现；配置文件和 Skills 的 Studio 编辑接入见下节，不将此检查接口计为完整原生管理迁移。
+Codex 使用 `account/read`（`refreshToken: false`）和有界分页 `model/list`，不返回账号标识、原生 Home 或秘密。Qwen 仅执行 ACP v1 initialize，投影客户端信息和认证方法；该握手不提供当前认证状态，无会话模型发现不支持。退出账号、自动安装升级和完整 MCP 管理仍未实现；配置文件和 Skills 的 Studio 编辑接入见下节，不将此检查接口计为完整原生管理迁移。
+
+原生登录由用户显式调用 `POST /api/studio/agent-instances/:id/login { revision, idempotencyKey }`。插件的 prepareLogin 只返回私有 `command/args/cwd/env`，不进入 HTTP 回执；宿主分配 PTY 并返回独立 `AgentManagementOperation`，不创建 Run、消息或计量。Qwen 使用交互 CLI，用户输入 `/auth`；Codex 使用 `login --device-auth`。两个插件拒绝 scoped 登录，继续使用 Studio 模型凭据。CLI 退出码为零只代表命令结束，账号认证另由 inspect 核实。
+
+管理操作绑定原实例、revision、提供方 generation、owner/profile；当前交互登录的超级管理员才可启动或控制终端，运行内 MCP 凭据不能调用这些 HTTP 入口。登录持有实例互斥和插件外部租约，确认短期 prepareLogin RPC 完成后才获取外部租约，避免 worker 超时清理与管理操作循环等待。实例运行/配置及插件替换、卸载须等实际进程清理。worker 崩溃、撤权、宿主关闭或十分钟期限会终止 PTY；清理未确认不能报告取消成功或解除实例占用。
+
+`GET /api/studio/agent-instances/:id/operations` 返回最近 32 条元数据；`GET /api/studio/agent-management-operations/:id` 查询原回执。同一幂等键返回原操作，重启后记为 interrupted，不重放登录或输入。`/output?after=N` 返回至多四个 16 KiB base64 字节块、游标、truncated/finished 和 nextInputSequence；输出仅在内存保留至多 256 KiB，结束后保留五分钟，最多 128 个缓冲。`POST /input { sequence, text }` 每帧至多 64 KiB，按序号及内容摘要抑制最近一帧的重复写入，未知写入只能原样重试；PTY 累计输入至多 1 MiB。输入及终端输出不进入 SQLite 或应用日志。`POST /resize { cols, rows }` 限制每维 2–1000；`POST /cancel` 等待清理后返回状态。前端按输出写入回调逐页消费、限制待发输入，关闭视图不隐式停止登录，可重新连接并恢复下一输入序号。
 
 ### 3.3 多个资源位置与固定页面
 

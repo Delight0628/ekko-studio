@@ -12,7 +12,7 @@ const statusFor = (code: string): number => ({ INVALID_ARGUMENT: 400, FORBIDDEN:
   RUNTIME_UNAVAILABLE: 503, DEADLINE_EXCEEDED: 504, CANCELLED: 409, RUN_FINALIZING: 409,
   RESOURCE_EXHAUSTED: 429, EVENT_CURSOR_EXPIRED: 409 }[code] || 500)
 
-async function respond(ctx: Context, action: () => unknown | Promise<unknown>): Promise<void> {
+export async function respond(ctx: Context, action: () => unknown | Promise<unknown>): Promise<void> {
   ctx.set('Cache-Control', 'no-store')
   try { ctx.body = { ok: true, data: await action() } }
   catch (error) {
@@ -22,7 +22,7 @@ async function respond(ctx: Context, action: () => unknown | Promise<unknown>): 
   }
 }
 
-function body(ctx: Context, keys: string[]): JsonObject {
+export function body(ctx: Context, keys: string[]): JsonObject {
   const value = jsonCopy(ctx.request.body || {})
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !keys.includes(key))) throw new StudioError('INVALID_ARGUMENT', 'Invalid plugin request')
   return value as JsonObject
@@ -92,7 +92,7 @@ export const listAgentTypes = (ctx: Context) => respond(ctx, () => ({
   revision: getStudioPluginRuntime().registry.getRevision(), agents: getStudioPluginRuntime().registry.list(profile(ctx)),
 }))
 
-function executionScope(ctx: Context): ExecutionScope {
+export function executionScope(ctx: Context): ExecutionScope {
   return { scopeId: randomUUID(), principal: { kind: 'user', id: userId(ctx) }, profileId: profile(ctx), surface: 'api', traceId: randomUUID() }
 }
 export const listAgentInstances = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().coordinator.listInstances(executionScope(ctx)))

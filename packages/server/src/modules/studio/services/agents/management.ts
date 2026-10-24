@@ -16,7 +16,7 @@ export class AgentManagement {
   }
 
   async execute<T>(input: AgentManagementInput, scope: ExecutionScope, provider: AgentProviderRef, operation: (context: AgentRuntimeContext) => Promise<T>,
-    authorize: () => void, logger: ScopedLogger, signal?: AbortSignal, stateDirectory?: string): Promise<T> {
+    authorize: () => void, logger: ScopedLogger, signal?: AbortSignal, stateDirectory?: string, timeoutMs = 25_000): Promise<T> {
     if (this.active.size >= 16) throw new StudioError('RESOURCE_EXHAUSTED', 'Agent inspection limit reached')
     if (signal?.aborted) throw new StudioError('CANCELLED', 'Inspection cancelled')
     authorize()
@@ -32,7 +32,7 @@ export class AgentManagement {
     signal?.addEventListener('abort', cancel, { once: true })
     const check = () => { if (controller.signal.aborted) throw controller.signal.reason; authorize() }
     const processes = new ManagedProcessScope(controller.signal, check), mcp = new ManagedMcpScope(controller.signal, check)
-    const timeout = setTimeout(() => controller.abort(new StudioError('DEADLINE_EXCEEDED', 'Agent inspection timed out')), 25_000)
+    const timeout = setTimeout(() => controller.abort(new StudioError('DEADLINE_EXCEEDED', 'Agent management timed out')), timeoutMs)
     const watch = setInterval(() => { try { check() } catch (error) { controller.abort(error) } }, 250)
     let task: Promise<T> | undefined, settled = false
     try {

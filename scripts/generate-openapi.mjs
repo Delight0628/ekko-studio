@@ -2087,6 +2087,51 @@ const agentSetup = openapi.paths['/api/studio/agent-instances/{id}/setup'].post
 agentSetup.summary = 'Probe native CLI availability and get manual setup instructions'
 agentSetup.description += ' Requires the owned idle instance and exact revision. Runs only a bounded version probe; does not install, log in, refresh credentials, infer or create native history. Instructions contain executable names and argument arrays for manual use on the Studio host with the configured working directory/environment. CLI availability does not imply account authentication. Scoped mode uses Studio credentials and returns no native login command.'
 agentSetup.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, required: ['revision'], properties: { revision: { type: 'integer', minimum: 1 }, profile: { type: 'string' } } })
+const managementReceipt = { type: 'object', additionalProperties: false,
+  required: ['id', 'instanceId', 'configRevision', 'provider', 'action', 'status', 'createdAt', 'updatedAt', 'expiresAt', 'errorCode', 'exit'], properties: {
+    id: { type: 'string' }, instanceId: { type: 'string' }, configRevision: { type: 'integer', minimum: 1 }, provider: { type: 'object' }, action: { enum: ['login'] },
+    status: { enum: ['starting', 'running', 'completed', 'cancelled', 'failed', 'interrupted'] },
+    createdAt: { type: 'integer' }, updatedAt: { type: 'integer' }, expiresAt: { type: 'integer' }, errorCode: { type: ['string', 'null'] },
+    exit: { type: ['object', 'null'], properties: { code: { type: ['integer', 'null'] }, signal: { type: ['string', 'null'] } } },
+  } }
+const managementResult = schema => ({ description: 'Owner-bound management result. Launch commands and input frames are never included in receipts.', content: { 'application/json': { schema: {
+  type: 'object', required: ['ok', 'data'], properties: { ok: { const: true }, data: schema },
+} } } })
+for (const [path, methods] of Object.entries(openapi.paths)) {
+  if (!path.startsWith('/api/studio/agent-management-operations/') && !/^\/api\/studio\/agent-instances\/\{id\}\/(login|operations)$/.test(path)) continue
+  for (const operation of Object.values(methods)) {
+    operation.description = 'Requires an interactive Studio login with super administrator privileges and fresh owner/profile authorization. Turn-scoped MCP credentials cannot access these terminal endpoints. Login is an independent management operation, not a chat Run or a usage charge. Terminal input is never stored; output is held in bounded memory for five minutes after exit. Host restart interrupts operations and never replays input.'
+    operation.responses['200'] = managementResult(managementReceipt)
+    operation.responses['429'] = { description: 'Terminal, process or input budget exceeded.' }
+  }
+}
+const loginStart = openapi.paths['/api/studio/agent-instances/{id}/login'].post
+loginStart.summary = 'Explicitly open the owned native CLI login terminal'
+loginStart.description += ' Requires the idle instance and exact revision. Retry the same idempotencyKey to recover the same operation, including after a lost response. Reusing a key for different input returns 409. Plugin-provided launch arguments stay private; callers cannot supply commands, environment or terminal dimensions. Login blocks instance runs/configuration and plugin replacement until process cleanup. The operation expires after ten minutes and survives browser disconnect. Exit zero means the command ended, not that account authentication was verified; use inspect separately.'
+loginStart.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, required: ['revision', 'idempotencyKey'], properties: { revision: { type: 'integer', minimum: 1 }, idempotencyKey: { type: 'string', minLength: 1, maxLength: 128 }, profile: { type: 'string' } } })
+const loginList = openapi.paths['/api/studio/agent-instances/{id}/operations'].get
+loginList.summary = 'List recent native login operation receipts'
+loginList.responses['200'] = managementResult({ type: 'array', maxItems: 32, items: managementReceipt })
+const loginOperation = '/api/studio/agent-management-operations/{id}'
+openapi.paths[loginOperation].get.summary = 'Read native login operation state'
+const loginOutput = openapi.paths[`${loginOperation}/output`].get
+loginOutput.summary = 'Read a bounded native terminal output page'
+loginOutput.parameters = [...loginOutput.parameters.filter(parameter => parameter.name !== 'after'), { name: 'after', in: 'query', schema: { type: 'integer', minimum: 0, default: 0 }, description: 'Last consumed output sequence. Omit on initial connection.' }]
+loginOutput.responses['200'] = managementResult({ type: 'object', additionalProperties: false, required: ['chunks', 'lastSequence', 'nextInputSequence', 'truncated', 'finished'], properties: {
+  chunks: { type: 'array', maxItems: 4, items: { type: 'object', required: ['sequence', 'data'], properties: { sequence: { type: 'integer', minimum: 1 }, data: { type: 'string', contentEncoding: 'base64', maxLength: 21848 } } } },
+  lastSequence: { type: 'integer', minimum: 0 }, nextInputSequence: { type: 'integer', minimum: 1 }, truncated: { type: 'boolean' }, finished: { type: 'boolean' },
+} })
+const loginInput = openapi.paths[`${loginOperation}/input`].post
+loginInput.summary = 'Send ordered native terminal input with duplicate suppression'
+loginInput.description += ' At most 64 KiB of UTF-8 text per frame and 1 MiB per PTY. Use nextInputSequence from the first output response. Retry an uncertain write with exactly the same sequence and text. Only the latest frame can be retried; different or out-of-order input returns 409. Acceptance does not certify execution by the CLI.'
+loginInput.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, required: ['sequence', 'text'], properties: { sequence: { type: 'integer', minimum: 1 }, text: { type: 'string', minLength: 1, maxLength: 65536 }, profile: { type: 'string' } } })
+const loginResize = openapi.paths[`${loginOperation}/resize`].post
+loginResize.summary = 'Resize the owned login terminal'
+loginResize.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, required: ['cols', 'rows'], properties: { cols: { type: 'integer', minimum: 2, maximum: 1000 }, rows: { type: 'integer', minimum: 2, maximum: 1000 }, profile: { type: 'string' } } })
+for (const method of ['input', 'resize']) openapi.paths[`${loginOperation}/${method}`].post.responses['200'] = managementResult({ type: 'object', properties: { accepted: { const: true } }, required: ['accepted'] })
+const loginCancel = openapi.paths[`${loginOperation}/cancel`].post
+loginCancel.summary = 'Stop the exact owned login terminal and wait for cleanup'
+loginCancel.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, properties: { profile: { type: 'string' } } })
 const bundleEnable = openapi.paths['/api/studio/bundled-agent-plugins/{id}/enable'].post
 bundleEnable.summary = 'Explicitly install and enable an implemented bundled Agent plugin'
 bundleEnable.description += ' Only qwen and codex are eligible. Uses trusted distribution paths, never caller paths or arbitrary plugin IDs. Requires the current profile revision (zero when absent); preserves existing settings and grants. This is opt-in setup, not default installation of all reserved agents or installation of native CLIs. Existing installations are not upgraded or replaced by this endpoint.'

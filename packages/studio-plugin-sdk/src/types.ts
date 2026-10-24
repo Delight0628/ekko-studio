@@ -233,7 +233,7 @@ export interface AgentTypeSummary {
   configSchema: JsonSchema
   capabilities: AgentCapabilities
   provider: AgentProviderRef
-  management?: { inspect?: true; locations?: true; setup?: true }
+  management?: { inspect?: true; locations?: true; setup?: true; prepareLogin?: true }
 }
 
 /** Native metadata only: never return credentials, config files or account identifiers. */
@@ -260,6 +260,20 @@ export interface AgentManagementAdapter {
   locations?(input: AgentManagementInput, context: AgentRuntimeContext): Promise<import('./agent-resources').AgentResourceLocations>
   /** Probe the executable and provide manual installation/login instructions; never logs in. */
   setup?(input: AgentManagementInput, context: AgentRuntimeContext): Promise<AgentSetup>
+  /** Prepare a native login command. The host opens the owned interactive terminal;
+   * this callback must not start inference or report account authentication. */
+  prepareLogin?(input: AgentManagementInput, context: AgentRuntimeContext): Promise<Omit<ProcessSpawnInput, 'terminal'>>
+}
+
+export type AgentManagementOperationStatus = 'starting' | 'running' | 'completed' | 'cancelled' | 'failed' | 'interrupted'
+export interface AgentManagementOperation {
+  id: string; instanceId: string; configRevision: number; provider: AgentProviderRef; action: 'login'
+  status: AgentManagementOperationStatus; createdAt: number; updatedAt: number; expiresAt: number
+  errorCode: string | null; exit: ProcessExit | null
+}
+export interface AgentManagementOutput {
+  chunks: Array<{ sequence: number; data: string }>
+  lastSequence: number; nextInputSequence: number; truncated: boolean; finished: boolean
 }
 
 export interface AgentRuntimeContext {

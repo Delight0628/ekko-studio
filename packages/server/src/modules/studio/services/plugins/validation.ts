@@ -129,7 +129,7 @@ export function validateAgentDefinition(definition: AgentTypeDefinition): void {
   }
   const capabilities = definition.capabilities
   if (definition.management !== undefined && (!definition.management || !Object.keys(definition.management).length
-    || Object.entries(definition.management).some(([key, value]) => !['inspect', 'locations', 'setup'].includes(key) || typeof value !== 'function'))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent management adapter')
+    || Object.entries(definition.management).some(([key, value]) => !['inspect', 'locations', 'setup', 'prepareLogin'].includes(key) || typeof value !== 'function'))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent management adapter')
   if (!capabilities || typeof capabilities.text !== 'boolean' || !Array.isArray(capabilities.modes) || !capabilities.modes.length
     || capabilities.modes.some(mode => mode !== 'scoped' && mode !== 'global')) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent capabilities')
   const flags = ['text', 'images', 'files', 'streaming', 'reasoning', 'resume', 'persistentSession', 'compact', 'approvals', 'clarifications', 'steering']

@@ -1,9 +1,10 @@
 import { locations } from './resources'
 import { isAbsolute } from 'node:path'
 import { AcpConnection, ManagedProcessTransport } from '@ekko-studio/agent-drivers'
-import { StudioError, nativeAgentSetup, type AgentManagementAdapter } from '@ekko-studio/plugin-sdk'
+import { StudioError, nativeAgentSetup, nativeAgentLogin, type AgentManagementAdapter } from '@ekko-studio/plugin-sdk'
 
 export const management: AgentManagementAdapter = {
+  prepareLogin: nativeAgentLogin('qwen', []),
   locations,
   setup: nativeAgentSetup('qwen', '@qwen-code/qwen-code@0.25.0', [], '/auth'),
   async inspect({ config, mode }, context) {

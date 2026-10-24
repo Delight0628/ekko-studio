@@ -1,6 +1,7 @@
 import { StudioError, type AgentProviderRef, type AgentTypeDefinition, type AgentTypeSummary, type Disposer } from '../../contracts/plugins'
 import { compileSchema, jsonCopy, parseAgentInspection, parseAgentSetup, validateAgentDefinition } from '../plugins/validation'
 import { parseAgentResourceLocations } from './resource-contract'
+import { parseAgentLogin } from './login-contract'
 
 interface Entry { profileId: string; provider: AgentProviderRef; definition: AgentTypeDefinition; summary: AgentTypeSummary; token: object }
 
@@ -56,20 +57,21 @@ export class AgentRegistry {
           id: definition.id, name: definition.name,
           ...(definition.description === undefined ? {} : { description: definition.description }),
           configSchema: definition.configSchema, capabilities: definition.capabilities, provider,
-          ...(definition.management ? { management: { ...(definition.management.inspect ? { inspect: true } : {}), ...(definition.management.locations ? { locations: true } : {}), ...(definition.management.setup ? { setup: true } : {}) } } : {}),
+          ...(definition.management ? { management: { ...(definition.management.inspect ? { inspect: true } : {}), ...(definition.management.locations ? { locations: true } : {}), ...(definition.management.setup ? { setup: true } : {}), ...(definition.management.prepareLogin ? { prepareLogin: true } : {}) } } : {}),
         })
         const validateConfig = compileSchema(summary.configSchema)
         const factory = definition.create
         const inspector = definition.management?.inspect
         const locations = definition.management?.locations
         const setup = definition.management?.setup
+        const prepareLogin = definition.management?.prepareLogin
         const { management: _management, ...metadata } = jsonCopy(summary)
         const check = (input: { config: import('../../contracts/plugins').JsonObject; mode: 'scoped' | 'global' }, context: { profileId: string }) => {
           validateConfig(input.config)
           if (!summary.capabilities.modes.includes(input.mode)) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Agent does not support the requested mode')
           if (profileId !== '*' && context.profileId !== profileId) throw new StudioError('FORBIDDEN', 'Runtime profile does not match its registration')
         }
-        const captured: AgentTypeDefinition = { ...metadata, ...(inspector || locations || setup ? { management: { ...(inspector ? { inspect: async (input, context) => {
+        const captured: AgentTypeDefinition = { ...metadata, ...(inspector || locations || setup || prepareLogin ? { management: { ...(inspector ? { inspect: async (input, context) => {
           check(input, context)
           return parseAgentInspection(await inspector(jsonCopy(input), context))
         } } : {}), ...(locations ? { locations: async (input, context) => {
@@ -78,6 +80,9 @@ export class AgentRegistry {
         } } : {}), ...(setup ? { setup: async (input, context) => {
           check(input, context)
           return parseAgentSetup(await setup(jsonCopy(input), context))
+        } } : {}), ...(prepareLogin ? { prepareLogin: async (input, context) => {
+          check(input, context)
+          return parseAgentLogin(await prepareLogin(jsonCopy(input), context))
         } } : {}) } } : {}), create: async (input, context) => {
           check(input, context)
           return factory(jsonCopy(input), context)

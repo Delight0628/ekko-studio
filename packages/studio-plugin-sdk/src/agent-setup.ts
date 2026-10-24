@@ -1,6 +1,15 @@
 import { StudioError } from './errors'
 import type { AgentManagementAdapter, AgentSetup } from './types'
 
+/** Launch details stay between the plugin and host; clients only receive an operation receipt. */
+export function nativeAgentLogin(defaultCommand: string, loginArgs: string[]): NonNullable<AgentManagementAdapter['prepareLogin']> {
+  return async ({ config, mode }) => {
+    if (mode !== 'global') throw new StudioError('CAPABILITY_UNSUPPORTED', 'Scoped instances use Studio credentials')
+    return { command: String(config.command || defaultCommand), args: [...(config.args as string[] || []), ...loginArgs],
+      cwd: String(config.cwd), ...(config.env ? { env: config.env as Record<string, string> } : {}) }
+  }
+}
+
 /** Version probes discard native output except a bounded version identifier. */
 export function nativeAgentSetup(defaultCommand: string, packageSpec: string, loginArgs: string[], loginInput?: string): NonNullable<AgentManagementAdapter['setup']> {
   return async ({ config, mode }, context) => {

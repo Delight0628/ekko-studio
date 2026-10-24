@@ -16,6 +16,7 @@ import { managedProcessEnvironment } from '../processes/managed'
 import { PluginMcpBridge } from './mcp'
 import { PluginModelBridge } from './models'
 import { parseAgentResourceLocations } from '../agents/resource-contract'
+import { parseAgentLogin } from '../agents/login-contract'
 
 export interface WorkerActivation {
   agents: Array<Omit<AgentTypeSummary, 'provider'>>
@@ -47,6 +48,7 @@ export class PluginWorker {
   private consumerCalls = 0
   private hookCalls = 0
   private managementCalls = 0
+  private readonly managementLeases = new Map<object, { cancel(): void; completed: Promise<void> }>()
   callService?: (context: ExecutionContext, args: JsonObject, authority: ServiceAuthority) => Promise<JsonValue>
   private readonly runs = new Map<string, RemoteRun>()
   private readonly runtimes = new Set<string>()
@@ -148,10 +150,15 @@ export class PluginWorker {
   definition(meta: Omit<AgentTypeSummary, 'provider'>): AgentTypeDefinition {
     const { management, ...metadata } = jsonCopy(meta)
     if (management !== undefined && (!management || !Object.keys(management).length
-      || Object.entries(management).some(([key, value]) => !['inspect', 'locations', 'setup'].includes(key) || value !== true))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent management declaration')
-    const manage = async (input: AgentManagementInput, context: AgentRuntimeContext, method: 'inspect' | 'locations' | 'setup') => {
+      || Object.entries(management).some(([key, value]) => !['inspect', 'locations', 'setup', 'prepareLogin'].includes(key) || value !== true))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent management declaration')
+    const manage = async (input: AgentManagementInput, context: AgentRuntimeContext, method: 'inspect' | 'locations' | 'setup' | 'prepareLogin') => {
         if (context.signal.aborted) throw new StudioError('CANCELLED', 'Management scope ended')
-        this.authorize('agents.register')
+        const check = () => {
+          if (this.closed) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin worker exited')
+          this.authorize('agents.register')
+          if (method === 'prepareLogin') this.authorize('processes.spawn')
+        }
+        check()
         const processScope = this.processes.mount(context), mcpScope = this.mcp.mount(context, processScope.handle)
         this.managementCalls++
         const callId = context.runtimeSessionId
@@ -162,7 +169,7 @@ export class PluginWorker {
           rejectAbort(new StudioError('CANCELLED', 'Management scope ended'))
         }
         const watch = setInterval(() => {
-          try { this.authorize('agents.register') }
+          try { check() }
           catch (error) {
             void this.peer.request('management.cancel', { callId }, 1_000).catch(() => {})
             rejectAbort(error)
@@ -175,7 +182,7 @@ export class PluginWorker {
         if (context.signal.aborted) abort()
         try {
           const result = await Promise.race([task, cancelled])
-          this.authorize('agents.register')
+          check()
           return result
         }
         catch (error) {
@@ -206,6 +213,7 @@ export class PluginWorker {
         ...(management.inspect ? { inspect: async (input, context) => parseAgentInspection(await manage(input, context, 'inspect')) } : {}),
         ...(management.locations ? { locations: async (input, context) => parseAgentResourceLocations(await manage(input, context, 'locations')) } : {}),
         ...(management.setup ? { setup: async (input, context) => parseAgentSetup(await manage(input, context, 'setup')) } : {}),
+        ...(management.prepareLogin ? { prepareLogin: async (input, context) => parseAgentLogin(await manage(input, context, 'prepareLogin')) } : {}),
       } } : {}),
       create: async (input, context): Promise<AgentRuntime> => {
         const id = context.runtimeSessionId
@@ -383,7 +391,19 @@ export class PluginWorker {
     if (typeof scopeHandle !== 'string' || !this.scopes.has(scopeHandle) || this.scopes.get(scopeHandle)!.signal.aborted) throw new StudioError('FORBIDDEN', 'Event caller scope is unavailable')
     this.authorities.get(scopeHandle)?.(`events.emit:${type}`)
   }
-  hasLeases(): boolean { return this.commandCalls.size > 0 || this.runtimes.size > 0 || this.runs.size > 0 || this.serviceCalls > 0 || this.consumerCalls > 0 || this.hookCalls > 0 || this.managementCalls > 0 }
+  /** A host PTY outlives its short preparation RPC, but still belongs to this activation. */
+  leaseManagement(cancel: () => void, completed: Promise<void>) {
+    const authorize = () => {
+      if (this.closed) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin worker exited')
+      this.authorize('agents.register'); this.authorize('processes.spawn')
+    }
+    authorize()
+    const token = {}
+    this.managementLeases.set(token, { cancel, completed })
+    return { authorize, release: () => { this.managementLeases.delete(token) } }
+  }
+
+  hasLeases(): boolean { return this.managementLeases.size > 0 || this.commandCalls.size > 0 || this.runtimes.size > 0 || this.runs.size > 0 || this.serviceCalls > 0 || this.consumerCalls > 0 || this.hookCalls > 0 || this.managementCalls > 0 }
   isAvailable(): boolean { return !this.closed }
 
   close(): Promise<void> {
@@ -398,7 +418,7 @@ export class PluginWorker {
         }
       }
       await this.exit
-      const results = await Promise.allSettled([this.processes.close(), this.mcp.close(), this.models.close()])
+      const results = await Promise.allSettled([this.processes.close(), this.mcp.close(), this.models.close(), ...[...this.managementLeases.values()].map(lease => lease.completed)])
       const failed = results.find(result => result.status === 'rejected')
       if (failed?.status === 'rejected') throw failed.reason
     })()
@@ -489,6 +509,7 @@ export class PluginWorker {
     this.closed = true
     this.peer.close()
     const error = new StudioError('PLUGIN_UNAVAILABLE', 'Plugin worker exited')
+    for (const lease of this.managementLeases.values()) lease.cancel()
     for (const run of this.runs.values()) { run.channel.finish(error); run.reject(error); void run.release().catch(() => this.logger.error('Plugin model cleanup failed')) }
     this.runs.clear(); this.runtimes.clear(); this.scopes.clear(); this.authorities.clear()
     void this.processes.close().catch(() => this.logger.error('Plugin process cleanup failed'))

@@ -36,6 +36,7 @@ import { PluginModelCallStore } from '../../repositories/plugin-model-call-store
 import { resolveNativeModel } from '../models/hosted-provider'
 import { PluginModels } from '../models/plugin'
 import { listApiModels, prepareModelResponse } from '../model-api/service'
+import { AgentManagementStore } from '../../repositories/agent-management-store'
 
 const logger: ScopedLogger = {
   info: (message, data) => applicationLogger.info(data || {}, message),
@@ -112,6 +113,8 @@ export function createStudioPluginRuntime(runnerPath: string) {
     } },
   })
   const executionStore = new AgentExecutionStore(db)
+  const managementStore = new AgentManagementStore(db)
+  managementStore.recoverInterrupted()
   const artifacts = new AgentArtifacts(db, executionStore, authorizePluginScope)
   executionStore.recover()
   modelStore.recover(record => executionStore.state.recordHostModelUsage(record))
@@ -129,6 +132,10 @@ export function createStudioPluginRuntime(runnerPath: string) {
     },
   })
   const coordinator: AgentCoordinator = new AgentCoordinator({ store: executionStore, registry, events, logger,
+    managementStore, authorizeManagement: scope => {
+      authorizePluginScope(scope)
+      if (findUserById(scope.principal.id)?.role !== 'super_admin') throw new StudioError('FORBIDDEN', 'Native terminal requires a super administrator')
+    }, leaseManagement: (provider, profileId, cancel, completed) => host.leaseManagement(provider, profileId, cancel, completed),
     stateRoot: resolve(config.appHome, 'plugins', 'state'), validateInput: (scope, input) => artifacts.validate(scope, input), authorize: authorizePluginScope, context, settleRun: id => models.settleRun(id) })
   const admission = new AgentRunAdmission(coordinator, hooks, context)
   const removeHook = configureSessionRemovalHook(async ({ scope, profileId, sessionId, signal }) => {

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   StudioError, type EventEnvelope, type ExecutionContext, type JsonObject, type JsonValue,
-  type ScopedLogger, type StudioEventMap, type Disposer, type ExecutionScope, type ServiceDependency,
+  type ScopedLogger, type StudioEventMap, type Disposer, type ExecutionScope, type ServiceDependency, type AgentProviderRef,
 } from '../../contracts/plugins'
 import { SYSTEM_CODING_PLUGINS, isSystemPluginId } from '../../contracts/system-plugins'
 import { PluginStore, type PluginInstallation, type PluginProfileState } from '../../repositories/plugin-store'
@@ -59,6 +59,13 @@ export class PluginHost {
   constructor(private readonly options: PluginHostOptions) {}
 
   list(): PluginInstallation[] { return this.options.store.list() }
+
+  leaseManagement(provider: AgentProviderRef, profileId: string, cancel: () => void, completed: Promise<void>) {
+    if (provider.kind === 'builtin') return { authorize() {}, release() {} }
+    const active = this.active.get(this.key(provider.pluginId, profileId))
+    if (this.closed || !active || active.generation !== provider.generation) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin activation is unavailable')
+    return active.worker.leaseManagement(cancel, completed)
+  }
 
   diagnostic(pluginId: string, profileId: string) {
     const installation = this.requireInstallation(pluginId), profile = this.options.store.profile(pluginId, profileId)

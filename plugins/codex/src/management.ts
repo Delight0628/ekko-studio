@@ -1,9 +1,10 @@
 import { locations } from './resources'
 import { isAbsolute } from 'node:path'
 import { NativeRpcConnection } from '@ekko-studio/agent-drivers'
-import { StudioError, nativeAgentSetup, type AgentInspection, type AgentManagementAdapter } from '@ekko-studio/plugin-sdk'
+import { StudioError, nativeAgentSetup, nativeAgentLogin, type AgentInspection, type AgentManagementAdapter } from '@ekko-studio/plugin-sdk'
 
 export const management: AgentManagementAdapter = {
+  prepareLogin: nativeAgentLogin('codex', ['login', '--device-auth']),
   locations,
   setup: nativeAgentSetup('codex', '@openai/codex@0.163.0', ['login', '--device-auth']),
   async inspect({ config, mode }, context) {

@@ -85,8 +85,11 @@ jobs:
           tests/server/native-acp-turn.test.ts
           tests/server/studio-plugin-processes.test.ts
           tests/server/studio-plugin-process-bridge.test.ts
+          tests/server/studio-plugin-pty.test.ts
           tests/server/studio-agent-lifecycle.test.ts
           tests/server/studio-agent-management.test.ts
+          tests/server/studio-agent-login.test.ts
+          tests/server/studio-mcp-resources.test.ts
           tests/server/studio-agent-state-directory.test.ts
           tests/server/studio-model-gateway.test.ts
           --maxWorkers=1

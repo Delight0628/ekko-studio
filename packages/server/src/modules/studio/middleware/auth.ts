@@ -447,6 +447,16 @@ export async function requireSuperAdmin(ctx: Context, next: Next): Promise<void>
   await next()
 }
 
+/** Turn credentials cannot open interactive shells, even when their requester is an administrator. */
+export async function requireInteractiveSuperAdmin(ctx: Context, next: Next): Promise<void> {
+  if (runMcpCredentials.recognizes(requestToken(ctx))) {
+    ctx.status = 403
+    ctx.body = { error: 'Native terminal requires an interactive Studio login' }
+    return
+  }
+  await requireSuperAdmin(ctx, next)
+}
+
 export async function requireAdmin(ctx: Context, next: Next): Promise<void> {
   const role = ctx.state.user?.role
   if (role !== 'super_admin' && role !== 'admin') {

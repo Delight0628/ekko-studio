@@ -11,11 +11,12 @@ import { ReliablePluginConsumers } from '../../packages/server/src/modules/studi
 const state = vi.hoisted(() => ({ remove: vi.fn(), configure: vi.fn(), install: vi.fn(), diagnostic: vi.fn(), list: vi.fn(() => []),
   commands: { list: vi.fn(() => []), start: vi.fn(), get: vi.fn(), cancel: vi.fn() },
   bundledAgents: { list: vi.fn(() => []), enable: vi.fn() }, setupInstance: vi.fn(),
+  startLogin: vi.fn(), management: { list: vi.fn(() => []), get: vi.fn(), output: vi.fn(), input: vi.fn(), resize: vi.fn(), cancel: vi.fn() },
   uploadImage: vi.fn(), removeImage: vi.fn(), respond: vi.fn(), interactions: vi.fn(() => []), usage: vi.fn(() => []), cancel: vi.fn(), updateInstance: vi.fn(), inspectInstance: vi.fn(), resourceLocations: vi.fn(), resourceFiles: vi.fn(), role: 'super_admin', consumers: null as unknown as ReliablePluginConsumers }))
 vi.mock('../../packages/server/src/modules/studio/services/plugins/runtime', () => ({
   authorizePluginScope: vi.fn(),
   getStudioPluginRuntime: () => ({ host: { uninstall: state.remove, configure: state.configure, install: state.install, list: state.list, diagnostic: state.diagnostic },
-    bundledAgents: state.bundledAgents, commands: state.commands, artifacts: { create: state.uploadImage, remove: state.removeImage }, consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { setupInstance: state.setupInstance, respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance, resourceLocations: state.resourceLocations, resourceFiles: state.resourceFiles } }),
+    bundledAgents: state.bundledAgents, commands: state.commands, artifacts: { create: state.uploadImage, remove: state.removeImage }, consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { startLogin: state.startLogin, managementOperations: state.management, setupInstance: state.setupInstance, respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance, resourceLocations: state.resourceLocations, resourceFiles: state.resourceFiles } }),
 }))
 import { studioPluginRoutes } from '../../packages/server/src/modules/studio/routes/studio-plugins'
 
@@ -289,4 +290,50 @@ it('limits bundled plugin setup to super administrators and passes the exact cur
   expect((await fetch(`${base}/api/studio/bundled-agent-plugins/qwen/enable?profile=one`, request({ revision: 0, path: '/untrusted' }))).status).toBe(400)
   expect((await fetch(`${base}/api/studio/bundled-agent-plugins/qwen/enable?profile=one`, request({ revision: 0 }))).status).toBe(200)
   expect(state.bundledAgents.enable).toHaveBeenCalledWith('qwen', 'one', '7', 0)
+})
+
+it('requires an interactive super administrator for every native login terminal endpoint', async () => {
+  const endpoints = [
+    ['POST', '/agent-instances/instance/login'], ['GET', '/agent-instances/instance/operations'],
+    ['GET', '/agent-management-operations/operation'], ['GET', '/agent-management-operations/operation/output'],
+    ['POST', '/agent-management-operations/operation/input'], ['POST', '/agent-management-operations/operation/resize'],
+    ['POST', '/agent-management-operations/operation/cancel'],
+  ]
+  for (const [method, path] of endpoints) {
+    state.role = 'admin'
+    try { expect((await fetch(`${base}/api/studio${path}?profile=one`, { method })).status).toBe(403) }
+    finally { state.role = 'super_admin' }
+    expect((await fetch(`${base}/api/studio${path}?profile=one`, { method, headers: { Authorization: 'Bearer studio_run_fixture' } })).status).toBe(403)
+    expect((await fetch(`${base}/api/studio${path}?profile=one&token=studio_run_fixture`, { method })).status).toBe(403)
+  }
+  expect(state.startLogin).not.toHaveBeenCalled()
+  for (const method of Object.values(state.management)) expect(method).not.toHaveBeenCalled()
+})
+
+it('accepts only login revision/request keys and scoped terminal controls, with no caching', async () => {
+  const post = (path: string, value: unknown, profile = '?profile=one') => fetch(`${base}/api/studio${path}${profile}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) })
+  const payload = { revision: 1, idempotencyKey: 'login-key' }
+  state.startLogin.mockReturnValue({ id: 'operation', status: 'starting' })
+  expect((await post('/agent-instances/instance/login', payload, '')).status).toBe(400)
+  for (const extra of [{ command: 'injected' }, { env: {} }, { ownerId: 'foreign' }, { terminal: { cols: 80, rows: 24 } }]) {
+    expect((await post('/agent-instances/instance/login', { ...payload, ...extra })).status).toBe(400)
+  }
+  expect(state.startLogin).not.toHaveBeenCalled()
+  const response = await post('/agent-instances/instance/login', payload)
+  expect(response.status).toBe(200)
+  expect(response.headers.get('cache-control')).toBe('no-store')
+  expect(state.startLogin).toHaveBeenCalledWith(expect.objectContaining({ principal: { id: '7', kind: 'user' }, profileId: 'one' }), 'instance', 1, 'login-key')
+  expect((await post('/agent-management-operations/operation/input', { sequence: 1, text: 'input', command: 'forged' })).status).toBe(400)
+  expect(state.management.input).not.toHaveBeenCalled()
+  expect((await post('/agent-management-operations/operation/input', { sequence: 1, text: 'input' })).status).toBe(200)
+  expect(state.management.input).toHaveBeenCalledWith(expect.objectContaining({ principal: { id: '7', kind: 'user' }, profileId: 'one' }), 'operation', 1, 'input')
+  expect((await post('/agent-management-operations/operation/resize', { cols: 100, rows: 40 })).status).toBe(200)
+  expect(state.management.resize).toHaveBeenCalledWith(expect.objectContaining({ profileId: 'one' }), 'operation', { cols: 100, rows: 40 })
+  expect((await fetch(`${base}/api/studio/agent-management-operations/operation/output?profile=one&after=-1`)).status).toBe(400)
+  expect(state.management.output).not.toHaveBeenCalled()
+  expect((await fetch(`${base}/api/studio/agent-management-operations/operation/output?profile=one&after=5`)).status).toBe(200)
+  expect(state.management.output).toHaveBeenCalledWith(expect.objectContaining({ profileId: 'one' }), 'operation', 5)
+  expect((await post('/agent-management-operations/operation/cancel', { id: 'another' })).status).toBe(400)
+  expect((await post('/agent-management-operations/operation/cancel', {})).status).toBe(200)
+  expect(state.management.cancel).toHaveBeenCalledWith(expect.objectContaining({ profileId: 'one' }), 'operation')
 })
