@@ -21,6 +21,7 @@ it('blocks update before shutdown with another process and blocks starts during 
   const cancel=coordinator.beginInstall('2.0.0')
   const concurrent=new InstallationCoordinator(process.execPath,root);handles.push(concurrent)
   expect(()=>concurrent.register('1.0.0')).toThrow('DESKTOP_INSTALLATION_IN_PROGRESS')
+  expect(()=>concurrent.recoverInterruptedInstall()).toThrow('DESKTOP_INSTALLATION_IN_PROGRESS')
   cancel()
   expect(()=>concurrent.register('1.0.0')).not.toThrow()
   coordinator.release();handles.splice(handles.indexOf(coordinator),1)

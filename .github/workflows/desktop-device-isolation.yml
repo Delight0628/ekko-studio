@@ -39,6 +39,8 @@ jobs:
           tests/desktop/desktop-storage-bootstrap.test.ts
           tests/desktop/desktop-device-storage.test.ts
           tests/desktop/browser-profile-lease.test.ts
+          tests/desktop/browser-profile-directory.test.ts
+          tests/desktop/webui-startup-diagnostics.test.ts
           --maxWorkers=1 --testTimeout=30000
       - name: Desktop build and updater lifecycle
         run: npm --prefix packages/desktop run test:updater

@@ -276,7 +276,11 @@ export class BrowserManager {
   }
 
   async createProfile(input: BrowserProfileCreateInput): Promise<DesktopBrowserProfile> {
-    if (input.rootDirectory) this.validateSessionScope(join(input.rootDirectory, 'data'))
+    if (input.rootDirectory) {
+      const sessionPath = join(input.rootDirectory, 'data')
+      this.validateSessionScope(sessionPath)
+      await this.profileLeases.acquire(sessionPath)
+    }
     const profile = await this.profileStore.create(input)
     this.emitState()
     return profile

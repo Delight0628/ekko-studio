@@ -22,6 +22,14 @@ async function run() {
  }
  require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
   try{
+   if(line==='transaction'){
+    const {DatabaseSync}=require('node:sqlite')
+    const registry=join(process.env.PROBE_REGISTRY,require('node:fs').readdirSync(process.env.PROBE_REGISTRY)[0],'coordination.sqlite')
+    const db=new DatabaseSync(registry)
+    db.exec('BEGIN IMMEDIATE')
+    db.prepare('INSERT INTO installation VALUES(1,?,?)').run(process.pid,'2.0.0')
+    releases.push(()=>{db.exec('ROLLBACK');db.close()});send({event:'transaction-open'})
+   }
    if(line==='install'){const cancel=coordinator.beginInstall('2.0.0');releases.push(cancel);send({event:'install-held'})}
    if(line==='quit'){releases.splice(0).reverse().forEach(release=>release());coordinator?.release();process.exit(0)}
   }catch(error){send({event:'blocked',message:error.message})}

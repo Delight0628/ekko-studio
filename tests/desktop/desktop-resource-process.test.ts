@@ -30,6 +30,7 @@ it('protects profiles and install handoff between real processes', async () => {
  }
  try{
   const profile=join(root,'profile'),alias=join(root,'alias')
+  mkdirSync(profile)
   const a=launch({PROBE_PROFILE:profile});expect((await a.receive()).event).toBe('profile-owned')
   symlinkSync(profile,alias,process.platform==='win32'?'junction':'dir')
   const b=launch({PROBE_PROFILE:alias});expect((await b.receive()).event).toBe('blocked')
@@ -57,6 +58,13 @@ it('protects profiles and install handoff between real processes', async () => {
   const blocked=launch({PROBE_REGISTRY:registry});expect((await blocked.receive()).event).toBe('blocked')
   await exit(first)
   const retry=launch({PROBE_REGISTRY:registry});expect((await retry.receive()).event).toBe('registered');await exit(retry)
+  const crashed=launch({PROBE_REGISTRY:registry});expect((await crashed.receive()).event).toBe('registered')
+  crashed.send('transaction');expect((await crashed.receive()).event).toBe('transaction-open')
+  const crashedExit=new Promise<void>(resolve=>crashed.child.once('close',()=>resolve()))
+  crashed.child.kill('SIGKILL');await crashedExit
+  const recovered=launch({PROBE_REGISTRY:registry});expect((await recovered.receive()).event).toBe('registered')
+  recovered.send('install');expect((await recovered.receive()).event).toBe('install-held');await exit(recovered)
+
  }finally{
   await Promise.all(children.map(child=>new Promise<void>(res=>{if(child.exitCode!==null||child.signalCode!==null)return res();child.once('close',()=>res());child.kill()})))
   rmSync(root,{recursive:true,force:true})

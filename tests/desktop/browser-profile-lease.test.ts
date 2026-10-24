@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, existsSync, rmSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { expect, it, vi } from 'vitest'
@@ -10,6 +10,8 @@ it('reuses a process lease across manager instances and symlink aliases',async()
   const a=new BrowserProfileLeases(release=>releases.push(release))
   const b=new BrowserProfileLeases(release=>releases.push(release))
   await Promise.all([a.acquire(join(root,'data')),a.acquire(join(root,'data'))])
+  expect(existsSync(join(root,'data'))).toBe(false)
+  mkdirSync(join(root,'data'))
   symlinkSync(join(root,'data'),join(root,'alias'),process.platform==='win32'?'junction':'dir')
   await expect(b.acquire(join(root,'alias'))).resolves.toBeUndefined()
   expect(releases.length).toBe(1)

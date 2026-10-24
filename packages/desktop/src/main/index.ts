@@ -516,6 +516,7 @@ function updateTrayMenu() {
     },
     {
       label: t('tray.checkForUpdates'),
+      enabled: !process.env[DEVICE_INSTANCE_ENV],
       click: () => {
         checkForDesktopUpdates(true).catch(err => {
           console.error('[tray] update check failed:', err)
@@ -1692,7 +1693,7 @@ async function runDesktopApp() {
       quitApp()
       return
     }
-    if (app.isPackaged) {
+    if (app.isPackaged && !process.env[DEVICE_INSTANCE_ENV]) {
       try {
         if (!app.setAsDefaultProtocolClient(PROVIDER_IMPORT_SCHEME)) {
           console.warn('[desktop] provider import protocol registration was unavailable')
