@@ -21,7 +21,7 @@ import {
   type IpcMainInvokeEvent,
   type WebContents,
 } from 'electron'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   getToken,
@@ -72,7 +72,9 @@ import { PROVIDER_IMPORT_SCHEME, providerImportPayload, providerImportFromArgs, 
 configureDesktopIdentity(app)
 if (process.env[DEVICE_INSTANCE_ENV] && process.env.EKKO_STUDIO_INSTANCE_USER_DATA) {
   app.setPath('userData', process.env.EKKO_STUDIO_INSTANCE_USER_DATA)
-  app.setPath('sessionData', join(process.env.EKKO_STUDIO_INSTANCE_USER_DATA, 'sessions'))
+  const sessionData = join(process.env.EKKO_STUDIO_INSTANCE_USER_DATA, 'sessions')
+  mkdirSync(sessionData, { recursive: true, mode: 0o700 })
+  app.setPath('sessionData', sessionData)
 }
 
 const PORT = Number(process.env.HERMES_DESKTOP_PORT) || 8748
