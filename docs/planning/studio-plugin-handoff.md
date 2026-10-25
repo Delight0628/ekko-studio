@@ -45,7 +45,9 @@ inspect 使用 ACP metadata 和 Content-Length JSON-RPC SDK `auth.getStatus`/`mo
 
 ### 最新冻结回归
 
-`01114c99f` 独立 QA build/coverage 通过：944 文件 / 9,853 项，12 文件 / 33 项条件跳过，2 workers、默认时限，413.00 秒。生产浏览器首轮 969 通过 / 1 失败；主题编辑器已有 inert，测试 fill 绕过加载锁定，`68fa9cc1b` 修复测试等待，原断言/期限未改、产品源码未改。专项 light/dark 通过，完整浏览器正在冻结 `68fa9cc1b` 上重跑，日志 `/tmp/studio-five-plugins-qa-browser-v2.log`；不要把首轮记为全绿。
+`01114c99f` 独立 QA build/coverage 通过：944 文件 / 9,853 项，12 文件 / 33 项条件跳过，2 workers、默认时限，413.00 秒。生产浏览器首轮 969 通过 / 1 失败；主题编辑器已有 inert，测试 fill 绕过加载锁定，`68fa9cc1b` 修复测试等待，原断言/期限未改、产品源码未改。专项 light/dark 通过；冻结 `68fa9cc1b` 完整重跑为 968 通过/2 失败，11.1 分钟；APNG/版本预览两项单独复测通过，两轮全量均不记为全绿。日志 `/tmp/studio-five-plugins-qa-browser-v2.log`；不要把首轮记为全绿。
+
+页面就绪修复：APNG 测试等待现有 inert 锁；版本预览刷新等待状态/标签两请求 settle 后再解除初始化，并报告错误。新增延迟请求单测与 PageLoading 共 6 项、原失败浏览器 2 项、相关完整浏览器文件 42 项、client 类型/harness 通过。Copilot 的 macOS/Linux native CI 通过，Windows 既有 Codex 审批等待在默认 vi.waitFor 阶段出现一次 starting/等待状态不符；未修改期限或预热测试，继续跟踪下一提交。
 
 ## 继续顺序
 

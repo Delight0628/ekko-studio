@@ -110,7 +110,13 @@
 
 ### 五插件冻结回归（2026-10-25）
 
-冻结 `01114c99f` 的独立 QA 生产构建通过；coverage 944 文件、9,853 项通过，12 文件/33 项按原条件跳过，默认时限、2 workers，413.00 秒。生产浏览器首轮 969 项通过、1 项失败（主题编辑器加载预设时的填值竞态），4 workers、无重试，10.5 分钟。页面已有 inert 锁定，Playwright 直接 fill 绕过了锁定；`68fa9cc1b` 只修正原测试等待页面就绪，原断言和期限保持不变，light/dark 两项专项通过。完整浏览器复验正在冻结 `68fa9cc1b` 上运行；未把首轮记为全绿。日志 `/tmp/studio-five-plugins-qa-{build,coverage,browser,browser-v2}.log`，报告 `/tmp/studio-five-plugins-qa-coverage`。
+冻结 `01114c99f` 的独立 QA 生产构建通过；coverage 944 文件、9,853 项通过，12 文件/33 项按原条件跳过，默认时限、2 workers，413.00 秒。生产浏览器首轮 969 项通过、1 项失败（主题编辑器加载预设时的填值竞态），4 workers、无重试，10.5 分钟。页面已有 inert 锁定，Playwright 直接 fill 绕过了锁定；`68fa9cc1b` 只修正原测试等待页面就绪，原断言和期限保持不变，light/dark 两项专项通过。冻结 `68fa9cc1b` 的完整复验为 968 通过/2 失败，11.1 分钟；APNG 上传与版本预览加载两项均在原断言/期限下单独复测通过，但两轮全量均不记为全绿。日志 `/tmp/studio-five-plugins-qa-{build,coverage,browser,browser-v2}.log`，报告 `/tmp/studio-five-plugins-qa-coverage`。
+
+### 回归发现的页面就绪问题（2026-10-25）
+
+APNG 浏览器测试的 setInputFiles 与原主题 fill 一样可绕过 inert；现等待已有编辑器锁定解除后再上传。版本预览页初始化同时读取状态/标签，Promise.all 在任一请求失败后提前结束，另一个请求仍在运行；现等待两者 settle 并显示错误。新增延迟请求回归与 PageLoading 共 6 项通过，原失败浏览器 2 项通过，相关完整浏览器文件 42 项通过，client 类型与 harness 通过；未放宽断言或期限。日志 `/tmp/studio-browser-readiness-{unit,focused,types,harness}.log`。
+
+Copilot 提交 `a31dc201c` 的 macOS/Linux native CI 已通过；Windows 469 通过/1 失败/1 条件跳过，既有 Codex 冷启动到审批的默认 vi.waitFor 阶段得到 starting 而非 waiting_input。没有修改期限、跳过或预热来掩盖该失败，后续提交继续观察。日志 `/tmp/studio-copilot-windows-ci-failure.log`。
 
 ### CodeBuddy 独立插件（2026-10-25，真实 CLI 专项通过）
 
