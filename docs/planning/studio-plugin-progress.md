@@ -98,6 +98,12 @@
 
 资源位置/输入框命令契约、命令基础链路、现有 Skills/配置编辑页接入和兼容配置连续性已交付。后续顺序：补齐 Qwen/Codex 管理、Studio MCP 和原生命令 → 接入聊天界面形成可体验闭环 → 扩展到其余 Agent 和业务入口 → 分发与最终验收。MCP 工具 SDK 已整合、提交并推送，原生配置注入等剩余能力随迁移继续推进。Hermes/Ekko 继续保持内置身份；14 个厂商插件须逐个迁移和验收，保留 ID 或 fixture 不计为交付。
 
+### 七插件冻结回归及 Electron 测试调整（2026-10-25）
+
+冻结 `7d9e36248` 的独立 QA 生产构建通过；生产浏览器 **972 项通过**，4 workers、无重试，11.1 分钟。完整 coverage 为 947 文件 / 9,897 项通过、1 文件 / 1 项失败，12 文件 / 33 项条件跳过，2 workers、默认时限，501.82 秒。唯一失败是既有 `native-device-switcher-electron.test.ts` 的 Electron 子进程触及 55 秒退出期限，单独复测仍失败；该次全量不记为通过。日志 `/tmp/studio-seven-plugins-qa-{build,browser,coverage,desktop-focused}.log`，报告 `/tmp/studio-seven-plugins-qa-coverage`。
+
+用户随后明确要求去掉这项测试，因此删除自动运行的 Electron 设备切换集成测试，保留其他设备切换测试和产品实现。`tests/fixtures/native-device-switcher.cjs` 仍被独立的手动验证脚本引用，予以保留，并撤去临时截图诊断。其余设备切换及远程设备专项 2 文件 / 27 项通过；删除不追溯改变上述全量结果。`7d9e36248` 的 13 项 CI 已全部通过，PR 保持 draft。
+
 ### OpenCode 独立插件（2026-10-25）
 
 - 新增 `studio.agent-opencode`，固定 `opencode-ai@1.19.4` 的原生二进制，使用该版本正式 ACP 的图片、MCP、审批、session/resume 与动态命令；无 server/client 私有导入。global 保留原生配置层和账号；scoped 隔离 Home/XDG/配置/数据库，通过 bundled OpenAI-compatible provider 使用 Chat Completions，临时 token 仅在环境中，原生 JSON/JSONC/Skills/指令文件不被启动覆盖。

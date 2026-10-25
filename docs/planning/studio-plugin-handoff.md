@@ -51,6 +51,8 @@ inspect 使用 ACP metadata 和 Content-Length JSON-RPC SDK `auth.getStatus`/`mo
 
 ### 最新冻结回归
 
+冻结 `7d9e36248` 的独立 QA 生产构建和完整生产浏览器 **972 项通过**（4 workers、无重试，11.1 分钟）；coverage 为 947 文件 / 9,897 项通过、1 文件 / 1 项失败，12 文件 / 33 项条件跳过（2 workers、默认时限，501.82 秒）。唯一失败是既有 Electron 设备切换集成测试的 55 秒子进程退出期限，单独复测仍失败。用户明确要求去掉该测试，现删除其自动化测试文件，保留其他设备切换测试、产品实现和手动验证脚本使用的 fixture；临时诊断已撤去。上述冻结 coverage 不记为全绿。日志 `/tmp/studio-seven-plugins-qa-{build,browser,coverage,desktop-focused}.log`。
+
 `01114c99f` 独立 QA build/coverage 通过：944 文件 / 9,853 项，12 文件 / 33 项条件跳过，2 workers、默认时限，413.00 秒。生产浏览器首轮 969 通过 / 1 失败；主题编辑器已有 inert，测试 fill 绕过加载锁定，`68fa9cc1b` 修复测试等待，原断言/期限未改、产品源码未改。专项 light/dark 通过；冻结 `68fa9cc1b` 完整重跑为 968 通过/2 失败，11.1 分钟；APNG/版本预览两项单独复测通过，两轮全量均不记为全绿。日志 `/tmp/studio-five-plugins-qa-browser-v2.log`；不要把首轮记为全绿。
 
 页面就绪修复：APNG 测试等待现有 inert 锁；版本预览刷新等待状态/标签两请求 settle 后再解除初始化，并报告错误。新增延迟请求单测与 PageLoading 共 6 项、原失败浏览器 2 项、相关完整浏览器文件 42 项、client 类型/harness 通过。Copilot 的 macOS/Linux native CI 通过，Windows 既有 Codex 审批等待在默认 vi.waitFor 阶段出现一次 starting/等待状态不符；未修改期限或预热测试，继续跟踪下一提交。
@@ -58,7 +60,7 @@ inspect 使用 ACP metadata 和 Content-Length JSON-RPC SDK `auth.getStatus`/`mo
 ## 继续顺序
 
 1. 核对 OpenCode 提交/推送及 CI，冻结新提交完成 coverage/browser/build，更新原草稿 PR。QA 副本使用自己的 node_modules；不要在测试中切 checkout。`68fa9cc1b` 的两项浏览器失败已保留证据并修复，`8db1d3fd2` 交付页面就绪修复。
-2. 迁移余下 7 个独立插件：**zcode、antigravity、claude-code、pi、grok、dsh、cursor**。保留已有能力和真实管理语义；协议/进程代码可抽公共驱动，厂商配置保留在各插件。禁止插件导入 server/client 私有源码，禁止宿主万能厂商 runner。已开始只读调研 Pi RPC 文档与 npm 固定版本，尚未实现。
+2. 迁移余下 7 个独立插件：**zcode、antigravity、claude-code、pi、grok、dsh、cursor**。保留已有能力和真实管理语义；协议/进程代码可抽公共驱动，厂商配置保留在各插件。禁止插件导入 server/client 私有源码，禁止宿主万能厂商 runner。Pi 1.4.0 的 RPC 插件实现正在工作区验证，尚未提交或加入随包目录；基础真实 CLI 14 轮 / 19 次本地模型 / 5 次 MCP 和 12 项 worker 已通过，原生 compact 探针仍失败，需修复后继续交付。保留 Pi 目录、worker 测试及两个构建/验证脚本的未提交修改。
 3. 统一旧单聊/历史接管、群聊、工作流、全局任务及 API 的运行协调器；父子 Run、共享取消/预算、计量归属、唯一写入和完成屏障。
 4. 补齐 SDK 完整 ctx、事件/限额/诊断，Web/Desktop/App 动态目录和管理/聊天协议。已有 PTY、MCP resources/prompts、Studio MCP、Skills 包导入删除不应再列为待开发。
 5. Hermes/Ekko 保持 builtin 身份接入相同 Agent 契约；插件宿主故障不能影响内置引擎，避免重复写入。
@@ -73,7 +75,7 @@ inspect 使用 ACP metadata 和 Content-Length JSON-RPC SDK `auth.getStatus`/`mo
 - 构建/测试清理 HERMES_、EKKO_、ELECTRON_、AUTH_TOKEN、PORT、NODE_OPTIONS；外部包验证另清理 NODE_PATH；NODE_ENV=test。
 - PATH 首位 Node 24.22.1，再 `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`，保留 Homebrew ffmpeg。
 - 当前辅助运行器 `/tmp/studio-plugin-run-clean.py` 接收日志路径和命令；全量 `npm run test:coverage -- --maxWorkers=2` 保持默认时限，不加超时/删断言/跳过失败。
-- 完整 Electron 探针在清理环境后设置 `EKKO_TEST_ELECTRON_EXECUTABLE=/Users/ekko/Desktop/git/hermes-studio/studio/packages/desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron`；辅助运行器使用 `STUDIO_QA_ELECTRON=1`。
+- 用户已要求移除自动运行的 Electron 设备切换集成测试；手动脚本 `packages/desktop/scripts/verify-native-device-switcher.cjs` 及其 fixture 保留。
 - QA：`/Users/ekko/.cache/studio-plugin-chat-foundation-qa`，自身 npm ci 已完成；禁止重新共享主工作区 node_modules 或跨工作区的 SDK 链接。浏览器 root 4173、QA 4183，独立客户端缓存。
 - 实际 CLI 路径：Kimi `/Users/ekko/.nvm/versions/node/v24.16.0/bin/kimi`；Qoder `/tmp/studio-qoder-native-qa/node_modules/@qoder-ai/qodercli/bundle/qodercli.js`；CodeBuddy `/tmp/studio-codebuddy-native-qa/node_modules/@tencent-ai/codebuddy-code/bin/codebuddy`；Copilot `/Users/ekko/.nvm/versions/node/v24.16.0/bin/copilot`；OpenCode `/tmp/studio-opencode-native-qa/node_modules/opencode-ai/bin/opencode.exe`（macOS 也是此文件名，实际 Mach-O binary）。均用临时 Home 和本地模型，不读真实用户账号。
 - 原已推送 `ead6a4c3f` 的 9,802/967 只是旧冻结结果；不能冒充本轮或后续提交结果。
