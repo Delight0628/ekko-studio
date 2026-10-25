@@ -26,7 +26,7 @@ function setup() {
 
 it('lists only implemented bundles and enables one through a trusted distribution path', async () => {
   const f = setup()
-  expect(f.service.list('one').map(item => item.id)).toEqual(['qwen', 'codex', 'kimi'])
+  expect(f.service.list('one').map(item => item.id)).toEqual(['qwen', 'codex', 'kimi', 'qoder'])
   expect(f.store.list()).toEqual([])
   const result = await f.service.enable('qwen', 'one', 'owner', 0)
   expect(result).toMatchObject({ enabled: true, ownerId: 'owner', profileId: 'one', revision: 1 })
@@ -38,7 +38,7 @@ it('lists only implemented bundles and enables one through a trusted distributio
 it('displays the permissions of the actual distributed bundles before first installation', async () => {
   const f = setup()
   for (const bundle of f.service.list('one')) {
-    const directory = bundle.id === 'qwen' ? 'qwen-code' : 'codex'
+    const directory = bundle.id === 'qwen' ? 'qwen-code' : bundle.id
     const manifest = JSON.parse(await readFile(`plugins/${directory}/studio-plugin.json`, 'utf8'))
     expect(bundle.requiredCapabilities).toEqual(manifest.requires.capabilities)
   }

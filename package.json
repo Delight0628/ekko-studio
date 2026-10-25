@@ -80,7 +80,8 @@
     "pack:npm": "node scripts/pack-npm-releases.mjs",
     "publish:npm": "node scripts/publish-npm-releases.mjs",
     "pack:plugins": "npm --prefix packages/studio-plugin-sdk run build && npm --prefix packages/studio-agent-drivers run build && node scripts/pack-agent-libraries.mjs",
-    "verify:plugins:packages": "npm --prefix packages/studio-plugin-sdk run build && npm --prefix packages/studio-agent-drivers run build && node scripts/verify-agent-library-packages.mjs"
+    "verify:plugins:packages": "npm --prefix packages/studio-plugin-sdk run build && npm --prefix packages/studio-agent-drivers run build && node scripts/verify-agent-library-packages.mjs",
+    "verify:plugins:qoder": "npm run build:plugins && node scripts/verify-qoder-plugin-native.mjs"
   },
   "files": [
     "bin/",

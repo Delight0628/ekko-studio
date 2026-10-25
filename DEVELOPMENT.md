@@ -136,6 +136,11 @@ public imports, and loads it with a shared SDK error identity. It uses npm's
 configured registry for the consumer's development tools and removes the fixture
 after verification. Application tarballs omit development workspace metadata.
 
+`STUDIO_QODER_COMMAND=/absolute/path/to/qodercli.js npm run verify:plugins:qoder`
+builds the plugin and checks its pinned CLI version, native ACP metadata, login
+plan and resource locations through managed processes and disposable native
+storage. It neither logs into an account nor sends a model request.
+
 ## Commit And PR Rules
 
 - Branch from `main` for new work.

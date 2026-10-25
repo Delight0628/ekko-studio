@@ -9,6 +9,8 @@ const bundles = [
   { id: 'qwen', name: 'Qwen Code', pluginId: 'studio.agent-qwen', directory: 'qwen-code' },
   { id: 'codex', name: 'Codex', pluginId: 'studio.agent-codex', directory: 'codex' },
   { id: 'kimi', name: 'Kimi Code', pluginId: 'studio.agent-kimi', directory: 'kimi' },
+  { id: 'qoder', name: 'Qoder', pluginId: 'studio.agent-qoder', directory: 'qoder',
+    requiredCapabilities: ['agents.register', 'commands.register', 'runs.start', 'processes.spawn', 'mcp.studio', 'artifacts.read'] },
 ] as const
 const bundledCapabilities = ['agents.register', 'commands.register', 'runs.start', 'processes.spawn', 'mcp.studio', 'models.gateway', 'artifacts.read']
 
@@ -22,7 +24,7 @@ export class BundledAgentPlugins {
       const profile = this.store.profile(bundle.pluginId, profileId), installed = this.store.get(bundle.pluginId)
       return { id: bundle.id, name: bundle.name, pluginId: bundle.pluginId, installed: !!installed,
         revision: profile?.revision || 0, enabled: profile?.enabled || false,
-        requiredCapabilities: installed?.manifest.requires.capabilities || [...bundledCapabilities],
+        requiredCapabilities: installed?.manifest.requires.capabilities || [...('requiredCapabilities' in bundle ? bundle.requiredCapabilities : bundledCapabilities)],
         state: installed ? this.host.diagnostic(bundle.pluginId, profileId).state : 'not_installed' }
     })
   }

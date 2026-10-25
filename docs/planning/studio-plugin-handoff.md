@@ -4,14 +4,16 @@
 
 ## 0. 2026-10-25 接续进展
 
-原工作区改动已保留并完成首批验证，当前准备提交 Kimi、共享 ACP 和依赖构建；下文第 3 节是接续前快照，已被本节结果覆盖。
+原工作区改动已保留并完成首批验证，Kimi、共享 ACP 和依赖构建已提交并推送 `15a6371a1`；下文第 3 节是接续前快照，已被本节结果覆盖。
 
 - 最终生产构建、harness 通过；服务端专项 10 文件 103 项通过、1 项按原条件跳过。
 - SDK/driver 新增独立 tarball 打包和仓库外 npm 安装、严格 TypeScript 编译及运行验证，全部通过；主应用发布工件移除开发 workspaces 元数据，实际 tarball 回归通过。未执行 npm publish。
 - 生产浏览器 4 文件 33 项通过（4 workers、无重试），包括 Kimi 移动端授权启用、实例创建与登录检查。首轮两项断言错误已修复，无跳过或放宽功能要求。
 - Kimi 实际 CLI 2.1.1 本轮再次完成 14 轮聊天、19 次本地模型请求、5 次 Studio MCP 调用；没有真实账号或远程付费服务验收。
 - 日志 `/tmp/studio-kimi-final-{build,harness,focused,native}.log`、`/tmp/studio-kimi-final-browser-v2.log`、`/tmp/studio-kimi-external-packages.log`。
-- 提交后应使用 QA 自有 `npm ci --ignore-scripts`，避免现有 node_modules 符号链接指向主工作区，再执行冻结全量 coverage/browser 回归。完整验收仍为 **0/14**，独立插件实现为 Qwen/Codex/Kimi 三个，其余 11 个继续推进。
+- QA 已移除原 node_modules 符号链接并完成自身 `npm ci --ignore-scripts`/PTY rebuild/build；冻结 `15a6371a1` 的完整 coverage/browser 回归正在运行，不能切换该副本 checkout。完整验收仍为 **0/14**。
+- 新增第四个 Qoder 独立插件，固定 CLI 1.1.78；5 文件 49 项服务端专项、10 项管理页生产浏览器、实际受管 CLI 元数据检查已通过。保留 global-only 模式，真实账号/远程推理未验收；其余 10 个 Agent 待迁移。详细证据见 progress。
+- 三平台 CI 暴露两处旧 worker fixture 缺少 SDK source alias，已修复并在移开 SDK dist 后通过 16 项。CI 后续结果待确认，不能沿用旧 HEAD 的 13 项通过声明。
 
 ## 1. 从这里继续
 
