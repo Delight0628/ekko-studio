@@ -19775,7 +19775,7 @@
           "Sessions"
         ],
         "summary": "List conversation tasks across accessible profiles",
-        "description": "Lists persisted single-chat tasks, including archived sessions, with stable pagination. Profile access and pending deletions are applied before counting. Group, workflow and global-agent tasks are excluded. Open tasks precede completed tasks; update time and id determine stable order within each status. Does not invoke a model or modify task status.",
+        "description": "Lists persisted single-chat tasks, including archived sessions, with stable pagination. Profile access and pending deletions are applied before counting. Group, workflow and global-agent tasks are excluded. Open tasks precede completed then closed tasks; update time and id determine stable order within each status. Does not invoke a model or modify task status.",
         "operationId": "listSessionTaskItems",
         "security": [
           {
@@ -19847,7 +19847,8 @@
               "type": "string",
               "enum": [
                 "open",
-                "completed"
+                "completed",
+                "closed"
               ]
             }
           },
@@ -19891,7 +19892,7 @@
           "Chat Run"
         ],
         "summary": "Read the active turn session goals",
-        "description": "The current turn context binds the session and profile. Expired contexts, other profiles, group chats, workflows and background/delegated runs are rejected. No per-turn task plan is created or modified. Writes upsert only changed/new goals and preserve omitted goals; revision conflicts require rereading. New completions require completion_evidence.",
+        "description": "The current turn context binds the session and profile. Expired contexts, other profiles, group chats, workflows and background/delegated runs are rejected. No per-turn task plan is created or modified. Writes upsert only changed/new goals and preserve omitted goals; revision conflicts require rereading. New completions require completion_evidence. Closed goals remain readable but model writes cannot change them; only a user can reopen them from the task list.",
         "operationId": "listSessionTasks",
         "security": [
           {
@@ -19977,7 +19978,7 @@
           "Chat Run"
         ],
         "summary": "Update the active turn session goals",
-        "description": "The current turn context binds the session and profile. Expired contexts, other profiles, group chats, workflows and background/delegated runs are rejected. No per-turn task plan is created or modified. Writes upsert only changed/new goals and preserve omitted goals; revision conflicts require rereading. New completions require completion_evidence.",
+        "description": "The current turn context binds the session and profile. Expired contexts, other profiles, group chats, workflows and background/delegated runs are rejected. No per-turn task plan is created or modified. Writes upsert only changed/new goals and preserve omitted goals; revision conflicts require rereading. New completions require completion_evidence. Closed goals remain readable but model writes cannot change them; only a user can reopen them from the task list.",
         "operationId": "updateSessionTasks",
         "security": [
           {
@@ -22099,6 +22100,128 @@
             "description": "Optional exact session profile filter."
           }
         ]
+      }
+    },
+    "/api/studio/sessions/{id}/tasks/{taskId}/status": {
+      "patch": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Manually change a task status",
+        "description": "User action from the task list. Changes one existing task to open, completed or closed, with account/profile access checks. Requires its latest updated_at as expected_updated_at; stale rows return 409. Closed tasks remain readable and only this manual endpoint can reopen them. Manual completion records the user action as evidence and links to the original request. Does not invoke a model or create a run plan. Run credentials cannot use this endpoint.",
+        "operationId": "setSessionTaskStatus",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current goal ledger; tasks is empty before the first goal is recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "session_id",
+                    "revision",
+                    "updated_at",
+                    "tasks"
+                  ],
+                  "properties": {
+                    "session_id": {
+                      "type": "string"
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "updated_at": {
+                      "type": "integer"
+                    },
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SessionTask"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid status or expected_updated_at."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "The authenticated user cannot access this session profile."
+          },
+          "404": {
+            "description": "Session not found, or the explicit profile filter does not match."
+          },
+          "409": {
+            "description": "Task changed or session is unavailable. Refresh the task list."
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional exact session profile filter."
+          },
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "status",
+                  "expected_updated_at"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "open",
+                      "completed",
+                      "closed"
+                    ]
+                  },
+                  "expected_updated_at": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/studio/sessions/{id}/unarchive": {
@@ -27620,7 +27743,8 @@
             "type": "string",
             "enum": [
               "open",
-              "completed"
+              "completed",
+              "closed"
             ]
           },
           "source_message_id": {
@@ -27632,7 +27756,7 @@
           },
           "completion_evidence": {
             "type": "string",
-            "description": "Concise evidence of verified delivery supplied by the conversation agent."
+            "description": "Concise verification from the conversation agent, or an explicit manual-completion marker for a user action."
           },
           "created_at": {
             "type": "integer",

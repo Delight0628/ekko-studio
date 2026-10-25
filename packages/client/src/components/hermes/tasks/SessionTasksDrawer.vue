@@ -2,9 +2,9 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NButton, NDrawer, NDrawerContent, NDropdown, NEmpty, NInput, NPagination, NSpin } from 'naive-ui'
+import { NButton, NDrawer, NDrawerContent, NDropdown, NEmpty, NInput, NPagination, NSpin, useMessage } from 'naive-ui'
 import SessionTaskIcon from '@/components/common/SessionTaskIcon.vue'
-import { fetchSessionTasks, type SessionTaskListItem } from '@/api/studio/session-tasks'
+import { fetchSessionTasks, updateSessionTaskStatus, type SessionTaskListItem, type SessionTaskStatus } from '@/api/studio/session-tasks'
 import { chatSessionAgentAvatar } from '@/utils/chat-agent-avatar'
 
 const props = defineProps<{ show: boolean }>()
@@ -12,6 +12,8 @@ const emit = defineEmits<{ 'update:show': [show: boolean] }>()
 const route = useRoute()
 const router = useRouter()
 const { t, locale } = useI18n()
+const message = useMessage()
+const savingIds = ref(new Set<string>())
 const tasks = ref<SessionTaskListItem[]>([])
 const total = ref(0)
 const loading = ref(true)
@@ -20,7 +22,7 @@ const searchOpen = ref(false)
 const searchInput = ref<InstanceType<typeof NInput> | null>(null)
 const statusMenuOpen = ref(false)
 const search = ref(typeof route.query.taskSearch === 'string' ? route.query.taskSearch : '')
-const status = computed(() => ['open', 'completed'].includes(String(route.query.taskStatus)) ? String(route.query.taskStatus) : '')
+const status = computed(() => ['open', 'completed', 'closed'].includes(String(route.query.taskStatus)) ? String(route.query.taskStatus) : '')
 const order = computed(() => route.query.taskOrder === 'oldest' ? 'oldest' : 'newest')
 const page = computed(() => {
   const value = Number(route.query.taskPage)
@@ -30,11 +32,12 @@ const mobileQuery = window.matchMedia('(max-width: 768px)')
 const isMobile = ref(mobileQuery.matches)
 const drawerWidth = computed(() => isMobile.value ? '100vw' : 'min(1200px, calc(100vw - 64px))')
 const statusLabel = computed(() => t(status.value ? `sessionTasks.${status.value}` : 'sessionTasks.status'))
-const statusOptions = computed(() => [
-  { key: '', label: t('sessionTasks.all') },
+const taskStatusOptions = computed(() => [
   { key: 'open', label: t('sessionTasks.open') },
   { key: 'completed', label: t('sessionTasks.completed') },
+  { key: 'closed', label: t('sessionTasks.closed') },
 ])
+const statusOptions = computed(() => [{ key: '', label: t('sessionTasks.all') }, ...taskStatusOptions.value])
 let requestSequence = 0
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 let refreshTimer: ReturnType<typeof setInterval> | undefined
@@ -65,7 +68,23 @@ async function load(silent = false) {
 }
 
 function refresh() {
-  if (props.show && document.visibilityState === 'visible') void load(true)
+  if (props.show && !savingIds.value.size && document.visibilityState === 'visible') void load(true)
+}
+async function changeStatus(task: SessionTaskListItem, value: string | number) {
+  if (savingIds.value.has(task.id) || value === task.status || !['open', 'completed', 'closed'].includes(String(value))) return
+  savingIds.value = new Set([...savingIds.value, task.id])
+  requestSequence++
+  try {
+    await updateSessionTaskStatus(task, value as SessionTaskStatus)
+    requestSequence++
+    if (!disposed && props.show) await load(true)
+  } catch {
+    if (!disposed) message.error(t('sessionTasks.updateFailed'))
+  } finally {
+    const next = new Set(savingIds.value)
+    next.delete(task.id)
+    savingIds.value = next
+  }
 }
 async function openSearch() {
   searchOpen.value = true
@@ -154,7 +173,7 @@ onUnmounted(() => {
               <div v-else-if="error" class="empty-state"><SessionTaskIcon :size="32" /><p>{{ t('sessionTasks.loadFailed') }}</p><NButton size="small" secondary @click="load()">{{ t('sessionTasks.retry') }}</NButton></div>
               <NEmpty v-else :description="t(search || status ? 'sessionTasks.noResults' : 'sessionTasks.empty')"><template #icon><SessionTaskIcon :size="32" /></template></NEmpty>
             </td></tr></tbody>
-            <tbody v-else><tr v-for="task in tasks" :key="task.id" class="task-row" :class="{ 'task-row--completed': task.status === 'completed' }">
+            <tbody v-else><tr v-for="task in tasks" :key="task.id" class="task-row" :class="{ 'task-row--completed': task.status === 'completed', 'task-row--closed': task.status === 'closed' }">
               <td class="task-cell">
                 <a class="task-title" :href="taskHref(task)" :aria-label="t('sessionTasks.openTask', { title: task.title })">{{ task.title }}</a>
                 <details class="task-description"><summary><span class="description-text">{{ task.summary }}</span><SessionTaskIcon name="chevron-down" :size="13" /></summary></details>
@@ -162,12 +181,21 @@ onUnmounted(() => {
                   <img :src="taskAvatar(task).src" alt="" />
                   <div class="mobile-source-info">
                     <span class="mobile-session-name">{{ task.session_title || t('sessionTasks.untitled') }}</span>
-                    <div class="mobile-meta"><span class="task-status"><SessionTaskIcon :name="task.status === 'completed' ? 'completed' : 'circle'" :size="13" />{{ t(`sessionTasks.${task.status}`) }}</span><time class="mobile-time" :datetime="new Date(task.updated_at).toISOString()">{{ formatTime(task.updated_at) }}</time></div>
+                    <div class="mobile-meta">
+                      <NDropdown trigger="click" :options="taskStatusOptions" :menu-props="() => ({ role: 'menu' })" :node-props="option => ({ role: 'menuitem', 'aria-label': String(option.label) })" @select="value => changeStatus(task, value)">
+                        <button type="button" class="task-status task-status-button" :disabled="savingIds.has(task.id)" :aria-busy="savingIds.has(task.id)" :aria-label="t('sessionTasks.changeStatus', { title: task.title })" aria-haspopup="menu"><SessionTaskIcon :name="task.status === 'open' ? 'circle' : task.status" :size="13" />{{ t(`sessionTasks.${task.status}`) }}<SessionTaskIcon name="chevron-down" :size="11" /></button>
+                      </NDropdown>
+                      <time class="mobile-time" :datetime="new Date(task.updated_at).toISOString()">{{ formatTime(task.updated_at) }}</time>
+                    </div>
                   </div>
                 </div>
               </td>
               <td class="source-column"><div class="source-session"><img :src="taskAvatar(task).src" alt="" /><div><span>{{ task.session_title || t('sessionTasks.untitled') }}</span><small>{{ taskAvatar(task).label }}<span class="source-divider" aria-hidden="true" />{{ task.profile }}</small></div></div></td>
-              <td class="status-cell"><span class="task-status"><SessionTaskIcon :name="task.status === 'completed' ? 'completed' : 'circle'" :size="13" />{{ t(`sessionTasks.${task.status}`) }}</span></td>
+              <td class="status-cell">
+                <NDropdown trigger="click" :options="taskStatusOptions" :menu-props="() => ({ role: 'menu' })" :node-props="option => ({ role: 'menuitem', 'aria-label': String(option.label) })" @select="value => changeStatus(task, value)">
+                  <button type="button" class="task-status task-status-button" :disabled="savingIds.has(task.id)" :aria-busy="savingIds.has(task.id)" :aria-label="t('sessionTasks.changeStatus', { title: task.title })" aria-haspopup="menu"><SessionTaskIcon :name="task.status === 'open' ? 'circle' : task.status" :size="13" />{{ t(`sessionTasks.${task.status}`) }}<SessionTaskIcon name="chevron-down" :size="11" /></button>
+                </NDropdown>
+              </td>
               <td class="time-column"><time :datetime="new Date(task.updated_at).toISOString()">{{ formatTime(task.updated_at) }}</time></td>
               <td class="action-cell"><a class="task-open" :href="taskHref(task)" :aria-label="t('sessionTasks.openChat')"><SessionTaskIcon name="open" :size="17" /></a></td>
             </tr></tbody>
@@ -189,7 +217,7 @@ onUnmounted(() => {
 .task-list { width: 100%; table-layout: fixed; border-collapse: collapse; }
 .task-list--empty { height: 100%; }
 .source-col { width: 25%; }
-.status-col { width: 116px; }
+.status-col { width: 164px; }
 .time-col { width: 140px; }
 .action-col { width: 52px; }
 th, td { padding: 18px 20px; border-bottom: var(--border-width, 1px) solid $border-light; text-align: start; }
@@ -222,7 +250,12 @@ details[open] summary svg { display: block; margin: 2px 0 0 auto; transform: rot
 .source-divider { width: 2px; height: 2px; border-radius: 50%; background: currentColor; }
 .task-status { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: var(--border-width, 1px) solid $border-light; border-radius: var(--radius-component, 6px); color: $text-secondary; font-size: calc(var(--font-size-base, 14px) * 11 / 14); line-height: 1.5; white-space: nowrap; }
 .task-status svg { flex-shrink: 0; }
+.task-status-button { font-family: inherit; background: transparent; cursor: pointer; }
+.task-status-button:hover { border-color: $accent-primary; }
+.task-status-button:focus-visible { outline: 2px solid $accent-primary; outline-offset: 2px; }
+.task-status-button:disabled { cursor: wait; opacity: 0.6; }
 .task-row--completed .task-status { color: $success; background: rgba(var(--success-rgb), 0.06); border-color: transparent; }
+.task-row--closed .task-status { color: $text-muted; }
 time { display: block; padding-top: 7px; color: $text-muted; font-size: calc(var(--font-size-base, 14px) * 11 / 14); white-space: nowrap; }
 .task-open { display: grid; place-items: center; width: 30px; height: 30px; color: $text-muted; border-radius: var(--radius-component, 5px); }
 .task-open:hover { background: rgba(var(--accent-primary-rgb), 0.05); color: $text-primary; }

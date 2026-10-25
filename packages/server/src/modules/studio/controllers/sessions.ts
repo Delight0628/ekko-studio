@@ -9,7 +9,7 @@ import { ensureBusinessConsumers } from '../services/webhooks/business-consumers
 import { authorizeSessionShare, authorizeShareFile } from '../services/session-shares/access'
 import { sessionShareService } from '../services/session-shares/service'
 import { getSessionTaskPlans } from '../services/task-plans'
-import { getSessionTasks, listSessionTaskItems } from '../services/session-tasks'
+import { getSessionTasks, listSessionTaskItems, setSessionTaskStatus, SessionTasksError } from '../services/session-tasks'
 import { historySessionSource, isBuiltinEkkoAgent } from '../contracts/history-source'
 import {
   deleteHermesSessionForProfile,
@@ -1155,7 +1155,7 @@ function cleanSessionContextMessages(messages: any[]): Array<{
 
 export function listTasks(ctx: any) {
   const { status, order = 'newest', search = '', offset = '0', limit = '50' } = ctx.query
-  if ((status !== undefined && status !== 'open' && status !== 'completed')
+  if ((status !== undefined && status !== 'open' && status !== 'completed' && status !== 'closed')
     || (ctx.query.profile !== undefined && typeof ctx.query.profile !== 'string')
     || (order !== 'newest' && order !== 'oldest') || typeof search !== 'string' || search.length > 200
     || typeof offset !== 'string' || !/^\d+$/.test(offset) || !Number.isSafeInteger(Number(offset))
@@ -1185,6 +1185,29 @@ export function getTasks(ctx: any) {
   }
   if (denySessionAccess(ctx, session)) return
   ctx.body = getSessionTasks(session.id)
+}
+
+export function updateTaskStatus(ctx: any) {
+  if (ctx.get?.('x-studio-run-context')) {
+    ctx.status = 403
+    ctx.body = { error: 'Manual task status changes require user access' }
+    return
+  }
+  const session = localGetSession(ctx.params.id)
+  const profile = explicitProfileFilter(ctx)
+  if (!session || getPendingDeletedSessionIds().has(session.id) || (profile && (session.profile || 'default') !== profile)) {
+    ctx.status = 404
+    ctx.body = { error: 'Session not found' }
+    return
+  }
+  if (denySessionAccess(ctx, session)) return
+  try {
+    ctx.body = setSessionTaskStatus(session.id, session.profile || 'default', ctx.params.taskId, ctx.request.body || {})
+  } catch (error) {
+    if (!(error instanceof SessionTasksError)) throw error
+    ctx.status = error.status
+    ctx.body = { error: error.message }
+  }
 }
 
 export async function getContext(ctx: any) {

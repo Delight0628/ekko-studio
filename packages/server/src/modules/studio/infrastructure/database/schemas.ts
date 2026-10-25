@@ -96,7 +96,7 @@ export const SESSION_TASKS_SCHEMA: Record<string, string> = {
   session_id: 'TEXT NOT NULL',
   title: 'TEXT NOT NULL',
   summary: "TEXT NOT NULL DEFAULT ''",
-  status: "TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'completed'))",
+  status: "TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'completed', 'closed'))",
   source_message_id: 'INTEGER NOT NULL',
   evidence_message_id: 'INTEGER',
   completion_evidence: "TEXT NOT NULL DEFAULT ''",
@@ -1614,6 +1614,33 @@ export function syncTable(
   addMissingSafeColumns(db, tableName, schema)
 }
 
+/** SQLite cannot alter a CHECK constraint; preserve the table and its custom objects. */
+function migrateSessionTaskClosedStatus(db: NonNullable<ReturnType<typeof getDb>>): void {
+  const legacyCheck = /CHECK\s*\(\s*status\s+IN\s*\(\s*'open'\s*,\s*'completed'\s*\)\s*\)/i
+  const readSql = () => (db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(SESSION_TASKS_TABLE) as { sql: string } | undefined)?.sql
+  if (!legacyCheck.test(readSql() || '')) return
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    const sql = readSql() || ''
+    if (legacyCheck.test(sql)) {
+      const objects = db.prepare("SELECT sql FROM sqlite_master WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL")
+        .all(SESSION_TASKS_TABLE) as Array<{ sql: string }>
+      const columns = (db.prepare(`PRAGMA table_info(${quoteIdentifier(SESSION_TASKS_TABLE)})`).all() as Array<{ name: string }>)
+        .map(column => quoteIdentifier(column.name)).join(', ')
+      const temporary = 'session_tasks_closed_upgrade'
+      const createSql = sql.replace(legacyCheck, "CHECK(status IN ('open', 'completed', 'closed'))")
+        .replace(/^(CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?)(?:"session_tasks"|session_tasks)(?=\s*\()/i, `$1${quoteIdentifier(temporary)}`)
+      db.exec(createSql)
+      db.exec(`INSERT INTO ${quoteIdentifier(temporary)} (${columns}) SELECT ${columns} FROM ${quoteIdentifier(SESSION_TASKS_TABLE)}`)
+      db.exec(`DROP TABLE ${quoteIdentifier(SESSION_TASKS_TABLE)}`)
+      db.exec(`ALTER TABLE ${quoteIdentifier(temporary)} RENAME TO ${quoteIdentifier(SESSION_TASKS_TABLE)}`)
+      for (const object of objects) db.exec(object.sql)
+    }
+    db.exec('COMMIT')
+  } catch (error) { db.exec('ROLLBACK'); throw error }
+}
+
 function cleanupHistoricalZeroLineWorkspaceDiffs(
   db: NonNullable<ReturnType<typeof getDb>>,
 ): void {
@@ -1673,7 +1700,7 @@ function cleanupHistoricalZeroLineWorkspaceDiffs(
 
 /**
  * Initialize missing Hermes SQLite tables with proper schemas.
- * Existing tables only receive safe additive columns.
+ * Existing tables receive safe additive columns and explicit domain migrations.
  * Call this once at application bootstrap.
  */
 export function initAllHermesTables(): void {
@@ -1709,6 +1736,7 @@ export function initAllHermesTables(): void {
     syncTable(SESSION_TASKS_TABLE, SESSION_TASKS_SCHEMA, {
       indexes: { idx_session_tasks_session: 'CREATE INDEX IF NOT EXISTS idx_session_tasks_session ON session_tasks(session_id, created_at, id)' },
     })
+    migrateSessionTaskClosedStatus(db)
     syncTable(SESSIONS_TABLE, SESSIONS_SCHEMA, {
       indexes: SESSIONS_INDEXES,
     })

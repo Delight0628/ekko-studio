@@ -1849,9 +1849,9 @@ openapi.components.schemas.SessionTask = {
   type: 'object', required: ['id', 'title', 'summary', 'status', 'source_message_id', 'created_at', 'updated_at'],
   properties: {
     id: { type: 'string' }, title: { type: 'string', maxLength: 200 }, summary: { type: 'string', maxLength: 1000 },
-    status: { type: 'string', enum: ['open', 'completed'] },
+    status: { type: 'string', enum: ['open', 'completed', 'closed'] },
     source_message_id: { type: 'integer' }, evidence_message_id: { type: 'integer', nullable: true },
-    completion_evidence: { type: 'string', description: 'Concise evidence of verified delivery supplied by the conversation agent.' },
+    completion_evidence: { type: 'string', description: 'Concise verification from the conversation agent, or an explicit manual-completion marker for a user action.' },
     created_at: { type: 'integer', description: 'Unix time in milliseconds.' }, updated_at: { type: 'integer' },
     completed_at: { type: 'integer', nullable: true },
   },
@@ -1889,11 +1889,11 @@ openapi.components.schemas.SessionTaskListItem = {
 const taskListOperation = openapi.paths['/api/studio/session-tasks'].get
 taskListOperation.operationId = 'listSessionTaskItems'
 taskListOperation.summary = 'List conversation tasks across accessible profiles'
-taskListOperation.description = 'Lists persisted single-chat tasks, including archived sessions, with stable pagination. Profile access and pending deletions are applied before counting. Group, workflow and global-agent tasks are excluded. Open tasks precede completed tasks; update time and id determine stable order within each status. Does not invoke a model or modify task status.'
+taskListOperation.description = 'Lists persisted single-chat tasks, including archived sessions, with stable pagination. Profile access and pending deletions are applied before counting. Group, workflow and global-agent tasks are excluded. Open tasks precede completed then closed tasks; update time and id determine stable order within each status. Does not invoke a model or modify task status.'
 taskListOperation.parameters = [
   { name: 'profile', in: 'query', schema: { type: 'string' }, description: 'Optional exact profile filter. Empty selects all accessible, existing profiles; run credentials remain bound to their profile.' },
   { name: 'search', in: 'query', schema: { type: 'string', maxLength: 200 }, description: 'Literal substring in task title, summary or session name, including its first-message fallback.' },
-  { name: 'status', in: 'query', schema: { type: 'string', enum: ['open', 'completed'] } },
+  { name: 'status', in: 'query', schema: { type: 'string', enum: ['open', 'completed', 'closed'] } },
   { name: 'order', in: 'query', schema: { type: 'string', enum: ['newest', 'oldest'], default: 'newest' } },
   { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0, default: 0 } },
   { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
@@ -1919,10 +1919,29 @@ const sessionTaskChangeSchema = {
     completion_evidence: { type: 'string', maxLength: 1000, description: 'Required for newly completed goals: evidence of verified delivery.' },
   },
 }
+const manualTaskStatusOperation = openapi.paths['/api/studio/sessions/{id}/tasks/{taskId}/status'].patch
+manualTaskStatusOperation.operationId = 'setSessionTaskStatus'
+manualTaskStatusOperation.summary = 'Manually change a task status'
+manualTaskStatusOperation.description = 'User action from the task list. Changes one existing task to open, completed or closed, with account/profile access checks. Requires its latest updated_at as expected_updated_at; stale rows return 409. Closed tasks remain readable and only this manual endpoint can reopen them. Manual completion records the user action as evidence and links to the original request. Does not invoke a model or create a run plan. Run credentials cannot use this endpoint.'
+manualTaskStatusOperation.parameters = [
+  ...sessionTasksOperation.parameters,
+  { name: 'taskId', in: 'path', required: true, schema: { type: 'string' } },
+]
+manualTaskStatusOperation.requestBody = { required: true, content: { 'application/json': { schema: {
+  type: 'object', additionalProperties: false, required: ['status', 'expected_updated_at'], properties: {
+    status: { type: 'string', enum: ['open', 'completed', 'closed'] },
+    expected_updated_at: { type: 'integer', minimum: 0 },
+  },
+} } } }
+manualTaskStatusOperation.responses = {
+  ...sessionTasksOperation.responses,
+  '400': { description: 'Invalid status or expected_updated_at.' },
+  '409': { description: 'Task changed or session is unavailable. Refresh the task list.' },
+}
 for (const action of ['list', 'update']) {
   const operation = openapi.paths[`/api/studio/session-tasks/${action}`].post
   operation.summary = `${action === 'list' ? 'Read' : 'Update'} the active turn session goals`
-  operation.description = 'The current turn context binds the session and profile. Expired contexts, other profiles, group chats, workflows and background/delegated runs are rejected. No per-turn task plan is created or modified. Writes upsert only changed/new goals and preserve omitted goals; revision conflicts require rereading. New completions require completion_evidence.'
+  operation.description = 'The current turn context binds the session and profile. Expired contexts, other profiles, group chats, workflows and background/delegated runs are rejected. No per-turn task plan is created or modified. Writes upsert only changed/new goals and preserve omitted goals; revision conflicts require rereading. New completions require completion_evidence. Closed goals remain readable but model writes cannot change them; only a user can reopen them from the task list.'
   operation.requestBody = { required: true, content: { 'application/json': { schema: {
     type: 'object', additionalProperties: false,
     required: action === 'list' ? ['context_id'] : ['context_id', 'revision', 'changes'],
