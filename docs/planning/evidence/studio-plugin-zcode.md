@@ -45,3 +45,11 @@ node plugins/zcode/scripts/build.mjs
 - **原生 MCP 自定义 cwd 与 managed MCP 注入组合**：不注入时完全保留 native 自己的发现/权限/配置链。有注入时合并工作树祖先、项目和用户配置，保留同名用户优先及 managed 覆盖；0.16.9 公开 MCP DTO 无 cwd，无法表示的工作目录明确拒绝，不丢字段、不新增 launcher spawn 链。这是尚未功能对等的能力差距，旧链路必须保留。
 - **空 MCP 覆盖**：原生 protocol 将空 server 列表解释为无覆盖；若禁用操作会使覆盖列表为空并重新启用原生定义，插件明确拒绝，避免静默反转禁用设置。
 - 真实账号、远程提供方、Windows/Linux 原生工件/恢复、全入口父子 Run/统一计量、完整分发版本锁定/升级回滚及性能验收未关闭。macOS 的本地 fixture 和独立实现数量不等于完整 14 项验收完成。
+
+## Windows 工作区身份回归
+
+首次集成的 Windows CI 出现 ZCode 多项运行在交互前失败；既有报告未包含 native 返回的工作区值，不能把本地验证称作 Windows CI 已通过。代码审查找到一侧规范化的错误：配置 `cwd` 经 `realpath`，原生 snapshot 的 `workspacePath` 则直接按原文比较。Windows 的短文件名/长文件名或其他真实目录别名可能因此被当作不同工作区。
+
+新增真实 plugin worker、真实文件系统 symlink（Windows 使用 junction）回归，在原实现上 global/scoped 均复现 `INVALID_ARGUMENT: ZCode restored a different native conversation`，且尚未发送用户输入；修复后创建、精确恢复和最终读取均通过。运行前使用 canonical cwd 派发，初始/最终 snapshot 也各自经 `realpath` 后精确比较；未增加大小写猜测、前缀放行或身份校验例外。两个实际不同目录的负例分别覆盖初始和最终 snapshot，仍拒绝且不提交 checkpoint。原有期限和条件跳过保持不变。
+
+回归红/绿日志：`/tmp/studio-zcode-workspace-alias-red.log`、`/tmp/studio-zcode-workspace-alias-green.log`。最终专项、真实 CLI、严格类型和 bundle 日志：`/tmp/studio-zcode-workspace-identity-final.log`、`/tmp/studio-zcode-workspace-types.log`、`/tmp/studio-zcode-workspace-build.log`。Windows 原生 CI 的实际短路径值与最终通过状态仍以新一轮 CI 回执为准。

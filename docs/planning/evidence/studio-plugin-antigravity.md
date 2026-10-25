@@ -179,3 +179,39 @@ into resource handles; they do not claim additional native CLI acceptance.
   `/tmp/studio-antigravity-cleanup-types.log`.
 - No deadlines or assertions were relaxed. The known actual native MCP failure
   matrix was not rerun; its evidence and open acceptance gap remain unchanged.
+
+## Windows CI portability follow-up
+
+The first Windows platform CI reported nine failures in the cleanup suite. The
+fault injection and its observations identified an image directory using the
+literal POSIX substring `/images/turn-`; Windows supplied backslash paths, so
+image failures were never injected and completed cleanup was not observed. This
+was a test-path defect, not an observed failure of the cleanup barrier. One
+normalized predicate now handles native Windows, POSIX and forward-slash Windows
+paths. Five explicit path cases run on every platform, while all ten actual
+cleanup/cancellation fault tests and their outcome assertions remain in place.
+
+The remaining Antigravity Windows failure compared synthesized Node `stat.mode`
+0666 with POSIX 0600. Windows privacy is controlled by the file's DACL rather than
+POSIX group/other bits. Unix still requires exactly 0600. Windows now reads the
+actual image file's security descriptor with `Get-Acl`, requires a discretionary
+ACL, and rejects a foreign owner or any file-content read grant outside the
+current user, LocalSystem and the Windows Administrators group. The test still
+reads the attachment bytes and verifies deletion after cancellation. This is an
+actual Windows access-control check, not a skipped permission assertion or an
+assertion on requested `writeFile` options. Platform-independent negative cases
+reject Everyone, Authenticated Users, BUILTIN Users, another account and a missing
+DACL. Overly broad inherited permissions will therefore still fail the Windows
+test rather than be described as private.
+
+The focused local check now passes **39 tests** (24 base/worker and 15 cleanup/path
+cases), `/tmp/studio-antigravity-windows-fix-focused.log`. Strict plugin plus ACL
+fixture TypeScript checking passed,
+`/tmp/studio-antigravity-windows-fix-types.log`. No deadlines were changed and no
+failure assertions were removed. These are macOS local results; the revised
+Windows ACL command and full Windows CI still require the main thread's native
+Windows rerun. The prior actual MCP gap remains open.
+
+Primary platform references:
+[Node file-system permissions](https://nodejs.org/api/fs.html#file-modes),
+[Windows Get-Acl](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/get-acl).

@@ -98,6 +98,12 @@
 
 资源位置/输入框命令契约、命令基础链路、现有 Skills/配置编辑页接入和兼容配置连续性已交付。后续顺序：补齐 Qwen/Codex 管理、Studio MCP 和原生命令 → 接入聊天界面形成可体验闭环 → 扩展到其余 Agent 和业务入口 → 分发与最终验收。MCP 工具 SDK 已整合、提交并推送，原生配置注入等剩余能力随迁移继续推进。Hermes/Ekko 继续保持内置身份；14 个厂商插件须逐个迁移和验收，保留 ID 或 fixture 不计为交付。
 
+### 十四插件冻结与 Windows 修复（2026-10-25）
+
+冻结 `969ce5f09` 的独立 QA 生产 build、完整 coverage 通过：**956 文件 / 10,102 项通过，13 文件 / 43 项条件跳过**，2 workers、默认期限，283.43 秒。生产浏览器仍在同一副本运行。两个实际 npm tarball 均包含全部十四插件的 manifest/backend 与 Pi native 资源，未发布。日志 `/tmp/studio-fourteen-plugins-qa-{build,coverage}.log`，包 `/tmp/studio-fourteen-plugins-npm`。
+
+该提交的 CI 浏览器六个分片、Build 和设备三平台通过；Coding agent worker Linux/macOS 通过，Windows 30 项失败。已按原专属分工修复 DSH CRLF seam、Antigravity 的 Windows 路径故障注入/真实 DACL 断言、ZCode 同目录别名的真实身份误拒绝，并修正 Grok 路径断言。ZCode 对真正外部 workspace 仍在启动与最终读取时拒绝，DSH 安装源码及原始 hash 保持不变；没有跳过原断言或扩大期限。合并专项 **109 项通过 / 8 项原生 opt-in 未启用**，插件构建、server 类型和 harness 通过；原生 Windows CI 尚待修复提交复验。日志 `/tmp/studio-windows-plugin-fixes-{focused,build,types,harness}.log`。完整迁移仍为 **0/14**。
+
 ### 剩余专属子 agent 交付与集成审查（2026-10-25）
 
 七个剩余厂商均由各自专属子 agent 实施，主线程负责公共接入及复核。Pi 已随 `0d93d39c3` 推送；DSH、Claude Code、Antigravity、Cursor、Grok、ZCode 已交接独立实现，并接入构建、受信任随包列表、移动管理流程及三平台 worker CI。完整验收仍为 **0/14**；各厂商证据见 `evidence/studio-plugin-*.md`。

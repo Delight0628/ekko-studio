@@ -21,6 +21,7 @@ vi.mock('../../plugins/antigravity/src/gemini', async (importOriginal) => ({
 }))
 const actualFs = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
 const roots: string[] = []
+const isImageTurnDirectory = (value: unknown) => String(value).replaceAll('\\', '/').includes('/images/turn-')
 beforeEach(() => {
   vi.mocked(rm).mockReset().mockImplementation(actualFs.rm)
   vi.mocked(geminiBridge).mockReset()
@@ -140,7 +141,7 @@ it.each(['process', 'bridge', 'gateway', 'images'] as const)(
     if (resource === 'gateway') f.gatewayDisposed.mockRejectedValueOnce(failure)
     if (resource === 'images')
       vi.mocked(rm).mockImplementation(async (path, options) => {
-        if (String(path).includes('/images/turn-')) throw failure
+        if (isImageTurnDirectory(path)) throw failure
         return actualFs.rm(path, options)
       })
     const handle = await f.runtime.run(f.input, f.context('failed-cleanup')),
@@ -150,7 +151,7 @@ it.each(['process', 'bridge', 'gateway', 'images'] as const)(
     expect(f.processDisposed).toHaveBeenCalledOnce()
     expect(f.bridgeDisposed).toHaveBeenCalledOnce()
     expect(f.gatewayDisposed).toHaveBeenCalledOnce()
-    expect(vi.mocked(rm).mock.calls.some(([path]) => String(path).includes('/images/turn-'))).toBe(true)
+    expect(vi.mocked(rm).mock.calls.some(([path]) => isImageTurnDirectory(path))).toBe(true)
     await expect(f.runtime.run(f.input, f.context('must-not-start'))).rejects.toMatchObject({ code: 'RUNTIME_UNAVAILABLE' })
     expect(f.spawn).toHaveBeenCalledOnce()
     // A later successful call to a transient disposer cannot unretire the lease.
@@ -166,7 +167,7 @@ it('does not resolve success or publish a checkpoint until image cleanup confirm
     imagesGate = deferred<void>()
   f.gatewayDisposed.mockImplementation(() => gatewayGate.promise)
   vi.mocked(rm).mockImplementation(async (path, options) => {
-    if (String(path).includes('/images/turn-')) await imagesGate.promise
+    if (isImageTurnDirectory(path)) await imagesGate.promise
     return actualFs.rm(path, options)
   })
   const handle = await f.runtime.run(f.input, f.context('barrier')),
@@ -179,7 +180,7 @@ it('does not resolve success or publish a checkpoint until image cleanup confirm
   expect(outcome).toBeUndefined()
   await expect(f.runtime.run(f.input, f.context('busy'))).rejects.toMatchObject({ code: 'RUNTIME_UNAVAILABLE' })
   gatewayGate.resolve()
-  await vi.waitFor(() => expect(vi.mocked(rm).mock.calls.some(([path]) => String(path).includes('/images/turn-'))).toBe(true))
+  await vi.waitFor(() => expect(vi.mocked(rm).mock.calls.some(([path]) => isImageTurnDirectory(path))).toBe(true))
   expect(outcome).toBeUndefined()
   imagesGate.resolve()
   await expect(handle.result).resolves.toMatchObject({
@@ -231,7 +232,7 @@ it('retains the first cleanup failure while attempting later failing resources',
   await expect(handle.result).rejects.toBe(first)
   await drained
   expect(f.gatewayDisposed).toHaveBeenCalledOnce()
-  expect(vi.mocked(rm).mock.calls.some(([path]) => String(path).includes('/images/turn-'))).toBe(true)
+  expect(vi.mocked(rm).mock.calls.some(([path]) => isImageTurnDirectory(path))).toBe(true)
   await expect(f.runtime.run(f.input, f.context('retired'))).rejects.toMatchObject({ code: 'RUNTIME_UNAVAILABLE' })
 })
 
@@ -253,7 +254,7 @@ it.each(['bridge', 'gateway', 'images'] as const)('reports %s cleanup failure fr
   if (resource === 'gateway') f.gatewayDisposed.mockRejectedValueOnce(failure)
   if (resource === 'images')
     vi.mocked(rm).mockImplementation(async (path, options) => {
-      if (String(path).includes('/images/turn-')) throw failure
+      if (isImageTurnDirectory(path)) throw failure
       return actualFs.rm(path, options)
     })
   const handle = await f.runtime.run(f.input, f.context('cancel-cleanup')),
@@ -263,6 +264,16 @@ it.each(['bridge', 'gateway', 'images'] as const)('reports %s cleanup failure fr
   await expect(handle.result).rejects.toBe(failure)
   await drained
   expect(f.gatewayDisposed).toHaveBeenCalledOnce()
-  expect(vi.mocked(rm).mock.calls.some(([path]) => String(path).includes('/images/turn-'))).toBe(true)
+  expect(vi.mocked(rm).mock.calls.some(([path]) => isImageTurnDirectory(path))).toBe(true)
   await expect(f.runtime.run(f.input, f.context('retired'))).rejects.toMatchObject({ code: 'RUNTIME_UNAVAILABLE' })
+})
+
+it.each([
+  ['/tmp/state/images/turn-abc123', true],
+  [String.raw`C:\Users\runner\AppData\Local\Temp\state\images\turn-abc123`, true],
+  ['C:/Users/runner/AppData/Local/Temp/state/images/turn-abc123', true],
+  [String.raw`C:\Users\runner\AppData\Local\Temp\fixture`, false],
+  ['/tmp/state/native-home', false],
+] as const)('targets the image cleanup fault for either platform path: %s', (path, expected) => {
+  expect(isImageTurnDirectory(path)).toBe(expected)
 })

@@ -9,6 +9,10 @@ import { prepareZcode } from './configuration'
 type Output = AgentOutputEvent extends infer T ? T extends AgentOutputEvent ? Omit<T, 'producerSequence'> : never : never
 interface Checkpoint { nativeSessionId: string }
 const validCheckpoint = (value: any): value is Checkpoint => value && Object.keys(value).length === 1 && typeof value.nativeSessionId === 'string' && /^sess_[A-Za-z0-9._-]{1,192}$/.test(value.nativeSessionId)
+async function sameWorkspace(value: unknown, expected: string): Promise<boolean> {
+  if (typeof value !== 'string' || value.length > 4096 || !isAbsolute(value)) return false
+  try { return await realpath(value) === expected } catch { return false }
+}
 
 export function createZcodeRuntime(input: RuntimeCreateInput, runtime: AgentRuntimeContext): AgentRuntime {
   const config = input.config, cwd = String(config.cwd), mode = input.mode, scoped = mode === 'scoped'
@@ -114,17 +118,17 @@ export function createZcodeRuntime(input: RuntimeCreateInput, runtime: AgentRunt
           const configuration = mergeAgentContextConfiguration(config as AgentContextConfiguration, ctx.nativeContext || {})
           prepared = await prepareZcode(configuration, { ...config, ...(model ? { model } : {}) }, mode, runtime, ctx.signal, gateway)
           if (cancelled) return { status: 'cancelled' }
-          const process = await runtime.processes.spawn({ command: prepared.launch.command, args: [...prepared.launch.args, 'app-server', '--stdio'], cwd, env: prepared.env })
+          const workspacePath = await realpath(cwd), workspace = { workspaceKey: workspacePath, workspacePath }
+          const process = await runtime.processes.spawn({ command: prepared.launch.command, args: [...prepared.launch.args, 'app-server', '--stdio'], cwd: workspacePath, env: prepared.env })
           let resolveExit!: (value: { code: number | null; signal: string | null }) => void
           const exited = new Promise<{ code: number | null; signal: string | null }>(resolve => { resolveExit = resolve })
           rpc = new NativeRpcConnection({ ...process, read: async () => { const batch = await process.read(); if (batch.exit && !batch.chunks.length) resolveExit(batch.exit); return batch },
             write: data => process.write(data), end: () => process.end(), dispose: () => process.dispose() }, { notification, request })
           void rpc.closed.catch(error => { if (!finishing) rejectSettled(error) })
           await rpc.start()
-          const workspacePath = await realpath(cwd), workspace = { workspaceKey: workspacePath, workspacePath }
           const snapshot = await rpc.request(checkpoint ? 'session/resume' : 'session/create', { workspace, ...(checkpoint ? { sessionId: checkpoint.nativeSessionId } : { mode: config.approvalRequired === false ? 'yolo' : 'plan', titleGenerationEnabled: false, ...(prepared.selection ? { model: prepared.selection } : {}) }), ...(prepared.mcpServers.length ? { mcpServers: prepared.mcpServers } : {}) })
           const session = snapshot?.session
-          if (snapshot?.protocol?.name !== 'ZCode Protocol' || snapshot.protocol.version !== 1 || !validCheckpoint({ nativeSessionId: session?.sessionId }) || session.workspace?.workspacePath !== workspacePath || (checkpoint && session.sessionId !== checkpoint.nativeSessionId)) throw new StudioError('INVALID_ARGUMENT', 'ZCode restored a different native conversation')
+          if (snapshot?.protocol?.name !== 'ZCode Protocol' || snapshot.protocol.version !== 1 || !validCheckpoint({ nativeSessionId: session?.sessionId }) || !await sameWorkspace(session.workspace?.workspacePath, workspacePath) || (checkpoint && session.sessionId !== checkpoint.nativeSessionId)) throw new StudioError('INVALID_ARGUMENT', 'ZCode restored a different native conversation')
           nativeSessionId = session.sessionId
           if (checkpoint) {
             await rpc.request('session/setMode', { sessionId: nativeSessionId, mode: config.approvalRequired === false ? 'yolo' : 'plan' })
@@ -147,7 +151,7 @@ export function createZcodeRuntime(input: RuntimeCreateInput, runtime: AgentRunt
           if (typeof terminal?.response === 'string') emit({ type: 'message.snapshot', messageId: assistantMessageId, text: terminal.response })
           if (!gotUsage && terminal.usage?.source === 'provider') usage(terminal.usage, inputId, prepared.selection?.modelId || model || 'native')
           const final = await rpc.request('session/read', { sessionId: nativeSessionId })
-          if (final?.session?.sessionId !== nativeSessionId || final.session.workspace?.workspacePath !== workspacePath || final.session.status !== 'idle') throw new StudioError('RUNTIME_UNAVAILABLE', 'ZCode did not settle this native conversation')
+          if (final?.session?.sessionId !== nativeSessionId || !await sameWorkspace(final.session.workspace?.workspacePath, workspacePath) || final.session.status !== 'idle') throw new StudioError('RUNTIME_UNAVAILABLE', 'ZCode did not settle this native conversation')
           finishing = true; await process.end()
           let timer: ReturnType<typeof setTimeout> | undefined
           try {

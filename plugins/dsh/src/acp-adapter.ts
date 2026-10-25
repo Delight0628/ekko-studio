@@ -8,7 +8,7 @@ import { DshPluginError } from './errors'
 
 // New releases can use the adapter when the required integration seams remain
 // compatible. Record the source hash for diagnostics, never as an allowlist.
-export const DSH_ACP_ADAPTER_REVISION = 5
+export const DSH_ACP_ADAPTER_REVISION = 6
 
 export async function writeDshAcpAdapter(installation: string, destination: string, acpAppDirectory: string) {
   // ACP belongs to the selected bundle and may be nested beneath it. Resolve
@@ -18,6 +18,9 @@ export async function writeDshAcpAdapter(installation: string, destination: stri
   const manifest = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'))
   let source = await readFile(filename, 'utf8')
   const sourceHash = createHash('sha256').update(source).digest('hex')
+  // Windows checkouts and native packages can use CRLF. Match the same exact
+  // integration seams in the private copy while retaining the original hash.
+  source = source.replace(/\r\n/g, '\n')
   const replaceVariants = (capability: string, variants: [string, string][], count = 1) => {
     const found = variants.reduce((total, [before]) => total + source.split(before).length - 1, 0)
     if (found !== count) throw new DshPluginError(422, 'DSH_CAPABILITY_UNSUPPORTED',

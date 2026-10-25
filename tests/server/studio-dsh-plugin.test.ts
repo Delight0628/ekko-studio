@@ -1,9 +1,10 @@
 import { DatabaseSync } from 'node:sqlite'
+import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
 import { once } from 'node:events'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { build } from 'esbuild'
@@ -72,7 +73,7 @@ else if(r.method==='session/close'){if(process.env.FAIL_CLOSE==='1')send({id:r.i
 else if(r.id==='approve'&&r.result?.outcome?.optionId==='yes')finish();else if(r.method==='session/cancel')process.exit(0)
 });`
 
-async function nativeTree(directory: string) {
+async function nativeTree(directory: string, lineEnding?: '\n' | '\r\n') {
   const cli = join(directory, 'node_modules/@deepseek-ai/dsh/lib/bin.cjs'), sourceHome = join(directory, 'source')
   await mkdir(dirname(cli), { recursive: true }); await mkdir(sourceHome, { recursive: true })
   await writeFile(cli, fixture); await writeFile(join(dirname(cli), '../package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.1.7-rc.2' }))
@@ -83,7 +84,8 @@ async function nativeTree(directory: string) {
   }
   const acp = join(directory, 'node_modules/@deepseek-ai/dsh-acp'); await mkdir(join(acp, 'lib'), { recursive: true })
   await writeFile(join(acp, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-acp', version: '0.1.7-rc.2' }))
-  const adapterSource = await readFile('tests/fixtures/dsh-acp-compatible.mjs', 'utf8')
+  const originalSource = await readFile('tests/fixtures/dsh-acp-compatible.mjs', 'utf8')
+  const adapterSource = lineEnding ? originalSource.replace(/\r\n/g, '\n').replace(/\n/g, lineEnding) : originalSource
   await writeFile(join(acp, 'lib/index.js'), adapterSource + '\nexport const protocol = { async initialize(_params) { return {}; } };\n'); await writeFile(join(acp, 'LICENSE'), 'MIT fixture')
   for (const name of ['dsh-sandbox-policy', 'dsh-user-approval']) {
     const path = join(directory, 'node_modules/@deepseek-ai', name); await mkdir(path, { recursive: true })
@@ -95,8 +97,8 @@ async function nativeTree(directory: string) {
   return { cli, sourceHome, acp }
 }
 
-async function setup(mode: 'global' | 'scoped' = 'global', env: Record<string, string> = {}, real?: { command: string; baseUrl: string }) {
-  const directory = await mkdtemp(join(root, 'fixture-')), trace = join(directory, 'trace'), native = await nativeTree(directory)
+async function setup(mode: 'global' | 'scoped' = 'global', env: Record<string, string> = {}, real?: { command: string; baseUrl: string }, lineEnding?: '\n' | '\r\n') {
+  const directory = await mkdtemp(join(root, 'fixture-')), trace = join(directory, 'trace'), native = await nativeTree(directory, lineEnding)
   const db = new DatabaseSync(':memory:'), executions = new AgentExecutionStore(db), store = new PluginStore(db), registry = new AgentRegistry(), events = new PluginEventBus()
   const logger = { info() {}, warn() {}, error() {} }, authorize = vi.fn(), disposeGateway = vi.fn(async () => {})
   const gateway = vi.fn(async () => ({ baseUrl: real?.baseUrl || 'http://127.0.0.1:1/v1', token: 'temporary-only', model: 'fixture-model', protocol: 'responses', images: true, dispose: disposeGateway }))
@@ -140,6 +142,29 @@ async function setup(mode: 'global' | 'scoped' = 'global', env: Record<string, s
   const frames = async () => (await readFile(trace, 'utf8')).trim().split('\n').filter(line => line !== 'version').map(line => JSON.parse(line))
   return { db, coordinator, registry, host, executions, instance, config, directory, trace, gateway, disposeGateway, authorize, start, frames, ...native }
 }
+
+it.each([['LF', '\n'], ['CRLF', '\r\n']] as const)('adapts %s native source in its independent worker without changing installed bytes or diagnostic identity', async (_name, lineEnding) => {
+  const f = await setup('global', {}, undefined, lineEnding), sourcePath = join(f.acp, 'lib/index.js')
+  const original = await readFile(sourcePath), hash = createHash('sha256').update(original).digest('hex')
+  expect(original.includes(Buffer.from(lineEnding))).toBe(true)
+  for (const text of ['hello', 'continue']) {
+    const run = f.start(text); await f.coordinator.wait(run.id)
+    expect(f.coordinator.get(caller, run.id)).toMatchObject({ status: 'completed' })
+  }
+  const frames = await f.frames()
+  expect(frames.filter(frame => frame.method === 'session/new')).toHaveLength(1)
+  expect(frames.filter(frame => frame.method === 'session/resume')).toHaveLength(1)
+  expect(frames.filter(frame => frame.method === 'session/close')).toHaveLength(2)
+  expect(await readFile(sourcePath)).toEqual(original)
+  const environment = JSON.parse(await readFile(f.trace + '.env', 'utf8'))
+  const profiles = (await readdir(join(environment.root, 'profiles'))).filter(name => name.startsWith('studio-web-'))
+  expect(profiles).toHaveLength(1)
+  const adapted = await readFile(join(environment.root, 'profiles', profiles[0], 'studio-acp.mjs'), 'utf8')
+  expect(adapted).toContain(`source sha256 ${hash}.`)
+  expect(adapted).toContain('agentPreset: params._meta?.agentPreset')
+  expect(adapted).toContain('await this.ctx.sessions.flush(this.agent.session)')
+  expect(adapted).toContain('await ctx.get("loader")?.await()')
+})
 
 it.each(['global', 'scoped'] as const)('runs DSH Web profile, preserves presets, deduplicates native live output and closes before restoring (%s)', async mode => {
   const f = await setup(mode), original = await readFile(join(f.sourceHome, 'cordis.patch.yml'), 'utf8')

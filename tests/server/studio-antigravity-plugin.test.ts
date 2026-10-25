@@ -6,6 +6,7 @@ import { build } from 'esbuild'
 import { cp, mkdir, lstat, stat } from 'node:fs/promises'
 import { convertRequest, geminiBridge } from '../../plugins/antigravity/src/gemini'
 import { assertScopedRouting, prepareNative } from '../../plugins/antigravity/src/configuration'
+import { nonOwnerImageReaders, windowsImageAcl } from '../fixtures/studio-antigravity-privacy'
 import { nativeParser } from '../../plugins/antigravity/src/protocol'
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest'
 import { AgentExecutionStore } from '../../packages/server/src/modules/studio/repositories/agent-execution-store'
@@ -432,7 +433,13 @@ it('stores image attachments privately and removes them after cancellation', asy
   await vi.waitFor(async () => expect(await f.frames()).toHaveLength(1))
   const prompt = (await f.frames())[0].body.message.content
   const path = JSON.parse(prompt.trim().split('\n').at(-1))
-  expect((await stat(path)).mode & 0o777).toBe(0o600)
+  const metadata = await stat(path)
+  expect(metadata.isFile()).toBe(true)
+  if (process.platform === 'win32') {
+    const acl = await windowsImageAcl(path)
+    expect(acl.allowReadSids.length).toBeGreaterThan(0)
+    expect(nonOwnerImageReaders(acl)).toEqual([])
+  } else expect(metadata.mode & 0o777).toBe(0o600)
   expect(await readFile(path, 'utf8')).toBe('abc')
   await f.coordinator.cancel(caller, run.id)
   await f.coordinator.wait(run.id)
@@ -473,4 +480,14 @@ it('rejects legacy SSE MCP instead of reinterpreting it as Streamable HTTP', asy
       { mcpServers: { legacy: { type: 'sse', url: 'http://127.0.0.1:1/sse' } } },
     ),
   ).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
+})
+
+it('rejects Windows image ACLs that grant other users content access or omit a DACL', () => {
+  const currentSid = 'S-1-5-21-100-200-300-1001'
+  const acl = { currentSid, ownerSid: currentSid, hasDacl: true, allowReadSids: [currentSid, 'S-1-5-18', 'S-1-5-32-544'] }
+  expect(nonOwnerImageReaders(acl)).toEqual([])
+  for (const other of ['S-1-1-0', 'S-1-5-11', 'S-1-5-32-545', 'S-1-5-21-100-200-300-1002'])
+    expect(nonOwnerImageReaders({ ...acl, allowReadSids: [...acl.allowReadSids, other] })).toEqual([other])
+  expect(nonOwnerImageReaders({ ...acl, ownerSid: 'S-1-5-21-100-200-300-1002' })).toEqual(['S-1-5-21-100-200-300-1002'])
+  expect(() => nonOwnerImageReaders({ ...acl, hasDacl: false })).toThrow('valid discretionary ACL')
 })

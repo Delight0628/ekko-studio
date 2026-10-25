@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -34,11 +34,13 @@ if(process.argv.includes('--version')){console.log('0.16.9');process.exit(0)}
 fs.appendFileSync(process.env.TRACE+'.launch',JSON.stringify({args:process.argv.slice(2),home:process.env.HOME,storage:process.env.ZCODE_STORAGE_DIR,provider:process.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE,personal:JSON.parse(fs.readFileSync(process.env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE,'utf8'))})+'\\n');
 const send=x=>process.stdout.write(JSON.stringify(x)+'\\n');let seq=0,sid='sess_fixture',inputId;
 const event=(type,payload)=>send({method:'session/event',params:{sessionId:sid,seq:++seq,type,payload}});
-const snapshot=()=>({protocol:{name:'ZCode Protocol',version:1},session:{sessionId:process.env.WRONG_SESSION?'sess_foreign':sid,workspace:{workspacePath:process.cwd()},status:'idle'},runtime:{eventSeq:0},slashCommands:[]});
+const workspace=foreign=>{if(foreign){const target=path.join(process.cwd(),'foreign-workspace');fs.mkdirSync(target,{recursive:true});return target;}if(process.env.WORKSPACE_ALIAS){const target=path.join(process.cwd(),'workspace-alias');if(!fs.existsSync(target))fs.symlinkSync(process.cwd(),target,process.platform==='win32'?'junction':'dir');return target;}return process.cwd();};
+const snapshot=(foreign=false)=>({protocol:{name:'ZCode Protocol',version:1},session:{sessionId:process.env.WRONG_SESSION?'sess_foreign':sid,workspace:{workspacePath:workspace(foreign||process.env.FOREIGN_WORKSPACE==='1')},status:'idle'},runtime:{eventSeq:0},slashCommands:[]});
+fs.appendFileSync(process.env.TRACE+'.workspace',JSON.stringify({cwd:process.cwd(),realpath:fs.realpathSync.native(process.cwd()),reported:workspace(false)})+'\\n');
 const finish=()=>{event('model.streaming',{kind:'text_delta',assistantMessageId:'native',delta:'Partial'});send({method:'v4/telemetry/event',params:{sessionId:sid,kind:'usage.delta',requestId:'call',modelId:'native-model',inputTokens:15,outputTokens:5,cacheReadTokens:2,cacheWriteTokens:1,reasoningTokens:1}});event('turn.completed',{inputId,response:'Native ZCode answer',resultType:'success',usage:{source:'provider',inputTokens:15,outputTokens:5}});if(process.env.GATE){const timer=setInterval(()=>{if(fs.existsSync(process.env.CONTROL_FILE)){clearInterval(timer);send({method:'state.updated',params:{sessionId:sid,reason:'prompt_completed'}})}},10)}else send({method:'state.updated',params:{sessionId:sid,reason:'prompt_completed'}})};
 let buffer='';process.stdin.setEncoding('utf8');process.stdin.on('data',chunk=>{buffer+=chunk;while(buffer.includes('\\n')){const end=buffer.indexOf('\\n'),r=JSON.parse(buffer.slice(0,end));buffer=buffer.slice(end+1);fs.appendFileSync(process.env.TRACE,JSON.stringify(r)+'\\n');const reply=result=>send({id:r.id,result});
 if(r.method==='session/create'||r.method==='session/resume'){if(r.params.sessionId)sid=r.params.sessionId;send({id:'preferences',method:'session/requestRuntimePreferences',params:{sessionId:sid,scope:'runtime-materialization'}});reply(snapshot())}
-else if(r.method==='session/read')reply(snapshot());
+else if(r.method==='session/read')reply(snapshot(process.env.FOREIGN_READ_WORKSPACE==='1'));
 else if(r.method==='session/subscribe'||r.method==='session/setMode'||r.method==='session/setModel')reply({});
 else if(r.method==='session/send'){inputId=r.params.inputId;reply({accepted:true,sessionId:sid});if(r.params.content==='crash')process.exit(7);if(r.params.content==='wait')continue;if(r.params.content==='invalid'){process.stdout.write('not-json\\n');continue;}if(r.params.content==='failure'){event('turn.failed',{inputId,error:{message:'native failure'}});continue;}
 if(['approve','question','withdraw'].includes(r.params.content)){send({id:'dialog',method:r.params.content==='question'?'interaction/requestUserInput':'interaction/requestPermission',params:{sessionId:sid,requestId:'native-dialog',toolName:'Bash',reason:'Run tool?',options:[{optionId:'once',name:'Allow once',response:{decision:'allow'}},{optionId:'deny',name:'Deny',response:{decision:'deny'}}],questions:[{question:'Which?',options:[{value:'one',label:'One'},{value:'two',label:'Two'}]}]}});if(r.params.content==='withdraw'){setTimeout(()=>{event('permission.resolved',{requestId:'native-dialog'});finish()},40)}continue;}
@@ -108,7 +110,8 @@ it.each(['global', 'scoped'] as const)('runs and restores the exact native conve
   const f = await setup(mode)
   for (const text of ['hello', 'continue']) {
     const run = f.start(text); await f.coordinator.wait(run.id)
-    expect(f.coordinator.get(caller, run.id).status).toBe('completed')
+    const result = f.coordinator.get(caller, run.id)
+    expect(result.status, JSON.stringify({ result, output: f.coordinator.output(caller, run.id, -1), workspace: await readFile(f.trace + '.workspace', 'utf8').catch(() => 'Native process did not record its workspace') })).toBe('completed')
     expect(f.coordinator.output(caller, run.id, -1)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'message.snapshot', text: 'Native ZCode answer' })]))
     expect(f.coordinator.usage(caller, run.id)).toHaveLength(mode === 'global' ? 1 : 0)
     if (mode === 'global') expect(f.coordinator.usage(caller, run.id)[0]).toMatchObject({ inputTokens: 15, cacheReadTokens: 2, cacheWriteTokens: 1, reasoningTokens: 1 })
@@ -236,4 +239,27 @@ it('does not publish a successful checkpoint when model gateway cleanup fails', 
   const result = f.coordinator.get(caller, run.id)
   expect(result.status).toBe('failed')
   expect(f.executions.state.checkpoint(f.instance.id, result.provider, f.instance.revision)).toBeUndefined()
+})
+
+it.each(['global', 'scoped'] as const)('accepts the same %s workspace through its filesystem alias when creating and restoring a native conversation', async mode => {
+  const f = await setup(mode, { WORKSPACE_ALIAS: '1' })
+  for (const text of ['hello', 'continue']) {
+    const run = f.start(text); await f.coordinator.wait(run.id)
+    const result = f.coordinator.get(caller, run.id)
+    expect(result.status, JSON.stringify({ result, output: f.coordinator.output(caller, run.id, -1), workspace: await readFile(f.trace + '.workspace', 'utf8') })).toBe('completed')
+    await f.restart()
+  }
+  const frames = await f.frames()
+  expect(frames.find(frame => frame.method === 'session/resume')?.params.sessionId).toBe('sess_fixture')
+  expect(frames.find(frame => frame.method === 'session/create')?.params.workspace.workspacePath).toBe(await realpath(f.directory))
+})
+
+it.each(['FOREIGN_WORKSPACE', 'FOREIGN_READ_WORKSPACE'])('rejects a different workspace reported at %s without committing a checkpoint', async flag => {
+  const f = await setup('global', { [flag]: '1' }), run = f.start('hello')
+  await f.coordinator.wait(run.id)
+  const result = f.coordinator.get(caller, run.id)
+  expect(result.status).toBe('failed')
+  expect(f.executions.state.checkpoint(f.instance.id, result.provider, f.instance.revision)).toBeUndefined()
+  expect(result.errorCode).toBe(flag === 'FOREIGN_WORKSPACE' ? 'INVALID_ARGUMENT' : 'RUNTIME_UNAVAILABLE')
+  if (flag === 'FOREIGN_WORKSPACE') expect((await f.frames()).some(frame => frame.method === 'session/send')).toBe(false)
 })

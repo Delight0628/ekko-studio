@@ -90,7 +90,7 @@ it.each(['global', 'scoped'] as const)('runs, resumes and compacts through a rea
   const frames = await f.frames()
   expect(frames[0].args).toContain('--session-id'); expect(frames[1].args).toContain('--resume'); expect(frames[2].text.trim()).toBe('/compact Focus on changes')
   for (const frame of frames) { await expect(readFile(frame.prompt)).rejects.toMatchObject({ code: 'ENOENT' }); expect(frame.config).not.toContain('temporary-only') }
-  if (mode === 'scoped') { expect(frames[0].token).toBe('temporary-only'); expect(frames[0].home).toContain(f.directory + '/state'); expect(f.gateway).toHaveBeenCalledTimes(3) }
+  if (mode === 'scoped') { expect(frames[0].token).toBe('temporary-only'); expect(frames[0].home).toContain(join(f.directory, 'state')); expect(f.gateway).toHaveBeenCalledTimes(3) }
   else { expect(frames[0].home).toBe(f.directory); expect(f.gateway).not.toHaveBeenCalled() }
   expect(() => f.host.uninstall('studio.agent-grok')).toThrow('System plugins cannot be uninstalled')
 })

@@ -5,12 +5,12 @@
 | Agent | 专属子 agent | 当前交付状态 |
 | --- | --- | --- |
 | Pi | `/root/pi` | 28 项 worker、真实 compact/Skill/私有 CLI 安装已交付，主线程已集成提交 `0d93d39c3` |
-| Claude Code | `/root/claude_code` | 25 项含清理故障的 worker、真实 10 轮/12 请求/2 MCP 已交付，主线程集成中 |
-| DSH | `/root/dsh` | 独立实现已交付；主线程真实扩大矩阵 14 轮/19 请求/5 Studio MCP 通过，专属管理与占用事件缺口保留 |
-| ZCode | `/root/zcode` | 最终 59 项含实际 CLI、资源编辑及清理故障通过，主线程集成中；原生 MCP 限制保留 |
-| Antigravity | `/root/antigravity` | 33 项含清理故障、双版本运行/图片/恢复已交付；实际无账户 MCP 差距继续开放 |
-| Grok | `/root/grok` | 固定 1.0.70 实际安装、原生 6 轮/18 请求及资源连续性、只读管理、清理屏障 25 项修订已通过，最终集成中 |
-| Cursor | `/root/cursor` | 22 项 worker/46 项含旧回归、官方 CLI 认证失败边界已交付，主线程集成中；真实账号推理未验收 |
+| Claude Code | `/root/claude_code` | 25 项含清理故障的 worker、真实 10 轮/12 请求/2 MCP 随 `969ce5f09` 集成 |
+| DSH | `/root/dsh` | 随 `969ce5f09` 集成；真实扩大矩阵 14 轮/19 请求/5 Studio MCP；Windows CRLF 修复及固定 CLI 的 17 项复验交付，原生 Windows CI 待重跑；专属管理与占用事件仍开放 |
+| ZCode | `/root/zcode` | 随 `969ce5f09` 集成；目录别名身份修复后 63 项含实际 CLI 通过，原生 Windows CI 待重跑；原生 MCP 限制保留 |
+| Antigravity | `/root/antigravity` | 随 `969ce5f09` 集成；双版本运行/图片/恢复已有证据，路径/ACL 修复 39 项通过，实际 Windows ACL 待 CI；无账户 MCP 仍开放 |
+| Grok | `/root/grok` | 随 `969ce5f09` 集成；实际安装、原生图片/MCP/资源/恢复通过，扩大矩阵最终重跑出现 cancelled/unknown 用量，仍开放 |
+| Cursor | `/root/cursor` | 22 项 worker/46 项含旧回归及官方 CLI 认证失败边界随 `969ce5f09` 集成；真实账号推理未验收 |
 
 子 agent 独占各自 `plugins/<agent>/`、专属 worker 测试、fixture/验证脚本及证据文件；共享文件由主线程修改，避免覆盖。子 agent 不提交、不推送、不调用 Studio 会话或交互工具，也不继续转派。
 

@@ -55,3 +55,13 @@ Final actual-native matrix: **14 turns / 19 local model requests / 5 real Studio
 - ACP `usage_update` context occupancy needs a separate public context event and presentation consumer. It is currently unknown in the new runtime, not fabricated as zero or conflated with billing.
 - No real account, newer installed release, Windows/Linux, cross-platform history, App/UI, performance, distribution/default installation, migration/rollback or complete entry-point acceptance is claimed by these local tests.
 - The parent integration owns bundled/build lists, shared verifier, UI, CI and final commits. This subtask does not remove the old execution path.
+
+## Windows ACP source line endings
+
+Windows worker CI on `969ce5f09` failed before native launch: the private adapter found zero `new-session preset selection` seams. Other DSH failures were downstream effects (no trace or completed checkpoint). The first single-line startup seam was still found. Recreating the Git fixture with CRLF on macOS reproduces the failure; the same exact multiline seam occurs once in LF and zero times in CRLF. The failing regression before the fix is recorded in `/tmp/studio-dsh-crlf-before.log`.
+
+Adapter revision 6 normalizes CRLF only in its in-memory private copy, after computing the original-source SHA-256. Exact capability-seam counts remain required. The installed ACP module is never rewritten, and its diagnostic hash continues to identify the original bytes rather than the normalized copy.
+
+The new LF/CRLF worker cases each create and resume a conversation, require both native close acknowledgements, compare the installed file byte for byte, and check that the private adapter retains its original hash plus preset, startup and flush seams. The fixed `0.1.7-rc.2` actual-native cases remain enabled in the local focused run. Windows CI itself must be rerun by the parent; local CRLF reproduction does not claim execution on Windows.
+
+After the fix: **17/17 passed**, including both actual-native modes, in `/tmp/studio-dsh-windows-crlf-native-focused.log` (20.61 seconds total). Public-library type checking passed in `/tmp/studio-dsh-windows-crlf-types.log`; the scoped diff passes `git diff --check`. No assertions, skips or deadlines were weakened.

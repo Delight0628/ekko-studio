@@ -68,7 +68,11 @@ DSH 扩大矩阵 **14 轮 / 19 本地请求 / 5 Studio MCP**，Grok 一次扩大
 
 Pi 与公共契约已随 `0d93d39c3` 推送；`fb957010c` 修复干净构建的 driver 声明顺序，其独立 QA 生产构建通过（`/tmp/studio-eight-plugins-qa-build-v2.log`），该 HEAD 的 **16 项 CI 通过**，PR 仍为 draft。冻结 coverage 首轮 947 文件 / 9,943 项通过、1 文件 / 1 项失败；macOS Helper 进程受桌面 Electron 依赖的规范路径影响，QA 需显式指定 `EKKO_TEST_ELECTRON_EXECUTABLE`。同一断言以正确环境单独复验 9 项通过。第二轮完整 coverage 仍为 947 文件 / 9,943 项通过、1 文件 / 1 项失败，唯一失败变为 Ekko 普通终端命令误报告既有 Skill 元数据；两轮均不记为全绿。日志 `/tmp/studio-eight-plugins-qa-coverage{,-v2}.log`。
 
-`b26b756c4` 将文件 watcher 事件作为提示，再比较命令前后的 Skill 校验签名，避免迟到/合并事件或缓存文件写入触发旧元数据告警；原断言保留，并补缓存写入场景，runtime 专项 **67 项通过**。最新 14 插件集成仍需独立冻结 coverage/browser/build，不沿用上述旧 HEAD 的结果。
+`b26b756c4` 将文件 watcher 事件作为提示，再比较命令前后的 Skill 校验签名，避免迟到/合并事件或缓存文件写入触发旧元数据告警；原断言保留，并补缓存写入场景，runtime 专项 **67 项通过**。
+
+十四插件集成已随 `969ce5f09` 推送。独立 QA 使用自身依赖/工作区链接及显式 Electron 路径，生产 build 通过；完整 coverage **956 文件 / 10,102 项通过，13 文件 / 43 项条件跳过**，2 workers、默认期限，283.43 秒。日志 `/tmp/studio-fourteen-plugins-qa-{build,coverage}.log`，报告 `/tmp/studio-fourteen-plugins-qa-coverage`。两个实际 npm tarball 均检查到全部 14 个 manifest、每个声明的 backend 和 Pi native 资源，未发布；输出 `/tmp/studio-fourteen-plugins-npm`。完整生产浏览器仍在同一冻结副本运行，禁止中途 checkout。
+
+`969ce5f09` 的生产浏览器六个 CI 分片、Build 和设备进程三平台通过，Coding agent worker CI 的 Linux/macOS 通过，Windows 有 30 项失败，未记为全绿。专属子 agent 已修复 DSH CRLF 私有 adapter 匹配、Antigravity 故障注入路径和实际 Windows ACL 检查，以及 ZCode 同一目录别名被误判的真实运行时问题；主线程修复 Grok 的跨平台路径断言。原清理/取消/身份断言保留，合并专项 **109 项通过 / 8 项原生 opt-in 未启用**，插件构建、server 类型和 harness 通过。修复需推送后重新验证 Windows，macOS 的 CRLF/目录别名复现不替代 Windows 执行。日志 `/tmp/studio-windows-plugin-fixes-{focused,build,types,harness}.log`；各专属 native 证据见厂商记录。
 
 冻结 `7d9e36248` 的独立 QA 生产构建和完整生产浏览器 **972 项通过**（4 workers、无重试，11.1 分钟）；coverage 为 947 文件 / 9,897 项通过、1 文件 / 1 项失败，12 文件 / 33 项条件跳过（2 workers、默认时限，501.82 秒）。唯一失败是既有 Electron 设备切换集成测试的 55 秒子进程退出期限，单独复测仍失败。用户明确要求去掉该测试，现删除其自动化测试文件，保留其他设备切换测试、产品实现和手动验证脚本使用的 fixture；临时诊断已撤去。上述冻结 coverage 不记为全绿。日志 `/tmp/studio-seven-plugins-qa-{build,browser,coverage,desktop-focused}.log`。
 
