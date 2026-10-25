@@ -100,9 +100,13 @@
 
 ### 十四插件冻结与 Windows 修复（2026-10-25）
 
-冻结 `969ce5f09` 的独立 QA 生产 build、完整 coverage 通过：**956 文件 / 10,102 项通过，13 文件 / 43 项条件跳过**，2 workers、默认期限，283.43 秒。生产浏览器仍在同一副本运行。两个实际 npm tarball 均包含全部十四插件的 manifest/backend 与 Pi native 资源，未发布。日志 `/tmp/studio-fourteen-plugins-qa-{build,coverage}.log`，包 `/tmp/studio-fourteen-plugins-npm`。
+冻结 `969ce5f09` 的独立 QA 生产 build、完整 coverage 通过：**956 文件 / 10,102 项通过，13 文件 / 43 项条件跳过**，2 workers、默认期限，283.43 秒；同一冻结生产浏览器 **980 项通过**，4 workers、无重试，11.1 分钟。两个实际 npm tarball 均包含全部十四插件的 manifest/backend 与 Pi native 资源，未发布。日志 `/tmp/studio-fourteen-plugins-qa-{build,coverage,browser}.log`，包 `/tmp/studio-fourteen-plugins-npm`。
 
 该提交的 CI 浏览器六个分片、Build 和设备三平台通过；Coding agent worker Linux/macOS 通过，Windows 30 项失败。已按原专属分工修复 DSH CRLF seam、Antigravity 的 Windows 路径故障注入/真实 DACL 断言、ZCode 同目录别名的真实身份误拒绝，并修正 Grok 路径断言。ZCode 对真正外部 workspace 仍在启动与最终读取时拒绝，DSH 安装源码及原始 hash 保持不变；没有跳过原断言或扩大期限。合并专项 **109 项通过 / 8 项原生 opt-in 未启用**，插件构建、server 类型和 harness 通过；原生 Windows CI 尚待修复提交复验。日志 `/tmp/studio-windows-plugin-fixes-{focused,build,types,harness}.log`。完整迁移仍为 **0/14**。
+
+修复提交 `c9292e9de` 的独立 QA build、完整 coverage 通过：**10,114 项通过 / 43 项条件跳过**，956 文件通过 / 13 文件跳过，2 workers、默认期限，279.79 秒。客户端与 e2e tree 与已通过的 980 项浏览器冻结一致。两个 npm 包重新制作并检查十四插件实际工件，未发布。日志 `/tmp/studio-fourteen-windows-fix-qa-{build,coverage}.log`，包检查 `/tmp/studio-fourteen-windows-fix-npm-inspection.json`。
+
+`c9292e9de` 的原生 worker Linux/macOS 和设备三平台通过，Windows **724 项通过、1 项失败、9 项条件跳过**。唯一失败为 ACL 探针的 PowerShell 模块加载，发生在权限判定前；专属子 agent 改用 .NET Framework 同一 FileSecurity 的 owner/DACL，保留所有权限/清理断言，本地 39 项及严格类型通过，实际 Windows 待后续 CI。原失败证据没有删除。
 
 ### 剩余专属子 agent 交付与集成审查（2026-10-25）
 

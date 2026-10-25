@@ -70,9 +70,15 @@ Pi 与公共契约已随 `0d93d39c3` 推送；`fb957010c` 修复干净构建的 
 
 `b26b756c4` 将文件 watcher 事件作为提示，再比较命令前后的 Skill 校验签名，避免迟到/合并事件或缓存文件写入触发旧元数据告警；原断言保留，并补缓存写入场景，runtime 专项 **67 项通过**。
 
-十四插件集成已随 `969ce5f09` 推送。独立 QA 使用自身依赖/工作区链接及显式 Electron 路径，生产 build 通过；完整 coverage **956 文件 / 10,102 项通过，13 文件 / 43 项条件跳过**，2 workers、默认期限，283.43 秒。日志 `/tmp/studio-fourteen-plugins-qa-{build,coverage}.log`，报告 `/tmp/studio-fourteen-plugins-qa-coverage`。两个实际 npm tarball 均检查到全部 14 个 manifest、每个声明的 backend 和 Pi native 资源，未发布；输出 `/tmp/studio-fourteen-plugins-npm`。完整生产浏览器仍在同一冻结副本运行，禁止中途 checkout。
+十四插件集成已随 `969ce5f09` 推送。独立 QA 使用自身依赖/工作区链接及显式 Electron 路径，生产 build 通过；完整 coverage **956 文件 / 10,102 项通过，13 文件 / 43 项条件跳过**，2 workers、默认期限，283.43 秒；完整生产浏览器 **980 项通过**，4 workers、无重试，11.1 分钟。日志 `/tmp/studio-fourteen-plugins-qa-{build,coverage,browser}.log`，报告 `/tmp/studio-fourteen-plugins-qa-coverage`。两个实际 npm tarball 均检查到全部 14 个 manifest、每个声明的 backend 和 Pi native 资源，未发布；输出 `/tmp/studio-fourteen-plugins-npm`。浏览器结束后才将 QA checkout 到后续修复提交。
 
 `969ce5f09` 的生产浏览器六个 CI 分片、Build 和设备进程三平台通过，Coding agent worker CI 的 Linux/macOS 通过，Windows 有 30 项失败，未记为全绿。专属子 agent 已修复 DSH CRLF 私有 adapter 匹配、Antigravity 故障注入路径和实际 Windows ACL 检查，以及 ZCode 同一目录别名被误判的真实运行时问题；主线程修复 Grok 的跨平台路径断言。原清理/取消/身份断言保留，合并专项 **109 项通过 / 8 项原生 opt-in 未启用**，插件构建、server 类型和 harness 通过。修复需推送后重新验证 Windows，macOS 的 CRLF/目录别名复现不替代 Windows 执行。日志 `/tmp/studio-windows-plugin-fixes-{focused,build,types,harness}.log`；各专属 native 证据见厂商记录。
+
+修复随 `c9292e9de` 推送。该冻结独立 QA 的生产 build、完整 coverage 再次通过：**956 文件 / 10,114 项通过，13 文件 / 43 项条件跳过**，2 workers、默认期限，279.79 秒；日志 `/tmp/studio-fourteen-windows-fix-qa-{build,coverage}.log`，报告 `/tmp/studio-fourteen-windows-fix-qa-coverage`。客户端与 e2e 目录的 Git tree 均与 980 项通过的浏览器冻结一致。重新制作的两个 npm tarball 同样验证全部 14 个 manifest/backend 和 Pi native 资源，检查结果 `/tmp/studio-fourteen-windows-fix-npm-inspection.json`，包在 `/tmp/studio-fourteen-windows-fix-npm`，未发布。
+
+`c9292e9de` 的 Coding agent Linux/macOS 与设备三平台通过；Windows 变为 **724 项通过 / 1 项失败 / 9 项条件跳过**，DSH、Grok、ZCode 及全部 Antigravity 清理场景均已通过。剩余失败发生在 ACL 判定前的 `Get-Acl` 模块自动加载。专属子 agent 改用 .NET Framework 直接读取同一文件的 owner/DACL，保留读取授权、负例与取消删除断言，本地 39 项和严格类型通过，实际 Windows 仍待后续 CI 复验。不能将此 HEAD 记为 CI 全绿。
+
+用户询问 Coding Agent 页的“管理实例”：当前总览与设置页都挂载 `AgentInstanceManager`，它提供保存配置、原生管理及受管聊天的迁移入口；旧管理/聊天仍并行。它尚未融合到最终产品流程，不能把该额外入口当作完整管理 UI 已验收。本次仅解释，未据提问自行改界面。
 
 冻结 `7d9e36248` 的独立 QA 生产构建和完整生产浏览器 **972 项通过**（4 workers、无重试，11.1 分钟）；coverage 为 947 文件 / 9,897 项通过、1 文件 / 1 项失败，12 文件 / 33 项条件跳过（2 workers、默认时限，501.82 秒）。唯一失败是既有 Electron 设备切换集成测试的 55 秒子进程退出期限，单独复测仍失败。用户明确要求去掉该测试，现删除其自动化测试文件，保留其他设备切换测试、产品实现和手动验证脚本使用的 fixture；临时诊断已撤去。上述冻结 coverage 不记为全绿。日志 `/tmp/studio-seven-plugins-qa-{build,browser,coverage,desktop-focused}.log`。
 

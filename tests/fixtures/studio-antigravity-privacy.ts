@@ -10,21 +10,27 @@ export interface WindowsImageAcl {
 
 /** NTFS access is controlled by DACLs; Node's synthesized mode bits cannot assert image privacy. */
 export async function windowsImageAcl(path: string): Promise<WindowsImageAcl> {
+  // powershell.exe uses .NET Framework. Avoid all module cmdlets: a parent pwsh session
+  // can supply a PSModulePath whose Security/Utility assemblies do not load in 5.1.
   const script = String.raw`
 $ErrorActionPreference = 'Stop'
-$acl = Get-Acl -LiteralPath $env:STUDIO_AGY_TEST_IMAGE_PATH
+$PSModuleAutoLoadingPreference = 'None'
+$sections = [System.Security.AccessControl.AccessControlSections]::Access -bor [System.Security.AccessControl.AccessControlSections]::Owner
+$acl = [System.IO.File]::GetAccessControl($env:STUDIO_AGY_TEST_IMAGE_PATH, $sections)
 $descriptor = [System.Security.AccessControl.RawSecurityDescriptor]::new($acl.GetSecurityDescriptorBinaryForm(), 0)
-$rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
-$readers = @($rules | Where-Object {
-  $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and
-  (([int64]$_.FileSystemRights -band 1) -ne 0)
-} | ForEach-Object { $_.IdentityReference.Value })
-[ordered]@{
-  currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-  ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
-  hasDacl = (($descriptor.ControlFlags -band [System.Security.AccessControl.ControlFlags]::DiscretionaryAclPresent) -ne 0)
-  allowReadSids = @($readers)
-} | ConvertTo-Json -Compress
+$rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
+$readers = [System.Collections.Generic.List[string]]::new()
+foreach ($rule in $rules) {
+  if ($rule.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and (([int64]$rule.FileSystemRights -band 1) -ne 0)) {
+    $readers.Add('"' + $rule.IdentityReference.Value + '"')
+  }
+}
+$currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+$hasDacl = (($descriptor.ControlFlags -band [System.Security.AccessControl.ControlFlags]::DiscretionaryAclPresent) -ne 0)
+# SecurityIdentifier.Value contains only canonical SID characters, so these fields need no arbitrary-string escaping.
+$json = '{"currentSid":"' + $currentSid + '","ownerSid":"' + $ownerSid + '","hasDacl":' + $hasDacl.ToString().ToLowerInvariant() + ',"allowReadSids":[' + [string]::Join(',', $readers.ToArray()) + ']}'
+[System.Console]::Out.WriteLine($json)
 `
   const { stdout } = await promisify(execFile)(
     'powershell.exe',

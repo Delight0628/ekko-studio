@@ -215,3 +215,37 @@ Windows rerun. The prior actual MCP gap remains open.
 Primary platform references:
 [Node file-system permissions](https://nodejs.org/api/fs.html#file-modes),
 [Windows Get-Acl](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/get-acl).
+
+## Windows PowerShell ACL probe follow-up
+
+Native Windows CI at `c9292e9de` confirmed the path/cleanup fixes: the Antigravity
+cleanup suite now passed. The sole remaining platform failure occurred before
+ACL evaluation: Windows PowerShell could locate `Get-Acl` but could not auto-load
+`Microsoft.PowerShell.Security` (`CouldNotAutoloadMatchingModule`). See
+`/tmp/studio-fourteen-windows-ci-fix-clean.log`, lines 294–306. The log does not
+establish an overly broad file ACL or the underlying cause of that module-load
+failure.
+
+The ACL fixture now calls .NET Framework
+`System.IO.File.GetAccessControl(path, Access | Owner)` directly. Microsoft
+documents this API in `mscorlib.dll` as returning the file's `FileSecurity` object;
+it reads the same owner and DACL without requiring a PowerShell Security module.
+Rule enumeration, raw security descriptor checks and SID validation are retained.
+The script also removes Utility-module cmdlets such as JSON conversion and
+pipeline filtering, using only PowerShell language constructs and .NET methods.
+Module auto-loading is explicitly disabled, so the native Windows test validates
+that the probe can run without those modules. Canonical `SecurityIdentifier.Value`
+strings contain no JSON escape characters; the script writes the fixed JSON
+shape directly. The current-user/System/Administrators allowlist, foreign-owner
+rejection, negative ACL cases, attachment read and cancellation cleanup checks
+are unchanged.
+
+Local focused result remains **39 passed**,
+`/tmp/studio-antigravity-windows-dotnet-focused.log`; strict plugin plus ACL fixture
+types passed, `/tmp/studio-antigravity-windows-dotnet-types.log`. No timeout or
+assertion was relaxed, no test was skipped, and no product runtime code changed.
+The replacement Windows PowerShell/.NET command still needs the main thread's
+actual Windows CI rerun; local macOS results are not represented as Windows proof.
+
+Primary API reference:
+[File.GetAccessControl (.NET Framework)](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.getaccesscontrol?view=netframework-4.8.1).
