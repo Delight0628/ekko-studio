@@ -106,6 +106,8 @@
 
 单测 **34 项**、生产浏览器专项 **41 项**、完整生产构建和 harness 均通过，日志 `/tmp/studio-agent-familiar-ui-{unit,browser,build,harness}.log`。这项改动收敛 UI，普通新建单聊的内部实例自动绑定、默认登记与统一执行仍是后续底层迁移，不记为已经实现；完整验收仍 **0/14**。
 
+该增量已随 `517912311` 推送。随后 Coding agent platforms 和 Device processes 的 Windows/Linux/macOS 三平台 CI 均通过，实际 Windows ACL 探针已验证；Build、完整浏览器分片和 runtime 仍在运行时进行了本次交接，不记为全绿。优先待续的是普通新建单聊内部接入插件执行，而非再次调整界面或创建插件目录。
+
 ### 十四插件冻结与 Windows 修复（2026-10-25）
 
 冻结 `969ce5f09` 的独立 QA 生产 build、完整 coverage 通过：**956 文件 / 10,102 项通过，13 文件 / 43 项条件跳过**，2 workers、默认期限，283.43 秒；同一冻结生产浏览器 **980 项通过**，4 workers、无重试，11.1 分钟。两个实际 npm tarball 均包含全部十四插件的 manifest/backend 与 Pi native 资源，未发布。日志 `/tmp/studio-fourteen-plugins-qa-{build,coverage,browser}.log`，包 `/tmp/studio-fourteen-plugins-npm`。

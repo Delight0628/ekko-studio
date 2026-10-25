@@ -249,3 +249,9 @@ actual Windows CI rerun; local macOS results are not represented as Windows proo
 
 Primary API reference:
 [File.GetAccessControl (.NET Framework)](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.getaccesscontrol?view=netframework-4.8.1).
+
+Parent verification: code freeze `517912311` passed the actual Windows, Linux and
+macOS Coding agent platforms jobs (run `40160407587`). This includes the Windows
+PowerShell/.NET ACL probe, attachment read/cancellation and all cleanup cases.
+The earlier Windows module-load failure is therefore resolved; the separate
+actual no-account MCP acceptance gap remains open.

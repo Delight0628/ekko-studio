@@ -2,11 +2,21 @@
 
 更新：2026-10-25。用户授权继续自主推进全部迁移；本文件记录实际进展，不表示总目标完成。
 
+## 新窗口先读
+
+- **普通“新建单聊”仍走旧执行链路，尚未迁移到插件。** 十四个独立插件和受管聊天链路已经实现；不能把插件目录、卡片界面或专项通过等同于日常对话已经切换。完整迁移验收仍 **0/14**。
+- 最新功能代码已推送 `517912311`；它恢复原有卡片和单聊流程。`5769871bb` 修复 Windows ACL 探针，`c9292e9de` 修复 CRLF/路径/目录别名，`969ce5f09` 集成十四插件。后续仅更新交接文档的提交不改变此代码冻结；以 `git log` 核对当前 HEAD。
+- 用户已明确：Coding Agent 页面直接列出全部插件，沿用原卡片，由用户主动安装、更新 CLI；新建单聊沿用“选择 Agent → 全局／模型”。**不要恢复管理实例按钮、实例选择器、JSON 配置或授权表单作为使用前置条件。** 实例绑定由宿主内部完成。
+- 当前下一优先项：让原有单聊入口在内部完成可信插件/实例绑定并实际调用新协调器；同时保证账号/模型、工作区、MCP/Skills、图片、恢复、取消和计量语义不变。插件默认登记是必要配套，原生 CLI 仍由用户决定是否安装。
+- `517912311` 的本地单测 **34 项**、生产浏览器专项 **41 项**、完整生产构建和 harness 通过。最新已核对该代码提交的 **Coding agent platforms 三平台、Device processes 三平台及锁文件 CI 均通过**，Windows ACL 问题已在真实 Windows CI 验证。Build、浏览器六分片和 runtime 当时仍运行，新窗口先查最终结果，不宣称全绿。
+- 独立完整回归属于旧冻结：`969ce5f09` 的 **10,102 项 coverage / 980 项浏览器**，`c9292e9de` 的 **10,114 项 coverage**。不能冒充最新 UI 提交的全量结果。QA 副本当前停在 `c9292e9de`，没有测试进程需要保留；后续运行时仍禁止中途 checkout。
+- 七个专属子 agent 的独立实现已集成交付；本窗口最后的 Grok 只读诊断被中断，没有新的生产代码待合并。延迟标题探针 `/tmp/studio-grok-lifecycle-delayed-title.log` 记录到 CLI 先关闭未完成请求、宿主随后取消、最后插件 dispose；合法 forced `session_title` 响应对照尚未完成，不能据此直接改网关或放宽计量断言。
+
 ## 当前状态
 
 - 仓库 `/Users/ekko/Desktop/git/hermes-studio/studio`，分支 `feat/studio-plugin-context`。
 - PR #3513 保持草稿：<https://github.com/EKKOLearnAI/ekko-studio/pull/3513>。不合并，不自动转 ready。
-- 本轮提交：`15a6371a1` Kimi/共享 ACP/独立公共包；`d45ce0454` 干净 worker fixture 的 SDK 别名修复；`198d198ca` Qoder；`900e7aa22` Chat Completions 网关；`01114c99f` CodeBuddy；`68fa9cc1b` 主题浏览器用例等待页面就绪；`a31dc201c` Copilot；`8db1d3fd2` 页面就绪修复。OpenCode 实现和证据随本文件所在提交一并交付；以当前 `git log`/`git status` 核对最新 HEAD 和后续工作区。
+- 最新功能提交与待续重点见上方摘要；更早的厂商实现、公共包和验证修复均已提交推送，完整历史以 `git log` 核对。
 - 原工作区 Kimi、共享 ACP、依赖构建改动全部保留并提交。不能 reset/clean 后续未提交工作。
 - 已有 **14 个独立插件实现**：Qwen、Codex、Kimi、Qoder、CodeBuddy、Copilot、OpenCode、Pi、DSH、Claude Code、Antigravity、Cursor、Grok、ZCode；完整迁移验收仍为 **0/14**。实现数量不代表完整验收。
 - 用户已要求余下每个 Agent 各由一个专属子 agent 并行迁移；当前主线程加三个子 agent 的额度采用滚动批次。分工和进度见 `studio-plugin-agent-owners.md`，不得把排队任务记为已启动。
@@ -90,13 +100,13 @@ Pi 与公共契约已随 `0d93d39c3` 推送；`fb957010c` 修复干净构建的 
 
 ## 继续顺序
 
-1. 七个专属子 agent 均已完成独立实现并交接；主线程继续清理屏障、资源保存等集成审查，冻结 14 插件提交完成 coverage/browser/build，更新原草稿 PR。QA 副本使用自己的 node_modules；不要在测试中切 checkout。用户要求删除的 Electron 设备切换自动测试已随 `ce45554ce` 推送，不能在后续复验中恢复该测试。
-2. 厂商能力仍按证据逐项补齐：DSH 专属插件/预设管理和 context 占用事件、Antigravity 无账户模式实际 MCP、Grok global 后台/压缩用量、ZCode 原生 MCP cwd 组合，以及 Cursor 和其他厂商真实账号。独立目录和本地模型不能替代功能对等；详见各 `evidence/studio-plugin-*.md`。禁止插件导入 server/client 私有源码，禁止宿主万能厂商 runner。
-3. 统一旧单聊/历史接管、群聊、工作流、全局任务及 API 的运行协调器；父子 Run、共享取消/预算、计量归属、唯一写入和完成屏障。当前 `services/agents/context-runs.ts` 仍明确拒绝带 Run/workspace 绑定的启动；下一批需先补可信父子关系、持久化及清理/预算传播，不能只删除该授权保护。旧引擎持久化和新协调器投影需完成唯一写入后再切换入口。
-4. 补齐 SDK 完整 ctx、事件/限额/诊断，Web/Desktop/App 动态目录和管理/聊天协议。已有 PTY、MCP resources/prompts、Studio MCP、Skills 包导入删除不应再列为待开发。
+1. 核对 `517912311` 的完整 CI 最终结果，再实现普通新建单聊的内部插件绑定和实际执行。入口是 `ChatPanel.vue` 的 submit、新建/发送 store、`sockets/chat-run.ts` 的受管聊天分流和 `services/agents/chats.ts`；现有按持久 `agent_instance_id` 分流的链路可以复用，不能只给前端加一个标记。owner/profile、原生会话隔离、幂等与唯一写入必须由宿主保证，用户操作流程不变。
+2. 统一旧单聊/历史接管、群聊、工作流、全局任务及 API 的运行协调器；父子 Run、共享取消/预算、计量归属、唯一写入和完成屏障。当前 `services/agents/context-runs.ts` 仍明确拒绝带 Run/workspace 绑定的启动；需先补可信父子关系、持久化及清理/预算传播，不能只删除该授权保护。旧引擎持久化和新协调器投影需完成唯一写入后再切换入口。
+3. 厂商能力仍按证据逐项补齐：DSH 专属插件/预设管理和 context 占用事件、Antigravity 无账户模式实际 MCP、Grok global 后台/压缩用量及 cancelled/unknown 辅助调用、ZCode 原生 MCP cwd 组合，以及 Cursor 和其他厂商真实账号。独立目录和本地模型不能替代功能对等；详见各 `evidence/studio-plugin-*.md`。禁止插件导入 server/client 私有源码，禁止宿主万能厂商 runner。
+4. 补齐 SDK 完整 ctx、事件/限额/诊断，Web/Desktop/App 动态目录和管理/聊天协议。已有 PTY、MCP resources/prompts、Studio MCP、Skills 包导入删除不应再列为待开发。管理必须继续使用用户确认的卡片和原流程。
 5. Hermes/Ekko 保持 builtin 身份接入相同 Agent 契约；插件宿主故障不能影响内置引擎，避免重复写入。
-6. 全部 14 个系统插件随包默认安装且不可卸载；版本锁定、排空升级、迁移/回滚、历史保留、Desktop/npm/Docker 和 SDK/driver 分发准备。私有 CLI 旧版本清理/回滚仍未实现。
-7. 真实数据副本迁移、真实账号/远程服务、跨平台恢复与性能，图片/Skill 删除故障恢复；功能对等后清理旧链路。
+6. 全部 14 个系统插件随包默认安装且不可卸载；版本锁定、排空升级、迁移/回滚、历史保留、Desktop/npm/Docker 和 SDK/driver 分发准备。私有 CLI 旧版本清理/回滚仍未实现；插件默认登记不等于自动安装原生 CLI。
+7. 真实数据副本迁移、真实账号/远程服务、跨平台恢复与性能，图片/Skill 删除故障恢复；功能对等后清理旧链路。QA 副本使用自己的 node_modules，禁止在测试中切 checkout；用户要求删除的 Electron 设备切换自动测试已随 `ce45554ce` 推送，不能恢复它，手动验证脚本及 fixture 保留。
 
 完整迁移每项只按真实交付证据关闭。单项 fixture、目录注册或独立包数量不能替代最终验收。
 
