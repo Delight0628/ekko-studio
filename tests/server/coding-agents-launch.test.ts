@@ -2996,7 +2996,7 @@ describe('coding agent launch preparation', () => {
         content: [{
           type: 'tool_use',
           id: 'call_browser',
-          name: 'ekko_studio_browser_toolset',
+          name: 'mcp_79edf61fc450f6a9bcefad862164f87f4288ca6d',
           input: { action: 'list' },
         }],
         stop_reason: 'tool_use',
@@ -3070,7 +3070,7 @@ describe('coding agent launch preparation', () => {
     const secondRequestBody = JSON.parse(fetchMock.mock.calls[1][1].body)
     expect(secondRequestBody.tools.map((tool: any) => tool.name)).toEqual([
       'tool_search',
-      'ekko_studio_browser_toolset',
+      'mcp_79edf61fc450f6a9bcefad862164f87f4288ca6d',
     ])
     expect(secondRequestBody.messages).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -3107,7 +3107,7 @@ describe('coding agent launch preparation', () => {
       content: [{
         type: 'tool_use',
         id: 'toolu_browser',
-        name: 'ekko_studio_browser_toolset',
+        name: 'mcp_79edf61fc450f6a9bcefad862164f87f4288ca6d',
         input: { action: 'list' },
       }],
       stop_reason: 'tool_use',
@@ -3128,7 +3128,7 @@ describe('coding agent launch preparation', () => {
 
     const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(requestBody.tools).toEqual([expect.objectContaining({
-      name: 'ekko_studio_browser_toolset',
+      name: 'mcp_79edf61fc450f6a9bcefad862164f87f4288ca6d',
       input_schema: expect.objectContaining({
         required: ['action'],
       }),
