@@ -81,6 +81,8 @@ jobs:
           tests/server/studio-kimi-environment.test.ts
           tests/server/studio-qoder-plugin.test.ts
           tests/server/studio-codebuddy-plugin.test.ts
+          tests/server/studio-copilot-plugin.test.ts
+          tests/server/studio-copilot-environment.test.ts
           tests/server/studio-codex-plugin.test.ts
           tests/server/studio-codex-mcp-approval.test.ts
           tests/server/studio-managed-mcp.test.ts

@@ -28,7 +28,7 @@ it('connects the official MCP client through a managed process with large Unicod
   expect(() => globalThis.process.kill(pid, 0)).toThrow()
 })
 
-function fake(options: { maxMessageBytes?: number } = {}) {
+function fake(options: { maxMessageBytes?: number; framing?: 'jsonl' | 'content-length' } = {}) {
   let release!: (value: Awaited<ReturnType<ManagedProcessPort['read']>>) => void
   const port: ManagedProcessPort = { read: vi.fn(() => new Promise(resolve => { release = resolve })), write: vi.fn(async () => {}), end: vi.fn(async () => {}), dispose: vi.fn(async () => {}) }
   const transport = new ManagedJsonRpcTransport(port, parseJSONRPCMessage, options)
@@ -36,6 +36,47 @@ function fake(options: { maxMessageBytes?: number } = {}) {
   return { port, transport, release: (value: Awaited<ReturnType<ManagedProcessPort['read']>>) => release(value) }
 }
 const stdout = (data: Uint8Array) => ({ chunks: [{ stream: 'stdout' as const, data }], truncated: false, exit: null })
+
+it('reassembles Content-Length byte frames with split headers, Unicode bodies and adjacent messages', async () => {
+  const f = fake({ framing: 'content-length' }), received = vi.fn()
+  f.transport.onmessage = received
+  await f.transport.start()
+  const messages = [{ jsonrpc: '2.0', id: 1, result: { text: '😀中文' } }, { jsonrpc: '2.0', id: 2, result: {} }]
+  const framed = Buffer.concat(messages.map(message => {
+    const body = Buffer.from(JSON.stringify(message))
+    return Buffer.concat([Buffer.from(`Content-Length: ${body.length}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n`), body])
+  }))
+  const split = framed.indexOf(Buffer.from('😀')) + 1
+  let count = 1
+  for (const part of [framed.subarray(0, 7), framed.subarray(7, split), framed.subarray(split)]) {
+    f.release(stdout(part))
+    count++
+    await vi.waitFor(() => expect(f.port.read).toHaveBeenCalledTimes(count))
+  }
+  expect(received.mock.calls.map(([message]) => message)).toEqual(messages)
+  await f.transport.send({ jsonrpc: '2.0', id: 'write', result: { text: '中文' } })
+  const written = Buffer.concat((f.port.write as ReturnType<typeof vi.fn>).mock.calls.map(([bytes]) => Buffer.from(bytes))).toString()
+  const [header, body] = written.split('\r\n\r\n')
+  expect(header).toBe(`Content-Length: ${Buffer.byteLength(body)}`)
+  expect(JSON.parse(body).result.text).toBe('中文')
+})
+
+it.each(['missing', 'duplicate', 'negative', 'oversized', 'header', 'incomplete'] as const)('rejects invalid Content-Length %s without leaking the payload', async kind => {
+  const f = fake({ framing: 'content-length', maxMessageBytes: 128 }), error = vi.fn()
+  f.transport.onerror = error
+  await f.transport.start()
+  const data = kind === 'missing' ? 'X-Private: secret\r\n\r\n{}' : kind === 'duplicate' ? 'Content-Length: 2\r\nContent-Length: 2\r\n\r\n{}'
+    : kind === 'negative' ? 'Content-Length: -1\r\n\r\n' : kind === 'oversized' ? 'Content-Length: 129\r\n\r\n'
+      : kind === 'header' ? 'X'.repeat(8193) : 'Content-Length: 50\r\n\r\nprivate'
+  f.release(stdout(Buffer.from(data)))
+  if (kind === 'incomplete') {
+    await vi.waitFor(() => expect(f.port.read).toHaveBeenCalledTimes(2))
+    f.release({ chunks: [], truncated: false, exit: { code: 0, signal: null } })
+  }
+  await vi.waitFor(() => expect(f.port.dispose).toHaveBeenCalledOnce())
+  expect(error).toHaveBeenCalledOnce()
+  expect(String(error.mock.calls[0][0])).not.toMatch(/secret|private/)
+})
 
 it('reassembles split UTF-8 frames and keeps stderr outside JSON parsing', async () => {
   const f = fake(), message = vi.fn(), stderr = vi.fn()

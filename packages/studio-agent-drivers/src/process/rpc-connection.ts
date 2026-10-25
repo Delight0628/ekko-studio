@@ -3,6 +3,7 @@ import type { ManagedProcessPort } from './transport'
 
 type Id = string | number
 export interface NativeRpcMessage {
+  jsonrpc?: '2.0'
   id?: Id
   method?: string
   params?: Record<string, unknown>
@@ -26,7 +27,7 @@ function decode(value: unknown): NativeRpcMessage {
   return frame
 }
 
-/** Bidirectional JSONL RPC for native servers that omit the JSON-RPC version header. */
+/** Bidirectional native RPC; JSONL by default, optionally versioned Content-Length framing. */
 export class NativeRpcConnection {
   readonly closed: Promise<never>
   private rejectClosed!: (error: Error) => void
@@ -40,10 +41,14 @@ export class NativeRpcConnection {
   constructor(process: ManagedProcessPort, private readonly callbacks: {
     notification(method: string, params: Record<string, unknown>): void
     request?(method: string, params: Record<string, unknown>, signal: AbortSignal, id: Id): Promise<unknown>
-  }) {
+  }, private readonly options: { framing?: 'jsonl' | 'content-length'; jsonrpc?: boolean } = {}) {
     this.closed = new Promise((_, reject) => { this.rejectClosed = reject })
     void this.closed.catch(() => {})
-    this.transport = new ManagedJsonRpcTransport(process, decode, { maxMessageBytes: 4 * 1024 * 1024 })
+    this.transport = new ManagedJsonRpcTransport(process, value => {
+      const frame = decode(value)
+      if (options.jsonrpc && frame.jsonrpc !== '2.0') throw new Error('Invalid JSON-RPC version')
+      return frame
+    }, { maxMessageBytes: 4 * 1024 * 1024, framing: options.framing })
     this.transport.onmessage = message => this.receive(message)
     this.transport.onerror = error => this.fail(error)
     this.transport.onclose = () => this.fail(new Error('Native RPC process closed'))
@@ -61,12 +66,16 @@ export class NativeRpcConnection {
         reject(new Error(`Native RPC ${method} timed out; remote effects may be unknown`))
       }, timeoutMs)
       this.pending.set(id, { resolve, reject, timer })
-      void this.transport.send({ id, method, params }).catch(error => this.fail(error))
+      void this.send({ id, method, params }).catch(error => this.fail(error))
     })
   }
 
   notify(method: string, params: Record<string, unknown> = {}): Promise<void> {
-    return this.transport.send({ method, params })
+    return this.send({ method, params })
+  }
+
+  private send(message: NativeRpcMessage): Promise<void> {
+    return this.transport.send(this.options.jsonrpc ? { ...message, jsonrpc: '2.0' } : message)
   }
 
   /** A native server may withdraw its own request without closing the connection. */
@@ -84,16 +93,16 @@ export class NativeRpcConnection {
       const id = message.id
       if (this.incoming.has(id)) { this.fail(new Error('Duplicate native RPC request')); return }
       if (this.incoming.size >= 32 || !this.callbacks.request) {
-        void this.transport.send({ id, error: { code: -32601, message: 'Client method unavailable' } }).catch(error => this.fail(error))
+        void this.send({ id, error: { code: -32601, message: 'Client method unavailable' } }).catch(error => this.fail(error))
         return
       }
       const controller = new AbortController()
       this.incoming.set(id, controller)
       void Promise.resolve().then(() => controller.signal.aborted ? undefined : this.callbacks.request!(message.method!, message.params || {}, controller.signal, id))
         .then(async result => {
-          if (!this.ended && !controller.signal.aborted) await this.transport.send({ id, result: result ?? null })
+          if (!this.ended && !controller.signal.aborted) await this.send({ id, result: result ?? null })
         }, async () => {
-          if (!this.ended && !controller.signal.aborted) await this.transport.send({ id, error: { code: -32000, message: 'Client request failed' } })
+          if (!this.ended && !controller.signal.aborted) await this.send({ id, error: { code: -32000, message: 'Client request failed' } })
         }).catch(error => this.fail(error)).finally(() => { if (this.incoming.get(id) === controller) this.incoming.delete(id) })
       return
     }

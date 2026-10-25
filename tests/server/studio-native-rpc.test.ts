@@ -3,23 +3,42 @@ import { NativeRpcConnection, type ManagedProcessPort } from '../../packages/stu
 
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); vi.useRealTimers() })
-async function connection(callbacks: ConstructorParameters<typeof NativeRpcConnection>[1] = { notification() {} }) {
+async function connection(callbacks: ConstructorParameters<typeof NativeRpcConnection>[1] = { notification() {} }, options: ConstructorParameters<typeof NativeRpcConnection>[2] = {}) {
   let release!: (batch: Awaited<ReturnType<ManagedProcessPort['read']>>) => void
   const sent: any[] = []
   const port: ManagedProcessPort = {
     read: vi.fn(() => new Promise(resolve => { release = resolve })),
-    write: vi.fn(async bytes => { sent.push(JSON.parse(Buffer.from(bytes).toString())) }),
+    write: vi.fn(async bytes => { const frame = Buffer.from(bytes).toString(); sent.push(JSON.parse(options.framing === 'content-length' ? frame.split('\r\n\r\n')[1] : frame)) }),
     end: vi.fn(async () => {}), dispose: vi.fn(async () => {}),
   }
-  const rpc = new NativeRpcConnection(port, callbacks)
+  const rpc = new NativeRpcConnection(port, callbacks, options)
   await rpc.start()
   cleanups.push(() => rpc.close())
   const receive = async (value: unknown) => {
-    release({ chunks: [{ stream: 'stdout', data: Buffer.from(JSON.stringify(value) + '\n') }], truncated: false, exit: null })
+    const body = JSON.stringify(value)
+    release({ chunks: [{ stream: 'stdout', data: Buffer.from(options.framing === 'content-length' ? `Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}` : body + '\n') }], truncated: false, exit: null })
     await new Promise(resolve => setImmediate(resolve))
   }
   return { rpc, port, sent, receive }
 }
+
+it('uses versioned Content-Length RPC for native SDK metadata without creating sessions', async () => {
+  const f = await connection({ notification() {} }, { framing: 'content-length', jsonrpc: true })
+  const request = f.rpc.request('models.list', {})
+  await f.receive({ jsonrpc: '2.0', id: 1, result: { models: [{ id: 'fixture-model' }] } })
+  await expect(request).resolves.toEqual({ models: [{ id: 'fixture-model' }] })
+  expect(f.sent).toEqual([{ jsonrpc: '2.0', id: 1, method: 'models.list', params: {} }])
+  await f.receive({ jsonrpc: '2.0', id: 'unsupported', method: 'unknown', params: {} })
+  await vi.waitFor(() => expect(f.sent.at(-1)).toEqual({ jsonrpc: '2.0', id: 'unsupported', error: { code: -32601, message: 'Client method unavailable' } }))
+})
+
+it('rejects a missing native SDK RPC version and closes pending calls', async () => {
+  const f = await connection({ notification() {} }, { framing: 'content-length', jsonrpc: true })
+  const request = f.rpc.request('models.list', {}), rejected = expect(request).rejects.toThrow('Invalid JSON protocol message')
+  await f.receive({ id: 1, result: {} })
+  await rejected
+  expect(f.port.dispose).toHaveBeenCalledOnce()
+})
 
 it('keeps independent request directions and waits for a server request response', async () => {
   let answer!: (value: unknown) => void

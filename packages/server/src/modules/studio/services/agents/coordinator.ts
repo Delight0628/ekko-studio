@@ -117,7 +117,7 @@ export class AgentCoordinator {
       return operations.start({ ownerId: scope.principal.id, profileId: scope.profileId, instanceId, revision, provider, idempotencyKey, action }, authorize, async control => {
         await this.disposeInstanceLeases(instanceId, 'Native management started')
         authorize()
-        const stateDirectory = instance.mode === 'scoped' && this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, provider,
+        const stateDirectory = this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, provider,
           this.options.store.state.stateRevision(instance.id, provider, revision)) : undefined
         const input = { instanceId, config: instance.config, configRevision: revision, mode: instance.mode }
         let stage: CliInstallStage | undefined
@@ -323,7 +323,7 @@ export class AgentCoordinator {
     }
     try {
       if (signal?.aborted) throw new StudioError('CANCELLED', 'Resource operation cancelled')
-      const stateDirectory = instance.mode === 'scoped' && this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, provider,
+      const stateDirectory = this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, provider,
         this.options.store.state.stateRevision(instance.id, provider, instance.revision)) : undefined
       authorize()
       const input = { instanceId, config: instance.config, configRevision: instance.revision, mode: instance.mode }
@@ -643,7 +643,7 @@ export class AgentCoordinator {
         // start a process and then throw synchronously.
         const creating = Promise.resolve().then(async () => {
           if (resolved.definition.capabilities.nativeMcp) pending.nativeContext = this.options.nativeContext?.(instance, scope, run.provider, controller.signal)
-          const stateDirectory = instance.mode === 'scoped' && this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, run.provider,
+          const stateDirectory = this.options.stateRoot ? await agentStateDirectory(this.options.stateRoot, instance, run.provider,
             this.options.store.state.stateRevision(instance.id, run.provider, instance.revision)) : undefined
           assertDispatch()
           const runtimeContext = {

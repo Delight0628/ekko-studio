@@ -17,6 +17,9 @@ export interface AcpRuntimeOptions {
   commands?: { update(value: unknown): void; drain(): Promise<void> }
   /** Some ACP servers keep watchers after stdin EOF; confirm host cleanup after their final result. */
   completion?: 'exit' | 'managed-stop'
+  /** A native server may require MCP at launch rather than accepting session/new declarations. */
+  sessionMcp?: boolean
+  prepareLaunch?(configuration: AgentContextConfiguration, runtime: AgentRuntimeContext): Promise<{ args: string[]; env?: Record<string, string>; dispose?(): Promise<void> }>
   /** The owning plugin interprets native application errors; the driver never branches on a vendor. */
   handleError?(error: unknown, emit: (event: Omit<AgentOutputEvent, 'producerSequence'>) => void): void
 }
@@ -47,6 +50,7 @@ export function createAcpRuntime(input: RuntimeCreateInput, runtime: AgentRuntim
       const events = new AgentEventQueue<AgentOutputEvent>()
       let sequence = 0, cancelled = ctx.signal.aborted, transport: ManagedProcessTransport | undefined, connection: AcpConnection | undefined
       let gateway: import('@ekko-studio/plugin-sdk').ModelGatewayHandle | undefined
+      let prepared: Awaited<ReturnType<NonNullable<AcpRuntimeOptions['prepareLaunch']>>> | undefined
       let cleanupFailure: unknown
       const tools = new Map<string, string>()
       const finishedTools = new Set<string>()
@@ -73,10 +77,11 @@ export function createAcpRuntime(input: RuntimeCreateInput, runtime: AgentRuntim
           gateway = scoped ? await ctx.models.gateway({ model: model!, protocol }) : undefined
           if (gateway && images.size && gateway.images !== true) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Selected Studio model does not support images')
           const isolated = gateway ? await options.prepareScoped!(runtime, gateway, config) : undefined
+          prepared = await options.prepareLaunch?.(effectiveContext, runtime)
           if (cancelled) return { status: 'cancelled' }
           const launch = nativeAgentLaunch(options.command, config, runtime)
           const process = await runtime.processes.spawn({ command: launch.command,
-            args: [...launch.args, ...(isolated?.args || []), ...options.args], cwd, env: { ...config.env as Record<string, string>, ...nativeEnvironment, ...isolated?.env } })
+            args: [...launch.args, ...(isolated?.args || []), ...(prepared?.args || []), ...options.args], cwd, env: { ...config.env as Record<string, string>, ...nativeEnvironment, ...isolated?.env, ...prepared?.env } })
           transport = new ManagedProcessTransport(process)
           if (cancelled) return { status: 'cancelled' }
           connection = new AcpConnection(transport, {
@@ -134,7 +139,7 @@ export function createAcpRuntime(input: RuntimeCreateInput, runtime: AgentRuntim
           const selection = options.promptConfiguration?.(requested) ?? requested
           const reason = await connection.prompt({ cwd, text: !native && effectiveContext.systemPrompt ? `${effectiveContext.systemPrompt}\n\n${text}` : text,
             images: input.content.flatMap(block => block.type === 'image' ? [images.get(block.artifactId)!] : []),
-            nativeSessionId, mcpServers: acpMcpServers(effectiveContext.mcpServers || {}),
+            nativeSessionId, mcpServers: options.sessionMcp === false ? [] : acpMcpServers(effectiveContext.mcpServers || {}),
             ...selection })
           if (!cancelled && !['end_turn', 'max_tokens'].includes(reason)) throw new Error(`${options.name} stopped: ${reason}`)
           // A result frame does not prove that the CLI drained or exited.
@@ -156,7 +161,10 @@ export function createAcpRuntime(input: RuntimeCreateInput, runtime: AgentRuntim
         } finally {
           connection?.dispose()
           ctx.signal.removeEventListener('abort', aborted)
-          try { try { await transport?.dispose() } finally { if (!ctx.signal.aborted) await gateway?.dispose() } }
+          try {
+            try { await transport?.dispose() }
+            finally { try { if (!ctx.signal.aborted) await gateway?.dispose() } finally { await prepared?.dispose?.() } }
+          }
           catch (error) { cleanupFailure = error; throw error }
           finally { events.end(); active = undefined }
         }

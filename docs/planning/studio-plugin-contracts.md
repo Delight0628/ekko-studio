@@ -152,7 +152,7 @@ interface AgentRunContext extends ExecutionContext {
 
 网关只监听 loopback，租约最长 10 分钟；每请求 120 秒，16 MiB 输入、32 MiB 输出、1 MiB SSE 帧；最多 64 个租约/请求、每租约 4 个请求。只支持前台完整历史请求，不支持服务端历史引用、后台任务、压缩端点和 WebSocket。HTTP 重试视为新模型调用，不承诺推理副作用幂等。原生成功帧在权威用量写入后交付；缺失计量保留 unknown。`dispose()` 撤销准入并等待请求和记账；Run 取消、worker 退出、授权撤销、超时和宿主关闭也自动回收。清理/记账不确定时不得当作成功屏障。
 
-`AgentRuntimeContext.stateDirectory` 为可选宿主能力：scoped 实例获得按提供方版本、owner、profile、实例和状态 revision 隔离的持久目录。默认状态 revision 等于配置 revision；符合插件 `resumeConfigKeys` 声明的更新保留原状态 revision，目录与原生资源无需复制。关联记录与配置更新在同一事务提交，沿用既有目录命名，不搬移旧文件。路径不可由执行参数覆盖，同一工件 worker 重启保持稳定。插件在其中管理自己的原生配置/历史；目录隔离不是操作系统沙箱。历史清理、跨模式和升级迁移仍未完成。
+`AgentRuntimeContext.stateDirectory` 为可选宿主能力：配置宿主存储后，两种模式的运行、资源和管理操作均可获得按提供方版本、owner、profile、实例和状态 revision 隔离的持久辅助目录；只读检查不分配目录。global 模式仍使用插件选择的原生账号 Home，该目录不覆盖用户原生配置。默认状态 revision 等于配置 revision；符合插件 `resumeConfigKeys` 声明的更新保留原状态 revision，目录与原生资源无需复制。关联记录与配置更新在同一事务提交，沿用既有目录命名，不搬移旧文件。路径不可由执行参数覆盖，同一工件 worker 重启保持稳定。插件在其中管理自己的原生配置/历史；目录隔离不是操作系统沙箱。历史清理、跨模式和升级迁移仍未完成。
 
 当前 T02 已落地 `ctx.sessions.remove(id)`，要求 `sessions.remove` 授权，并与现有 HTTP 单删/批删共用领域服务。返回本地 `deleted` 与独立的 `native` 清理结果；profile 与主体由宿主绑定，不接收调用参数。首个副作用前响应取消，开始变更后返回实际结果。上表的活动 Run 策略 options、hook 和可靠投递仍为目标契约，不能据此假定已实现；详见[实施记录](studio-plugin-progress.md#t02-进展会话删除共用领域服务)。
 
@@ -248,9 +248,11 @@ Hermes/Ekko 使用同一 `AgentTypeDefinition` 与 `AgentRuntime`，由 bootstra
 
 `POST /api/studio/agent-instances/:id/setup` 接受 `{ revision }`，返回宿主绑定的实例/revision/provider、`cli: { state: available|unavailable, version? }`、`installation: { command, args }` 与 `authentication: { kind: native|studio, command?, args?, input? }`。native 必须提供 command/args；studio 不允许附带原生登录字段。输出限 64 KiB，不接受 env、账号标识、凭据或任意附加字段；命令不能含控制字符。Qwen/Codex 仅执行有界版本检查并返回手工操作指引，不自动安装或登录，也不把可用 CLI 当作已认证。scoped 模式不读取全局账号；global 的认证状态另由 inspect 提供。此能力复用管理互斥、授权、25 秒期限与清理屏障。
 
-检查结果仅允许原生名称/版本、认证状态及方法 ID/名称、模型 ID/名称/默认项/推理级别，并附宿主 provider/configRevision 快照。认证状态区分 `authenticated/required/not_required/unknown`；模型发现区分 `available/unsupported`，不会把未知当成未登录或空目录。适配器不得借检查执行登录、刷新凭据、推理或改写配置。结果上限 256 KiB、512 个模型、32 个认证方法；宿主检查字段、重复 ID 和大小。并发上限 16，执行期限 25 秒；撤权、取消、断连和关闭均回收资源。取消后最多等待 5 秒确认回调与受管资源清理，不合作的 worker 会被终止；清理未确认时保留实例占用，不能启动下一轮。
+检查结果仅允许原生名称/版本、认证状态及方法 ID/名称、模型 ID/名称/默认项/推理级别，并附宿主 provider/configRevision 快照。认证状态区分 `authenticated/required/not_required/unknown`；模型发现区分 `available/unsupported/authentication_required`，后两者必须返回空 items，不会把未知当成未登录或空目录。适配器不得借检查执行登录、刷新凭据、推理或改写配置。结果上限 256 KiB、512 个模型、32 个认证方法；宿主检查字段、重复 ID 和大小。并发上限 16，执行期限 25 秒；撤权、取消、断连和关闭均回收资源。取消后最多等待 5 秒确认回调与受管资源清理，不合作的 worker 会被终止；清理未确认时保留实例占用，不能启动下一轮。
 
 Codex 使用 `account/read`（`refreshToken: false`）和有界分页 `model/list`，不返回账号标识、原生 Home 或秘密。Qwen 仅执行 ACP v1 initialize，投影客户端信息和认证方法；该握手不提供当前认证状态，无会话模型发现不支持。退出账号、自动升级和完整 MCP 管理仍未实现；显式受管安装见下文；配置文件和 Skills 的 Studio 编辑接入见下节，不将此检查接口计为完整原生管理迁移。
+
+Copilot 1.0.91 先进行 ACP initialize，再用独立 headless SDK 的 JSON-RPC 2.0 / Content-Length 连接调用 `auth.getStatus`；只有明确已认证才调用 `models.list`。未登录返回 `authentication_required`，不创建原生会话、Run 或消息，账号标识和 SDK 私有字段被丢弃。共享 driver 支持有界 JSONL/Content-Length 帧，但不包含厂商方法分支。
 
 原生登录由用户显式调用 `POST /api/studio/agent-instances/:id/login { revision, idempotencyKey }`。插件的 prepareLogin 只返回私有 `command/args/cwd/env`，不进入 HTTP 回执；宿主分配 PTY 并返回独立 `AgentManagementOperation`，不创建 Run、消息或计量。Qwen 使用交互 CLI，用户输入 `/auth`；Codex 使用 `login --device-auth`。两个插件拒绝 scoped 登录，继续使用 Studio 模型凭据。CLI 退出码为零只代表命令结束，账号认证另由 inspect 核实。
 

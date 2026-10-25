@@ -7,6 +7,7 @@ const nativeAgents = {
   kimi: { name: 'Kimi Code', version: '2.1.1', package: '@moonshot-ai/kimi-code@2.1.1', loginArgs: ['login'] },
   qoder: { name: 'Qoder', version: '1.1.78', package: '@qoder-ai/qodercli@1.1.78', loginArgs: ['login'] },
   codebuddy: { name: 'CodeBuddy', version: '2.175.0', package: '@tencent-ai/codebuddy-code@2.175.0', loginArgs: [] },
+  copilot: { name: 'Copilot', version: '1.0.91', package: '@github/copilot@1.0.91', loginArgs: ['login'] },
 }
 async function setup(page: Page, brightness = 'light', wallpaper = false, active = true, agent: keyof typeof nativeAgents = 'qwen') {
   await authenticate(page, TEST_ACCESS_KEY, 'research')
@@ -126,7 +127,7 @@ test('explicitly enables an implemented bundled plugin before creating instances
   expect(api.unexpectedRequests).toEqual([])
 })
 
-for (const agent of ['kimi', 'qoder', 'codebuddy'] as const) test(`enables ${agent} and manages its native login setup on mobile`, async ({ page }) => {
+for (const agent of ['kimi', 'qoder', 'codebuddy', 'copilot'] as const) test(`enables ${agent} and manages its native login setup on mobile`, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const api = await setup(page, 'dark', true, false, agent)
   await page.goto('/#/studio/agents')

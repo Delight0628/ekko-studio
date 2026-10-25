@@ -1,4 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { join, dirname } from 'node:path'
+import { tmpdir } from 'node:os'
 import { afterEach, expect, it, vi } from 'vitest'
 import { AgentExecutionStore } from '../../packages/server/src/modules/studio/repositories/agent-execution-store'
 import { AgentCoordinator } from '../../packages/server/src/modules/studio/services/agents/coordinator'
@@ -7,21 +10,21 @@ import { PluginEventBus } from '../../packages/server/src/modules/studio/service
 import { createExecutionContext } from '../../packages/server/src/modules/studio/services/context/execution'
 import { ManagedProcessScope } from '../../packages/server/src/modules/studio/services/processes/managed'
 import { StudioError, nativeAgentSetup, type AgentInspection, type AgentManagementAdapter, type ExecutionScope } from '../../packages/studio-plugin-sdk/src'
-import { parseAgentSetup } from '../../packages/server/src/modules/studio/services/plugins/validation'
+import { parseAgentInspection, parseAgentSetup } from '../../packages/server/src/modules/studio/services/plugins/validation'
 
 const scope: ExecutionScope = { scopeId: 'scope', principal: { kind: 'user', id: 'owner' }, profileId: 'one', surface: 'api', traceId: 'trace' }
 const metadata: AgentInspection = { native: { name: 'Fixture', version: '1' }, authentication: { state: 'unknown', methods: [] }, models: { status: 'available', items: [{ id: 'model', name: 'Model' }] } }
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); vi.useRealTimers() })
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done }); return { resolve, promise } }
-function setup(inspect: AgentManagementAdapter['inspect'] = async () => metadata, supported = true, nativeSetup?: AgentManagementAdapter['setup']) {
+function setup(inspect: AgentManagementAdapter['inspect'] = async () => metadata, supported = true, nativeSetup?: AgentManagementAdapter['setup'], stateRoot?: string) {
   const db = new DatabaseSync(':memory:'), store = new AgentExecutionStore(db), registry = new AgentRegistry(), events = new PluginEventBus()
   const logger = { info() {}, warn() {}, error() {} }, authorize = vi.fn(), inspector = vi.fn(inspect), create = vi.fn()
   const registration = registry.stage('*', { kind: 'builtin', module: 'ekko', implementationVersion: 'test' }, ['ekko'])
   registration.register({ id: 'ekko', name: 'Fixture', configSchema: { type: 'object' }, capabilities: { text: true, modes: ['global'] },
     ...(supported ? { management: { inspect: inspector, ...(nativeSetup ? { setup: nativeSetup } : {}) } } : {}), create })
   registration.commit()
-  const coordinator = new AgentCoordinator({ store, registry, events, logger, authorize, context: (scope, signal) => createExecutionContext(scope, signal, logger, {
+  const coordinator = new AgentCoordinator({ store, registry, events, logger, authorize, stateRoot, context: (scope, signal) => createExecutionContext(scope, signal, logger, {
     authorize: async () => {}, agents: { list: async () => [] }, sessions: { get: async () => null },
   }) })
   const instance = coordinator.createInstance(scope, { agentTypeId: 'ekko', config: { key: 'instance-config' }, mode: 'global' })
@@ -40,6 +43,24 @@ it('discovers management and inspects without creating a runtime, Run or revisio
   expect(f.db.prepare('SELECT count(*) AS count FROM studio_agent_runs').get()?.count).toBe(0)
   expect(f.store.instance(f.instance.id)).toEqual(f.instance)
   expect(f.inspector.mock.calls[0][1].signal.aborted).toBe(true)
+})
+
+it('provides private auxiliary storage to a global runtime without changing its native configuration', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'studio-global-management-state-'))
+  cleanups.push(() => rm(root, { recursive: true, force: true }))
+  const f = setup(undefined, true, undefined, root)
+  f.create.mockResolvedValue({ run: async () => ({ events: (async function* () {})(), result: Promise.resolve({ status: 'completed' }), cancel: async () => {} }), dispose: async () => {} })
+  const run = f.coordinator.start(scope, f.instance.id, { content: [{ type: 'text', text: 'hello' }] }, 'global-storage')
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(scope, run.id).status).toBe('completed')
+  expect(dirname(f.create.mock.calls[0][1].stateDirectory!)).toBe(root)
+  expect(f.create.mock.calls[0][0]).toMatchObject({ mode: 'global', config: { key: 'instance-config' } })
+})
+
+it('distinguishes an authentication-dependent model catalog and rejects items in unavailable catalogs', () => {
+  const required = { ...metadata, authentication: { state: 'required', methods: [] }, models: { status: 'authentication_required', items: [] } }
+  expect(parseAgentInspection(required)).toEqual(required)
+  expect(() => parseAgentInspection({ ...required, models: { ...required.models, items: metadata.models.items } })).toThrow()
 })
 
 it('probes CLI version with managed resources without logging in or creating runs', async () => {

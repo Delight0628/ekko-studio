@@ -12,6 +12,7 @@ const bundles = [
   { id: 'qoder', name: 'Qoder', pluginId: 'studio.agent-qoder', directory: 'qoder',
     requiredCapabilities: ['agents.register', 'commands.register', 'runs.start', 'processes.spawn', 'mcp.studio', 'artifacts.read'] },
   { id: 'codebuddy', name: 'CodeBuddy', pluginId: 'studio.agent-codebuddy', directory: 'codebuddy' },
+  { id: 'copilot', name: 'GitHub Copilot', pluginId: 'studio.agent-copilot', directory: 'copilot' },
 ] as const
 const bundledCapabilities = ['agents.register', 'commands.register', 'runs.start', 'processes.spawn', 'mcp.studio', 'models.gateway', 'artifacts.read']
 

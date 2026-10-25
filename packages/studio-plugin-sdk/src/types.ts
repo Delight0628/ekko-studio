@@ -244,7 +244,7 @@ export interface AgentInspection {
     state: 'authenticated' | 'required' | 'not_required' | 'unknown'
     methods: Array<{ id: string; name: string }>
   }
-  models: { status: 'available' | 'unsupported'; items: Array<{ id: string; name: string; isDefault?: boolean; reasoningEfforts?: string[] }> }
+  models: { status: 'available' | 'unsupported' | 'authentication_required'; items: Array<{ id: string; name: string; isDefault?: boolean; reasoningEfforts?: string[] }> }
 }
 export type AgentManagementInput = Pick<RuntimeCreateInput, 'instanceId' | 'config' | 'configRevision' | 'mode'>
 /** Manual native setup, separate from plugin installation and account verification.
@@ -284,7 +284,8 @@ export interface AgentManagementOutput {
 
 export interface AgentRuntimeContext {
   /** Host-owned persistent directory, isolated by provider/version, owner, profile and instance.
-   * Compatible configuration revisions share their original directory. */
+   * Compatible configuration revisions share their original directory.
+   * Available in either mode when host storage is configured; it does not change native account homes. */
   readonly stateDirectory?: string
   /** Host-verified private CLI. An unavailable installation requires repair or an explicit custom command. */
   readonly nativeCli?: AgentNativeCli

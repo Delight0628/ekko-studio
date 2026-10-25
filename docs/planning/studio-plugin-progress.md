@@ -16,7 +16,7 @@
 | 事件 | `ctx.on` / `ctx.once`、profile/owner 授权、每分区有序通知；`ctx.events.consume` 持久化游标、租约、重试/死信和保留期；仅把明确允许的旧业务事件字段投影到公共事件表 |
 | Agent API 执行 | 实例、接受请求、幂等、启动、流输出、完成屏障、取消、终态与事件事务落库；崩溃恢复标记 interrupted，不自动重放输入 |
 | 原生管理检查 | 通用 `management.inspect/setup/prepareLogin`、目录能力发现、独立管理操作、所有者/profile 鉴权及受管登录终端；CLI 版本探测与手工安装指引、Codex 脱敏账号状态及模型分页，Qwen ACP 信息/认证方式；完整管理和真实账号验收仍未完成 |
-| 管理页面 | 现有配置页可创建/修改自有实例，按注册 schema 展示字段，复杂类型使用 JSON；超级管理员可显式安装并启用五个已实现的随包插件，保留现有配置和 grants；不默认登记其余保留 ID |
+| 管理页面 | 现有配置页可创建/修改自有实例，按注册 schema 展示字段，复杂类型使用 JSON；超级管理员可显式安装并启用六个已实现的随包插件，保留现有配置和 grants；不默认登记其余保留 ID |
 | 配置连续性 | 插件声明兼容字段；空闲实例更新原子保留目录关联和成功 checkpoint，完整提供方引用保持匹配；网关逐请求授权并允许协议直通/转换切换。跨模式、工作区或工件升级迁移仍待完成 |
 | 原生资源编辑 | 多位置扫描、实例表单、Skills/配置读取保存，以及完整 Skill 包导入和目录版本化删除；来源/内容版本、只读别名、运行互斥和下轮重新加载；App、任意目录树管理及完整恢复验收待完成 |
 | 受管进程 | runtime 租约持有管道/PTY 进程，宿主签发句柄、用户/profile/runtime 隔离、有界字节读取、管道写入背压与 PTY 输入预算、resize、环境白名单、退出确认和进程树终止；worker 不持有原生进程对象 |
@@ -28,7 +28,7 @@
 | 输入框命令 | 激活期与聊天租约内动态注册、真实 worker handler、原始参数、可信作用域、异步结果与持久回执、取消/撤权回收；Qwen ACP 目录及两款插件的原生压缩已接入，其他原生管理操作、内置引擎及 App 迁移待完成 |
 | 工程接入 | bootstrap、鉴权 API、生成式 OpenAPI、runner 构建、插件私有导入边界检查、独立 Echo 样例 |
 
-安装策略测试中的 14 条 fixture 只验证保护和幂等规则。**当前没有把这 14 个 Agent 注册成已安装系统插件**，也没有用空壳包代替厂商迁移。已有 Qwen、Codex、Kimi 与 CodeBuddy 独立包的 global/scoped 文本与图片运行增量；Qoder 保留 global-only 模式（scoped 已支持原生协议直通及四个转换方向），尚未默认安装或替换旧入口，不能计为完整迁移。旧 Coding Agent 仍使用原执行和管理路径。Hermes/Ekko 仍是原内置模块。
+安装策略测试中的 14 条 fixture 只验证保护和幂等规则。**当前没有把这 14 个 Agent 注册成已安装系统插件**，也没有用空壳包代替厂商迁移。已有 Qwen、Codex、Kimi、CodeBuddy 与 Copilot 独立包的 global/scoped 文本与图片运行增量；Qoder 保留 global-only 模式；scoped 网关已支持三种协议六个转换方向。尚未默认安装或替换旧入口，不能计为完整迁移。旧 Coding Agent 仍使用原执行和管理路径。Hermes/Ekko 仍是原内置模块。
 
 ## 当前开发接口
 
@@ -51,7 +51,7 @@
 | `GET /api/studio/command-calls/:id` | 查询自有调用状态及有序的现有格式结果 |
 | `POST /api/studio/command-calls/:id/cancel` | 取消调用，等待实际 handler 清理；不合作时关闭该 worker |
 | `GET /api/studio/agent-types` | 当前已激活插件提供的目录；尚未合并旧内置目录 |
-| `GET /api/studio/bundled-agent-plugins` | 五个已实现随包插件及当前 profile 状态；超级管理员 |
+| `GET /api/studio/bundled-agent-plugins` | 六个已实现随包插件及当前 profile 状态；超级管理员 |
 | `POST /api/studio/bundled-agent-plugins/:id/enable` | 按 profile revision 显式登记并启用受信任随包工件；不接受目录、不升级已有工件；超级管理员 |
 | `POST /api/studio/agent-images` | 上传至当前用户/profile 的图片工件，原始字节体，返回 artifact 引用 |
 | `DELETE /api/studio/agent-images/:id` | 删除自有且尚未被已接受 Run 引用的图片 |
@@ -97,6 +97,20 @@
 后续仍有七大交付块：统一运行与剩余业务入口、插件基础能力收尾、通用 Web/Desktop/App 界面、14 个 Coding Agent 独立插件包、Hermes/Ekko 内置统一接入、安装升级与发布分发、最终迁移验收与旧代码清理。输入框命令贡献已交付 SDK/宿主与 Web 基础链路，原生适配和跨客户端接入仍未完成，详见下节。旧聊天 SDK 的已有自有会话文本启动、查询和取消已完成，不再列为待开发项。
 
 资源位置/输入框命令契约、命令基础链路、现有 Skills/配置编辑页接入和兼容配置连续性已交付。后续顺序：补齐 Qwen/Codex 管理、Studio MCP 和原生命令 → 接入聊天界面形成可体验闭环 → 扩展到其余 Agent 和业务入口 → 分发与最终验收。MCP 工具 SDK 已整合、提交并推送，原生配置注入等剩余能力随迁移继续推进。Hermes/Ekko 继续保持内置身份；14 个厂商插件须逐个迁移和验收，保留 ID 或 fixture 不计为交付。
+
+### Copilot 独立插件（2026-10-25）
+
+- 新增 `studio.agent-copilot`，固定 `@github/copilot@1.0.91`；标准 ACP 负责运行、图片、审批、恢复和动态命令。Windows 用受管进程检查 PowerShell 6+，不会把 5.1 当作满足要求。
+- scoped 的 Claude ID 使用 Anthropic 并移除 Studio provider 前缀，其他模型走 Chat Completions；两者都使用私有 Home/settings，保留用户编辑项，模型临时凭据仅进入进程环境。真实 Anthropic 联调最初发现基址重复 `/v1` 导致 401，最终修正插件基址，不放宽宿主授权校验。
+- 原生 ACP 不加载 session MCP 声明，改由插件通过 `--additional-mcp-config @file` 注入启动配置。宿主允许 global 运行使用辅助目录但保留原生 Home；MCP 文件按 runtime 租约隔离，实际进程清理后删除，包括失败和取消。公共 ACP 只增加启动准备/清理钩子，不增加厂商分发表。
+- inspect 先 initialize，再启动 Content-Length JSON-RPC 2.0 SDK 读取 `auth.getStatus`，确认已认证才读取 `models.list`；未登录返回 `authentication_required`，不创建会话或 Run，丢弃账号标识和私有字段。公共 transport 保留 JSONL 默认行为，新增有界帧头/UTF-8/长度/EOF 校验。
+- 服务端专项 6 文件 95 项通过，覆盖 worker、并发 MCP 文件隔离、成功/失败/取消后凭据文件清理、私有设置保留、协议基址、管理和 Windows 环境；其他五个插件、原生上下文、目录与网关专项 8 文件 120 项通过。构建、harness、仓库外 SDK/driver 安装/编译/运行通过。日志 `/tmp/studio-copilot-{final-focused,regressions,final-build,final-harness,packages}.log`。
+- OpenAI 路由真实 CLI 已完成 14 轮、19 次本地模型请求、5 次 Studio MCP；Anthropic 路由也已完成同样矩阵，最终文件清理钩子加入后再次通过 14 轮/19 次/5 次，包含图片、Skills/指令、配置替换、聊天分离、协调器/提供方重启、三种模型协议及跨轮切换。生产管理浏览器 12 项通过，含手机端 Copilot 启用/登录指引。无真实账号或远程供应商验收。日志 `/tmp/studio-copilot-real-native-v3.log`、`/tmp/studio-copilot-real-anthropic-v6.log`、`/tmp/studio-copilot-real-final.log`、`/tmp/studio-copilot-browser.log`。
+- 这是第六个独立插件实现；剩余 zcode、antigravity、claude-code、pi、grok、opencode、dsh、cursor。完整迁移仍为 **0/14**。
+
+### 五插件冻结回归（2026-10-25）
+
+冻结 `01114c99f` 的独立 QA 生产构建通过；coverage 944 文件、9,853 项通过，12 文件/33 项按原条件跳过，默认时限、2 workers，413.00 秒。生产浏览器首轮 969 项通过、1 项失败（主题编辑器加载预设时的填值竞态），4 workers、无重试，10.5 分钟。页面已有 inert 锁定，Playwright 直接 fill 绕过了锁定；`68fa9cc1b` 只修正原测试等待页面就绪，原断言和期限保持不变，light/dark 两项专项通过。完整浏览器复验正在冻结 `68fa9cc1b` 上运行；未把首轮记为全绿。日志 `/tmp/studio-five-plugins-qa-{build,coverage,browser,browser-v2}.log`，报告 `/tmp/studio-five-plugins-qa-coverage`。
 
 ### CodeBuddy 独立插件（2026-10-25，真实 CLI 专项通过）
 

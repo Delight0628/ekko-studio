@@ -58,7 +58,7 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
   let calls = 0, completedTurns = 0, completedCommands = 0, installedClis = 0;
   const managedInstall = process.env.STUDIO_MANAGED_CLI === '1';
   const vendors = process.env.STUDIO_AGENT_VENDORS ? process.env.STUDIO_AGENT_VENDORS.split(',') : ['codex', 'qwen-code'];
-  if (!vendors.length || vendors.some(value => !['codex', 'qwen-code', 'kimi', 'codebuddy'].includes(value))) throw new Error('Unknown native verification vendor');
+  if (!vendors.length || vendors.some(value => !['codex', 'qwen-code', 'kimi', 'codebuddy', 'copilot'].includes(value))) throw new Error('Unknown native verification vendor');
   const fixtureInputTokens = process.env.STUDIO_NATIVE_COMMANDS === '1' ? 12000 : 12;
   let activeTarget = 'native', activeVendor, searchIssued = false;
   let nativeMcpEnabled = false, nativeMcpIssued = false, nativeMcpContext;
@@ -182,6 +182,7 @@ data: ${JSON.stringify({ type, ...data })}
         : translatedNativeRequest({ client, protocol, model: 'fixture-model', publicModel, body, signal, sessionId, authorize() {} }),
       record: input => input.onRecorded?.({ ...input.usage, isEstimated: input.isEstimated }) };
   } });
+  if (process.env.STUDIO_NATIVE_DIAGNOSTICS === '1') gateways.server.prependListener('request', request => console.log(JSON.stringify({ nativeGatewayPath: request.url?.split('?')[0].replace(/[a-f0-9]{48}/g, '<lease>') })));
   try {
     for (const [mode, target] of [['global', 'native'], ['scoped', 'native'], ['scoped', 'chat'], ['scoped', 'other'], ['scoped', 'switch']]) for (const vendor of vendors) {
       if (managedInstall && target !== 'native') continue;
@@ -214,6 +215,13 @@ requires_openai_auth = false
           config.args = ["--auth-type", "anthropic", "--model", "fixture-model"];
           Object.assign(config.env, { QWEN_HOME: home, QWEN_RUNTIME_DIR: join(home, "runtime"), ANTHROPIC_API_KEY: "fixture-only", ANTHROPIC_BASE_URL: base, ANTHROPIC_MODEL: "fixture-model" });
           await writeFile(join(home, "settings.json"), JSON.stringify({ security: { auth: { selectedType: "anthropic" } }, model: { name: "fixture-model" }, modelProviders: { anthropic: [{ id: "fixture-model", envKey: "ANTHROPIC_API_KEY", baseUrl: base, generationConfig: { maxOutputTokens: 256, modalities: { image: true } } }] } }), { mode: 384 });
+        } else if (vendor === 'copilot') {
+          config.command = process.env.STUDIO_COPILOT_COMMAND || 'copilot';
+          config.args = ['--model', 'fixture-model'];
+          Object.assign(config.env, { COPILOT_HOME: home, COPILOT_OFFLINE: 'true', COPILOT_PROVIDER_TYPE: 'openai', COPILOT_PROVIDER_BASE_URL: `${base}/v1`,
+            COPILOT_PROVIDER_API_KEY: 'fixture-only', COPILOT_PROVIDER_MODEL_ID: 'fixture-model', COPILOT_PROVIDER_WIRE_MODEL: 'fixture-model',
+            COPILOT_PROVIDER_WIRE_API: 'completions', COPILOT_MODEL: 'fixture-model', COPILOT_GITHUB_TOKEN: '', GH_TOKEN: '', GITHUB_TOKEN: '' });
+          await writeFile(join(home, 'settings.json'), JSON.stringify({ model: 'fixture-model' }));
         } else if (vendor === 'codebuddy') {
           config.command = process.env.STUDIO_CODEBUDDY_COMMAND || 'codebuddy';
           config.args = ['--model', 'fixture-model'];
@@ -276,7 +284,7 @@ requires_openai_auth = false
             } };
           } } });
         }
-        if (mode === 'scoped') { config.args = []; config.model = 'fixture/model'; }
+        if (mode === 'scoped') { config.args = []; config.model = process.env.STUDIO_NATIVE_MODEL || 'fixture/model'; }
         if (mode === 'global' && !managedInstall) {
           const inspectionTimer = setTimeout(() => controller.abort(), 25000);
           try {
@@ -384,7 +392,7 @@ Follow fixture instructions.`) }, { filename: '技能目录/assets/fixture.bin',
             const mcpCalls = (await readFile(join(root, 'mcp-trace.jsonl'), 'utf8')).slice(mcpTraceOffset).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
             if (!mcpCalls.some(call => call.method === 'tools/list' && call.tool === `continuity_v${instance.revision}`)
               || !nativeInput.includes(`continuity_v${instance.revision}`) || (turn && nativeTools.includes(`continuity_v${instance.revision - 1}`))) {
-              throw new Error(`${vendor} did not replace the configured MCP tools after revision ${instance.revision}`);
+              throw new Error(`${vendor} did not replace the configured MCP tools after revision ${instance.revision}: ${JSON.stringify({ observed: mcpCalls, tools: requests.slice(requestOffset).map(body => body.tools?.map(tool => ({ name: tool.name || tool.function?.name }))), output })}`);
             }
 
             console.log(JSON.stringify({ vendor, mode, turn: turn + 1, nativeInstructionsLoaded: nativeInput.includes(marker + '_INSTRUCTION'), nativeSkillDiscovered: nativeInput.includes(marker + '_SKILL') }));

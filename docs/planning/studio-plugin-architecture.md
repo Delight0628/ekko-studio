@@ -91,7 +91,7 @@ flowchart TB
 ```text
 packages/studio-plugin-sdk/               公共类型、schema、SDK 代理、插件开发入口
 packages/studio-plugin-runner/            worker 引导、RPC、资源清理、握手
-packages/studio-agent-drivers/            标准 ACP、JSONL 等无厂商业务的可选库
+packages/studio-agent-drivers/            标准 ACP、JSONL/Content-Length RPC 等无厂商业务的可选库
 plugins/agent-claude-code/                独立 manifest、配置、适配、管理和测试
 plugins/agent-codex/
 plugins/agent-.../                       其余 Coding Agent 及第三方扩展

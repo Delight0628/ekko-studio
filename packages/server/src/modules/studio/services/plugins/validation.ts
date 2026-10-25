@@ -175,7 +175,7 @@ const validateInspection = ajv.compile({ type: 'object', additionalProperties: f
     methods: { type: 'array', maxItems: 32, items: { type: 'object', additionalProperties: false, required: ['id', 'name'], properties: { id: managementString, name: managementString } } },
   } },
   models: { type: 'object', additionalProperties: false, required: ['status', 'items'], properties: {
-    status: { enum: ['available', 'unsupported'] }, items: { type: 'array', maxItems: 512, items: { type: 'object', additionalProperties: false, required: ['id', 'name'], properties: {
+    status: { enum: ['available', 'unsupported', 'authentication_required'] }, items: { type: 'array', maxItems: 512, items: { type: 'object', additionalProperties: false, required: ['id', 'name'], properties: {
       id: managementString, name: managementString, isDefault: { type: 'boolean' }, reasoningEfforts: { type: 'array', maxItems: 32, uniqueItems: true, items: managementString },
     } } },
   } },
@@ -184,7 +184,7 @@ export function parseAgentInspection(value: unknown): AgentInspection {
   const result = jsonCopy(value, 262_144) as AgentInspection
   if (!validateInspection(result) || new Set(result.models.items.map(item => item.id)).size !== result.models.items.length
     || new Set(result.authentication.methods.map(item => item.id)).size !== result.authentication.methods.length
-    || (result.models.status === 'unsupported' && result.models.items.length)) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent inspection')
+    || (result.models.status !== 'available' && result.models.items.length)) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent inspection')
   return result
 }
 
