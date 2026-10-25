@@ -251,7 +251,7 @@ export type AgentManagementInput = Pick<RuntimeCreateInput, 'instanceId' | 'conf
  * Commands are displayed as argument arrays; the host must not execute them as shell text. */
 export interface AgentSetup {
   cli: { state: 'available' | 'unavailable'; version?: string }
-  installation: { command: string; args: string[] }
+  installation: { command: string; args: string[] } | { kind: 'manual'; url: string }
   authentication: { kind: 'native' | 'studio'; command?: string; args?: string[]; input?: string }
 }
 export interface AgentManagementAdapter {
@@ -268,7 +268,11 @@ export interface AgentManagementAdapter {
   prepareLogin?(input: AgentManagementInput, context: AgentRuntimeContext): Promise<Omit<ProcessSpawnInput, 'terminal'>>
 }
 
-export interface AgentCliInstallPlan { kind: 'npm'; packageName: string; version: string; bin: string; runner: 'node' | 'binary' }
+export interface AgentCliInstallPlan {
+  kind: 'npm'; packageName: string; version: string; bin: string; runner: 'node' | 'binary'
+  /** Prefer a shared dependency version when the native CLI's SDK requires one module identity. */
+  preferDedupe?: boolean
+}
 export type AgentNativeCli = { state: 'ready'; command: string; args: string[] } | { state: 'unavailable' }
 
 export type AgentManagementOperationStatus = 'starting' | 'running' | 'completed' | 'cancelled' | 'failed' | 'interrupted'
@@ -423,7 +427,9 @@ export type AgentOutputEvent =
   | { type: 'message.snapshot'; producerSequence: number; messageId: string; text: string }
   | { type: 'reasoning.delta'; producerSequence: number; messageId: string; text: string }
   | { type: 'tool.started' | 'tool.completed' | 'tool.failed'; producerSequence: number; callId: string; name: string; data: JsonValue }
-  | { type: 'usage.reported'; producerSequence: number; modelCallId: string; model: string; mode: 'delta' | 'cumulative' | 'final'; revision: number; inputTokens: number; outputTokens: number }
+  | { type: 'usage.reported'; producerSequence: number; modelCallId: string; model: string; mode: 'delta' | 'cumulative' | 'final'; revision: number;
+      /** Total input including cache; optional counters are breakdowns, not additional tokens. */
+      inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number }
   | { type: 'checkpoint.updated'; producerSequence: number; value: JsonValue }
   | { type: 'interaction.requested'; producerSequence: number; requestId: string; kind: 'approval' | 'clarification'; prompt: string; choices: AgentInteractionChoice[]; allowText?: boolean; expiresAt?: number }
   | { type: 'interaction.withdrawn'; producerSequence: number; requestId: string }

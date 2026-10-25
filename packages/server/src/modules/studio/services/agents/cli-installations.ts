@@ -50,7 +50,7 @@ export class AgentCliInstallations {
         NPM_CONFIG_CACHE: join(home, 'cache'), NPM_CONFIG_UPDATE_NOTIFIER: 'false' }
       return {
         launch: { ...tool, args: [...tool.args, 'install', '--prefix', prefix, '--omit=dev', '--no-audit', '--no-fund', '--package-lock=true',
-          '--registry=https://registry.npmjs.org/', '--', `${plan.packageName}@${plan.version}`], cwd: home,
+          '--registry=https://registry.npmjs.org/', ...(plan.preferDedupe ? ['--prefer-dedupe'] : []), '--', `${plan.packageName}@${plan.version}`], cwd: home,
           env },
         verify: async context => {
           authorize()

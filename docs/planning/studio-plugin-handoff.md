@@ -8,7 +8,8 @@
 - PR #3513 保持草稿：<https://github.com/EKKOLearnAI/ekko-studio/pull/3513>。不合并，不自动转 ready。
 - 本轮提交：`15a6371a1` Kimi/共享 ACP/独立公共包；`d45ce0454` 干净 worker fixture 的 SDK 别名修复；`198d198ca` Qoder；`900e7aa22` Chat Completions 网关；`01114c99f` CodeBuddy；`68fa9cc1b` 主题浏览器用例等待页面就绪；`a31dc201c` Copilot；`8db1d3fd2` 页面就绪修复。OpenCode 实现和证据随本文件所在提交一并交付；以当前 `git log`/`git status` 核对最新 HEAD 和后续工作区。
 - 原工作区 Kimi、共享 ACP、依赖构建改动全部保留并提交。不能 reset/clean 后续未提交工作。
-- 已有 **7 个独立插件实现**：Qwen、Codex、Kimi、Qoder、CodeBuddy、Copilot、OpenCode；完整迁移验收仍为 **0/14**。实现数量不代表完整验收。
+- 已有 **8 个独立插件实现**：Qwen、Codex、Kimi、Qoder、CodeBuddy、Copilot、OpenCode、Pi；完整迁移验收仍为 **0/14**。实现数量不代表完整验收。
+- 用户已要求余下每个 Agent 各由一个专属子 agent 并行迁移；当前主线程加三个子 agent 的额度采用滚动批次。分工和进度见 `studio-plugin-agent-owners.md`，不得把排队任务记为已启动。
 - 需求真源：`studio-plugin-architecture.md`、`studio-plugin-contracts.md`、`studio-plugin-execution.md`。实际证据：`studio-plugin-progress.md`。
 
 ## 已验证的增量
@@ -49,6 +50,12 @@ inspect 使用 ACP metadata 和 Content-Length JSON-RPC SDK `auth.getStatus`/`mo
 
 真实 CLI 14 轮/26 次本地模型请求/5 次 MCP 通过；实际公布的 Skill 命令 global/scoped 共 2 次与 14 轮矩阵通过（28 次模型请求/5 次 MCP），同一原生会话。原生未公布 compact/compress，压缩探针失败并保留不支持；没有伪造支持。宿主实际固定版本安装两个 binary CLI，通过版本/原子选择后完成 global/scoped 7 轮、16 次本地模型、5 次 MCP。worker/随包专项 15 项，生产管理浏览器 13 项、生产构建/插件类型/harness 通过；没有真实账号验收。日志 `/tmp/studio-opencode-real-{native,commands,skill-command-v2,managed}.log` 与 `/tmp/studio-opencode-{final-focused,browser,final-build,types,final-harness}.log`。
 
+### Pi 与共享契约
+
+固定 Pi 1.4.0，原生 RPC/公开 native extension，global 保留原生账户 Home，scoped 使用独立配置和宿主 Responses gateway；等待 agent_settled、干净退出、managed history header 与 nonce ready 回执。worker 28 项通过；真实 compact 和 Skill 各 14 轮 + 2 命令 / 21 本地请求 / 5 MCP，实际固定版本安装 2 次后 7 轮 / 12 请求 / 5 MCP 通过。首轮后压缩因原生保留规则拒绝，改由真实两轮历史后执行，默认保留设置不变。完整证据见 `evidence/studio-plugin-pi.md`。
+
+共享事件新增 cache/reasoning 可选明细，保持 runtime 总输入已含缓存、不重复累计，scoped 宿主唯一写入。安装契约新增受限 preferDedupe，手动安装 setup 可展示官方 HTTPS 文档；Gemini 纯 codec 移到公共 driver，旧 proxy 兼容复用，不增加宿主厂商分支。Pi/管理/随包 76 项、用量/模型/聊天 95 项、安装 21 项、旧 Gemini/图片/边界 14 项通过；手机管理生产浏览器 15 项、client/server 类型、前端生产构建、harness 和包外消费通过。全部插件整体验证及冻结 coverage/browser/build 仍需在集成提交上完成。
+
 ### 最新冻结回归
 
 冻结 `7d9e36248` 的独立 QA 生产构建和完整生产浏览器 **972 项通过**（4 workers、无重试，11.1 分钟）；coverage 为 947 文件 / 9,897 项通过、1 文件 / 1 项失败，12 文件 / 33 项条件跳过（2 workers、默认时限，501.82 秒）。唯一失败是既有 Electron 设备切换集成测试的 55 秒子进程退出期限，单独复测仍失败。用户明确要求去掉该测试，现删除其自动化测试文件，保留其他设备切换测试、产品实现和手动验证脚本使用的 fixture；临时诊断已撤去。上述冻结 coverage 不记为全绿。日志 `/tmp/studio-seven-plugins-qa-{build,browser,coverage,desktop-focused}.log`。
@@ -59,8 +66,8 @@ inspect 使用 ACP metadata 和 Content-Length JSON-RPC SDK `auth.getStatus`/`mo
 
 ## 继续顺序
 
-1. 核对 OpenCode 提交/推送及 CI，冻结新提交完成 coverage/browser/build，更新原草稿 PR。QA 副本使用自己的 node_modules；不要在测试中切 checkout。`68fa9cc1b` 的两项浏览器失败已保留证据并修复，`8db1d3fd2` 交付页面就绪修复。
-2. 迁移余下 7 个独立插件：**zcode、antigravity、claude-code、pi、grok、dsh、cursor**。保留已有能力和真实管理语义；协议/进程代码可抽公共驱动，厂商配置保留在各插件。禁止插件导入 server/client 私有源码，禁止宿主万能厂商 runner。Pi 1.4.0 的 RPC 插件实现正在工作区验证，尚未提交或加入随包目录；基础真实 CLI 14 轮 / 19 次本地模型 / 5 次 MCP 和 12 项 worker 已通过，原生 compact 探针仍失败，需修复后继续交付。保留 Pi 目录、worker 测试及两个构建/验证脚本的未提交修改。
+1. 集成已验证的 Pi 和公共契约增量，冻结提交完成 coverage/browser/build，更新原草稿 PR。QA 副本使用自己的 node_modules；不要在测试中切 checkout。用户要求删除的 Electron 设备切换自动测试已随 `ce45554ce` 推送，不能在后续复验中恢复该测试。
+2. 每个 Agent 一个专属子 agent，继续迁移余下 6 个独立插件：**zcode、antigravity、claude-code、grok、dsh、cursor**。Claude Code、DSH、Antigravity 当前在独占目录实施，其余排队；不要 reset/clean 或提交尚未验证的子 agent WIP。保留已有能力和真实管理语义；协议/进程代码可抽公共驱动，厂商配置保留在各插件。禁止插件导入 server/client 私有源码，禁止宿主万能厂商 runner。
 3. 统一旧单聊/历史接管、群聊、工作流、全局任务及 API 的运行协调器；父子 Run、共享取消/预算、计量归属、唯一写入和完成屏障。
 4. 补齐 SDK 完整 ctx、事件/限额/诊断，Web/Desktop/App 动态目录和管理/聊天协议。已有 PTY、MCP resources/prompts、Studio MCP、Skills 包导入删除不应再列为待开发。
 5. Hermes/Ekko 保持 builtin 身份接入相同 Agent 契约；插件宿主故障不能影响内置引擎，避免重复写入。

@@ -33,7 +33,10 @@ export class AgentRunStateStore {
         .get(runId, event.modelCallId) as { value_json: string; event_json: string } | undefined
       const old = previous ? JSON.parse(previous.value_json) as AgentUsage : undefined
       // Producer sequence belongs to transport, not the model-call revision.
-      const value = { modelCallId: event.modelCallId, model: event.model, mode: event.mode, revision: event.revision, inputTokens: event.inputTokens, outputTokens: event.outputTokens }
+      const details = ['cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens'] as const
+      const value = { modelCallId: event.modelCallId, model: event.model, mode: event.mode, revision: event.revision,
+        inputTokens: event.inputTokens, outputTokens: event.outputTokens,
+        ...Object.fromEntries(details.filter(key => event[key] !== undefined).map(key => [key, event[key]])) }
       if (old && old.model !== event.model) throw new StudioError('INVALID_ARGUMENT', 'Model call identity changed')
       if (old && event.revision < old.revision) return
       if (old && event.revision === old.revision) {
@@ -45,6 +48,16 @@ export class AgentRunStateStore {
       const outputTokens = event.outputTokens + (event.mode === 'delta' ? old?.outputTokens || 0 : 0)
       if (!Number.isSafeInteger(inputTokens) || !Number.isSafeInteger(outputTokens)) throw new StudioError('INVALID_ARGUMENT', 'Usage exceeds numeric limits')
       const usage: AgentUsage = { modelCallId: event.modelCallId, model: event.model, revision: event.revision, inputTokens, outputTokens, final: event.mode === 'final' }
+      for (const key of details) {
+        // An omitted delta changes no known detail. An omitted snapshot is unknown.
+        const detail = event.mode === 'delta'
+          ? event[key] === undefined ? old?.[key] : event[key]! + (old?.[key] ?? 0)
+          : event[key]
+        if (detail !== undefined) {
+          if (!Number.isSafeInteger(detail)) throw new StudioError('INVALID_ARGUMENT', 'Usage exceeds numeric limits')
+          usage[key] = detail
+        }
+      }
       this.db.prepare('INSERT INTO studio_agent_usage VALUES (?, ?, ?, ?) ON CONFLICT(run_id, call_id) DO UPDATE SET value_json=excluded.value_json, event_json=excluded.event_json')
         .run(runId, event.modelCallId, JSON.stringify(usage), JSON.stringify(value))
     }

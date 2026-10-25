@@ -5,8 +5,9 @@ import { valid } from 'semver'
 /** An artifact may select a package, never a shell command, URL, tag or target directory. */
 export function parseAgentCliInstall(value: unknown): AgentCliInstallPlan {
   const plan = jsonCopy(value) as AgentCliInstallPlan
-  if (!plan || typeof plan !== 'object' || Array.isArray(plan) || Object.keys(plan).length !== 5
-    || Object.keys(plan).some(key => !['kind', 'packageName', 'version', 'bin', 'runner'].includes(key))
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan)
+    || Object.keys(plan).some(key => !['kind', 'packageName', 'version', 'bin', 'runner', 'preferDedupe'].includes(key))
+    || ('preferDedupe' in plan && typeof plan.preferDedupe !== 'boolean')
     || plan.kind !== 'npm' || typeof plan.packageName !== 'string' || plan.packageName.length > 214
     || !/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(plan.packageName)
     || typeof plan.version !== 'string' || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/.test(plan.version) || plan.version.length > 128 || valid(plan.version) !== plan.version

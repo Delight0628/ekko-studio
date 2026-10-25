@@ -85,6 +85,17 @@ it('reports an unavailable executable without claiming installation or login suc
   expect(result.authentication).toEqual({ kind: 'native', command: '/missing/native-cli', args: ['login'] })
 })
 
+it('returns official documentation for a manually installed CLI without offering an npm installation', async () => {
+  const installation = { kind: 'manual' as const, url: 'https://example.test/cli/install' }
+  const f = setup(undefined, true, nativeAgentSetup('/missing/manual-cli', installation, []))
+  const configured = await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, mode: 'global', config: { cwd: process.cwd() } })
+  const result = await f.coordinator.setupInstance(scope, f.instance.id, configured.revision)
+  expect(result.installation).toEqual(installation)
+  expect(result.cli.state).toBe('unavailable')
+  expect(f.registry.list('one')[0].management?.prepareInstall).toBeUndefined()
+  expect(f.db.prepare('SELECT count(*) AS count FROM studio_agent_runs').get()?.count).toBe(0)
+})
+
 it('binds setup to owner, profile, revision and exclusive management scope', async () => {
   const pending = deferred<import('../../packages/studio-plugin-sdk/src').AgentSetup>()
   const adapter = vi.fn(async () => pending.promise), f = setup(undefined, true, adapter)
@@ -108,6 +119,9 @@ it.each([
   { cli: { state: 'unavailable', version: '1.0.0' } },
   { installation: { command: 'npm\nunsafe', args: [] } },
   { installation: { command: 'npm', args: [], env: { TOKEN: 'secret' } } },
+  ...['javascript:alert(1)', 'file:///tmp/install', 'http://example.test/install', 'https://user:password@example.test/', 'https://', 'https://example.test/\ninstall']
+    .map(url => ({ installation: { kind: 'manual', url } })),
+  { installation: { kind: 'manual', url: 'https://example.test', command: 'npm', args: [] } },
 ])('rejects malformed or private native setup metadata: %j', patch => {
   expect(() => parseAgentSetup({ cli: { state: 'available' }, installation: { command: 'npm', args: [] }, authentication: { kind: 'studio' }, ...patch }))
     .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))

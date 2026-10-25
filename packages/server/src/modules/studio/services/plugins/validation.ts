@@ -157,7 +157,12 @@ const setupCommand = { type: 'string', minLength: 1, maxLength: 4096, pattern: '
 const setupArgs = { type: 'array', maxItems: 256, items: { type: 'string', maxLength: 16384, pattern: '^[^\\u0000-\\u001f\\u007f]*$' } }
 export const agentSetupSchema = { type: 'object', additionalProperties: false, required: ['cli', 'installation', 'authentication'], properties: {
   cli: { type: 'object', additionalProperties: false, required: ['state'], properties: { state: { enum: ['available', 'unavailable'] }, version: managementString } },
-  installation: { type: 'object', additionalProperties: false, required: ['command', 'args'], properties: { command: setupCommand, args: setupArgs } },
+  installation: { oneOf: [
+    { type: 'object', additionalProperties: false, required: ['command', 'args'], properties: { command: setupCommand, args: setupArgs } },
+    { type: 'object', additionalProperties: false, required: ['kind', 'url'], properties: {
+      kind: { const: 'manual' }, url: { type: 'string', minLength: 1, maxLength: 4096, pattern: '^https://[^\\u0000-\\u0020\\u007f]+$' },
+    } },
+  ] },
   authentication: { type: 'object', additionalProperties: false, required: ['kind'], properties: { kind: { enum: ['native', 'studio'] }, command: setupCommand, args: setupArgs, input: setupCommand } },
 } }
 const validateSetup = ajv.compile(agentSetupSchema)
@@ -166,6 +171,12 @@ export function parseAgentSetup(value: unknown): AgentSetup {
   if (!validateSetup(result) || (result.cli.state === 'unavailable' && result.cli.version !== undefined)
     || (result.authentication.kind === 'native' ? !result.authentication.command || !result.authentication.args
       : Object.keys(result.authentication).some(key => key !== 'kind'))) throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent setup instructions')
+  if ('kind' in result.installation) {
+    try {
+      const url = new URL(result.installation.url)
+      if (url.protocol !== 'https:' || !url.hostname || url.username || url.password) throw new Error('Invalid installation URL')
+    } catch { throw new StudioError('INVALID_ARGUMENT', 'Invalid Agent installation documentation') }
+  }
   return result
 }
 const validateInspection = ajv.compile({ type: 'object', additionalProperties: false, required: ['native', 'authentication', 'models'], properties: {
@@ -198,7 +209,8 @@ const validateOutput = ajv.compile({ anyOf: [
   eventSchema(['message.delta', 'message.snapshot', 'reasoning.delta'], { messageId: eventString, text: { type: 'string' } }, ['messageId', 'text']),
   eventSchema(['tool.started', 'tool.completed', 'tool.failed'], { callId: eventString, name: eventString, data: {} }, ['callId', 'name', 'data']),
   eventSchema(['usage.reported'], { modelCallId: eventString, model: eventString, mode: { enum: ['delta', 'cumulative', 'final'] }, revision: eventSequence,
-    inputTokens: eventSequence, outputTokens: eventSequence }, ['modelCallId', 'model', 'mode', 'revision', 'inputTokens', 'outputTokens']),
+    inputTokens: eventSequence, outputTokens: eventSequence, cacheReadTokens: eventSequence, cacheWriteTokens: eventSequence,
+    reasoningTokens: eventSequence }, ['modelCallId', 'model', 'mode', 'revision', 'inputTokens', 'outputTokens']),
   eventSchema(['checkpoint.updated'], { value: {} }, ['value']),
   eventSchema(['interaction.requested'], {
     requestId: eventString, kind: { enum: ['approval', 'clarification'] }, prompt: { type: 'string', minLength: 1, maxLength: 16384 },

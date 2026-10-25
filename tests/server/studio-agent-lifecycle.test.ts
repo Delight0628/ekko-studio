@@ -286,6 +286,66 @@ it('rolls back invalid usage together with its output event', async () => {
   expect(coordinator.output(scope, run.id, -1)).toHaveLength(1)
 })
 
+it('merges native cache and reasoning details without adding them to the input/output totals', async () => {
+  const current = turn()
+  const { coordinator, instance } = setup(async () => ({ run: async () => current, dispose: async () => {} }))
+  const run = coordinator.start(scope, instance.id, input, 'details')
+  const first = { type: 'usage.reported' as const, modelCallId: 'call', model: 'model', mode: 'delta' as const,
+    producerSequence: 1, revision: 1, inputTokens: 10, outputTokens: 5, cacheReadTokens: 3, cacheWriteTokens: 2, reasoningTokens: 1 }
+  await current.events.push(first)
+  await current.events.push({ ...first, producerSequence: 2 })
+  await current.events.push({ ...first, producerSequence: 3, revision: 2, inputTokens: 4, outputTokens: 2, cacheReadTokens: 1, cacheWriteTokens: 0 })
+  // A snapshot replaces previous deltas; an explicit final correction replaces the snapshot.
+  await current.events.push({ ...first, producerSequence: 4, revision: 3, mode: 'cumulative', inputTokens: 15, cacheReadTokens: 5 })
+  await current.events.push({ ...first, producerSequence: 5, revision: 4, mode: 'final', inputTokens: 12, cacheReadTokens: 4 })
+  current.complete(); await coordinator.wait(run.id)
+  expect(coordinator.usage(scope, run.id)).toEqual([{ modelCallId: 'call', model: 'model', revision: 4, final: true,
+    inputTokens: 12, outputTokens: 5, cacheReadTokens: 4, cacheWriteTokens: 2, reasoningTokens: 1 }])
+})
+
+it('preserves known optional details across missing deltas and clears them on an unknown final snapshot', async () => {
+  const current = turn()
+  const { coordinator, instance } = setup(async () => ({ run: async () => current, dispose: async () => {} }))
+  const run = coordinator.start(scope, instance.id, input, 'unknown-details')
+  const report = { type: 'usage.reported' as const, modelCallId: 'call', model: 'model', mode: 'delta' as const,
+    producerSequence: 1, revision: 1, inputTokens: 10, outputTokens: 5 }
+  await current.events.push({ ...report, cacheReadTokens: 3 })
+  await current.events.push({ ...report, producerSequence: 2, revision: 2 })
+  await vi.waitFor(() => expect(coordinator.usage(scope, run.id)).toMatchObject([{ inputTokens: 20, cacheReadTokens: 3 }]))
+  await current.events.push({ ...report, producerSequence: 3, revision: 3, mode: 'final' })
+  current.complete(); await coordinator.wait(run.id)
+  expect(coordinator.usage(scope, run.id)).toEqual([{ modelCallId: 'call', model: 'model', revision: 3,
+    inputTokens: 10, outputTokens: 5, final: true }])
+})
+
+it.each(['cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens'] as const)('rejects conflicting %s corrections atomically', async field => {
+  const current = turn()
+  const { coordinator, instance } = setup(async () => ({ run: async () => current, dispose: async () => {} }))
+  const run = coordinator.start(scope, instance.id, input, field)
+  const report = { type: 'usage.reported' as const, modelCallId: 'call', model: 'model', mode: 'final' as const,
+    producerSequence: 1, revision: 1, inputTokens: 10, outputTokens: 5, [field]: 2 }
+  await current.events.push(report)
+  await current.events.push({ ...report, producerSequence: 2, [field]: 3 })
+  current.complete(); await coordinator.wait(run.id)
+  expect(coordinator.get(scope, run.id).status).toBe('failed')
+  expect(coordinator.usage(scope, run.id)[0][field]).toBe(2)
+  expect(coordinator.output(scope, run.id, -1)).toHaveLength(1)
+})
+
+it('rolls back native optional-counter overflow with the corresponding output', async () => {
+  const current = turn()
+  const { coordinator, instance } = setup(async () => ({ run: async () => current, dispose: async () => {} }))
+  const run = coordinator.start(scope, instance.id, input, 'overflow')
+  const report = { type: 'usage.reported' as const, modelCallId: 'call', model: 'model', mode: 'delta' as const,
+    producerSequence: 1, revision: 1, inputTokens: 0, outputTokens: 0, cacheReadTokens: Number.MAX_SAFE_INTEGER }
+  await current.events.push(report)
+  await current.events.push({ ...report, producerSequence: 2, revision: 2, cacheReadTokens: 1 })
+  current.complete(); await coordinator.wait(run.id)
+  expect(coordinator.get(scope, run.id).status).toBe('failed')
+  expect(coordinator.usage(scope, run.id)[0].cacheReadTokens).toBe(Number.MAX_SAFE_INTEGER)
+  expect(coordinator.output(scope, run.id, -1)).toHaveLength(1)
+})
+
 it('persists interactions and sends a concurrent duplicate response to the runtime only once', async () => {
   const current = turn(), response = deferred<void>()
   const respond = vi.fn(async () => { current.complete(); await response.promise })

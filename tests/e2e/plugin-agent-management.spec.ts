@@ -9,8 +9,9 @@ const nativeAgents = {
   codebuddy: { name: 'CodeBuddy', version: '2.175.0', package: '@tencent-ai/codebuddy-code@2.175.0', loginArgs: [] },
   copilot: { name: 'Copilot', version: '1.0.91', package: '@github/copilot@1.0.91', loginArgs: ['login'] },
   opencode: { name: 'OpenCode', version: '1.19.4', package: 'opencode-ai@1.19.4', loginArgs: ['auth', 'login'] },
+  pi: { name: 'Pi', version: '1.4.0', package: '@earendil-works/pi-coding-agent@1.4.0', loginArgs: [] },
 }
-async function setup(page: Page, brightness = 'light', wallpaper = false, active = true, agent: keyof typeof nativeAgents = 'qwen') {
+async function setup(page: Page, brightness = 'light', wallpaper = false, active = true, agent: keyof typeof nativeAgents = 'qwen', installationDocs?: string) {
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   const sessions: any[] = []
   const api = await mockHermesApi(page, { sessions, theme: { brightness,
@@ -53,7 +54,8 @@ async function setup(page: Page, brightness = 'light', wallpaper = false, active
     if (url.pathname.endsWith('/resources')) return route.fulfill({ json: { data: { instanceId: 'managed', configRevision: instances[0]?.revision, snapshot: 'snapshot', skills: [], configs: [], files: [] } } })
     if (url.pathname.endsWith('/setup')) {
       checks.push(request.postDataJSON())
-      return route.fulfill({ json: { data: { cli: { state: 'available', version }, installation: { command: 'npm', args: ['install', '--global', nativeAgents[agent].package] },
+      return route.fulfill({ json: { data: { cli: { state: 'available', version }, installation: installationDocs
+        ? { kind: 'manual', url: installationDocs } : { command: 'npm', args: ['install', '--global', nativeAgents[agent].package] },
         authentication: instances[0]?.mode === 'scoped' ? { kind: 'studio' } : { kind: 'native', command: agent, args: nativeAgents[agent].loginArgs, ...(agent !== 'qwen' ? {} : { input: '/auth' }) } } } })
     }
     if (url.pathname.endsWith('/inspect')) return route.fulfill({ json: { data: { native: { name }, authentication: { state: 'unknown', methods: [] }, models: { status: 'unsupported', items: [] } } } })
@@ -128,7 +130,7 @@ test('explicitly enables an implemented bundled plugin before creating instances
   expect(api.unexpectedRequests).toEqual([])
 })
 
-for (const agent of ['kimi', 'qoder', 'codebuddy', 'copilot', 'opencode'] as const) test(`enables ${agent} and manages its native login setup on mobile`, async ({ page }) => {
+for (const agent of ['kimi', 'qoder', 'codebuddy', 'copilot', 'opencode', 'pi'] as const) test(`enables ${agent} and manages its native login setup on mobile`, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const api = await setup(page, 'dark', true, false, agent)
   await page.goto('/#/studio/agents')
@@ -151,6 +153,25 @@ for (const agent of ['kimi', 'qoder', 'codebuddy', 'copilot', 'opencode'] as con
   expect(api.writes).toEqual([{ agentTypeId: agent, mode: 'global', config: { cwd: '/kimi workspace' } }])
   expect(api.checks).toEqual([{ revision: 1 }])
   expect(api.unexpectedRequests).toEqual([])
+})
+
+test('shows manual CLI installation documentation on mobile without inventing an install command', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const url = 'https://example.test/cli/install/documentation-with-a-long-path-for-mobile-layout'
+  await setup(page, 'dark', true, true, 'pi', url)
+  await page.goto('/#/studio/agents/pi/settings')
+  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
+  const modal = page.locator('.instance-manager-modal:visible')
+  await modal.getByLabel('cwd', { exact: true }).fill('/manual-cli-workspace')
+  await modal.getByRole('button', { name: 'Create', exact: true }).click()
+  await expect(modal).toBeHidden()
+  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
+  await modal.getByRole('button', { name: 'Check installation and login', exact: true }).click()
+  const link = modal.getByRole('link', { name: url, exact: true })
+  await expect(link).toHaveAttribute('href', url)
+  await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  await expect(modal.locator('.native-setup')).not.toContainText('npm')
+  expect(await modal.locator('.native-setup').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
 })
 
 test('keeps the configuration draft when a concurrent revision prevents saving', async ({ page }) => {

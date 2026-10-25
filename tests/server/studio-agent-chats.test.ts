@@ -214,6 +214,14 @@ it('reads corrected per-call usage once and preserves partial unknowns across mo
   f.executions.state.recordHostModelUsage({ ...host, revision: 2, status: 'completed', usage: { inputTokens: 7, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0 } })
   const message = f.projection.message(run.id, 'message', 'm')!
   expect(readAgentChatRunSummaries(f.db, chat.sessionId, [String(message.id)] )).toMatchObject([{ inputTokens: 25, outputTokens: 6, cacheReadTokens: null, costUsd: null, tokensPerSecond: null }])
+  f.executions.appendOutput(run.id, { type: 'usage.reported', producerSequence: 3, modelCallId: 'native-call', model: 'native-model', mode: 'final',
+    revision: 3, inputTokens: 18, outputTokens: 4, cacheReadTokens: 4, cacheWriteTokens: 2, reasoningTokens: 1 })
+  expect(readAgentChatRunSummaries(f.db, chat.sessionId, [String(message.id)])[0]).toMatchObject({
+    inputTokens: 25, outputTokens: 6, cacheReadTokens: 4, cacheHitRate: 4 / 25,
+  })
+  expect(readAgentChatSummaries(f.db, [chat.sessionId])[chat.sessionId].agent_usage).toMatchObject({
+    inputTokens: 25, outputTokens: 6, cacheReadTokens: 4, cacheWriteTokens: 2, reasoningTokens: 1,
+  })
   expect(readAgentChatRunSummaries(f.db, 'other-chat', [String(message.id)])).toEqual([])
   f.release(); await f.chats.wait(run.id)
 })

@@ -14733,7 +14733,7 @@
           "Studio Plugins"
         ],
         "summary": "Probe native CLI availability and get manual setup instructions",
-        "description": "Operates on registered Agent types and owner-bound instances/runs in the authorized profile. Plugin migration is in progress; existing native Agent execution remains separate until migration completes. Requires the owned idle instance and exact revision. Runs only a bounded version probe; does not install, log in, refresh credentials, infer or create native history. Instructions contain executable names and argument arrays for manual use on the Studio host with the configured working directory/environment. CLI availability does not imply account authentication. Scoped mode uses Studio credentials and returns no native login command.",
+        "description": "Operates on registered Agent types and owner-bound instances/runs in the authorized profile. Plugin migration is in progress; existing native Agent execution remains separate until migration completes. Requires the owned idle instance and exact revision. Runs only a bounded version probe; does not install, log in, refresh credentials, infer or create native history. Installation instructions contain executable names and argument arrays, or kind=manual with a credential-free HTTPS documentation URL for a manually installed CLI. Manual-only adapters do not expose a managed installation action. Commands run on the Studio host with the configured working directory/environment. CLI availability does not imply account authentication. Scoped mode uses Studio credentials and returns no native login command.",
         "operationId": "setupAgentInstance",
         "security": [
           {
@@ -16465,7 +16465,7 @@
           "Studio Plugins"
         ],
         "summary": "Explicitly install and enable an implemented bundled Agent plugin",
-        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Only qwen and codex are eligible. Uses trusted distribution paths, never caller paths or arbitrary plugin IDs. Requires the current profile revision (zero when absent); preserves existing settings and grants unless the administrator explicitly supplies the exact displayed required capabilities as grants. Stale permission selections are rejected. This is opt-in setup, not default installation of all reserved agents or installation of native CLIs. Existing installations are not upgraded or replaced by this endpoint.",
+        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Only implemented bundled plugins listed by the corresponding GET endpoint are eligible. Uses trusted distribution paths, never caller paths or arbitrary plugin IDs. Requires the current profile revision (zero when absent); preserves existing settings and grants unless the administrator explicitly supplies the exact displayed required capabilities as grants. Stale permission selections are rejected. This is opt-in setup, not default installation of all reserved agents or installation of native CLIs. Existing installations are not upgraded or replaced by this endpoint.",
         "operationId": "enableBundledAgentPlugin",
         "security": [
           {

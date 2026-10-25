@@ -8,6 +8,7 @@ on:
       - 'packages/studio-plugin-sdk/**'
       - 'packages/studio-plugin-runner/**'
       - 'packages/studio-agent-drivers/**'
+      - 'plugins/**'
       - 'packages/ekko-agent/**'
       - 'tests/ekko-agent/mcp-*.test.ts'
       - 'tests/server/**'
@@ -22,6 +23,7 @@ on:
       - 'packages/studio-plugin-sdk/**'
       - 'packages/studio-plugin-runner/**'
       - 'packages/studio-agent-drivers/**'
+      - 'plugins/**'
       - 'packages/ekko-agent/**'
       - 'tests/ekko-agent/mcp-*.test.ts'
       - 'tests/server/**'
@@ -84,6 +86,7 @@ jobs:
           tests/server/studio-copilot-plugin.test.ts
           tests/server/studio-copilot-environment.test.ts
           tests/server/studio-opencode-plugin.test.ts
+          tests/server/studio-pi-plugin.test.ts
           tests/server/studio-codex-plugin.test.ts
           tests/server/studio-codex-mcp-approval.test.ts
           tests/server/studio-managed-mcp.test.ts

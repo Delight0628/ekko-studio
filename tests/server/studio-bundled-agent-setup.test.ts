@@ -26,7 +26,7 @@ function setup() {
 
 it('lists only implemented bundles and enables one through a trusted distribution path', async () => {
   const f = setup()
-  expect(f.service.list('one').map(item => item.id)).toEqual(['qwen', 'codex', 'kimi', 'qoder', 'codebuddy', 'copilot', 'opencode'])
+  expect(f.service.list('one').map(item => item.id)).toEqual(['qwen', 'codex', 'kimi', 'qoder', 'codebuddy', 'copilot', 'opencode', 'pi'])
   expect(f.store.list()).toEqual([])
   const result = await f.service.enable('qwen', 'one', 'owner', 0)
   expect(result).toMatchObject({ enabled: true, ownerId: 'owner', profileId: 'one', revision: 1 })
@@ -71,7 +71,7 @@ it('grants only an explicit current permission selection while preserving saved 
 
 it('rejects unknown IDs, stale revisions and revoked administrators before side effects', async () => {
   const f = setup()
-  for (const id of ['../codex', 'studio.agent-qwen', 'hermes', 'pi']) await expect(f.service.enable(id, 'one', 'owner', 0)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  for (const id of ['../codex', 'studio.agent-qwen', 'hermes', 'unknown-agent']) await expect(f.service.enable(id, 'one', 'owner', 0)).rejects.toMatchObject({ code: 'NOT_FOUND' })
   await expect(f.service.enable('qwen', 'one', 'owner', 3)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
   f.authorize.mockImplementation(() => { throw new StudioError('FORBIDDEN', 'Revoked') })
   await expect(f.service.enable('qwen', 'one', 'owner', 0)).rejects.toMatchObject({ code: 'FORBIDDEN' })

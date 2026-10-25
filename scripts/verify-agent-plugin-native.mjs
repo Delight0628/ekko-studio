@@ -58,8 +58,10 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
   let calls = 0, completedTurns = 0, completedCommands = 0, installedClis = 0;
   const managedInstall = process.env.STUDIO_MANAGED_CLI === '1';
   const vendors = process.env.STUDIO_AGENT_VENDORS ? process.env.STUDIO_AGENT_VENDORS.split(',') : ['codex', 'qwen-code'];
-  if (!vendors.length || vendors.some(value => !['codex', 'qwen-code', 'kimi', 'codebuddy', 'copilot', 'opencode'].includes(value))) throw new Error('Unknown native verification vendor');
+  if (!vendors.length || vendors.some(value => !['codex', 'qwen-code', 'kimi', 'codebuddy', 'copilot', 'opencode', 'pi'].includes(value))) throw new Error('Unknown native verification vendor');
   const fixtureInputTokens = process.env.STUDIO_NATIVE_COMMANDS === '1' ? 12000 : 12;
+  const commandAfterTurn = Number(process.env.STUDIO_NATIVE_COMMAND_AFTER_TURN || 0);
+  if (!Number.isSafeInteger(commandAfterTurn) || commandAfterTurn < 0 || commandAfterTurn > 1) throw new Error('Native command turn must be 0 or 1');
   let activeTarget = 'native', activeVendor, searchIssued = false;
   let nativeMcpEnabled = false, nativeMcpIssued = false, nativeMcpContext;
   const nativeMcpRequests = [];
@@ -215,6 +217,13 @@ requires_openai_auth = false
           config.args = ["--auth-type", "anthropic", "--model", "fixture-model"];
           Object.assign(config.env, { QWEN_HOME: home, QWEN_RUNTIME_DIR: join(home, "runtime"), ANTHROPIC_API_KEY: "fixture-only", ANTHROPIC_BASE_URL: base, ANTHROPIC_MODEL: "fixture-model" });
           await writeFile(join(home, "settings.json"), JSON.stringify({ security: { auth: { selectedType: "anthropic" } }, model: { name: "fixture-model" }, modelProviders: { anthropic: [{ id: "fixture-model", envKey: "ANTHROPIC_API_KEY", baseUrl: base, generationConfig: { maxOutputTokens: 256, modalities: { image: true } } }] } }), { mode: 384 });
+        } else if (vendor === 'pi') {
+          config.command = process.env.STUDIO_PI_COMMAND || 'pi';
+          config.model = 'fixture/fixture-model';
+          Object.assign(config.env, { PI_CODING_AGENT_DIR: home, PI_OFFLINE: '1', PI_TELEMETRY: '0' });
+          await writeFile(join(home, 'models.json'), JSON.stringify({ providers: { fixture: { baseUrl: `${base}/v1`, apiKey: 'fixture-only', api: 'openai-responses',
+            models: [{ id: 'fixture-model', name: 'Fixture model', reasoning: false, input: ['text', 'image'], contextWindow: 131072, maxTokens: 256,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, compat: { supportsStrictMode: false } }] } } }));
         } else if (vendor === 'opencode') {
           config.command = process.env.STUDIO_OPENCODE_COMMAND || 'opencode';
           Object.assign(config.env, { XDG_CONFIG_HOME: join(home, 'config'), XDG_DATA_HOME: join(home, 'data'), XDG_CACHE_HOME: join(home, 'cache'),
@@ -360,7 +369,7 @@ Follow fixture instructions.`) }, { filename: '技能目录/assets/fixture.bin',
           if (target === 'switch') activeTarget = turn === 1 ? 'chat' : 'native';
           if (turn) {
             instance = await coordinator.updateInstance(caller, instance.id, { revision: instance.revision, mode,
-              config: { ...instance.config, mcpServers: mcpServers(instance.revision + 1), model: mode === 'scoped' ? 'fixture/next-model' : vendor === 'opencode' ? 'fixture/fixture-model' : 'fixture-model', systemPrompt: 'Preserve the prior conversation and reply briefly.' } });
+              config: { ...instance.config, mcpServers: mcpServers(instance.revision + 1), model: mode === 'scoped' ? 'fixture/next-model' : ['opencode', 'pi'].includes(vendor) ? 'fixture/fixture-model' : 'fixture-model', systemPrompt: 'Preserve the prior conversation and reply briefly.' } });
             const next = await coordinator.resourceLocations(caller, instance.id, instance.revision);
             if (JSON.stringify(next.configs) !== JSON.stringify(catalog.configs)) throw new Error('Compatible configuration changed resource locations');
             await coordinator.close();
@@ -370,7 +379,7 @@ Follow fixture instructions.`) }, { filename: '技能目录/assets/fixture.bin',
           {
             const requestOffset = requests.length;
             const mcpTraceOffset = (await readFile(join(root, 'mcp-trace.jsonl'), 'utf8').catch(() => '')).length;
-            const content = [{ type: "text", text: `Respond with a brief greeting. Turn ${turn}.` + (process.env.STUDIO_NATIVE_COMMANDS === '1' && turn === 0 && target === 'native' ? '\n' + 'Retain this fixture context for subsequent compression. '.repeat(2000) : '') },
+            const content = [{ type: "text", text: `Respond with a brief greeting. Turn ${turn}.` + (process.env.STUDIO_NATIVE_COMMANDS === '1' && turn <= commandAfterTurn && target === 'native' ? '\n' + 'Retain this fixture context for subsequent compression. '.repeat(2000) : '') },
               ...(turn ? [{ type: 'image', artifactId: '00000000-0000-0000-0000-000000000001', mediaType: 'image/png' }] : [])];
             const chatTarget = nativeMcpEnabled && turn >= 2 ? { kind: 'chat', sessionId: `fixture:${vendor}:${turn === 3 ? 'b' : 'a'}` } : undefined;
             const accepted = coordinator.start(caller, instance.id, { content, timeoutMs: 20000 }, `${vendor}-${mode}-${target}-${turn}`, undefined, chatTarget);
@@ -422,7 +431,7 @@ Follow fixture instructions.`) }, { filename: '技能目录/assets/fixture.bin',
               ...(chatTarget ? { chat: chatTarget.sessionId, nativeHistoryIsolated: true } : {}), configurationRevision: instance.revision, mcpConfigurationApplied: true, coordinatorRestart: !!turn, providerReactivation: !!turn, imageForwarded: turn ? true : void 0 }));
             if (result.status !== "completed" || !output.some((event) => ["message.delta", "message.snapshot"].includes(event.type) && event.text.includes("Native fixture answer"))) throw new Error(`${vendor} real turn did not complete`);
             completedTurns++;
-            if ((process.env.STUDIO_NATIVE_COMMANDS === '1' || process.env.STUDIO_NATIVE_COMMAND) && turn === 0 && target === 'native') {
+            if ((process.env.STUDIO_NATIVE_COMMANDS === '1' || process.env.STUDIO_NATIVE_COMMAND) && turn === commandAfterTurn && target === 'native') {
               const command = nativeCatalog.find(value => process.env.STUDIO_NATIVE_COMMAND
                 ? value.definition.name === process.env.STUDIO_NATIVE_COMMAND : /^(compact|compress)$/.test(value.definition.name));
               console.log(JSON.stringify({ vendor, mode, nativeCommands: nativeCatalog.map(value => value.definition.name) }));

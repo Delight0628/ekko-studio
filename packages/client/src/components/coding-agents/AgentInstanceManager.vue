@@ -174,9 +174,10 @@ onUnmounted(() => { ++generation })
         </div>
         <section v-if="setup" class="native-setup" data-theme-surface="card">
           <NTag :type="setup.cli.state === 'available' ? 'success' : 'warning'">{{ t(`agentManagement.${setup.cli.state}`) }} {{ setup.cli.version }}</NTag>
-          <p>{{ t('agentManagement.manualSetup') }}</p>
+          <p v-if="'command' in setup.installation">{{ t('agentManagement.manualSetup') }}</p>
           <strong>{{ t('agentManagement.installCli') }}</strong>
-          <pre>{{ setup.installation.command }} {{ JSON.stringify(setup.installation.args) }}</pre>
+          <p v-if="'kind' in setup.installation"><a :href="setup.installation.url" target="_blank" rel="noopener noreferrer">{{ setup.installation.url }}</a></p>
+          <pre v-else>{{ setup.installation.command }} {{ JSON.stringify(setup.installation.args) }}</pre>
           <p v-if="setup.authentication.kind === 'studio'">{{ t('agentManagement.scopedHint') }}</p>
           <template v-else>
             <strong>{{ t('agentManagement.loginCli') }}</strong>
@@ -203,5 +204,5 @@ onUnmounted(() => { ++generation })
 .instance-manager-body { display: flex; flex-direction: column; gap: 16px; min-width: 0; max-height: calc(100dvh - 200px); overflow-y: auto; }
 .bundle-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; overflow-wrap: anywhere; p { margin: 4px 0; color: $text-muted; } }
 .instance-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-.native-setup { padding: 16px; pre { white-space: pre-wrap; overflow-wrap: anywhere; } }
+.native-setup { padding: 16px; overflow-wrap: anywhere; pre { white-space: pre-wrap; } }
 </style>

@@ -73,8 +73,20 @@ it('checks fresh authority before committing and removes unselected staging', as
 it.each([
   { version: 'latest' }, { version: '^1.2.3' }, { version: '1.2.3-alpha.01' }, { packageName: 'https://example.test/cli.tgz' },
   { packageName: '../local' }, { bin: '--eval' }, { runner: 'shell' }, { command: 'npm' }, { env: { TOKEN: 'secret' } },
+  { preferDedupe: 'true' }, { preferDedupe: 1 }, { preferDedupe: null }, { args: ['--ignore-scripts'] },
 ])('rejects nonliteral or expanded installation descriptors %j', patch => {
   expect(() => parseAgentCliInstall({ ...plan, ...patch })).toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))
+})
+
+it('applies the bounded dependency deduplication option without accepting arbitrary npm flags', async () => {
+  const f = await setup()
+  expect(f.stage.launch.args).not.toContain('--prefer-dedupe')
+  await f.stage.discard()
+  const deduped = await f.cache.stage(instance, provider, { ...plan, preferDedupe: true }, () => {})
+  try {
+    expect(deduped.launch.args.slice(-3)).toEqual(['--prefer-dedupe', '--', '@fixture/cli@1.2.3'])
+    expect(deduped.launch.env?.NPM_CONFIG_USERCONFIG).not.toBe(process.env.NPM_CONFIG_USERCONFIG)
+  } finally { await deduped.discard() }
 })
 
 it('prefixes host CLI arguments while preserving explicit custom launch precedence', () => {

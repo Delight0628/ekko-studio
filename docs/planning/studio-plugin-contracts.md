@@ -248,6 +248,8 @@ Hermes/Ekko 使用同一 `AgentTypeDefinition` 与 `AgentRuntime`，由 bootstra
 
 `POST /api/studio/agent-instances/:id/setup` 接受 `{ revision }`，返回宿主绑定的实例/revision/provider、`cli: { state: available|unavailable, version? }`、`installation: { command, args }` 与 `authentication: { kind: native|studio, command?, args?, input? }`。native 必须提供 command/args；studio 不允许附带原生登录字段。输出限 64 KiB，不接受 env、账号标识、凭据或任意附加字段；命令不能含控制字符。Qwen/Codex 仅执行有界版本检查并返回手工操作指引，不自动安装或登录，也不把可用 CLI 当作已认证。scoped 模式不读取全局账号；global 的认证状态另由 inspect 提供。此能力复用管理互斥、授权、25 秒期限与清理屏障。
 
+手动安装的原生 CLI 可将 `installation` 声明为 `{ kind: 'manual', url }`，宿主只接受无用户名/密码的 HTTPS 文档 URL，管理页显示链接。此类型不提供命令、环境或自动安装；适配器不声明 `prepareInstall`，不会出现受管 npm 安装入口。`nativeAgentSetup` 的第二参数同时支持 npm 固定版本字符串和此文档对象。
+
 检查结果仅允许原生名称/版本、认证状态及方法 ID/名称、模型 ID/名称/默认项/推理级别，并附宿主 provider/configRevision 快照。认证状态区分 `authenticated/required/not_required/unknown`；模型发现区分 `available/unsupported/authentication_required`，后两者必须返回空 items，不会把未知当成未登录或空目录。适配器不得借检查执行登录、刷新凭据、推理或改写配置。结果上限 256 KiB、512 个模型、32 个认证方法；宿主检查字段、重复 ID 和大小。并发上限 16，执行期限 25 秒；撤权、取消、断连和关闭均回收资源。取消后最多等待 5 秒确认回调与受管资源清理，不合作的 worker 会被终止；清理未确认时保留实例占用，不能启动下一轮。
 
 Codex 使用 `account/read`（`refreshToken: false`）和有界分页 `model/list`，不返回账号标识、原生 Home 或秘密。Qwen 仅执行 ACP v1 initialize，投影客户端信息和认证方法；该握手不提供当前认证状态，无会话模型发现不支持。退出账号、自动升级和完整 MCP 管理仍未实现；显式受管安装见下文；配置文件和 Skills 的 Studio 编辑接入见下节，不将此检查接口计为完整原生管理迁移。
@@ -260,7 +262,7 @@ Copilot 1.0.91 先进行 ACP initialize，再用独立 headless SDK 的 JSON-RPC
 
 `GET /api/studio/agent-instances/:id/operations` 返回最近 32 条元数据；`GET /api/studio/agent-management-operations/:id` 查询原回执。同一幂等键返回原操作，重启后记为 interrupted，不重放登录或输入。`/output?after=N` 返回至多四个 16 KiB base64 字节块、游标、truncated/finished 和 nextInputSequence；输出仅在内存保留至多 256 KiB，结束后保留五分钟，最多 128 个缓冲。`POST /input { sequence, text }` 每帧至多 64 KiB，按序号及内容摘要抑制最近一帧的重复写入，未知写入只能原样重试；PTY 累计输入至多 1 MiB。输入及终端输出不进入 SQLite 或应用日志。`POST /resize { cols, rows }` 限制每维 2–1000；`POST /cancel` 等待清理后返回状态。前端按输出写入回调逐页消费、限制待发输入，关闭视图不隐式停止登录，可重新连接并恢复下一输入序号。
 
-`POST /api/studio/agent-instances/:id/install { revision, idempotencyKey }` 显式安装插件声明的原生 CLI，权限与登录相同。`prepareInstall` 返回严格的 `AgentCliInstallPlan { kind: 'npm', packageName, version, bin, runner: 'node'|'binary' }`；只接受固定 semver、普通 npm 包名与 bin 名，不接受命令、标签、URL、环境或目录覆盖。插件还需 `processes.spawn` 授权。Qwen 固定 0.25.0，Codex 固定 0.163.0；两种实例模式均可安装。
+`POST /api/studio/agent-instances/:id/install { revision, idempotencyKey }` 显式安装插件声明的原生 CLI，权限与登录相同。`prepareInstall` 返回严格的 `AgentCliInstallPlan { kind: 'npm', packageName, version, bin, runner: 'node'|'binary', preferDedupe?: boolean }`；只接受固定 semver、普通 npm 包名与 bin 名，不接受命令、标签、URL、环境或目录覆盖。可选布尔值 `preferDedupe` 只控制 npm 的 `--prefer-dedupe`，满足原生扩展依赖单一 SDK 模块身份的要求；不开放任意 npm 参数。插件还需 `processes.spawn` 授权。Qwen 固定 0.25.0，Codex 固定 0.163.0；两种实例模式均可安装。
 
 宿主使用当前 Node/Electron Node helper 执行 npm JS 入口。每个 owner/profile/实例具有独立 prefix、npm 配置、缓存及临时 Home，从官方 registry 安装，不修改全局包或原生账号目录。安装期间实例与提供方被租约占用；失败或取消等待真实进程清理，再删除未选中的暂存目录。先校验包名、固定版本及包内入口，再执行有界 `--version` 探针；进程全部清理且授权仍有效后，原子切换私有指针。旧安装在切换前保持有效，未确认清理的暂存不删除。现阶段保留旧安装用于后续回滚，版本清理与跨提供方升级迁移另行验收。
 
@@ -410,6 +412,8 @@ accepted / queued / starting / running / waiting_input
 ### 4.3 用量与计费
 
 `usage.reported` 必须包含 `modelCallId`、provider/model、计数单位、`delta | cumulative | final` 模式和 revision。宿主按 `(runId, modelCallId, metric, revision)` 去重并规范化，累计快照不能反复相加。
+
+当前运行时事件要求 `modelCallId/model/mode/revision/inputTokens/outputTokens`，可选 `cacheReadTokens/cacheWriteTokens/reasoningTokens` 为非负安全整数。运行时 `inputTokens` 已包含缓存总输入，缓存字段只作明细；输出和 reasoning 同理，不重复加总。delta 按字段累加，缺少字段不改变已有明细；cumulative/final 替换快照，缺少明细保持未知。相同 revision 的任何指标冲突整体回滚，最终更正仍须显式 final。宿主模型服务的用量继续由原生规范化器转换并独占写入，不接受运行时对同一宿主模型调用重复计量。
 
 Agent 运行时报告数据，核心负责计价和账户归属。若通过 `ctx.models` 调用，模型服务已经记录该请求的权威用量；运行时对同一请求的回报只能关联或校验，不能二次记账。父 Run、子 Run 和后台工作使用关联 ID，聚合统计避免再次累计同一模型调用。未知用量以 unknown 表示，不写成零来宣称已完整计量。
 

@@ -20,12 +20,13 @@ export function nativeAgentLogin(defaultCommand: string, loginArgs: string[]): N
 }
 
 /** Version probes discard native output except a bounded version identifier. */
-export function nativeAgentSetup(defaultCommand: string, packageSpec: string, loginArgs: string[], loginInput?: string): NonNullable<AgentManagementAdapter['setup']> {
+export function nativeAgentSetup(defaultCommand: string, packageSpec: string | { kind: 'manual'; url: string }, loginArgs: string[], loginInput?: string): NonNullable<AgentManagementAdapter['setup']> {
   return async ({ config, mode }, context) => {
     const unavailable = !config.command && context.nativeCli?.state === 'unavailable'
     const { command, args } = unavailable ? { command: defaultCommand, args: config.args as string[] || [] } : nativeAgentLaunch(defaultCommand, config, context)
     const result: AgentSetup = {
-      cli: { state: 'unavailable' }, installation: { command: 'npm', args: ['install', '--global', packageSpec] },
+      cli: { state: 'unavailable' }, installation: typeof packageSpec === 'string'
+        ? { command: 'npm', args: ['install', '--global', packageSpec] } : { ...packageSpec },
       authentication: mode === 'scoped' ? { kind: 'studio' } : { kind: 'native', command, args: [...args, ...loginArgs], ...(loginInput ? { input: loginInput } : {}) },
     }
     if (unavailable) return result

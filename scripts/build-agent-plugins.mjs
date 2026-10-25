@@ -1,11 +1,11 @@
 import { build } from 'esbuild'
-import { mkdir, readFile, copyFile } from 'node:fs/promises'
+import { mkdir, readFile, copyFile, cp, stat } from 'node:fs/promises'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 // Build only implemented packages. Reservation of an ID does not install it.
-export const agentPluginPackages = ['qwen-code', 'codex', 'kimi', 'qoder', 'codebuddy', 'copilot', 'opencode']
+export const agentPluginPackages = ['qwen-code', 'codex', 'kimi', 'qoder', 'codebuddy', 'copilot', 'opencode', 'pi']
 
 export async function buildAgentPlugins(outputRoot = resolve(root, 'dist/plugins')) {
   for (const name of agentPluginPackages) {
@@ -22,6 +22,10 @@ export async function buildAgentPlugins(outputRoot = resolve(root, 'dist/plugins
       },
     })
     for (const file of ['studio-plugin.json', 'package.json', 'README.md']) await copyFile(join(source, file), join(destination, file))
+    // Optional native extension assets are part of the same immutable plugin artifact.
+    const native = join(source, 'native')
+    const present = await stat(native).then(() => true, error => { if (error.code === 'ENOENT') return false; throw error })
+    if (present) await cp(native, join(destination, 'native'), { recursive: true })
   }
 }
 
