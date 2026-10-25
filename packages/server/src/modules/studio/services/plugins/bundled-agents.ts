@@ -15,6 +15,14 @@ const bundles = [
   { id: 'copilot', name: 'GitHub Copilot', pluginId: 'studio.agent-copilot', directory: 'copilot' },
   { id: 'opencode', name: 'OpenCode', pluginId: 'studio.agent-opencode', directory: 'opencode' },
   { id: 'pi', name: 'Pi', pluginId: 'studio.agent-pi', directory: 'pi' },
+  { id: 'dsh', name: 'DeepSeek Harness', pluginId: 'studio.agent-dsh', directory: 'dsh' },
+  { id: 'claude-code', name: 'Claude Code', pluginId: 'studio.agent-claude-code', directory: 'claude-code' },
+  { id: 'antigravity', name: 'Antigravity', pluginId: 'studio.agent-antigravity', directory: 'antigravity',
+    requiredCapabilities: ['agents.register', 'runs.start', 'processes.spawn', 'mcp.studio', 'models.gateway', 'artifacts.read'] },
+  { id: 'cursor', name: 'Cursor', pluginId: 'studio.agent-cursor', directory: 'cursor',
+    requiredCapabilities: ['agents.register', 'runs.start', 'processes.spawn', 'mcp.studio', 'artifacts.read'] },
+  { id: 'grok', name: 'Grok', pluginId: 'studio.agent-grok', directory: 'grok' },
+  { id: 'zcode', name: 'ZCode', pluginId: 'studio.agent-zcode', directory: 'zcode' },
 ] as const
 const bundledCapabilities = ['agents.register', 'commands.register', 'runs.start', 'processes.spawn', 'mcp.studio', 'models.gateway', 'artifacts.read']
 

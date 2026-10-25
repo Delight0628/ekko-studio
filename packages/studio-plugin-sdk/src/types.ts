@@ -272,6 +272,8 @@ export interface AgentCliInstallPlan {
   kind: 'npm'; packageName: string; version: string; bin: string; runner: 'node' | 'binary'
   /** Prefer a shared dependency version when the native CLI's SDK requires one module identity. */
   preferDedupe?: boolean
+  /** Native home/config variable names; the host supplies private installer paths. */
+  nativeHomeEnv?: string[]
 }
 export type AgentNativeCli = { state: 'ready'; command: string; args: string[] } | { state: 'unavailable' }
 

@@ -116,6 +116,35 @@ it('restores distinct plain and namespace tool identities across the next turn',
   expect(f.requests[1].messages.find((message: any) => message.role === 'tool')).toMatchObject({ tool_call_id: 'call-test', content: 'contents' })
 })
 
+describe.each(['chat', 'anthropic'] as const)('forced Responses function through %s', style => {
+  it.each([false, true])('preserves the selected namespace and usage, stream=%s', async stream => {
+    const f = fixture('responses', style)
+    f.fetch.mockImplementation(async (_url, init) => {
+      const body = JSON.parse(init.body); f.requests.push(body)
+      const name = style === 'chat' ? body.tool_choice.function.name : body.tool_choice.name
+      expect(body.tool_choice.type).toBe(style === 'chat' ? 'function' : 'tool')
+      expect(name).toBe(style === 'chat' ? body.tools[1].function.name : body.tools[1].name)
+      return reply(style, name, stream)
+    })
+    const body = { input: 'select namespaced read', stream, tool_choice: { type: 'function', name: 'read', namespace: 'ns' },
+      tools: [{ type: 'function', name: 'ns_read' }, { type: 'namespace', name: 'ns', tools: [{ type: 'function', name: 'read' }] }] }
+    const { events, wire } = await collect(await f.call(body as any), 'responses')
+    const output = stream ? events.at(-1).response.output : events[0].output
+    expect(output[0]).toMatchObject({ name: 'read', namespace: 'ns', call_id: 'call-test' })
+    expect(wire.status).toBe('completed')
+    expect(wire.usage?.inputTokens).toBe(12)
+  })
+})
+
+it('rejects undeclared or malformed forced functions before provider IO', async () => {
+  const f = fixture('responses', 'chat')
+  for (const choice of [{ type: 'function', name: 'missing' }, { type: 'function', name: 'read', namespace: 'missing' },
+    { type: 'function', name: 'read', unexpected: true }, { type: 'function', name: 5 }]) {
+    await expect(f.call({ ...input('responses'), tool_choice: choice } as any)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+  }
+  expect(f.fetch).not.toHaveBeenCalled()
+})
+
 it('cancels the original response reader and signal when the CLI disconnects', async () => {
   const f = fixture('responses', 'chat'), cancel = vi.fn()
   f.fetch.mockResolvedValueOnce(new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(frame({ choices: [{ delta: { content: 'partial' } }] }))) }, cancel }), { headers: { 'content-type': 'text/event-stream' } }))

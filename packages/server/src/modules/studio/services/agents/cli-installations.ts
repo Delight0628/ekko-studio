@@ -46,8 +46,13 @@ export class AgentCliInstallations {
       await mkdir(home, { mode: 0o700 })
       await Promise.all([writeFile(userconfig, '', { mode: 0o600, flag: 'wx' }), writeFile(globalconfig, '', { mode: 0o600, flag: 'wx' })])
       authorize()
-      const env = { HOME: home, USERPROFILE: home, NPM_CONFIG_USERCONFIG: userconfig, NPM_CONFIG_GLOBALCONFIG: globalconfig,
-        NPM_CONFIG_CACHE: join(home, 'cache'), NPM_CONFIG_UPDATE_NOTIFIER: 'false' }
+      const env: Record<string, string> = { HOME: home, USERPROFILE: home, NPM_CONFIG_USERCONFIG: userconfig, NPM_CONFIG_GLOBALCONFIG: globalconfig,
+        NPM_CONFIG_CACHE: join(home, 'cache'), NPM_CONFIG_UPDATE_NOTIFIER: 'false', NPM_CONFIG_PREFIX: prefix, NPM_CONFIG_GLOBAL: 'false' }
+      if (plan.nativeHomeEnv?.length) {
+        const nativeHome = join(home, 'native')
+        await mkdir(nativeHome, { mode: 0o700 })
+        for (const name of plan.nativeHomeEnv) env[name] = nativeHome
+      }
       return {
         launch: { ...tool, args: [...tool.args, 'install', '--prefix', prefix, '--omit=dev', '--no-audit', '--no-fund', '--package-lock=true',
           '--registry=https://registry.npmjs.org/', ...(plan.preferDedupe ? ['--prefer-dedupe'] : []), '--', `${plan.packageName}@${plan.version}`], cwd: home,

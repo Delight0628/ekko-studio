@@ -10,6 +10,7 @@ import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import sharp from "sharp";
+import { stringify as yamlStringify } from 'yaml';
 const project = fileURLToPath(new URL("..", import.meta.url));
 async function main() {
   const root = await mkdtemp(join(tmpdir(), "studio-real-plugin-turns-"));
@@ -58,7 +59,7 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
   let calls = 0, completedTurns = 0, completedCommands = 0, installedClis = 0;
   const managedInstall = process.env.STUDIO_MANAGED_CLI === '1';
   const vendors = process.env.STUDIO_AGENT_VENDORS ? process.env.STUDIO_AGENT_VENDORS.split(',') : ['codex', 'qwen-code'];
-  if (!vendors.length || vendors.some(value => !['codex', 'qwen-code', 'kimi', 'codebuddy', 'copilot', 'opencode', 'pi'].includes(value))) throw new Error('Unknown native verification vendor');
+  if (!vendors.length || vendors.some(value => !['codex', 'qwen-code', 'kimi', 'codebuddy', 'copilot', 'opencode', 'pi', 'dsh', 'grok'].includes(value))) throw new Error('Unknown native verification vendor');
   const fixtureInputTokens = process.env.STUDIO_NATIVE_COMMANDS === '1' ? 12000 : 12;
   const commandAfterTurn = Number(process.env.STUDIO_NATIVE_COMMAND_AFTER_TURN || 0);
   if (!Number.isSafeInteger(commandAfterTurn) || commandAfterTurn < 0 || commandAfterTurn > 1) throw new Error('Native command turn must be 0 or 1');
@@ -93,15 +94,17 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
     }
     calls++; requests.push(body);
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
+    let responseSequence = 0;
     const send = (type, data) => res.write(`event: ${type}
-data: ${JSON.stringify({ type, ...data })}
+data: ${JSON.stringify({ type, ...(type.startsWith('response.') ? { sequence_number: responseSequence++ } : {}), ...data })}
 
 `);
     const id = `response-${calls}`, messageId = `message-${calls}`, text = `Native fixture answer ${calls}`;
+    const responseMetadata = { created_at: Math.floor(Date.now() / 1000), model: body.model };
     const flattenedTools = (body.tools || []).flatMap(tool => tool.type === 'namespace' ? (tool.tools || []).map(child => ({ ...child, namespace: tool.name })) : [tool]);
-    const matchTool = (tool, name) => (tool.name || tool.function?.name) === name || activeVendor === 'codebuddy'
-      && (tool.name || tool.function?.name) === `studio_${createHash('sha256').update(JSON.stringify([null, name])).digest('hex').slice(0, 48)}`;
-    const searchTool = flattenedTools.find(tool => matchTool(tool, 'tool_search') || matchTool(tool, 'ToolSearch'));
+    const matchTool = (tool, name) => (tool.name || tool.function?.name) === name
+      || (tool.name || tool.function?.name) === `studio_${createHash('sha256').update(JSON.stringify([null, name])).digest('hex').slice(0, 48)}`;
+    const searchTool = flattenedTools.find(tool => matchTool(tool, 'tool_search') || matchTool(tool, 'ToolSearch') || activeVendor === 'grok' && matchTool(tool, 'search_tool'));
     const deferredTools = (body.messages || []).flatMap(message => Array.isArray(message.content) ? message.content : []).filter(part => part.type === 'tool_result')
       .flatMap(part => [...String(part.content).matchAll(/<function>(.*?)<\/function>/gs)].map(match => JSON.parse(match[1])));
     const codebuddyResults = activeVendor === 'codebuddy' ? JSON.stringify([
@@ -110,27 +113,33 @@ data: ${JSON.stringify({ type, ...data })}
       ...(Array.isArray(body.input) ? body.input.filter(item => item.type === 'function_call_output').map(item => item.output) : []),
     ]) : '';
     const codebuddyApi = codebuddyResults.match(/\bmcp__[A-Za-z0-9_.:-]*ekko_studio_api_request\b/)?.[0];
+    const grokResults = activeVendor === 'grok' ? [
+      ...(Array.isArray(body.input) ? body.input.filter(item => item.type === 'function_call_output').map(item => item.output) : []),
+      ...(body.messages || []).filter(message => message.role === 'tool').map(message => message.content),
+      ...(body.messages || []).flatMap(message => Array.isArray(message.content) ? message.content.filter(part => part.type === 'tool_result').map(part => part.content) : []),
+    ].map(value => typeof value === 'string' ? value : JSON.stringify(value)).join('\n') : '';
+    const grokApi = grokResults.match(/"tool_name"\s*:\s*"([^"]*ekko_studio_api_request)"/)?.[1];
     const apiTool = flattenedTools.find(tool => (tool.name || tool.function?.name || '').includes('ekko_studio_api_request'))
-      || deferredTools.find(tool => tool.name?.includes('ekko_studio_api_request')) || (codebuddyApi ? { name: codebuddyApi } : undefined);
-    const discover = ['qwen-code', 'codebuddy'].includes(activeVendor) && searchTool && !searchIssued;
+      || deferredTools.find(tool => tool.name?.includes('ekko_studio_api_request')) || (codebuddyApi ? { name: codebuddyApi } : grokApi ? { name: grokApi } : undefined);
+    const discover = ['qwen-code', 'codebuddy', 'grok'].includes(activeVendor) && searchTool && !searchIssued;
     if (discover || (nativeMcpEnabled && apiTool && !nativeMcpIssued)) {
       if (discover) searchIssued = true; else nativeMcpIssued = true;
       const deferred = !discover && !!apiTool.parametersJsonSchema;
       const codebuddyProxy = !discover && codebuddyApi && flattenedTools.find(tool => matchTool(tool, 'DeferExecuteTool'));
-      const toolName = discover ? searchTool.name || searchTool.function.name : codebuddyProxy ? codebuddyProxy.name || codebuddyProxy.function.name : deferred ? 'tool_call' : apiTool.name || apiTool.function.name;
+      const toolName = discover ? searchTool.name || searchTool.function.name : grokApi ? 'use_tool' : codebuddyProxy ? codebuddyProxy.name || codebuddyProxy.function.name : deferred ? 'tool_call' : apiTool.name || apiTool.function.name;
       const nativeArgs = { method: 'GET', path: '/api/studio/fixture-native-context', context_id: nativeMcpContext };
       const toolId = `tool-${calls}`, args = JSON.stringify(discover
         ? activeVendor === 'codebuddy' ? { queries: nativeMcpEnabled ? ['ekko_studio_api_request', 'continuity'] : ['continuity'], top_k: 10 }
-          : { query: nativeMcpEnabled ? 'continuity ekko_studio_api_request' : 'continuity', max_results: nativeMcpEnabled ? 10 : 5 }
-        : codebuddyProxy ? { toolName: codebuddyApi, params: nativeArgs } : deferred ? { name: apiTool.name, arguments: nativeArgs } : nativeArgs);
+          : { query: nativeMcpEnabled ? 'continuity ekko_studio_api_request' : 'continuity', ...(activeVendor === 'grok' ? {} : { max_results: nativeMcpEnabled ? 10 : 5 }) }
+        : grokApi ? { tool_name: grokApi, tool_input: nativeArgs } : codebuddyProxy ? { toolName: codebuddyApi, params: nativeArgs } : deferred ? { name: apiTool.name, arguments: nativeArgs } : nativeArgs);
       if (req.url.includes('responses')) {
         const item = { type: 'function_call', id: toolId, call_id: toolId, name: toolName, arguments: args, ...(!discover && apiTool.namespace ? { namespace: apiTool.namespace } : {}) };
-        send('response.created', { response: { id, object: 'response', status: 'in_progress', output: [] } });
+        send('response.created', { response: { id, object: 'response', ...responseMetadata, status: 'in_progress', output: [] } });
         send('response.output_item.added', { output_index: 0, item: { ...item, arguments: '' } });
         send('response.function_call_arguments.delta', { item_id: toolId, output_index: 0, delta: args });
         send('response.function_call_arguments.done', { item_id: toolId, output_index: 0, arguments: args });
         send('response.output_item.done', { output_index: 0, item });
-        send('response.completed', { response: { id, object: 'response', status: 'completed', output: [item], usage: { input_tokens: fixtureInputTokens, output_tokens: 5, total_tokens: fixtureInputTokens + 5 } } });
+        send('response.completed', { response: { id, object: 'response', ...responseMetadata, status: 'completed', output: [item], usage: { input_tokens: fixtureInputTokens, output_tokens: 5, total_tokens: fixtureInputTokens + 5, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } } } });
       } else if (req.url.includes('chat/completions')) {
         res.write(`data: ${JSON.stringify({ id, choices: [{ delta: { tool_calls: [{ index: 0, id: toolId, type: 'function', function: { name: toolName, arguments: args } }] } }] })}\n\n`);
         res.write(`data: ${JSON.stringify({ id, choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: fixtureInputTokens, completion_tokens: 5 } })}\n\n`);
@@ -147,13 +156,13 @@ data: ${JSON.stringify({ type, ...data })}
     }
     if (req.url.includes("responses")) {
       const item = { id: messageId, type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text, annotations: [] }] };
-      send("response.created", { response: { id, object: "response", status: "in_progress", output: [] } });
+      send("response.created", { response: { id, object: "response", ...responseMetadata, status: "in_progress", output: [] } });
       send("response.output_item.added", { output_index: 0, item: { ...item, status: "in_progress", content: [] } });
       send("response.content_part.added", { item_id: messageId, output_index: 0, content_index: 0, part: { type: "output_text", text: "", annotations: [] } });
       send("response.output_text.delta", { item_id: messageId, output_index: 0, content_index: 0, delta: text });
       send("response.output_text.done", { item_id: messageId, output_index: 0, content_index: 0, text });
       send("response.output_item.done", { output_index: 0, item });
-      send("response.completed", { response: { id, object: "response", status: "completed", output: [item], usage: { input_tokens: fixtureInputTokens, output_tokens: 5, total_tokens: fixtureInputTokens + 5, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } } } });
+      send("response.completed", { response: { id, object: "response", ...responseMetadata, status: "completed", output: [item], usage: { input_tokens: fixtureInputTokens, output_tokens: 5, total_tokens: fixtureInputTokens + 5, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } } } });
     } else if (req.url.includes('chat/completions')) {
       res.write(`data: ${JSON.stringify({ id, choices: [{ delta: { content: text } }] })}\n\n`);
       res.write(`data: ${JSON.stringify({ id, choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: fixtureInputTokens, completion_tokens: 5 } })}\n\n`);
@@ -180,8 +189,11 @@ data: ${JSON.stringify({ type, ...data })}
         : protocol === 'responses' ? AnthropicMessagesModelClient : OpenAIResponsesModelClient;
     const client = new Client({ id: 'fixture', type: 'custom', defaultModel: 'fixture-model', baseUrl: `${base}/v1`, apiKey: 'host-only-fixture-key' });
     return { images: true, transport: activeTarget === 'native' ? 'native' : 'translated',
-      request: (body, signal, sessionId) => activeTarget === 'native' ? client.nativeRequest(body, { model: 'fixture-model', messages: [], signal })
-        : translatedNativeRequest({ client, protocol, model: 'fixture-model', publicModel, body, signal, sessionId, authorize() {} }),
+      request: async (body, signal, sessionId) => {
+        try { return await (activeTarget === 'native' ? client.nativeRequest(body, { model: 'fixture-model', messages: [], signal })
+          : translatedNativeRequest({ client, protocol, model: 'fixture-model', publicModel, body, signal, sessionId, authorize() {} })); }
+        catch (error) { if (process.env.STUDIO_NATIVE_DIAGNOSTICS === '1') console.log(JSON.stringify({ vendor: activeVendor, target: activeTarget, modelFailure: error.message, code: error.code, toolChoice: body.tool_choice })); throw error; }
+      },
       record: input => input.onRecorded?.({ ...input.usage, isEstimated: input.isEstimated }) };
   } });
   if (process.env.STUDIO_NATIVE_DIAGNOSTICS === '1') gateways.server.prependListener('request', request => console.log(JSON.stringify({ nativeGatewayPath: request.url?.split('?')[0].replace(/[a-f0-9]{48}/g, '<lease>') })));
@@ -217,6 +229,24 @@ requires_openai_auth = false
           config.args = ["--auth-type", "anthropic", "--model", "fixture-model"];
           Object.assign(config.env, { QWEN_HOME: home, QWEN_RUNTIME_DIR: join(home, "runtime"), ANTHROPIC_API_KEY: "fixture-only", ANTHROPIC_BASE_URL: base, ANTHROPIC_MODEL: "fixture-model" });
           await writeFile(join(home, "settings.json"), JSON.stringify({ security: { auth: { selectedType: "anthropic" } }, model: { name: "fixture-model" }, modelProviders: { anthropic: [{ id: "fixture-model", envKey: "ANTHROPIC_API_KEY", baseUrl: base, generationConfig: { maxOutputTokens: 256, modalities: { image: true } } }] } }), { mode: 384 });
+        } else if (vendor === 'dsh') {
+          config.command = process.env.STUDIO_DSH_COMMAND || 'dsh';
+          config.model = JSON.stringify(['fixture', 'fixture-model']);
+          Object.assign(config.env, { DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1', STUDIO_DSH_NATIVE_FIXTURE_TOKEN: 'fixture-only' });
+          const selection = { provider: 'fixture', model: 'fixture-model' };
+          const providers = { providers: { fixture: { apiKeyEnv: 'STUDIO_DSH_NATIVE_FIXTURE_TOKEN', api: 'openai-responses', baseURL: `${base}/v1`,
+            models: [{ id: 'fixture-model', input: ['text', 'image'], contextWindow: 131072, maxTokens: 256 }] } } };
+          await mkdir(join(home, 'profiles', 'web'), { recursive: true });
+          await writeFile(join(home, 'settings.yaml'), yamlStringify({ 'agent-default-model': selection, 'llm-pi-ai': providers }));
+          await writeFile(join(home, 'cordis.patch.yml'), '[]\n');
+          await writeFile(join(home, 'profiles', 'web', 'cordis.patch.yml'), yamlStringify([
+            { id: 'agent-default-model', config: selection }, { id: 'llm-pi-ai', config: providers },
+          ]));
+        } else if (vendor === 'grok') {
+          config.command = process.env.STUDIO_GROK_COMMAND || 'grok';
+          config.model = 'fixture/native-model';
+          Object.assign(config.env, { GROK_HOME: home, STUDIO_GROK_NATIVE_FIXTURE_TOKEN: 'fixture-only' });
+          await writeFile(join(home, 'config.toml'), `[models]\ndefault="fixture/native-model"\n[model."fixture/native-model"]\nmodel="fixture-model"\nbase_url="${base}/v1"\nenv_key="STUDIO_GROK_NATIVE_FIXTURE_TOKEN"\napi_backend="responses"\ncontext_window=131072\nmax_completion_tokens=256\n`, { mode: 384 });
         } else if (vendor === 'pi') {
           config.command = process.env.STUDIO_PI_COMMAND || 'pi';
           config.model = 'fixture/fixture-model';
@@ -356,7 +386,12 @@ requires_openai_auth = false
         console.log(JSON.stringify({ vendor, mode, setup: true, version: setup.cli.version, authentication: setup.authentication.kind }));
         const marker = `STUDIO_RESOURCE_${vendor}_${mode}`;
         const catalog = await coordinator.resourceFiles(caller, instance.id, instance.revision, { action: 'list' });
-        await coordinator.resourceFiles(caller, instance.id, instance.revision, { action: 'write', kind: 'configs', locationId: 'native-instructions', path: '', content: `Follow the fixture instruction ${marker}_INSTRUCTION.`, etag: 'missing' }, catalog.snapshot);
+        const instructions = catalog.configs.find(location => location.id === 'native-instructions')
+          || catalog.configs.find(location => location.scope === mode && location.name === 'AGENTS.md');
+        if (!instructions) throw new Error(`${vendor} did not expose native instructions`);
+        const instructionRef = { kind: 'configs', locationId: instructions.id, path: '' };
+        const currentInstructions = await coordinator.resourceFiles(caller, instance.id, instance.revision, { action: 'read', ...instructionRef }, catalog.snapshot);
+        await coordinator.resourceFiles(caller, instance.id, instance.revision, { action: 'write', ...instructionRef, content: `Follow the fixture instruction ${marker}_INSTRUCTION.`, etag: currentInstructions.file.etag }, catalog.snapshot);
         await coordinator.importSkill(caller, instance.id, instance.revision, catalog.snapshot, 'native-skills', [{ filename: '技能目录/SKILL.md', data: Buffer.from(`---
 name: studio-resource-check
 description: Skill marker ${marker}_SKILL.
@@ -369,7 +404,8 @@ Follow fixture instructions.`) }, { filename: '技能目录/assets/fixture.bin',
           if (target === 'switch') activeTarget = turn === 1 ? 'chat' : 'native';
           if (turn) {
             instance = await coordinator.updateInstance(caller, instance.id, { revision: instance.revision, mode,
-              config: { ...instance.config, mcpServers: mcpServers(instance.revision + 1), model: mode === 'scoped' ? 'fixture/next-model' : ['opencode', 'pi'].includes(vendor) ? 'fixture/fixture-model' : 'fixture-model', systemPrompt: 'Preserve the prior conversation and reply briefly.' } });
+              config: { ...instance.config, mcpServers: mcpServers(instance.revision + 1), model: mode === 'scoped' ? 'fixture/next-model'
+                : vendor === 'dsh' ? JSON.stringify(['fixture', 'fixture-model']) : vendor === 'grok' ? 'fixture/native-model' : ['opencode', 'pi'].includes(vendor) ? 'fixture/fixture-model' : 'fixture-model', systemPrompt: 'Preserve the prior conversation and reply briefly.' } });
             const next = await coordinator.resourceLocations(caller, instance.id, instance.revision);
             if (JSON.stringify(next.configs) !== JSON.stringify(catalog.configs)) throw new Error('Compatible configuration changed resource locations');
             await coordinator.close();
@@ -423,8 +459,8 @@ Follow fixture instructions.`) }, { filename: '技能目录/assets/fixture.bin',
             if (turn && !requests.slice(requestOffset).some(hasImage)) throw new Error(`${vendor} did not forward the image to its model`);
             if (mode === 'scoped') {
               const usage = state.usage(result.id);
-              if (!usage.length || usage.some(call => !call.final || call.source !== 'host' || call.inputTokens !== fixtureInputTokens || call.outputTokens !== 5)) throw new Error('Native host accounting failed');
               const records = db.prepare('SELECT record_json FROM studio_plugin_model_calls').all().map(row => JSON.parse(row.record_json));
+              if (!usage.length || usage.some(call => !call.final || call.source !== 'host' || call.inputTokens !== fixtureInputTokens || call.outputTokens !== 5)) throw new Error(`Native host accounting failed: ${JSON.stringify({ usage, calls: records.filter(call => call.runId === result.id).map(call => ({ id: call.id, status: call.status, error: call.error, errorCode: call.errorCode })) })}`);
               if (records.filter(call => call.runId === result.id).some(call => call.status !== 'completed')) throw new Error('Native model call did not complete');
             }
             console.log(JSON.stringify({ vendor, mode, target, turn: turn + 1, status: result.status, events: output.length, sameNativeSession: previous !== undefined ? true : void 0,

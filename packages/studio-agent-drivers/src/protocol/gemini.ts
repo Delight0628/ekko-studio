@@ -19,6 +19,11 @@ export function geminiToResponses(body: any): any {
   const instructions = body.systemInstruction?.parts?.map((part: any) => part.text || '').join('\n')
   let callIndex = 0
   const pending = new Map<string, string[]>()
+  const callIds = new Set<string>()
+  const nativeId = (value: unknown) => {
+    if (typeof value !== 'string' || !value || value.length > 256) throw Object.assign(new Error('Invalid Gemini function ID'), { status: 400 })
+    return value
+  }
   for (const content of body.contents || []) {
     const role = content.role === 'model' ? 'assistant' : 'user'
     const parts = Array.isArray(content.parts) ? content.parts : []
@@ -37,14 +42,17 @@ export function geminiToResponses(body: any): any {
       if (part.functionCall) {
         flush()
         const call = part.functionCall
-        const id = `agy_call_${callIndex++}`
+        const fallback = `agy_call_${callIndex++}`, id = call.id === undefined ? fallback : nativeId(call.id)
+        if (callIds.has(id)) throw Object.assign(new Error('Duplicate Gemini function ID'), { status: 400 })
+        callIds.add(id)
         const ids = pending.get(call.name) || []; ids.push(id); pending.set(call.name, ids)
         input.push({ type: 'function_call', call_id: id, name: call.name, arguments: JSON.stringify(call.args || {}) })
       }
       if (part.functionResponse) {
         flush()
         const result = part.functionResponse
-        const id = pending.get(result.name)?.shift()
+        const ids = pending.get(result.name), index = result.id === undefined ? 0 : ids?.indexOf(nativeId(result.id)) ?? -1
+        const id = index < 0 ? undefined : ids?.splice(index, 1)[0]
         if (!id) throw Object.assign(new Error(`Unmatched Gemini function response: ${result.name}`), { status: 400 })
         const text = JSON.stringify(result.response ?? {})
         const media = (result.parts || []).map((part: any) => geminiImage(part)
@@ -78,7 +86,7 @@ export function responsesToGemini(response: any): any {
       if (typeof args === 'string') {
         try { args = JSON.parse(args) } catch { throw Object.assign(new Error(`Provider returned malformed tool arguments for ${item.name}`), { status: 502 }) }
       }
-      parts.push({ functionCall: { name: item.name, args: args || {} } })
+      parts.push({ functionCall: { name: item.name, args: args || {}, ...(typeof item.call_id === 'string' ? { id: item.call_id } : {}) } })
     }
   }
   if (!parts.length) throw Object.assign(new Error('Provider returned no text or function calls'), { status: 502 })

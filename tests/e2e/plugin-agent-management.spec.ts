@@ -10,6 +10,12 @@ const nativeAgents = {
   copilot: { name: 'Copilot', version: '1.0.91', package: '@github/copilot@1.0.91', loginArgs: ['login'] },
   opencode: { name: 'OpenCode', version: '1.19.4', package: 'opencode-ai@1.19.4', loginArgs: ['auth', 'login'] },
   pi: { name: 'Pi', version: '1.4.0', package: '@earendil-works/pi-coding-agent@1.4.0', loginArgs: [] },
+  dsh: { name: 'DeepSeek Harness', version: '0.1.7-rc.2', package: '@deepseek-ai/dsh@0.1.7-rc.2', loginArgs: ['web'] },
+  'claude-code': { name: 'Claude Code', version: '2.1.310', package: '@anthropic-ai/claude-code@2.1.310', command: 'claude', loginArgs: ['auth', 'login'] },
+  antigravity: { name: 'Antigravity', version: '1.4.7', package: '', command: 'agy', loginArgs: [], installationDocs: 'https://antigravity.google/docs/cli/install' },
+  cursor: { name: 'Cursor', version: '2026.10.22-27dcf5f', package: '', command: 'agent', loginArgs: ['login'], installationDocs: 'https://cursor.com/docs/cli/installation' },
+  grok: { name: 'Grok', version: '1.0.70', package: '@xai-official/grok@1.0.70', loginArgs: ['login'] },
+  zcode: { name: 'ZCode', version: '0.16.9', package: '', loginArgs: ['login'], installationDocs: 'https://github.com/zai-org/ZCode' },
 }
 async function setup(page: Page, brightness = 'light', wallpaper = false, active = true, agent: keyof typeof nativeAgents = 'qwen', installationDocs?: string) {
   await authenticate(page, TEST_ACCESS_KEY, 'research')
@@ -22,10 +28,13 @@ async function setup(page: Page, brightness = 'light', wallpaper = false, active
     const png = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#204060' } }).png().toBuffer()
     await page.route('**/api/theme/background?*', route => route.fulfill({ contentType: 'image/png', body: png }))
   }
-  const { name, version } = nativeAgents[agent]
+  const descriptor = nativeAgents[agent]
+  const { name, version } = descriptor
+  installationDocs ??= 'installationDocs' in descriptor ? descriptor.installationDocs : undefined
+  const nativeCommand = 'command' in descriptor ? descriptor.command : agent
   const types = [{ id: agent, name, configSchema: { type: 'object', required: ['cwd'], additionalProperties: false, properties: {
     cwd: { type: 'string' }, model: { type: 'string' }, env: { type: 'object' }, args: { type: 'array' }, systemPrompt: { type: 'string' }, studioMcp: { type: 'object' },
-  } }, capabilities: { text: true, nativeMcp: true, modes: agent === 'qoder' ? ['global'] : ['scoped', 'global'] }, management: { inspect: true, setup: true } }]
+  } }, capabilities: { text: true, nativeMcp: true, modes: ['qoder', 'cursor'].includes(agent) ? ['global'] : ['scoped', 'global'] }, management: { inspect: true, setup: true } }]
   let instances: any[] = [], conflict = false, failChat = false
   const writes: any[] = [], enables: any[] = [], checks: any[] = [], chatCreations: any[] = []
   await page.route('**/api/studio/agent-types?*', route => route.fulfill({ json: { data: { agents: active ? types : [] } } }))
@@ -56,7 +65,7 @@ async function setup(page: Page, brightness = 'light', wallpaper = false, active
       checks.push(request.postDataJSON())
       return route.fulfill({ json: { data: { cli: { state: 'available', version }, installation: installationDocs
         ? { kind: 'manual', url: installationDocs } : { command: 'npm', args: ['install', '--global', nativeAgents[agent].package] },
-        authentication: instances[0]?.mode === 'scoped' ? { kind: 'studio' } : { kind: 'native', command: agent, args: nativeAgents[agent].loginArgs, ...(agent !== 'qwen' ? {} : { input: '/auth' }) } } } })
+        authentication: instances[0]?.mode === 'scoped' ? { kind: 'studio' } : { kind: 'native', command: nativeCommand, args: nativeAgents[agent].loginArgs, ...(agent !== 'qwen' ? {} : { input: '/auth' }) } } } })
     }
     if (url.pathname.endsWith('/inspect')) return route.fulfill({ json: { data: { native: { name }, authentication: { state: 'unknown', methods: [] }, models: { status: 'unsupported', items: [] } } } })
     if (request.method() === 'GET') return route.fulfill({ json: { data: instances } })
@@ -130,7 +139,7 @@ test('explicitly enables an implemented bundled plugin before creating instances
   expect(api.unexpectedRequests).toEqual([])
 })
 
-for (const agent of ['kimi', 'qoder', 'codebuddy', 'copilot', 'opencode', 'pi'] as const) test(`enables ${agent} and manages its native login setup on mobile`, async ({ page }) => {
+for (const agent of ['kimi', 'qoder', 'codebuddy', 'copilot', 'opencode', 'pi', 'dsh', 'claude-code', 'antigravity', 'cursor', 'grok', 'zcode'] as const) test(`enables ${agent} and manages its native login setup on mobile`, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const api = await setup(page, 'dark', true, false, agent)
   await page.goto('/#/studio/agents')
@@ -139,7 +148,7 @@ for (const agent of ['kimi', 'qoder', 'codebuddy', 'copilot', 'opencode', 'pi'] 
   await expect(modal).toContainText(nativeAgents[agent].name)
   await modal.getByRole('button', { name: 'Authorize and enable', exact: true }).click()
   await modal.getByLabel('cwd', { exact: true }).fill('/kimi workspace')
-  if (agent !== 'qoder') {
+  if (!['qoder', 'cursor'].includes(agent)) {
     await modal.getByLabel('Mode', { exact: true }).click()
     await page.getByText('Native account', { exact: true }).click()
   } else await expect(modal.getByLabel('Mode', { exact: true })).toContainText('Native account')
@@ -148,7 +157,9 @@ for (const agent of ['kimi', 'qoder', 'codebuddy', 'copilot', 'opencode', 'pi'] 
   await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
   await modal.getByRole('button', { name: 'Check installation and login', exact: true }).click()
   await expect(modal.locator('.native-setup')).toContainText(nativeAgents[agent].version)
-  await expect(modal.locator('.native-setup')).toContainText(`${agent} ${JSON.stringify(nativeAgents[agent].loginArgs)}`)
+  const descriptor = nativeAgents[agent]
+  await expect(modal.locator('.native-setup')).toContainText(`${'command' in descriptor ? descriptor.command : agent} ${JSON.stringify(descriptor.loginArgs)}`)
+  if ('installationDocs' in descriptor) await expect(modal.getByRole('link', { name: descriptor.installationDocs, exact: true })).toHaveAttribute('href', descriptor.installationDocs)
   await expect(modal.getByText('Verified authentication state: Unknown', { exact: true })).toBeVisible()
   expect(api.writes).toEqual([{ agentTypeId: agent, mode: 'global', config: { cwd: '/kimi workspace' } }])
   expect(api.checks).toEqual([{ revision: 1 }])

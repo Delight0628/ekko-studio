@@ -40,6 +40,13 @@ export class NativeTools {
     const name = this.identities.get(identity) ?? `studio_${createHash('sha256').update(identity).digest('hex').slice(0, 48)}`
     return { ...item, name }
   }
+  forcedName(choice: any): string {
+    if (!object(choice) || Object.keys(choice).some(key => !['type', 'name', 'namespace'].includes(key))
+      || choice.type !== 'function' || typeof choice.name !== 'string'
+      || (choice.namespace !== undefined && typeof choice.namespace !== 'string')) invalid()
+    const name = this.identities.get(JSON.stringify([choice.namespace ?? null, choice.name]))
+    return name ?? invalid()
+  }
   output(item: any): any {
     if (item?.type !== 'function_call') return item
     const original = this.names.get(item.name)

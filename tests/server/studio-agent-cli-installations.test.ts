@@ -29,6 +29,8 @@ it('isolates npm configuration and publishes only a verified package without cha
   expect(f.stage.launch.args.slice(-2)).toEqual(['--', '@fixture/cli@1.2.3'])
   expect(f.stage.launch.args).toContain('--registry=https://registry.npmjs.org/')
   expect(f.stage.launch.env?.HOME).toBe(f.stage.launch.cwd)
+  expect(f.stage.launch.env?.NPM_CONFIG_PREFIX).toBe(f.prefix)
+  expect(f.stage.launch.env?.NPM_CONFIG_GLOBAL).toBe('false')
   expect(await readFile(f.stage.launch.env!.NPM_CONFIG_USERCONFIG, 'utf8')).toBe('')
   expect(() => f.stage.publish()).toThrow()
   expect(f.cache.load(instance, provider)).toBeUndefined()
@@ -74,6 +76,8 @@ it.each([
   { version: 'latest' }, { version: '^1.2.3' }, { version: '1.2.3-alpha.01' }, { packageName: 'https://example.test/cli.tgz' },
   { packageName: '../local' }, { bin: '--eval' }, { runner: 'shell' }, { command: 'npm' }, { env: { TOKEN: 'secret' } },
   { preferDedupe: 'true' }, { preferDedupe: 1 }, { preferDedupe: null }, { args: ['--ignore-scripts'] },
+  { nativeHomeEnv: ['NODE_OPTIONS'] }, { nativeHomeEnv: ['HOME'] }, { nativeHomeEnv: ['PATH'] },
+  { nativeHomeEnv: ['GROK_HOME', 'GROK_HOME'] }, { nativeHomeEnv: 'GROK_HOME' }, { nativeHomeEnv: { GROK_HOME: '/outside' } },
 ])('rejects nonliteral or expanded installation descriptors %j', patch => {
   expect(() => parseAgentCliInstall({ ...plan, ...patch })).toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))
 })
@@ -87,6 +91,17 @@ it('applies the bounded dependency deduplication option without accepting arbitr
     expect(deduped.launch.args.slice(-3)).toEqual(['--prefer-dedupe', '--', '@fixture/cli@1.2.3'])
     expect(deduped.launch.env?.NPM_CONFIG_USERCONFIG).not.toBe(process.env.NPM_CONFIG_USERCONFIG)
   } finally { await deduped.discard() }
+})
+
+it('isolates declared native home variables during postinstall and version probing', async () => {
+  const f = await setup()
+  await f.stage.discard()
+  const stage = await f.cache.stage(instance, provider, { ...plan, nativeHomeEnv: ['GROK_HOME', 'PI_CODING_AGENT_DIR'] }, () => {})
+  try {
+    const home = stage.launch.env!.HOME
+    expect(stage.launch.env).toMatchObject({ GROK_HOME: join(home, 'native'), PI_CODING_AGENT_DIR: join(home, 'native') })
+    expect(await readdir(home)).toContain('native')
+  } finally { await stage.discard() }
 })
 
 it('prefixes host CLI arguments while preserving explicit custom launch precedence', () => {

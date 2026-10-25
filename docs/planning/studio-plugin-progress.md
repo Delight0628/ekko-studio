@@ -16,7 +16,7 @@
 | 事件 | `ctx.on` / `ctx.once`、profile/owner 授权、每分区有序通知；`ctx.events.consume` 持久化游标、租约、重试/死信和保留期；仅把明确允许的旧业务事件字段投影到公共事件表 |
 | Agent API 执行 | 实例、接受请求、幂等、启动、流输出、完成屏障、取消、终态与事件事务落库；崩溃恢复标记 interrupted，不自动重放输入 |
 | 原生管理检查 | 通用 `management.inspect/setup/prepareLogin`、目录能力发现、独立管理操作、所有者/profile 鉴权及受管登录终端；CLI 版本探测与手工安装指引、Codex 脱敏账号状态及模型分页，Qwen ACP 信息/认证方式；完整管理和真实账号验收仍未完成 |
-| 管理页面 | 现有配置页可创建/修改自有实例，按注册 schema 展示字段，复杂类型使用 JSON；超级管理员可显式安装并启用八个已实现的随包插件，保留现有配置和 grants；不默认登记其余保留 ID |
+| 管理页面 | 现有配置页可创建/修改自有实例，按注册 schema 展示字段，复杂类型使用 JSON；超级管理员可显式登记并启用十四个独立随包插件，保留现有配置和 grants；仍未默认安装 |
 | 配置连续性 | 插件声明兼容字段；空闲实例更新原子保留目录关联和成功 checkpoint，完整提供方引用保持匹配；网关逐请求授权并允许协议直通/转换切换。跨模式、工作区或工件升级迁移仍待完成 |
 | 原生资源编辑 | 多位置扫描、实例表单、Skills/配置读取保存，以及完整 Skill 包导入和目录版本化删除；来源/内容版本、只读别名、运行互斥和下轮重新加载；App、任意目录树管理及完整恢复验收待完成 |
 | 受管进程 | runtime 租约持有管道/PTY 进程，宿主签发句柄、用户/profile/runtime 隔离、有界字节读取、管道写入背压与 PTY 输入预算、resize、环境白名单、退出确认和进程树终止；worker 不持有原生进程对象 |
@@ -28,7 +28,7 @@
 | 输入框命令 | 激活期与聊天租约内动态注册、真实 worker handler、原始参数、可信作用域、异步结果与持久回执、取消/撤权回收；Qwen ACP 目录及两款插件的原生压缩已接入，其他原生管理操作、内置引擎及 App 迁移待完成 |
 | 工程接入 | bootstrap、鉴权 API、生成式 OpenAPI、runner 构建、插件私有导入边界检查、独立 Echo 样例 |
 
-安装策略测试中的 14 条 fixture 只验证保护和幂等规则。**当前没有把这 14 个 Agent 注册成已安装系统插件**，也没有用空壳包代替厂商迁移。已有 Qwen、Codex、Kimi、CodeBuddy、Copilot、OpenCode 与 Pi 独立包的 global/scoped 文本与图片运行增量；Qoder 保留 global-only 模式；scoped 网关已支持三种协议六个转换方向。尚未默认安装或替换旧入口，不能计为完整迁移。旧 Coding Agent 仍使用原执行和管理路径。Hermes/Ekko 仍是原内置模块。
+安装策略测试中的 14 条 fixture 只验证保护和幂等规则。**当前没有把这 14 个 Agent 默认注册成已安装系统插件**，也没有用空壳包代替厂商迁移。14 个独立实现均已有各自 worker 和证据；Qoder、Cursor 保留 global-only 模式，其余声明 global/scoped。实际原生工件、本地模型和真实账号证据分别记录，Antigravity 的无账户 MCP 与 Cursor 真实推理仍未通过。scoped 网关已支持三种协议六个转换方向。尚未默认安装或替换旧入口，不能计为完整迁移。旧 Coding Agent 仍使用原执行和管理路径。Hermes/Ekko 仍是原内置模块。
 
 ## 当前开发接口
 
@@ -51,7 +51,7 @@
 | `GET /api/studio/command-calls/:id` | 查询自有调用状态及有序的现有格式结果 |
 | `POST /api/studio/command-calls/:id/cancel` | 取消调用，等待实际 handler 清理；不合作时关闭该 worker |
 | `GET /api/studio/agent-types` | 当前已激活插件提供的目录；尚未合并旧内置目录 |
-| `GET /api/studio/bundled-agent-plugins` | 八个已实现随包插件及当前 profile 状态；超级管理员 |
+| `GET /api/studio/bundled-agent-plugins` | 十四个独立随包插件及当前 profile 状态；超级管理员 |
 | `POST /api/studio/bundled-agent-plugins/:id/enable` | 按 profile revision 显式登记并启用受信任随包工件；不接受目录、不升级已有工件；超级管理员 |
 | `POST /api/studio/agent-images` | 上传至当前用户/profile 的图片工件，原始字节体，返回 artifact 引用 |
 | `DELETE /api/studio/agent-images/:id` | 删除自有且尚未被已接受 Run 引用的图片 |
@@ -97,6 +97,23 @@
 后续仍有七大交付块：统一运行与剩余业务入口、插件基础能力收尾、通用 Web/Desktop/App 界面、14 个 Coding Agent 独立插件包、Hermes/Ekko 内置统一接入、安装升级与发布分发、最终迁移验收与旧代码清理。输入框命令贡献已交付 SDK/宿主与 Web 基础链路，原生适配和跨客户端接入仍未完成，详见下节。旧聊天 SDK 的已有自有会话文本启动、查询和取消已完成，不再列为待开发项。
 
 资源位置/输入框命令契约、命令基础链路、现有 Skills/配置编辑页接入和兼容配置连续性已交付。后续顺序：补齐 Qwen/Codex 管理、Studio MCP 和原生命令 → 接入聊天界面形成可体验闭环 → 扩展到其余 Agent 和业务入口 → 分发与最终验收。MCP 工具 SDK 已整合、提交并推送，原生配置注入等剩余能力随迁移继续推进。Hermes/Ekko 继续保持内置身份；14 个厂商插件须逐个迁移和验收，保留 ID 或 fixture 不计为交付。
+
+### 剩余专属子 agent 交付与集成审查（2026-10-25）
+
+七个剩余厂商均由各自专属子 agent 实施，主线程负责公共接入及复核。Pi 已随 `0d93d39c3` 推送；DSH、Claude Code、Antigravity、Cursor、Grok、ZCode 已交接独立实现，并接入构建、受信任随包列表、移动管理流程及三平台 worker CI。完整验收仍为 **0/14**；各厂商证据见 `evidence/studio-plugin-*.md`。
+
+- DSH 固定 0.1.7-rc.2。真实扩大矩阵发现 loader/MCP 启动竞争和切换宿主模型后原生恢复失败；私有 ACP initialize 等待 loader 完成，scoped 使用稳定 native alias 后，**14 轮 / 19 请求 / 5 Studio MCP 通过**。日志 `/tmp/studio-dsh-real-native-matrix-v3.log`。
+- Claude Code 固定 2.1.310；双向 stream-json、原生动态命令和 compact、审批、图片、MCP、累计用量基线及精确恢复。主线程默认期限隔离复验 **10 轮 / 12 本地 Anthropic 请求 / 2 MCP 通过**；一次与 DSH/生产浏览器并行的 scoped 用例触及 5 秒，原失败日志保留，未放宽期限。清理屏障修订后 25 项专项及真实 CLI 再次通过。
+- Antigravity 保留官方手动安装。1.4.7 与 1.4.2 的临时 Home、双模式、图片与精确历史恢复有实际证据，但 API-key/no-account 模式未启动 MCP，严格真实脚本仍返回失败。公共 Gemini codec 保留 function call/response ID 和同名乱序配对；不能把原生配置存在称为 MCP 成功。清理故障专项修订后 33 项通过。
+- Cursor 保留 global-only 与手动 `agent` 安装。22 项 worker/46 项含旧回归通过，官方 2026.10.22-27dcf5f 的本地认证失败边界通过；没有真实账号推理或实际图片/Skill/MCP 成功证据。
+- Grok 固定 1.0.70；实际私有 npm 安装、双模式 6 轮 / 18 本地请求、图片、MCP、恢复和 compact 通过。持久 scoped 资源与运行 overlay 分离，Skill 删除不重新导入；原生 resume 缓存规则，普通恢复轮由 prompt-file 投递最新本轮上下文，slash 命令参数保持原样。`models` 实际会写配置/日志/索引，inspect 改用无账号的一次性 Home/cwd/catalog 副本，原生与项目目录前后整树不变。清理失败永久阻断复用；修订 25 项通过。global 压缩和后台 usage 原生缺失，继续保持 unknown。
+- ZCode 使用已签名 Desktop 内实际 0.16.9 CLI，手动安装；公开 app-server 协议和受限 relay，不使用全局 fetch hook。最终含旧回归 59 项通过，实际 6 轮 / 10 本地请求 / 2 MCP / 2 Skill，含宿主保存配置/指令、禁用/启用 Skill 与恢复图片；清理失败永久阻断复用且不推进 checkpoint。原生 MCP 自定义 cwd 组合与账号等缺口保留。
+
+公共安装计划新增受限 `nativeHomeEnv` 名称，宿主统一提供私有路径，npm prefix/cache/config、原生 postinstall 与版本探针隔离；安装/登录 51 项通过，仓库外 SDK/driver 安装、严格编译和加载通过。11 插件阶段合并专项 122 项通过、生产管理浏览器 18 项通过；这些是中间证据，14 插件冻结全量结果另记。
+
+最终十四插件构建/类型和 harness 通过；插件及随包合并专项 **290 项通过、8 项真实 CLI opt-in 未启用**，生产管理浏览器 **21 项通过**。Grok 扩大矩阵发现原生标题生成强制选择 `session_title`，原转换层拒绝产生一条未执行上游的失败记录；现保留已声明命名函数/命名空间到 Chat/Anthropic 的选择映射，未声明选择仍在上游前拒绝。网关/适配器 **73 项通过**，含四种流式/非流式命名空间选择与畸形/未声明选择。Grok 一轮实际 **14 轮 / 60 本地请求 / 5 Studio MCP 通过**（`/tmp/studio-grok-real-native-matrix-v10.log`），最终构建后无诊断重跑却出现原生后台请求 cancelled/unknown usage，严格脚本返回失败（`/tmp/studio-grok-real-native-final.log`）；完整扩大矩阵不能记为稳定通过。未伪造计量或放宽断言，差距继续开放。最终 Grok/网关/适配器合并专项 95 项通过，4 项 opt-in 未启用。
+
+冻结 `fb957010c` 干净生产构建通过、16 项 CI 通过。两轮 coverage 都有 947 文件 / 9,943 项通过、1 文件 / 1 项失败，不能称为全绿：首轮是 QA Electron Helper 路径环境，显式二进制后 9 项原断言通过；第二轮是 Ekko watcher 将无关命令误判为 Skill 元数据变化。`b26b756c4` 比较前后校验签名并保留不确定回退，runtime 67 项通过；14 插件独立冻结回归仍待执行。
 
 ### Pi 独立插件与并行迁移公共契约（2026-10-25）
 

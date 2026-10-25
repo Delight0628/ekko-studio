@@ -87,6 +87,14 @@ jobs:
           tests/server/studio-copilot-environment.test.ts
           tests/server/studio-opencode-plugin.test.ts
           tests/server/studio-pi-plugin.test.ts
+          tests/server/studio-dsh-plugin.test.ts
+          tests/server/studio-claude-code-plugin.test.ts
+          tests/server/studio-antigravity-plugin.test.ts
+          tests/server/studio-antigravity-plugin-cleanup.test.ts
+          tests/server/studio-cursor-plugin.test.ts
+          tests/server/studio-grok-plugin.test.ts
+          tests/server/studio-zcode-plugin.test.ts
+          tests/server/studio-zcode-plugin-relay.test.ts
           tests/server/studio-codex-plugin.test.ts
           tests/server/studio-codex-mcp-approval.test.ts
           tests/server/studio-managed-mcp.test.ts
@@ -108,4 +116,5 @@ jobs:
           tests/server/run-mcp-credentials.test.ts
           tests/server/studio-agent-state-directory.test.ts
           tests/server/studio-model-gateway.test.ts
+          tests/server/studio-native-adapter.test.ts
           --maxWorkers=1

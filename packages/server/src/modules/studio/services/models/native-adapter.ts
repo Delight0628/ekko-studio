@@ -29,7 +29,8 @@ export async function translatedNativeRequest(input: {
   let body = input.body
   validateTranslationInput(protocol, body)
   // Native passthrough retains these features. Translated paths must not silently discard them.
-  if (body.tool_choice && body.tool_choice !== 'auto' && body.tool_choice?.type !== 'auto') unsupportedNative('forced tool choice')
+  const forcedFunction = protocol === 'responses' && body.tool_choice?.type === 'function'
+  if (body.tool_choice && body.tool_choice !== 'auto' && body.tool_choice?.type !== 'auto' && !forcedFunction) unsupportedNative('forced tool choice')
   if (body.tool_choice?.disable_parallel_tool_use) unsupportedNative('serial tool enforcement')
   if (body.parallel_tool_calls === false || body.text?.format?.type && body.text.format.type !== 'text') unsupportedNative('strict output constraints')
   let tools: NativeTools | undefined
@@ -44,6 +45,11 @@ export async function translatedNativeRequest(input: {
     ? client.requestStyle === 'openai-responses' ? { ...body, model, stream }
       : client.requestStyle === 'openai-chat' ? responsesToOpenAiChat(body, target, stream) : responsesToAnthropicMessages(body, target, stream)
     : client.requestStyle === 'openai-chat' ? anthropicToOpenAiChat(body, target, stream) : anthropicToOpenAiResponses(body, target, stream)
+  if (forcedFunction) {
+    const name = tools!.forcedName(body.tool_choice)
+    request.tool_choice = client.requestStyle === 'openai-chat' ? { type: 'function', function: { name } }
+      : client.requestStyle === 'anthropic-messages' ? { type: 'tool', name } : { type: 'function', name }
+  }
   if (request.tools?.length && !client.capabilities.tools) unsupportedNative('tools on this model')
   const hasImage = (value: any): boolean => !!value && typeof value === 'object' && (['image_url', 'image', 'input_image'].includes(value.type) || Object.values(value).some(hasImage))
   if ((!client.capabilities.vision || input.images === false) && hasImage(request.messages || request.input)) unsupportedNative('images on this model')

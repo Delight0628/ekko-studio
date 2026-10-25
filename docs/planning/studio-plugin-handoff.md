@@ -8,7 +8,7 @@
 - PR #3513 保持草稿：<https://github.com/EKKOLearnAI/ekko-studio/pull/3513>。不合并，不自动转 ready。
 - 本轮提交：`15a6371a1` Kimi/共享 ACP/独立公共包；`d45ce0454` 干净 worker fixture 的 SDK 别名修复；`198d198ca` Qoder；`900e7aa22` Chat Completions 网关；`01114c99f` CodeBuddy；`68fa9cc1b` 主题浏览器用例等待页面就绪；`a31dc201c` Copilot；`8db1d3fd2` 页面就绪修复。OpenCode 实现和证据随本文件所在提交一并交付；以当前 `git log`/`git status` 核对最新 HEAD 和后续工作区。
 - 原工作区 Kimi、共享 ACP、依赖构建改动全部保留并提交。不能 reset/clean 后续未提交工作。
-- 已有 **8 个独立插件实现**：Qwen、Codex、Kimi、Qoder、CodeBuddy、Copilot、OpenCode、Pi；完整迁移验收仍为 **0/14**。实现数量不代表完整验收。
+- 已有 **14 个独立插件实现**：Qwen、Codex、Kimi、Qoder、CodeBuddy、Copilot、OpenCode、Pi、DSH、Claude Code、Antigravity、Cursor、Grok、ZCode；完整迁移验收仍为 **0/14**。实现数量不代表完整验收。
 - 用户已要求余下每个 Agent 各由一个专属子 agent 并行迁移；当前主线程加三个子 agent 的额度采用滚动批次。分工和进度见 `studio-plugin-agent-owners.md`，不得把排队任务记为已启动。
 - 需求真源：`studio-plugin-architecture.md`、`studio-plugin-contracts.md`、`studio-plugin-execution.md`。实际证据：`studio-plugin-progress.md`。
 
@@ -56,7 +56,19 @@ inspect 使用 ACP metadata 和 Content-Length JSON-RPC SDK `auth.getStatus`/`mo
 
 共享事件新增 cache/reasoning 可选明细，保持 runtime 总输入已含缓存、不重复累计，scoped 宿主唯一写入。安装契约新增受限 preferDedupe，手动安装 setup 可展示官方 HTTPS 文档；Gemini 纯 codec 移到公共 driver，旧 proxy 兼容复用，不增加宿主厂商分支。Pi/管理/随包 76 项、用量/模型/聊天 95 项、安装 21 项、旧 Gemini/图片/边界 14 项通过；手机管理生产浏览器 15 项、client/server 类型、前端生产构建、harness 和包外消费通过。全部插件整体验证及冻结 coverage/browser/build 仍需在集成提交上完成。
 
+### 六个新增独立插件的集成
+
+DSH、Claude Code、Antigravity、Cursor、Grok、ZCode 的专属子任务均已交接，主线程完成公共构建、受信任随包列表、管理浏览器和三平台 worker CI 接入。十四插件构建/类型和 harness 通过；合并专项 **290 项通过、8 项真实 CLI opt-in 未启用**，生产管理浏览器 **21 项通过**，公共网关/适配器 **73 项通过**。完整迁移仍为 **0/14**，没有默认安装或切换旧业务入口。
+
+DSH 扩大矩阵 **14 轮 / 19 本地请求 / 5 Studio MCP**，Grok 一次扩大矩阵 **14 轮 / 60 本地请求 / 5 Studio MCP**；后者推动公共适配器补齐已声明命名函数选择，避免原生标题请求被拒。Grok 最终构建后无诊断重跑又出现原生后台调用 cancelled/unknown usage（`/tmp/studio-grok-real-native-final.log`），严格脚本仍失败，不能称其扩大矩阵稳定通过。Claude Code 实际 **10 轮 / 12 本地请求 / 2 MCP**，ZCode 实际 **6 轮 / 10 本地请求 / 2 MCP / 2 Skill**。Antigravity 双版本图片/恢复已有实际证据，但无账户 MCP 严格探针仍失败；Cursor 仅完成原生认证失败边界，真实账号推理尚未验收。不能把上述本地模型与 worker 视为真实账号证据。
+
+集成审查补齐清理失败后永久阻断 runtime、全部清理后再推进 checkpoint、Grok 持久可编辑资源与运行 overlay 分离、普通恢复轮新指令投递及隔离只读 metadata probe。安装 SDK 的受限 `nativeHomeEnv` 由宿主设置私有路径，已在实际 Grok 固定版本安装中验证。各厂商版本、复现及限制见 `evidence/studio-plugin-*.md`；最终冻结全量结果在后续验证后补记。
+
 ### 最新冻结回归
+
+Pi 与公共契约已随 `0d93d39c3` 推送；`fb957010c` 修复干净构建的 driver 声明顺序，其独立 QA 生产构建通过（`/tmp/studio-eight-plugins-qa-build-v2.log`），该 HEAD 的 **16 项 CI 通过**，PR 仍为 draft。冻结 coverage 首轮 947 文件 / 9,943 项通过、1 文件 / 1 项失败；macOS Helper 进程受桌面 Electron 依赖的规范路径影响，QA 需显式指定 `EKKO_TEST_ELECTRON_EXECUTABLE`。同一断言以正确环境单独复验 9 项通过。第二轮完整 coverage 仍为 947 文件 / 9,943 项通过、1 文件 / 1 项失败，唯一失败变为 Ekko 普通终端命令误报告既有 Skill 元数据；两轮均不记为全绿。日志 `/tmp/studio-eight-plugins-qa-coverage{,-v2}.log`。
+
+`b26b756c4` 将文件 watcher 事件作为提示，再比较命令前后的 Skill 校验签名，避免迟到/合并事件或缓存文件写入触发旧元数据告警；原断言保留，并补缓存写入场景，runtime 专项 **67 项通过**。最新 14 插件集成仍需独立冻结 coverage/browser/build，不沿用上述旧 HEAD 的结果。
 
 冻结 `7d9e36248` 的独立 QA 生产构建和完整生产浏览器 **972 项通过**（4 workers、无重试，11.1 分钟）；coverage 为 947 文件 / 9,897 项通过、1 文件 / 1 项失败，12 文件 / 33 项条件跳过（2 workers、默认时限，501.82 秒）。唯一失败是既有 Electron 设备切换集成测试的 55 秒子进程退出期限，单独复测仍失败。用户明确要求去掉该测试，现删除其自动化测试文件，保留其他设备切换测试、产品实现和手动验证脚本使用的 fixture；临时诊断已撤去。上述冻结 coverage 不记为全绿。日志 `/tmp/studio-seven-plugins-qa-{build,browser,coverage,desktop-focused}.log`。
 
@@ -66,9 +78,9 @@ inspect 使用 ACP metadata 和 Content-Length JSON-RPC SDK `auth.getStatus`/`mo
 
 ## 继续顺序
 
-1. 集成已验证的 Pi 和公共契约增量，冻结提交完成 coverage/browser/build，更新原草稿 PR。QA 副本使用自己的 node_modules；不要在测试中切 checkout。用户要求删除的 Electron 设备切换自动测试已随 `ce45554ce` 推送，不能在后续复验中恢复该测试。
-2. 每个 Agent 一个专属子 agent，继续迁移余下 6 个独立插件：**zcode、antigravity、claude-code、grok、dsh、cursor**。Claude Code、DSH、Antigravity 当前在独占目录实施，其余排队；不要 reset/clean 或提交尚未验证的子 agent WIP。保留已有能力和真实管理语义；协议/进程代码可抽公共驱动，厂商配置保留在各插件。禁止插件导入 server/client 私有源码，禁止宿主万能厂商 runner。
-3. 统一旧单聊/历史接管、群聊、工作流、全局任务及 API 的运行协调器；父子 Run、共享取消/预算、计量归属、唯一写入和完成屏障。
+1. 七个专属子 agent 均已完成独立实现并交接；主线程继续清理屏障、资源保存等集成审查，冻结 14 插件提交完成 coverage/browser/build，更新原草稿 PR。QA 副本使用自己的 node_modules；不要在测试中切 checkout。用户要求删除的 Electron 设备切换自动测试已随 `ce45554ce` 推送，不能在后续复验中恢复该测试。
+2. 厂商能力仍按证据逐项补齐：DSH 专属插件/预设管理和 context 占用事件、Antigravity 无账户模式实际 MCP、Grok global 后台/压缩用量、ZCode 原生 MCP cwd 组合，以及 Cursor 和其他厂商真实账号。独立目录和本地模型不能替代功能对等；详见各 `evidence/studio-plugin-*.md`。禁止插件导入 server/client 私有源码，禁止宿主万能厂商 runner。
+3. 统一旧单聊/历史接管、群聊、工作流、全局任务及 API 的运行协调器；父子 Run、共享取消/预算、计量归属、唯一写入和完成屏障。当前 `services/agents/context-runs.ts` 仍明确拒绝带 Run/workspace 绑定的启动；下一批需先补可信父子关系、持久化及清理/预算传播，不能只删除该授权保护。旧引擎持久化和新协调器投影需完成唯一写入后再切换入口。
 4. 补齐 SDK 完整 ctx、事件/限额/诊断，Web/Desktop/App 动态目录和管理/聊天协议。已有 PTY、MCP resources/prompts、Studio MCP、Skills 包导入删除不应再列为待开发。
 5. Hermes/Ekko 保持 builtin 身份接入相同 Agent 契约；插件宿主故障不能影响内置引擎，避免重复写入。
 6. 全部 14 个系统插件随包默认安装且不可卸载；版本锁定、排空升级、迁移/回滚、历史保留、Desktop/npm/Docker 和 SDK/driver 分发准备。私有 CLI 旧版本清理/回滚仍未实现。
@@ -84,6 +96,7 @@ inspect 使用 ACP metadata 和 Content-Length JSON-RPC SDK `auth.getStatus`/`mo
 - 当前辅助运行器 `/tmp/studio-plugin-run-clean.py` 接收日志路径和命令；全量 `npm run test:coverage -- --maxWorkers=2` 保持默认时限，不加超时/删断言/跳过失败。
 - 用户已要求移除自动运行的 Electron 设备切换集成测试；手动脚本 `packages/desktop/scripts/verify-native-device-switcher.cjs` 及其 fixture 保留。
 - QA：`/Users/ekko/.cache/studio-plugin-chat-foundation-qa`，自身 npm ci 已完成；禁止重新共享主工作区 node_modules 或跨工作区的 SDK 链接。浏览器 root 4173、QA 4183，独立客户端缓存。
+- QA macOS Helper 测试需显式 `EKKO_TEST_ELECTRON_EXECUTABLE` 指向主仓库已安装的实际 Electron；辅助运行器通过 `STUDIO_QA_ELECTRON=1` 设置。仅此桌面二进制可规范化到主仓库路径，不共享 SDK、driver 或根 node_modules。
 - 实际 CLI 路径：Kimi `/Users/ekko/.nvm/versions/node/v24.16.0/bin/kimi`；Qoder `/tmp/studio-qoder-native-qa/node_modules/@qoder-ai/qodercli/bundle/qodercli.js`；CodeBuddy `/tmp/studio-codebuddy-native-qa/node_modules/@tencent-ai/codebuddy-code/bin/codebuddy`；Copilot `/Users/ekko/.nvm/versions/node/v24.16.0/bin/copilot`；OpenCode `/tmp/studio-opencode-native-qa/node_modules/opencode-ai/bin/opencode.exe`（macOS 也是此文件名，实际 Mach-O binary）。均用临时 Home 和本地模型，不读真实用户账号。
 - 原已推送 `ead6a4c3f` 的 9,802/967 只是旧冻结结果；不能冒充本轮或后续提交结果。
 - 每轮读取自己的 session tasks，使用最新输入的 context_id，不复用旧 context/session。完整用户目标保持 open，PR 保持 draft。
