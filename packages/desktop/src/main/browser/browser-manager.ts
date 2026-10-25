@@ -1,3 +1,4 @@
+import { BrowserDownloadHistory, type DownloadFileIdentity } from './browser-download-history'
 import { downloadBrowserFile } from './browser-download'
 import { t } from '../desktop-i18n'
 import { realpathSync, mkdirSync, statSync, lstatSync } from 'node:fs'
@@ -127,7 +128,9 @@ export class BrowserManager {
   private readonly records = new Map<string, TabRecord>()
   private tabMutationQueue: Promise<void> = Promise.resolve()
   private readonly downloads: DesktopBrowserDownload[] = []
-  private readonly downloadedFileIdentities = new Map<string, ReturnType<typeof lstatSync>>()
+  private readonly downloadedFileIdentities = new Map<string, DownloadFileIdentity>()
+  private readonly downloadHistory: BrowserDownloadHistory
+  private downloadHistoryCheckpoint = 0
   private readonly downloadActions = new Set<string>()
   private readonly downloadItems = new Map<string, DownloadItem>()
   private readonly agentDownloads = new BrowserDownloadStore()
@@ -152,10 +155,15 @@ export class BrowserManager {
 
   constructor(private readonly window: BrowserWindow, stateRoot: string, private readonly options?: BrowserManagerOptions) {
     this.profileStore = new BrowserProfileStore(stateRoot)
+    this.downloadHistory = new BrowserDownloadHistory(stateRoot)
   }
 
   async initialize(): Promise<void> {
     await this.profileStore.initialize()
+    for (const entry of this.downloadHistory.load(new Set(this.profileStore.list().map(p => p.id)))) {
+      this.downloads.push(entry.download)
+      if (entry.identity) this.downloadedFileIdentities.set(entry.download.id, entry.identity)
+    }
     const profile = this.profileStore.active()
     this.activeProfileId = profile.id
     await this.restoreTabs(profile)
@@ -389,6 +397,13 @@ export class BrowserManager {
     if (profileId === this.activeProfileId) throw new Error('Switch away from a profile before deleting it')
     await this.profileLeases.acquire(this.requireProfile(profileId).sessionPath)
     const removed = await this.profileStore.deleteProfile(profileId)
+    for (let i = this.downloads.length - 1; i >= 0; i--) {
+      if (this.downloads[i].profileId === profileId) {
+        this.downloadedFileIdentities.delete(this.downloads[i].id)
+        this.downloads.splice(i, 1)
+      }
+    }
+    this.persistDownloadHistory()
     const managedRoot = resolve(this.profileStore.root, 'profiles')
     if (resolve(removed.sessionPath).startsWith(`${managedRoot}${process.platform === 'win32' ? '\\' : '/'}`)) {
       await shell.trashItem(dirname(removed.sessionPath)).catch(() => undefined)
@@ -421,6 +436,14 @@ export class BrowserManager {
     return this.state()
   }
 
+  private persistDownloadHistory(checkpoint = false): void {
+    if (checkpoint && Date.now() - this.downloadHistoryCheckpoint < 1000) return
+    try {
+      this.downloadHistory.save(this.downloads, this.downloadedFileIdentities)
+      this.downloadHistoryCheckpoint = Date.now()
+    } catch (error) { console.warn('[desktop-browser] unable to persist download history:', error) }
+  }
+
   refreshDownloads(): DesktopBrowserState {
     for (const item of this.downloads) {
       if (item.state !== 'completed' || this.downloadItems.has(item.id)) continue
@@ -429,9 +452,9 @@ export class BrowserManager {
         if (!item.savePath || !isAbsolute(item.savePath)) continue
         const current = lstatSync(item.savePath)
         const original = this.downloadedFileIdentities.get(item.id)
-        item.fileAvailable = current.isFile() && (!original || (
+        item.fileAvailable = current.isFile() && !!original && (
           current.dev === original.dev && current.ino === original.ino && current.size === original.size
-          && current.mtimeMs === original.mtimeMs))
+          && current.mtimeMs === original.mtimeMs)
       } catch { /* File moved/deleted externally; keep the history record. */ }
     }
     this.emitState()
@@ -461,6 +484,7 @@ export class BrowserManager {
       let identity: ReturnType<typeof lstatSync> | undefined
       try { identity = lstatSync(path); regular = identity.isFile() } catch { /* moved or deleted outside Desktop */ }
       const original = this.downloadedFileIdentities.get(downloadId)
+      if (!original) regular = false
       if (original && identity && (original.dev !== identity.dev || original.ino !== identity.ino
         || original.size !== identity.size || original.mtimeMs !== identity.mtimeMs)) regular = false
       if (!regular) throw new Error('BROWSER_DOWNLOAD_FILE_UNAVAILABLE')
@@ -488,6 +512,7 @@ export class BrowserManager {
         this.downloadedFileIdentities.delete(downloadId)
       } else throw new Error('BROWSER_DOWNLOAD_INVALID_ACTION')
     }
+    this.persistDownloadHistory()
     this.emitState()
     return this.state()
   }
@@ -501,6 +526,7 @@ export class BrowserManager {
     download.state = 'cancelled'
     this.downloadItems.delete(downloadId)
     item.cancel()
+    this.persistDownloadHistory()
     this.emitState()
     return this.state()
   }
@@ -1314,6 +1340,7 @@ export class BrowserManager {
     }
     this.downloads.unshift(download)
     this.downloadItems.set(download.id, item)
+    this.persistDownloadHistory()
     const rememberDirectory = () => {
       const path = item.getSavePath()
       // A cancelled save dialog has no confirmed destination. Never copy another profile's preference.
@@ -1332,6 +1359,7 @@ export class BrowserManager {
       download.state = currentState === 'progressing'
         ? (state === 'interrupted' ? 'interrupted' : 'progressing')
         : currentState
+      this.persistDownloadHistory(true)
       this.emitState()
     })
     item.once('done', (_event, state) => {
@@ -1346,6 +1374,7 @@ export class BrowserManager {
           if (download.savePath) this.downloadedFileIdentities.set(download.id, lstatSync(download.savePath))
         } catch { /* file may already have been moved outside Desktop */ }
       }
+      this.persistDownloadHistory()
       this.emitState()
     })
     this.emitState()

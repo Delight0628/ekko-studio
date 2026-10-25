@@ -185,3 +185,36 @@ it('refreshes file availability without deleting the file or history, including 
   await expect(access(s.path)).resolves.toBeUndefined()
   expect(native.trashItem).not.toHaveBeenCalled()
 })
+
+it('restores completed history and removal across a manager restart, refusing replaced files', async () => {
+  const s = await completed()
+  async function restart() {
+    const manager = new BrowserManager({} as BrowserWindow, s.store.root)
+    ;(manager as any).restoreTabs = async () => {}
+    await manager.initialize()
+    return manager
+  }
+  const restored = await restart()
+  expect(restored.refreshDownloads().downloads[0]).toMatchObject({ id: s.id, state: 'completed', fileAvailable: true })
+  await writeFile(s.path, 'changed after restart')
+  expect(restored.refreshDownloads().downloads[0].fileAvailable).toBe(false)
+  await expect(restored.downloadAction(s.id, 'open')).rejects.toThrow('FILE_UNAVAILABLE')
+  await restored.downloadAction(s.id, 'remove')
+  expect((await restart()).state().downloads).toEqual([])
+  await expect(access(s.path)).resolves.toBeUndefined()
+})
+
+it('restores cancelled and in-flight download records without resuming transfers', async () => {
+  const s = await setup(), first = download(), second = download()
+  s.internal.handleDownload(s.profile, first.item, s.contents)
+  const cancelledId = s.manager.state().downloads[0].id
+  s.manager.cancelDownload(cancelledId)
+  s.internal.handleDownload(s.profile, second.item, s.contents)
+  const restarted = new BrowserManager({} as BrowserWindow, s.store.root)
+  ;(restarted as any).restoreTabs = async () => {}
+  await restarted.initialize()
+  expect(restarted.state().downloads.map(d => d.state)).toEqual(['interrupted', 'cancelled'])
+  expect((restarted as any).downloadItems.size).toBe(0)
+  await restarted.downloadAction(cancelledId, 'remove')
+  expect(restarted.state().downloads).toHaveLength(1)
+})

@@ -973,7 +973,9 @@ for (const brightness of ['light', 'dark'] as const) {
     expect(await popover.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     await page.screenshot({ path: `/tmp/download-recent-${brightness}.png` })
     await popover.getByRole('button', { name: 'Full download history' }).click()
-    await expect(page).toHaveURL(/browser\/downloads/)
+    await expect(page).toHaveURL(/hermes\/chat/)
+    await expect(panel.locator('.panel-download-history')).toBeVisible()
+    await expect.poll(() => page.evaluate(() => (window as any).__PW_DESKTOP_BROWSER__.viewportCalls.at(-1).visible)).toBe(false)
     const history = page.getByTestId('download-history')
     await expect(history.getByRole('button', { name: 'Remove from history', exact: true })).toBeVisible()
     await expect(history.getByRole('button', { name: 'Move file to Trash / Recycle Bin', exact: true })).toHaveCount(0)
@@ -981,6 +983,10 @@ for (const brightness of ['light', 'dark'] as const) {
     await history.getByRole('button', { name: 'Remove from history', exact: true }).click()
     await expect(history).not.toContainText('report.pdf')
     expect(await page.evaluate(() => (window as any).__PW_DESKTOP_BROWSER__.downloadActions.at(-1).action)).toBe('remove')
+    await panel.locator('.panel-download-history').getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(panel.locator('.native-viewport')).toBeVisible()
+    await expect.poll(() => page.evaluate(() => (window as any).__PW_DESKTOP_BROWSER__.viewportCalls.at(-1).visible)).toBe(true)
+    await expect(page).toHaveURL(/hermes\/chat/)
   })
 }
 

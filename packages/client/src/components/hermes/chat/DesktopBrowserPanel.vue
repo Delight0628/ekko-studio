@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import BrowserDownloadRow from '@/components/hermes/BrowserDownloadRow.vue'
 import BrowserDownloadIcon from '@/components/hermes/BrowserDownloadIcon.vue'
-import { useRouter } from 'vue-router'
+import BrowserDownloadHistory from '@/components/hermes/BrowserDownloadHistory.vue'
 import { useTheme } from '@/composables/useTheme'
 import { NSpin, NButton, NInput, NPopover, NSelect, useDialog, useMessage } from 'naive-ui'
 import { remoteBrowserOwnerState, remoteBrowserEnabled } from '@/composables/useRemoteBrowserRelay'
@@ -19,7 +19,7 @@ const props = withDefaults(defineProps<{
 })
 
 const { t } = useI18n()
-const router = useRouter()
+const historyOpen = ref(false)
 const downloadsOpen = ref(false)
 async function downloadsVisibility(value: boolean) {
   downloadsOpen.value = value
@@ -27,7 +27,7 @@ async function downloadsVisibility(value: boolean) {
 }
 function fullDownloadHistory() {
   downloadsOpen.value = false
-  void router.push({ name: 'hermes.browserDownloads', query: { profile: state.value?.activeProfileId } })
+  historyOpen.value = true
 }
 const message = useMessage()
 const dialog = useDialog()
@@ -109,6 +109,7 @@ const overlayCheckTimers = new Map<number, number>()
 
 const activeTab = computed(() => state.value?.tabs.find(tab => tab.id === state.value?.activeTabId))
 const profileOptions = computed(() => state.value?.profiles.map(profile => ({ label: profile.name, value: profile.id })) || [])
+const historyDownloads = computed(() => state.value?.downloads.filter(item => item.profileId === state.value?.activeProfileId) || [])
 const activeProfileDownloads = computed(() => state.value?.downloads
   .filter(item => item.profileId === state.value?.activeProfileId)
   .slice(0, 5) || [])
@@ -142,6 +143,7 @@ const annotationAnchorStyle = computed(() => {
 })
 
 watch(() => activeTab.value?.url, value => { address.value = value || '' }, { immediate: true })
+watch(historyOpen, () => { void nextTick(syncViewport) })
 watch(externalOverlayOpen, () => { void nextTick(syncViewport) })
 watch(() => props.visible, () => { void nextTick(syncViewport) })
 
@@ -152,7 +154,7 @@ function applyState(next: DesktopBrowserState): void {
 async function syncViewport(): Promise<void> {
   if (!bridge || !viewport.value) return
   const rect = viewport.value.getBoundingClientRect()
-  const visible = props.visible && !externalOverlayOpen.value && !pendingAnnotation.value
+  const visible = props.visible && !externalOverlayOpen.value && !historyOpen.value && !pendingAnnotation.value
     && rect.width > 0 && rect.height > 0 && document.visibilityState === 'visible'
   await bridge.setViewport({ x: rect.left, y: rect.top, width: rect.width, height: rect.height }, visible).catch(() => undefined)
 }
@@ -591,7 +593,11 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div v-show="!pendingAnnotation" ref="viewport" class="native-viewport">
+      <section v-if="historyOpen" class="panel-download-history" data-desktop-browser-overlay>
+        <header><strong>{{ t('browser.downloads') }}</strong><NButton quaternary circle size="small" :aria-label="t('common.close')" @click="historyOpen = false"><template #icon><BrowserDownloadIcon kind="close" /></template></NButton></header>
+        <BrowserDownloadHistory :items="historyDownloads" @state="applyState" />
+      </section>
+      <div v-show="!pendingAnnotation && !historyOpen" ref="viewport" class="native-viewport">
         <span v-if="loadError">{{ loadError }}</span>
         <NSpin v-else-if="!state" :description="t('common.loading')" />
       </div>
@@ -600,6 +606,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped lang="scss">
+.panel-download-history { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
+.panel-download-history > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .browser-panel { height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; color: var(--text-primary, #1a1a1a); }
 .tab-strip { height: 38px; flex: 0 0 38px; display: flex; align-items: flex-end; gap: calc(2px * var(--spacing-scale, 1)); padding: 4px 8px 0; overflow-x: auto; background: rgba(127,127,127,.06); }
 .tab { width: 190px; min-width: 100px; height: 34px; border: 0; border-radius: 8px 8px 0 0; background: transparent; color: inherit; display: flex; align-items: center; gap: calc(7px * var(--spacing-scale, 1)); padding: 0 9px; cursor: pointer; }
