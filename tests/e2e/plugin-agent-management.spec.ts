@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import sharp from 'sharp'
 import { authenticate, mockHermesApi, mockChatSocket, TEST_ACCESS_KEY } from './fixtures'
 
-async function setup(page: Page, brightness = 'light', wallpaper = false, active = true) {
+async function setup(page: Page, brightness = 'light', wallpaper = false, active = true, agent = 'qwen') {
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   const sessions: any[] = []
   const api = await mockHermesApi(page, { sessions, theme: { brightness,
@@ -13,7 +13,9 @@ async function setup(page: Page, brightness = 'light', wallpaper = false, active
     const png = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#204060' } }).png().toBuffer()
     await page.route('**/api/theme/background?*', route => route.fulfill({ contentType: 'image/png', body: png }))
   }
-  const types = [{ id: 'qwen', name: 'Qwen Code', configSchema: { type: 'object', required: ['cwd'], additionalProperties: false, properties: {
+  const name = agent === 'kimi' ? 'Kimi Code' : 'Qwen Code'
+  const version = agent === 'kimi' ? '2.1.1' : '0.25.0'
+  const types = [{ id: agent, name, configSchema: { type: 'object', required: ['cwd'], additionalProperties: false, properties: {
     cwd: { type: 'string' }, model: { type: 'string' }, env: { type: 'object' }, args: { type: 'array' }, systemPrompt: { type: 'string' }, studioMcp: { type: 'object' },
   } }, capabilities: { text: true, nativeMcp: true, modes: ['scoped', 'global'] }, management: { inspect: true, setup: true } }]
   let instances: any[] = [], conflict = false, failChat = false
@@ -22,7 +24,7 @@ async function setup(page: Page, brightness = 'light', wallpaper = false, active
   await page.route('**/api/studio/bundled-agent-plugins**', async route => {
     const request = route.request()
     if (request.method() === 'POST') { enables.push(request.postDataJSON()); active = true; return route.fulfill({ json: { data: { enabled: true, revision: 1 } } }) }
-    return route.fulfill({ json: { data: [{ id: 'qwen', name: 'Qwen Code', pluginId: 'studio.agent-qwen', revision: 0, installed: active, enabled: active, state: active ? 'ready' : 'not_installed', requiredCapabilities: ['agents.register', 'processes.spawn'] }] } })
+    return route.fulfill({ json: { data: [{ id: agent, name, pluginId: `studio.agent-${agent}`, revision: 0, installed: active, enabled: active, state: active ? 'ready' : 'not_installed', requiredCapabilities: ['agents.register', 'processes.spawn'] }] } })
   })
   await page.route('**/api/studio/agent-instances**', async route => {
     const request = route.request(), url = new URL(request.url())
@@ -44,10 +46,10 @@ async function setup(page: Page, brightness = 'light', wallpaper = false, active
     if (url.pathname.endsWith('/resources')) return route.fulfill({ json: { data: { instanceId: 'managed', configRevision: instances[0]?.revision, snapshot: 'snapshot', skills: [], configs: [], files: [] } } })
     if (url.pathname.endsWith('/setup')) {
       checks.push(request.postDataJSON())
-      return route.fulfill({ json: { data: { cli: { state: 'available', version: '0.25.0' }, installation: { command: 'npm', args: ['install', '--global', '@qwen-code/qwen-code@0.25.0'] },
-        authentication: instances[0]?.mode === 'scoped' ? { kind: 'studio' } : { kind: 'native', command: 'qwen', args: [], input: '/auth' } } } })
+      return route.fulfill({ json: { data: { cli: { state: 'available', version }, installation: { command: 'npm', args: ['install', '--global', agent === 'kimi' ? '@moonshot-ai/kimi-code@2.1.1' : '@qwen-code/qwen-code@0.25.0'] },
+        authentication: instances[0]?.mode === 'scoped' ? { kind: 'studio' } : { kind: 'native', command: agent, args: agent === 'kimi' ? ['login'] : [], ...(agent === 'kimi' ? {} : { input: '/auth' }) } } } })
     }
-    if (url.pathname.endsWith('/inspect')) return route.fulfill({ json: { data: { native: { name: 'Qwen Code' }, authentication: { state: 'unknown', methods: [] }, models: { status: 'unsupported', items: [] } } } })
+    if (url.pathname.endsWith('/inspect')) return route.fulfill({ json: { data: { native: { name }, authentication: { state: 'unknown', methods: [] }, models: { status: 'unsupported', items: [] } } } })
     if (request.method() === 'GET') return route.fulfill({ json: { data: instances } })
     const body = request.postDataJSON()
     if (conflict) return route.fulfill({ status: 409, json: { error: { message: 'Instance changed; reload before saving' } } })
@@ -116,6 +118,29 @@ test('explicitly enables an implemented bundled plugin before creating instances
   await modal.getByRole('button', { name: 'Create', exact: true }).click()
   await expect(page).toHaveURL(/\/studio\/agents\/qwen\/settings\?instance=managed/)
   expect(api.enables).toEqual([{ revision: 0, grants: ['agents.register', 'processes.spawn'] }])
+  expect(api.unexpectedRequests).toEqual([])
+})
+
+test('enables Kimi and manages its native login setup on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const api = await setup(page, 'dark', true, false, 'kimi')
+  await page.goto('/#/studio/agents')
+  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
+  const modal = page.locator('.instance-manager-modal:visible')
+  await expect(modal).toContainText('Kimi Code')
+  await modal.getByRole('button', { name: 'Authorize and enable', exact: true }).click()
+  await modal.getByLabel('cwd', { exact: true }).fill('/kimi workspace')
+  await modal.getByLabel('Mode', { exact: true }).click()
+  await page.getByText('Native account', { exact: true }).click()
+  await modal.getByRole('button', { name: 'Create', exact: true }).click()
+  await expect(page).toHaveURL(/\/studio\/agents\/kimi\/settings\?instance=managed/)
+  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
+  await modal.getByRole('button', { name: 'Check installation and login', exact: true }).click()
+  await expect(modal.locator('.native-setup')).toContainText('2.1.1')
+  await expect(modal.locator('.native-setup')).toContainText('kimi ["login"]')
+  await expect(modal.getByText('Verified authentication state: Unknown', { exact: true })).toBeVisible()
+  expect(api.writes).toEqual([{ agentTypeId: 'kimi', mode: 'global', config: { cwd: '/kimi workspace' } }])
+  expect(api.checks).toEqual([{ revision: 1 }])
   expect(api.unexpectedRequests).toEqual([])
 })
 

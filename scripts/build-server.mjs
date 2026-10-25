@@ -14,6 +14,7 @@ mkdirSync(serverOutDir, { recursive: true })
 await esbuild.build({
   entryPoints: [resolve(rootDir, 'packages/server/src/index.ts')],
   bundle: true,
+  alias: { '@ekko-studio/plugin-sdk': resolve(rootDir, 'packages/studio-plugin-sdk/src/index.ts') },
   platform: 'node',
   target: 'node24.22.1',
   format: 'cjs',

@@ -164,7 +164,7 @@ test('retries a lost installation response using the same request key', async ({
   const modal = page.locator('.instance-manager-modal:visible'), install = modal.getByRole('button', { name: 'Install managed CLI', exact: true })
   await install.click()
   await expect.poll(() => api.starts.length).toBe(1)
-  await expect(modal.getByRole('alert')).toBeVisible()
+  await expect(modal.getByRole('alert').filter({ hasText: 'Failed to fetch' })).toBeVisible()
   await expect(install).toBeEnabled()
   await install.click()
   await expect(modal.getByLabel('CLI installation log', { exact: true })).toContainText('Installing pinned CLI 1.0.0')

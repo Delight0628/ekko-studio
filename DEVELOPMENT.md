@@ -122,6 +122,20 @@ Shared data stays under `~/.hermes-web-ui`. The packages provide overlapping
 command aliases and are intended as alternative installations, not simultaneous
 global installs; uninstall the previous package before switching names.
 
+## Plugin Library Artifacts
+
+`npm run pack:plugins -- /absolute/output/directory` builds and packs the public
+`@ekko-studio/plugin-sdk` and `@ekko-studio/agent-drivers` libraries. The driver
+pins the SDK version; both tarballs contain compiled JavaScript, declarations
+and the license without application sources or workspace links. This command
+does not publish anything.
+
+`npm run verify:plugins:packages` installs those tarballs in a temporary external
+consumer, installs TypeScript and Node types, compiles a custom Agent using only
+public imports, and loads it with a shared SDK error identity. It uses npm's
+configured registry for the consumer's development tools and removes the fixture
+after verification. Application tarballs omit development workspace metadata.
+
 ## Commit And PR Rules
 
 - Branch from `main` for new work.

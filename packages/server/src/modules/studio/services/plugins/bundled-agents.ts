@@ -8,6 +8,7 @@ import type { PluginStore } from '../../repositories/plugin-store'
 const bundles = [
   { id: 'qwen', name: 'Qwen Code', pluginId: 'studio.agent-qwen', directory: 'qwen-code' },
   { id: 'codex', name: 'Codex', pluginId: 'studio.agent-codex', directory: 'codex' },
+  { id: 'kimi', name: 'Kimi Code', pluginId: 'studio.agent-kimi', directory: 'kimi' },
 ] as const
 const bundledCapabilities = ['agents.register', 'commands.register', 'runs.start', 'processes.spawn', 'mcp.studio', 'models.gateway', 'artifacts.read']
 

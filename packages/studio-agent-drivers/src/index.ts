@@ -4,3 +4,5 @@ export { ManagedProcessTransport, type ManagedProcessPort, type AgentProcessIO }
 export { ManagedJsonRpcTransport } from './process/json-rpc'
 export { AgentEventQueue } from './events/queue'
 export { NativeRpcConnection, type NativeRpcMessage } from './process/rpc-connection'
+export { createAcpRuntime, type AcpRuntimeOptions } from './acp/runtime'
+export { acpCommands, acpCommandCatalog, type AcpCommandIdentity } from './acp/commands'

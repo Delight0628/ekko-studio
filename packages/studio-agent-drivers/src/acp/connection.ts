@@ -9,13 +9,14 @@ export interface AcpPermissionRequest {
 }
 
 interface Pending {
+  method: string
   resolve(value: any): void
   reject(error: Error): void
   timer?: ReturnType<typeof setTimeout>
 }
 /** Native error data is for the owning plugin to interpret, never host transport authority. */
 export class AcpRequestError extends Error {
-  constructor(readonly code: number, message: string, readonly data: unknown) { super(`ACP: ${message}`); this.name = 'AcpRequestError' }
+  constructor(readonly code: number, message: string, readonly data: unknown, readonly method?: string) { super(`ACP: ${message}`); this.name = 'AcpRequestError' }
 }
 
 /** Standard ACP only: no DSH extensions or vendor-specific close requests. */
@@ -82,7 +83,7 @@ export class AcpConnection {
         reject(new Error(`ACP ${method} timed out`))
       }, timeout) : undefined
       timer?.unref()
-      this.pending.set(id, { resolve, reject, timer })
+      this.pending.set(id, { method, resolve, reject, timer })
       try { this.write({ id, method, params }) } catch (error) {
         this.pending.delete(id)
         if (timer) clearTimeout(timer)
@@ -117,7 +118,7 @@ export class AcpConnection {
     if (!pending) return
     this.pending.delete(message.id)
     if (pending.timer) clearTimeout(pending.timer)
-    if (message.error) pending.reject(new AcpRequestError(Number(message.error.code), String(message.error.message || 'request failed'), message.error.data))
+    if (message.error) pending.reject(new AcpRequestError(Number(message.error.code), String(message.error.message || 'request failed'), message.error.data, pending.method))
     else pending.resolve(message.result)
   }
 

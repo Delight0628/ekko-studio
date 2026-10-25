@@ -16,7 +16,7 @@
 | 事件 | `ctx.on` / `ctx.once`、profile/owner 授权、每分区有序通知；`ctx.events.consume` 持久化游标、租约、重试/死信和保留期；仅把明确允许的旧业务事件字段投影到公共事件表 |
 | Agent API 执行 | 实例、接受请求、幂等、启动、流输出、完成屏障、取消、终态与事件事务落库；崩溃恢复标记 interrupted，不自动重放输入 |
 | 原生管理检查 | 通用 `management.inspect/setup/prepareLogin`、目录能力发现、独立管理操作、所有者/profile 鉴权及受管登录终端；CLI 版本探测与手工安装指引、Codex 脱敏账号状态及模型分页，Qwen ACP 信息/认证方式；完整管理和真实账号验收仍未完成 |
-| 管理页面 | 现有配置页可创建/修改自有实例，按注册 schema 展示字段，复杂类型使用 JSON；超级管理员可显式安装并启用两个已实现的随包插件，保留现有配置和 grants；不默认登记其余保留 ID |
+| 管理页面 | 现有配置页可创建/修改自有实例，按注册 schema 展示字段，复杂类型使用 JSON；超级管理员可显式安装并启用三个已实现的随包插件，保留现有配置和 grants；不默认登记其余保留 ID |
 | 配置连续性 | 插件声明兼容字段；空闲实例更新原子保留目录关联和成功 checkpoint，完整提供方引用保持匹配；网关逐请求授权并允许协议直通/转换切换。跨模式、工作区或工件升级迁移仍待完成 |
 | 原生资源编辑 | 多位置扫描、实例表单、Skills/配置读取保存，以及完整 Skill 包导入和目录版本化删除；来源/内容版本、只读别名、运行互斥和下轮重新加载；App、任意目录树管理及完整恢复验收待完成 |
 | 受管进程 | runtime 租约持有管道/PTY 进程，宿主签发句柄、用户/profile/runtime 隔离、有界字节读取、管道写入背压与 PTY 输入预算、resize、环境白名单、退出确认和进程树终止；worker 不持有原生进程对象 |
@@ -28,7 +28,7 @@
 | 输入框命令 | 激活期与聊天租约内动态注册、真实 worker handler、原始参数、可信作用域、异步结果与持久回执、取消/撤权回收；Qwen ACP 目录及两款插件的原生压缩已接入，其他原生管理操作、内置引擎及 App 迁移待完成 |
 | 工程接入 | bootstrap、鉴权 API、生成式 OpenAPI、runner 构建、插件私有导入边界检查、独立 Echo 样例 |
 
-安装策略测试中的 14 条 fixture 只验证保护和幂等规则。**当前没有把这 14 个 Agent 注册成已安装系统插件**，也没有用空壳包代替厂商迁移。已有 Qwen 与 Codex 独立包的 global/scoped 文本与图片运行增量（scoped 已支持原生协议直通及四个转换方向），尚未默认安装或替换旧入口，不能计为完整迁移。旧 Coding Agent 仍使用原执行和管理路径。Hermes/Ekko 仍是原内置模块。
+安装策略测试中的 14 条 fixture 只验证保护和幂等规则。**当前没有把这 14 个 Agent 注册成已安装系统插件**，也没有用空壳包代替厂商迁移。已有 Qwen、Codex 与 Kimi 独立包的 global/scoped 文本与图片运行增量（scoped 已支持原生协议直通及四个转换方向），尚未默认安装或替换旧入口，不能计为完整迁移。旧 Coding Agent 仍使用原执行和管理路径。Hermes/Ekko 仍是原内置模块。
 
 ## 当前开发接口
 
@@ -51,7 +51,7 @@
 | `GET /api/studio/command-calls/:id` | 查询自有调用状态及有序的现有格式结果 |
 | `POST /api/studio/command-calls/:id/cancel` | 取消调用，等待实际 handler 清理；不合作时关闭该 worker |
 | `GET /api/studio/agent-types` | 当前已激活插件提供的目录；尚未合并旧内置目录 |
-| `GET /api/studio/bundled-agent-plugins` | 两个已实现随包插件及当前 profile 状态；超级管理员 |
+| `GET /api/studio/bundled-agent-plugins` | 三个已实现随包插件及当前 profile 状态；超级管理员 |
 | `POST /api/studio/bundled-agent-plugins/:id/enable` | 按 profile revision 显式登记并启用受信任随包工件；不接受目录、不升级已有工件；超级管理员 |
 | `POST /api/studio/agent-images` | 上传至当前用户/profile 的图片工件，原始字节体，返回 artifact 引用 |
 | `DELETE /api/studio/agent-images/:id` | 删除自有且尚未被已接受 Run 引用的图片 |
@@ -98,6 +98,15 @@
 
 资源位置/输入框命令契约、命令基础链路、现有 Skills/配置编辑页接入和兼容配置连续性已交付。后续顺序：补齐 Qwen/Codex 管理、Studio MCP 和原生命令 → 接入聊天界面形成可体验闭环 → 扩展到其余 Agent 和业务入口 → 分发与最终验收。MCP 工具 SDK 已整合、提交并推送，原生配置注入等剩余能力随迁移继续推进。Hermes/Ekko 继续保持内置身份；14 个厂商插件须逐个迁移和验收，保留 ID 或 fixture 不计为交付。
 
+### Kimi 独立插件、共享 ACP 与公共库工件（2026-10-25）
+
+- 新增 `studio.agent-kimi` 独立包，使用公共 SDK/driver，固定安装 `@moonshot-ai/kimi-code@2.1.1`；global/scoped、审批、图片、成功 checkpoint、原生命令目录及原生管理资源已接入。Windows Git Bash 检查支持取消、输出上限和五秒探针期限，拒绝 WSL launcher。
+- Qwen 与 Kimi 共用标准 ACP 生命周期和动态命令驱动；厂商配置和错误解释留在各插件。Kimi 临时环境模型不调用只接受 TOML alias 的持久模型选择器；普通 global alias 保留选择行为。
+- SDK/driver 通过 npm workspaces 明确本地依赖，类型检查先生成 SDK 声明，生产服务和测试共用 SDK source identity。主应用 tarball 去掉不会随包分发的 workspace 元数据。
+- `pack:plugins` 独立构建 SDK/driver tarball；`verify:plugins:packages` 已在仓库外实际安装两包、严格编译自定义 Agent 并运行，验证公共声明、加载和共用 `StudioError` 身份；没有执行 npm publish。
+- 最终构建与 harness 通过；服务端专项 10 文件 103 项通过、1 项按原条件跳过。Kimi 实际 CLI 本轮再次完成 14 轮聊天、19 次本地模型请求和 5 次 Studio MCP 调用；本地 fixture 不代表真实账号/远程提供商验收。日志 `/tmp/studio-kimi-final-{build,harness,focused,native}.log` 与 `/tmp/studio-kimi-external-packages.log`。
+- 生产浏览器 4 文件 33 项通过（4 workers、无重试），含 Kimi 移动端授权启用、实例与原生登录检查，以及既有管理/资源/命令流程；日志 `/tmp/studio-kimi-final-browser-v2.log`。首轮发现并修复两项断言问题：命令按参数数组展示、错误提示需区别已有说明提示。冻结全量回归待提交后执行。完整迁移继续保持 **0/14**，另外 11 个 Agent、旧业务入口与发布/恢复矩阵仍待迁移。
+
 ### 实例私有 CLI 显式安装（2026-10-25，专项已验证）
 
 - Qwen/Codex 声明 `prepareInstall`：固定 npm 包、精确版本、入口和 Node/binary 启动方式。宿主拒绝 URL、版本范围、任意命令/环境/目录覆盖；插件需要现有进程授权。启用插件、打开页面或聊天都不会自动下载 CLI，手工指引保持可用。
@@ -106,7 +115,7 @@
 - 宿主通过内部 RPC 注入 `nativeCli`；Qwen/Codex 的检查、登录及运行使用相同 SDK 选择规则。自定义 command 优先；首次无私有安装可沿用 PATH，已选版本损坏或提供方版本/平台变化要求修复，不静默换用全局 CLI。实例配置和模式变化保留程序安装，不改变账号与 checkpoint 契约。
 - 管理页按注册能力提供安装和只读日志，关闭后可重新连接；安装期间配置/登录/聊天启动互斥，输出完整消费后才可再次安装。十二种语言提供安装文案。丢失安装响应后复用同一请求键，不重复创建操作。
 
-专项 7 文件共 166 项通过（含真实 worker、真实子进程、错误版本/版本探针、取消、撤权权限及 HTTP 边界），生产构建、类型、harness 与公共 API 文档通过。生产浏览器 16 项通过，涵盖原登录/配置/聊天回归、桌面和移动端安装、只读日志重连、取消及响应丢失；截图在完整绘制后复核并检查弹窗内边界。通过官方 npm registry 实际安装 Codex 0.163.0 / Qwen 0.25.0，各覆盖 global/scoped，共 4 次安装及实际版本探针、14 轮聊天、4 次原生压缩、56 次本地模型请求、10 次 Studio MCP 调用；配置变更、协调器重启和提供方重新激活后仍使用原生会话。没有真实账号或付费推理。完整冻结回归另行记录；完整迁移仍为 0/14，七大范围保持 open。
+专项 7 文件共 166 项通过（含真实 worker、真实子进程、错误版本/版本探针、取消、撤权权限及 HTTP 边界），生产构建、类型、harness 与公共 API 文档通过。生产浏览器 16 项通过，涵盖原登录/配置/聊天回归、桌面和移动端安装、只读日志重连、取消及响应丢失；截图在完整绘制后复核并检查弹窗内边界。通过官方 npm registry 实际安装 Codex 0.163.0 / Qwen 0.25.0，各覆盖 global/scoped，共 4 次安装及实际版本探针、14 轮聊天、4 次原生压缩、56 次本地模型请求、10 次 Studio MCP 调用；配置变更、协调器重启和提供方重新激活后仍使用原生会话。没有真实账号或付费推理。冻结 `ead6a4c3f` 的构建、类型、harness、原有原生 CLI 与四次受管安装联调均复验通过；完整 coverage 为 940 文件、9,802 项通过，12 文件/33 项按原条件跳过，430.88 秒，两 worker、默认时限，三个 Electron 真探针均执行。完整生产浏览器 967 项通过，四 worker、无重试、10.5 分钟。完整迁移仍为 0/14，七大范围保持 open。
 
 ### 完整 Skills 导入与目录版本化删除（2026-10-25，专项已验证）
 

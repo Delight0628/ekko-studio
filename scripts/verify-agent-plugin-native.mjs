@@ -46,6 +46,7 @@ export { OpenAICompatibleModelClient } from './packages/ekko-agent/src/model/pro
 export { translatedNativeRequest } from './packages/server/src/modules/studio/services/models/native-adapter';
 export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/providers/anthropic';`, resolveDir: project, loader: "ts" },
     bundle: true,
+    alias: { '@ekko-studio/plugin-sdk': join(project, 'packages/studio-plugin-sdk/src/index.ts') },
     platform: "node",
     target: "node24.22.1",
     format: "cjs",
@@ -55,6 +56,8 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
   const { AgentCoordinator, AgentRegistry, PluginEventBus, AgentExecutionStore, AgentManagementStore, ManagedProcessScope, createNativeAgentContext, runMcpCredentials, studioConfig, PluginModelGateways, PluginModelCallStore, OpenAIResponsesModelClient, AnthropicMessagesModelClient, OpenAICompatibleModelClient, translatedNativeRequest } = createRequire(import.meta.url)(managedModule);
   let calls = 0, completedTurns = 0, completedCommands = 0, installedClis = 0;
   const managedInstall = process.env.STUDIO_MANAGED_CLI === '1';
+  const vendors = process.env.STUDIO_AGENT_VENDORS ? process.env.STUDIO_AGENT_VENDORS.split(',') : ['codex', 'qwen-code'];
+  if (!vendors.length || vendors.some(value => !['codex', 'qwen-code', 'kimi'].includes(value))) throw new Error('Unknown native verification vendor');
   const fixtureInputTokens = process.env.STUDIO_NATIVE_COMMANDS === '1' ? 12000 : 12;
   let activeTarget = 'native', activeVendor, searchIssued = false;
   let nativeMcpEnabled = false, nativeMcpIssued = false, nativeMcpContext;
@@ -167,7 +170,7 @@ data: ${JSON.stringify({ type, ...data })}
       record: input => input.onRecorded?.({ ...input.usage, isEstimated: input.isEstimated }) };
   } });
   try {
-    for (const [mode, target] of [['global', 'native'], ['scoped', 'native'], ['scoped', 'chat'], ['scoped', 'other'], ['scoped', 'switch']]) for (const vendor of ["codex", "qwen-code"]) {
+    for (const [mode, target] of [['global', 'native'], ['scoped', 'native'], ['scoped', 'chat'], ['scoped', 'other'], ['scoped', 'switch']]) for (const vendor of vendors) {
       if (managedInstall && target !== 'native') continue;
       activeTarget = target === 'switch' ? 'native' : target;
       activeVendor = vendor;
@@ -193,11 +196,16 @@ requires_openai_auth = false
           config.env.CODEX_HOME = home;
           config.approvalPolicy = nativeMcpEnabled ? 'on-request' : 'never';
           config.sandbox = "read-only";
-        } else {
+        } else if (vendor === 'qwen-code') {
           config.command = process.env.STUDIO_QWEN_COMMAND || "qwen";
           config.args = ["--auth-type", "anthropic", "--model", "fixture-model"];
           Object.assign(config.env, { QWEN_HOME: home, QWEN_RUNTIME_DIR: join(home, "runtime"), ANTHROPIC_API_KEY: "fixture-only", ANTHROPIC_BASE_URL: base, ANTHROPIC_MODEL: "fixture-model" });
           await writeFile(join(home, "settings.json"), JSON.stringify({ security: { auth: { selectedType: "anthropic" } }, model: { name: "fixture-model" }, modelProviders: { anthropic: [{ id: "fixture-model", envKey: "ANTHROPIC_API_KEY", baseUrl: base, generationConfig: { maxOutputTokens: 256, modalities: { image: true } } }] } }), { mode: 384 });
+        } else {
+          config.command = process.env.STUDIO_KIMI_COMMAND || 'kimi';
+          await writeFile(join(home, 'config.toml'), '# Local native verification fixture\n');
+          Object.assign(config.env, { KIMI_CODE_HOME: home, KIMI_MODEL_NAME: 'fixture-model', KIMI_MODEL_PROVIDER_TYPE: 'anthropic',
+            KIMI_MODEL_BASE_URL: `${base}/v1`, KIMI_MODEL_API_KEY: 'fixture-only', KIMI_MODEL_CAPABILITIES: 'image_in', KIMI_DISABLE_TELEMETRY: '1' });
         }
         const plugin = createRequire(import.meta.url)(join(project, "dist/plugins", vendor, "dist/index.cjs"));
         let definition, staticCatalog = [], nativeCatalog = [];
@@ -205,7 +213,7 @@ requires_openai_auth = false
           definition = value;
         } } });
         nativeCatalog = staticCatalog;
-        if (process.env.STUDIO_NATIVE_COMMANDS === '1') {
+        if (process.env.STUDIO_NATIVE_COMMANDS === '1' || process.env.STUDIO_NATIVE_DIAGNOSTICS === '1') {
           const create = definition.create;
           definition.create = async (input, context) => {
             let diagnostics = '';
@@ -220,7 +228,7 @@ requires_openai_auth = false
               } } });
             return { ...runtime, run: async (...args) => {
               const handle = await runtime.run(...args);
-              return { ...handle, result: handle.result.catch(error => { console.error(JSON.stringify({ vendor, mode, nativeFailure: error.message, diagnostics })); throw error; }) };
+              return { ...handle, result: handle.result.catch(error => { console.error(JSON.stringify({ vendor, mode, nativeFailure: error.message, nativeMethod: error.method, nativeData: error.data, diagnostics })); throw error; }) };
             } };
           };
         }
@@ -400,7 +408,8 @@ Follow fixture instructions.`) }, { filename: '技能目录/assets/fixture.bin',
     await gateways.close(); db.close();
     server.closeAllConnections();
     await new Promise((resolve) => server.close(() => resolve()));
-    await rm(root, { recursive: true, force: true });
+    if (process.env.STUDIO_NATIVE_KEEP_FIXTURE === '1') console.log(JSON.stringify({ fixtureRoot: root }));
+    else await rm(root, { recursive: true, force: true });
   }
   console.log(JSON.stringify({ passed: true, turns: completedTurns, ...(managedInstall ? { managedCliInstallations: installedClis } : {}), ...(process.env.STUDIO_NATIVE_COMMANDS === '1' ? { nativeCommands: completedCommands } : {}), localModelRequests: calls, nativeStudioMcpRequests: nativeMcpRequests.length, remoteProvider: false, accountLogin: false }));
 }

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 // Build only implemented packages. Reservation of an ID does not install it.
-export const agentPluginPackages = ['qwen-code', 'codex']
+export const agentPluginPackages = ['qwen-code', 'codex', 'kimi']
 
 export async function buildAgentPlugins(outputRoot = resolve(root, 'dist/plugins')) {
   for (const name of agentPluginPackages) {
