@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import BrowserDownloadActions from '@/components/hermes/BrowserDownloadActions.vue'
+import BrowserDownloadRow from '@/components/hermes/BrowserDownloadRow.vue'
+import BrowserDownloadIcon from '@/components/hermes/BrowserDownloadIcon.vue'
+import { useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { NSpin, NButton, NInput, NPopover, NSelect, useDialog, useMessage } from 'naive-ui'
 import { remoteBrowserOwnerState, remoteBrowserEnabled } from '@/composables/useRemoteBrowserRelay'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { useI18n } from 'vue-i18n'
-import { desktopBridge, type DesktopBrowserDownload, type DesktopBrowserSelection, type DesktopBrowserState } from '@/utils/desktop-bridge'
+import { desktopBridge, type DesktopBrowserSelection, type DesktopBrowserState } from '@/utils/desktop-bridge'
 import type { BrowserAnnotationSubmission } from '@/utils/browser-annotation-submit'
 
 const props = withDefaults(defineProps<{
@@ -17,6 +19,16 @@ const props = withDefaults(defineProps<{
 })
 
 const { t } = useI18n()
+const router = useRouter()
+const downloadsOpen = ref(false)
+async function downloadsVisibility(value: boolean) {
+  downloadsOpen.value = value
+  if (value && bridge?.refreshDownloads) { try { applyState(await bridge.refreshDownloads()) } catch { /* Preserve last known state. */ } }
+}
+function fullDownloadHistory() {
+  downloadsOpen.value = false
+  void router.push({ name: 'hermes.browserDownloads', query: { profile: state.value?.activeProfileId } })
+}
 const message = useMessage()
 const dialog = useDialog()
 const bridge = desktopBridge()?.browser
@@ -99,8 +111,8 @@ const activeTab = computed(() => state.value?.tabs.find(tab => tab.id === state.
 const profileOptions = computed(() => state.value?.profiles.map(profile => ({ label: profile.name, value: profile.id })) || [])
 const activeProfileDownloads = computed(() => state.value?.downloads
   .filter(item => item.profileId === state.value?.activeProfileId)
-  .slice(0, 20) || [])
-const activeDownloadCount = computed(() => activeProfileDownloads.value.filter(item => item.state === 'progressing').length)
+  .slice(0, 5) || [])
+const activeDownloadCount = computed(() => state.value?.downloads.filter(item => item.profileId === state.value?.activeProfileId && item.state === 'progressing').length || 0)
 const annotationCount = computed(() => annotations.value.length + (pendingAnnotation.value ? 1 : 0))
 const hasAnnotationSession = computed(() => annotationCount.value > 0)
 const annotationItems = computed(() => [
@@ -196,40 +208,6 @@ function switchProfile(profileId: string): void {
       onPositiveClick: () => applyProfile(true),
     })
   }).catch(error => message.error(error instanceof Error ? error.message : String(error)))
-}
-
-function cancelDownload(downloadId: string): void {
-  void run(async () => applyState(await bridge!.cancelDownload(downloadId)))
-}
-
-function formatBytes(input: number): string {
-  const bytes = Number.isFinite(input) ? Math.max(0, input) : 0
-  if (bytes < 1024) return `${Math.round(bytes)} B`
-  const units = ['KB', 'MB', 'GB', 'TB']
-  let value = bytes / 1024
-  let unit = units[0]
-  for (let index = 1; index < units.length && value >= 1024; index += 1) {
-    value /= 1024
-    unit = units[index]
-  }
-  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${unit}`
-}
-
-function downloadPercent(item: DesktopBrowserDownload): number | null {
-  if (item.totalBytes <= 0) return null
-  return Math.min(100, Math.max(0, Math.round(item.receivedBytes / item.totalBytes * 100)))
-}
-
-function downloadStateLabel(stateValue: DesktopBrowserDownload['state']): string {
-  return t(`browser.downloadState${stateValue[0].toUpperCase()}${stateValue.slice(1)}`)
-}
-
-function downloadSummary(item: DesktopBrowserDownload): string {
-  const percent = downloadPercent(item)
-  const transferred = item.totalBytes > 0
-    ? `${formatBytes(item.receivedBytes)} / ${formatBytes(item.totalBytes)}`
-    : formatBytes(item.receivedBytes)
-  return `${downloadStateLabel(item.state)}${percent === null ? '' : ` · ${percent}%`} · ${transferred}`
 }
 
 function createTab(): void {
@@ -545,7 +523,7 @@ onUnmounted(() => {
           data-testid="browser-profile-switcher"
           @update:value="switchProfile"
         />
-        <NPopover trigger="click" placement="bottom-end" :width="380">
+        <NPopover :show="downloadsOpen" trigger="click" placement="bottom-end" :width="380" @update:show="downloadsVisibility">
           <template #trigger>
             <button class="download-trigger" :title="t('browser.downloads')" :aria-label="t('browser.downloads')">
               <span aria-hidden="true">⇩</span>
@@ -553,18 +531,12 @@ onUnmounted(() => {
             </button>
           </template>
           <section class="download-popover" data-desktop-browser-overlay>
-            <header>{{ t('browser.downloads') }}</header>
-            <div v-if="!activeProfileDownloads.length" class="download-empty">{{ t('common.noData') }}</div>
-            <article v-for="item in activeProfileDownloads" :key="item.id" class="download-item">
-              <div class="download-item-heading">
-                <strong :title="item.fileName">{{ item.fileName }}</strong>
-                <NButton v-if="item.state === 'progressing'" size="tiny" text type="error" @click="cancelDownload(item.id)">{{ t('common.cancel') }}</NButton>
-              </div>
-              <progress v-if="item.state === 'progressing' && item.totalBytes > 0" :value="item.receivedBytes" :max="item.totalBytes" />
-              <progress v-else-if="item.state === 'progressing'" />
-              <span>{{ downloadSummary(item) }}</span>
-              <BrowserDownloadActions :item="item" @state="applyState" />
-            </article>
+            <header><strong>{{ t('browser.recentDownloads') }}</strong><NButton quaternary circle size="small" :aria-label="t('common.close')" @click="downloadsOpen = false"><template #icon><BrowserDownloadIcon kind="close" /></template></NButton></header>
+            <div class="recent-download-list">
+              <div v-if="!activeProfileDownloads.length" class="download-empty">{{ t('common.noData') }}</div>
+              <BrowserDownloadRow v-for="item in activeProfileDownloads" :key="item.id" :item="item" compact @state="applyState" />
+            </div>
+            <footer><NButton text type="primary" @click="fullDownloadHistory">{{ t('browser.fullDownloadHistory') }} <span aria-hidden="true">↗</span></NButton></footer>
           </section>
         </NPopover>
       </div>
@@ -641,14 +613,13 @@ onUnmounted(() => {
 .profile-switcher { width: 136px; flex: 0 0 136px; }
 .download-trigger { position: relative; flex: 0 0 30px; padding: 0; }
 .download-trigger > b { position: absolute; top: -3px; right: -4px; min-width: 15px; height: 15px; padding: 0 calc(3px * var(--spacing-scale, 1)); border-radius: var(--radius-component, 8px); background: #ef4444; color: #fff; font: 10px/15px sans-serif; text-align: center; }
-.download-popover { max-height: min(420px, 65vh); overflow: auto; color: var(--text-primary, #1a1a1a); }
-.download-popover > header { position: sticky; top: 0; z-index: 1; padding: calc(2px * var(--spacing-scale, 1)) 0 calc(9px * var(--spacing-scale, 1)); border-bottom: var(--border-width, 1px) solid var(--border-color, #e5e7eb); background: var(--n-color, var(--bg-card)); font-size: calc(var(--font-size-base, 14px) * 14 / 14); font-weight: 600; }
-.download-item { display: grid; gap: calc(6px * var(--spacing-scale, 1)); padding: 10px 0; border-bottom: var(--border-width, 1px) solid var(--border-color, #e5e7eb); }
-.download-item:last-child { border-bottom: 0; }
-.download-item-heading { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: calc(8px * var(--spacing-scale, 1)); }
-.download-item-heading > strong { min-width: 0; overflow: hidden; font-size: calc(var(--font-size-base, 14px) * 12 / 14); text-overflow: ellipsis; white-space: nowrap; }
-.download-item progress { width: 100%; height: 5px; accent-color: #3b82f6; }
-.download-item > span, .download-empty { color: var(--text-color-3, #6b7280); font-size: calc(var(--font-size-base, 14px) * 11 / 14); }
+.download-popover { width: min(350px, calc(100vw - 48px)); color: var(--text-primary); }
+.download-popover > header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 8px; font-size: 14px; }
+.recent-download-list { max-height: min(380px, 60vh); overflow: auto; }
+.recent-download-list :deep(.download-record) { border-top: var(--border-width, 1px) solid var(--border-color); }
+.download-popover > footer { padding-top: 12px; border-top: var(--border-width, 1px) solid var(--border-color); }
+.download-empty { padding: 24px 8px; text-align: center; color: var(--text-secondary); }
+
 .download-empty { padding: calc(24px * var(--spacing-scale, 1)) calc(8px * var(--spacing-scale, 1)); text-align: center; }
 .agent-banner, .crash-banner { min-height: 34px; display: flex; align-items: center; justify-content: space-between; padding: calc(4px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1)); font-size: calc(var(--font-size-base, 14px) * 12 / 14); }
 .agent-banner { background: rgba(59,130,246,.12); color: #3b82f6; }.crash-banner { background: rgba(239,68,68,.12); color: #dc2626; }

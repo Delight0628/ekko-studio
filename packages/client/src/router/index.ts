@@ -290,6 +290,11 @@ const router = createRouter({
 // chat tool panel so this route never creates or positions a WebContentsView.
 if (hasDesktopBrowserBridge()) {
   router.addRoute({
+    path: '/hermes/browser/downloads',
+    name: 'hermes.browserDownloads',
+    component: () => import('@/views/hermes/BrowserDownloadsView.vue'),
+  })
+  router.addRoute({
     path: '/hermes/browser',
     name: 'hermes.browser',
     component: () => import('@/views/hermes/DesktopBrowserView.vue'),

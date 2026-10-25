@@ -173,3 +173,15 @@ it('serializes actions on the same record while native confirmation is pending',
   await pending
   expect((await s.manager.downloadAction(s.id, 'remove')).downloads).toHaveLength(0)
 })
+
+it('refreshes file availability without deleting the file or history, including replacements', async () => {
+  const s = await completed()
+  expect(s.manager.refreshDownloads().downloads[0].fileAvailable).toBe(true)
+  await rm(s.path)
+  expect(s.manager.refreshDownloads().downloads[0].fileAvailable).toBe(false)
+  expect(s.manager.state().downloads).toHaveLength(1)
+  await writeFile(s.path, 'replacement contents')
+  expect(s.manager.refreshDownloads().downloads[0].fileAvailable).toBe(false)
+  await expect(access(s.path)).resolves.toBeUndefined()
+  expect(native.trashItem).not.toHaveBeenCalled()
+})

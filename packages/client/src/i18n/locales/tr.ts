@@ -338,6 +338,17 @@ export default {
   agentAutoUpdate: { label: 'Otomatik güncellemeler' },
 
   browser: {
+    recentDownloads: "Son indirmeler",
+    fullDownloadHistory: "Tüm indirme geçmişi",
+    searchDownloads: "İndirme geçmişinde ara",
+    clearDownloads: "Tümünü temizle",
+    clearDownloadsHint: "Yalnızca kayıtları kaldırır. Dosyalar ve etkin indirmeler korunur.",
+    downloadToday: "Bugün",
+    downloadYesterday: "Dün",
+    downloadUnavailable: "Silindi veya taşındı",
+    downloadFrom: "Kaynak: {origin}",
+    downloadSource: "İndirme kaynağı",
+    noMatchingDownloads: "Eşleşen indirme yok",
     openDownload: "Dosyayı aç",
     revealDownload: "Klasörde göster",
     removeDownload: "Geçmişten kaldır",

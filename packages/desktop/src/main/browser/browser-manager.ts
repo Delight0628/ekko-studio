@@ -421,6 +421,23 @@ export class BrowserManager {
     return this.state()
   }
 
+  refreshDownloads(): DesktopBrowserState {
+    for (const item of this.downloads) {
+      if (item.state !== 'completed' || this.downloadItems.has(item.id)) continue
+      item.fileAvailable = false
+      try {
+        if (!item.savePath || !isAbsolute(item.savePath)) continue
+        const current = lstatSync(item.savePath)
+        const original = this.downloadedFileIdentities.get(item.id)
+        item.fileAvailable = current.isFile() && (!original || (
+          current.dev === original.dev && current.ino === original.ino && current.size === original.size
+          && current.mtimeMs === original.mtimeMs))
+      } catch { /* File moved/deleted externally; keep the history record. */ }
+    }
+    this.emitState()
+    return this.state()
+  }
+
   async downloadAction(downloadId: string, action: 'open' | 'reveal' | 'remove' | 'trash'): Promise<DesktopBrowserState> {
     if (!['open', 'reveal', 'remove', 'trash'].includes(action)) throw new Error('BROWSER_DOWNLOAD_INVALID_ACTION')
     if (this.downloadActions.has(downloadId)) throw new Error('BROWSER_DOWNLOAD_ACTIVE')
