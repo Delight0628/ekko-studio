@@ -29,12 +29,12 @@ export class AgentChatStore {
   }
 
   /** The callback creates the owned session and binding on this same connection. */
-  accept(scope: ExecutionScope, instance: AgentInstance, input: AgentChatCreationInput, create: (binding: AgentChatBinding) => void, source: AgentChatBinding['source']): AgentChatCreation {
+  accept(scope: ExecutionScope, instance: AgentInstance, input: AgentChatCreationInput, create: (binding: AgentChatBinding) => void, source: AgentChatBinding['source'], sessionId?: string): AgentChatCreation {
     const previous = this.find(scope, instance, input)
     if (previous) return previous
     this.db.exec('SAVEPOINT studio_agent_chat_creation')
     try {
-      const id = randomUUID(), createdAt = Date.now()
+      const id = sessionId ?? randomUUID(), createdAt = Date.now()
       this.db.prepare('INSERT INTO studio_agent_chat_creations VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(scope.principal.id, scope.profileId, input.idempotencyKey, instance.id, input.revision, id, createdAt)
       create({ sessionId: id, instanceId: instance.id, ownerId: instance.ownerId, profileId: instance.profileId, source })

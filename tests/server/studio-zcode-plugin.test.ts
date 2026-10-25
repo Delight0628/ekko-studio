@@ -96,7 +96,7 @@ async function setup(mode: 'global' | 'scoped' = 'global', extra: Record<string,
   await writeFile(builtin, JSON.stringify({ config: { modelConfigRules: { builtinProviderModelRules: [{ providerId: 'fixture', modelId: 'native-model' }] } } }))
   const nativePersonal = { schemaVersion: 1, config: { providerConfigRules: { providerRules: [{ providerId: 'fixture', providerName: 'Fixture', config: { group: 'standard-personal', access: { type: 'api-key', apiKey: 'native-local-key' }, api: { type: 'anthropic-messages', baseUrl }, personalModelIds: ['fixture-model'] } }] }, modelConfigRules: { providerModelRules: [{ modelId: 'fixture-model', config: { properties: { inputFormat: { supportsText: true, supportsImage: true, supportsVideo: false, supportsAudio: false, supportsPdf: false } } }, providerId: 'fixture' }], manualProviderModelRules: [] }, defaultModelSelection: { providerId: 'fixture', modelId: 'fixture-model' } } }
   await writeFile(personal, JSON.stringify(nativePersonal, null, 2))
-  const config = { ...(actual ? { systemPrompt: 'ZCODE_SYSTEM_SENTINEL', mcpServers: { fixture: { command: process.execPath, args: [mcpScript], env: { MCP_TRACE: mcpTrace, ELECTRON_RUN_AS_NODE: '1' } } } } : {}), cwd: directory, command: process.execPath, args: [actual ? process.env.STUDIO_ZCODE_COMMAND! : cli], ...(actual && mode === 'global' ? {} : { model: mode === 'scoped' ? 'studio/model' : 'native-model' }),
+  const config = { ...(actual ? { systemPrompt: 'ZCODE_SYSTEM_SENTINEL', mcpServers: { fixture: { command: process.execPath, args: [mcpScript], env: { MCP_TRACE: mcpTrace, ELECTRON_RUN_AS_NODE: '1' } } } } : {}), approvalRequired: true, cwd: directory, command: process.execPath, args: [actual ? process.env.STUDIO_ZCODE_COMMAND! : cli], ...(actual && mode === 'global' ? {} : { model: mode === 'scoped' ? 'studio/model' : 'native-model' }),
     env: { TRACE: trace, HOME: directory, USERPROFILE: directory, ZCODE_DATA_BASE_DIR: directory, ZCODE_STORAGE_DIR: join(directory, 'native'), ZCODE_PERSONAL_PROVIDER_CONFIG_FILE: personal, ZCODE_BUILTIN_PROVIDER_CONFIG_FILE: actual ? process.env.STUDIO_ZCODE_BUILTIN_CONFIG || join(dirname(dirname(process.env.STUDIO_ZCODE_COMMAND!)), 'config', 'provider', 'zcode-builtin.json') : builtin, ZCODE_BUILTIN_PROVIDER_BUNDLED_CONFIG_FILE: '', CONTROL_FILE: join(directory, 'control'), ...extra } }
   const instance = coordinator.createInstance(caller, { agentTypeId: 'zcode', mode, config })
   let sequence = 0
@@ -262,4 +262,19 @@ it.each(['FOREIGN_WORKSPACE', 'FOREIGN_READ_WORKSPACE'])('rejects a different wo
   expect(f.executions.state.checkpoint(f.instance.id, result.provider, f.instance.revision)).toBeUndefined()
   expect(result.errorCode).toBe(flag === 'FOREIGN_WORKSPACE' ? 'INVALID_ARGUMENT' : 'RUNTIME_UNAVAILABLE')
   if (flag === 'FOREIGN_WORKSPACE') expect((await f.frames()).some(frame => frame.method === 'session/send')).toBe(false)
+})
+
+it('uses yolo mode for new and resumed sessions and does not ask for tool authorization by default', async () => {
+  const f = await setup()
+  const { approvalRequired: _manual, ...config } = f.instance.config
+  await f.coordinator.updateInstance(caller, f.instance.id, { revision: 1, mode: f.instance.mode, config })
+  for (const text of ['approve', 'approve']) {
+    const run = f.start(text)
+    await f.coordinator.wait(run.id)
+    expect(f.coordinator.get(caller, run.id).status).toBe('completed')
+    expect(f.coordinator.interactions(caller, run.id)).toEqual([])
+  }
+  const frames = await f.frames()
+  expect(frames.find(frame => frame.method === 'session/create').params.mode).toBe('yolo')
+  expect(frames.filter(frame => frame.method === 'session/setMode').every(frame => frame.params.mode === 'yolo')).toBe(true)
 })

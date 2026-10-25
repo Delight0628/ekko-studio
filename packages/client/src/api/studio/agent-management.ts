@@ -4,6 +4,9 @@ import type { AgentSetup, AgentInspection, AgentTypeSummary, JsonObject, AgentMa
 export type { AgentSetup, AgentInspection, AgentTypeSummary, JsonObject, AgentManagementOperation }
 export interface ManagedAgentInstance { id: string; agentTypeId: string; revision: number; mode: 'scoped' | 'global'; config: JsonObject }
 export interface ManagedAgentChat { sessionId: string; instanceId: string; profileId: string; configurationRevision: number; createdAt: number }
+export function createOrdinaryAgentChat(profile: string, selection: { sessionId: string; agentTypeId: string; mode: 'scoped' | 'global'; workspace?: string; model?: string; provider?: string; reasoningEffort?: string; agentPreset?: string; categoryId?: number | null; pushEnabled?: boolean; baseUrl?: string; apiKey?: string; apiMode?: string }) {
+  return data<ManagedAgentChat>('agent-chats', profile, 'POST', selection)
+}
 export interface BundledAgentPlugin { id: string; name: string; pluginId: string; installed: boolean; enabled: boolean; revision: number; state: string; requiredCapabilities: string[] }
 const query = (profile: string) => `?${new URLSearchParams({ profile })}`
 async function data<T>(path: string, profile: string, method = 'GET', body?: unknown): Promise<T> {

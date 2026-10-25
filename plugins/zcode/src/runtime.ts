@@ -87,6 +87,11 @@ export function createZcodeRuntime(input: RuntimeCreateInput, runtime: AgentRunt
         const answers = (async () => {
           if (method === 'interaction/requestPermission') {
             if (!Array.isArray(params.options)) throw new StudioError('INVALID_ARGUMENT', 'Invalid ZCode permission')
+            if (config.approvalRequired !== true) {
+              const selected = params.options.find((option: any) => option?.response?.decision === 'allow')
+              if (!selected) throw new StudioError('CAPABILITY_UNSUPPORTED', 'ZCode did not offer an automatic tool approval')
+              return selected.response
+            }
             const selected = await ask(id, `${params.toolName || 'Tool'}\n${params.reason || ''}`, params.options.map((option: any) => ({ id: option.optionId, label: option.name, response: option.response })), false)
             return selected.response
           }
@@ -126,12 +131,12 @@ export function createZcodeRuntime(input: RuntimeCreateInput, runtime: AgentRunt
             write: data => process.write(data), end: () => process.end(), dispose: () => process.dispose() }, { notification, request })
           void rpc.closed.catch(error => { if (!finishing) rejectSettled(error) })
           await rpc.start()
-          const snapshot = await rpc.request(checkpoint ? 'session/resume' : 'session/create', { workspace, ...(checkpoint ? { sessionId: checkpoint.nativeSessionId } : { mode: config.approvalRequired === false ? 'yolo' : 'plan', titleGenerationEnabled: false, ...(prepared.selection ? { model: prepared.selection } : {}) }), ...(prepared.mcpServers.length ? { mcpServers: prepared.mcpServers } : {}) })
+          const snapshot = await rpc.request(checkpoint ? 'session/resume' : 'session/create', { workspace, ...(checkpoint ? { sessionId: checkpoint.nativeSessionId } : { mode: config.approvalRequired === true ? 'plan' : 'yolo', titleGenerationEnabled: false, ...(prepared.selection ? { model: prepared.selection } : {}) }), ...(prepared.mcpServers.length ? { mcpServers: prepared.mcpServers } : {}) })
           const session = snapshot?.session
           if (snapshot?.protocol?.name !== 'ZCode Protocol' || snapshot.protocol.version !== 1 || !validCheckpoint({ nativeSessionId: session?.sessionId }) || !await sameWorkspace(session.workspace?.workspacePath, workspacePath) || (checkpoint && session.sessionId !== checkpoint.nativeSessionId)) throw new StudioError('INVALID_ARGUMENT', 'ZCode restored a different native conversation')
           nativeSessionId = session.sessionId
           if (checkpoint) {
-            await rpc.request('session/setMode', { sessionId: nativeSessionId, mode: config.approvalRequired === false ? 'yolo' : 'plan' })
+            await rpc.request('session/setMode', { sessionId: nativeSessionId, mode: config.approvalRequired === true ? 'plan' : 'yolo' })
             if (prepared.selection) await rpc.request('session/setModel', { sessionId: nativeSessionId, model: prepared.selection })
           }
           commands.update((snapshot.slashCommands || []).filter((command: any) => command.source !== 'builtin').map((command: any) => ({ name: command.name, description: command.description || '' })))

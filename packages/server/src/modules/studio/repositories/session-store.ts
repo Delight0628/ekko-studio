@@ -19,6 +19,7 @@ import { readAgentChatSummaries, agentChatOwnerFilter, type AgentChatUsage } fro
 // Re-export types for compatibility with sessions-db.ts consumers
 export interface HermesSessionRow {
   agent_instance_id?: string
+  agent_chat_settings?: boolean
   agent_instance_revision?: number
   agent_usage?: AgentChatUsage
   id: string
@@ -140,7 +141,8 @@ function mapStoredSessionRow(row: Record<string, unknown>): HermesSessionRow {
   const preview = String(row.preview || '')
   const title = sessionDisplayTitle(rawTitle, preview)
   return {
-    ...(row.agent_instance_id ? { agent_instance_id: String(row.agent_instance_id), agent_instance_revision: Number(row.agent_instance_revision), agent_usage: row.agent_usage as AgentChatUsage } : {}),
+    ...(row.agent_instance_id ? { agent_instance_id: String(row.agent_instance_id), agent_instance_revision: Number(row.agent_instance_revision), agent_usage: row.agent_usage as AgentChatUsage,
+      ...(row.agent_chat_settings ? { agent_chat_settings: true } : {}) } : {}),
     id: String(row.id || ''),
     profile: String(row.profile || 'default'),
     source: String(row.source || 'api_server'),

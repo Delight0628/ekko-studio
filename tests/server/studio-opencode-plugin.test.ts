@@ -58,7 +58,7 @@ async function setup(mode: 'global' | 'scoped' = 'global') {
   const manifest = JSON.parse(await readFile(join(root, 'plugins/opencode/studio-plugin.json'), 'utf8'))
   await host.registerSystemArtifact(join(root, 'plugins/opencode'), manifest.id)
   await host.configure({ pluginId: manifest.id, profileId: caller.profileId, ownerId: caller.principal.id, enabled: true, config: {}, grants: manifest.requires.capabilities }, 0)
-  const config = { cwd: directory, command: process.execPath, args: [cli], model: 'native-model',
+  const config = { approvalRequired: true, cwd: directory, command: process.execPath, args: [cli], model: 'native-model',
     env: { TRACE: trace, HOME: directory, USERPROFILE: directory, OPENCODE_CONFIG_DIR: join(directory, 'native') } }
   const instance = coordinator.createInstance(caller, { agentTypeId: 'opencode', mode, config })
   let sequence = 0
@@ -152,3 +152,15 @@ it('preserves native inline preferences and edited files while isolating scoped 
   expect(() => nativeEnvironment({ env: { OPENCODE_CONFIG_CONTENT: 'broken' } })).toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }))
 })
 
+
+
+it('keeps tool execution automatic when no manual approval policy is configured', async () => {
+  const f = await setup()
+  const { approvalRequired: _manual, ...config } = f.instance.config
+  await f.coordinator.updateInstance(caller, f.instance.id, { revision: f.instance.revision, mode: f.instance.mode, config })
+  const run = f.start('approval')
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(caller, run.id).status).toBe('completed')
+  expect(f.coordinator.interactions(caller, run.id)).toEqual([])
+  expect((await f.frames()).find((frame: any) => frame.id === 'approve')?.result).toMatchObject({ outcome: { outcome: 'selected', optionId: 'yes' } })
+})

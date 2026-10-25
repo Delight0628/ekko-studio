@@ -11,7 +11,7 @@ import { ReliablePluginConsumers } from '../../packages/server/src/modules/studi
 const state = vi.hoisted(() => ({ remove: vi.fn(), configure: vi.fn(), install: vi.fn(), diagnostic: vi.fn(), list: vi.fn(() => []),
   commands: { list: vi.fn(() => []), start: vi.fn(), get: vi.fn(), cancel: vi.fn() },
   bundledAgents: { list: vi.fn(() => []), enable: vi.fn() }, setupInstance: vi.fn(),
-  createChat: vi.fn(),
+  createChat: vi.fn(), createOrdinaryChat: vi.fn(),
   authorizeResourceUpload: vi.fn(), importSkill: vi.fn(),
   ownedChat: vi.fn(), readChatImage: vi.fn(),
   startLogin: vi.fn(), startInstall: vi.fn(), management: { list: vi.fn(() => []), get: vi.fn(), output: vi.fn(), input: vi.fn(), resize: vi.fn(), cancel: vi.fn() },
@@ -20,6 +20,7 @@ vi.mock('../../packages/server/src/modules/studio/services/plugins/runtime', () 
   authorizePluginScope: vi.fn(),
   getStudioPluginRuntime: () => ({ host: { uninstall: state.remove, configure: state.configure, install: state.install, list: state.list, diagnostic: state.diagnostic },
     agentChats: { create: state.createChat, ownedBinding: state.ownedChat },
+    ordinaryChats: { create: state.createOrdinaryChat },
     bundledAgents: state.bundledAgents, commands: state.commands, artifacts: { create: state.uploadImage, remove: state.removeImage, readForChat: state.readChatImage }, consumers: state.consumers, registry: { list: () => [], getRevision: () => 1 }, coordinator: { authorizeResourceUpload: state.authorizeResourceUpload, importSkill: state.importSkill, startLogin: state.startLogin, startInstall: state.startInstall, managementOperations: state.management, setupInstance: state.setupInstance, respond: state.respond, interactions: state.interactions, usage: state.usage, cancel: state.cancel, updateInstance: state.updateInstance, inspectInstance: state.inspectInstance, resourceLocations: state.resourceLocations, resourceFiles: state.resourceFiles } }),
 }))
 import { studioPluginRoutes } from '../../packages/server/src/modules/studio/routes/studio-plugins'
@@ -118,9 +119,9 @@ it('returns a stable protection error for system deletion', async () => {
   expect(await response.json()).toMatchObject({ ok: false, error: { code: 'SYSTEM_PLUGIN_PROTECTED', retryable: false } })
 })
 
-it('restricts diagnostics to an authorized administrator and profile', async () => {
+it('restricts global diagnostics to an authorized administrator without requiring a profile', async () => {
   state.diagnostic.mockReturnValue({ state: 'blocked', errorCode: 'PLUGIN_UNAVAILABLE' })
-  expect((await fetch(`${base}/api/studio/plugins/test.provider/diagnostic`)).status).toBe(400)
+  state.diagnostic.mockClear()
   state.role = 'admin'
   try { expect((await fetch(`${base}/api/studio/plugins/test.provider/diagnostic?profile=one`)).status).toBe(403) }
   finally { state.role = 'super_admin' }
@@ -128,7 +129,8 @@ it('restricts diagnostics to an authorized administrator and profile', async () 
   const response = await fetch(`${base}/api/studio/plugins/test.provider/diagnostic?profile=one`)
   expect(response.status).toBe(200)
   expect(await response.json()).toEqual({ ok: true, data: { state: 'blocked', errorCode: 'PLUGIN_UNAVAILABLE' } })
-  expect(state.diagnostic).toHaveBeenCalledWith('test.provider', 'one')
+  expect(state.diagnostic).toHaveBeenCalledWith('test.provider')
+  expect((await fetch(`${base}/api/studio/plugins/test.provider/diagnostic`)).status).toBe(200)
 })
 
 it('rejects non-super-admin plugin management before invoking services', async () => {
@@ -147,6 +149,19 @@ it('rejects caller-selected identity and requires an authorized profile', async 
   expect((await fetch(`${base}/api/studio/plugins/example.echo/profile`, request)).status).toBe(400)
   expect((await fetch(`${base}/api/studio/plugins/example.echo/profile?profile=default`, request)).status).toBe(400)
   expect(state.configure).not.toHaveBeenCalled()
+})
+
+it('configures the global plugin without profile or account ownership', async () => {
+  state.configure.mockClear()
+  const input = { enabled: true, config: {}, grants: ['agents.register'], revision: 0 }
+  const response = await fetch(`${base}/api/studio/plugins/test.global/configuration`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+  })
+  expect(response.status).toBe(200)
+  expect(state.configure).toHaveBeenCalledWith({ pluginId: 'test.global', enabled: true, config: {}, grants: ['agents.register'] }, 0)
+  state.role = 'admin'
+  try { expect((await fetch(`${base}/api/studio/agent-types`)).status).toBe(200) }
+  finally { state.role = 'super_admin' }
 })
 
 
@@ -226,14 +241,14 @@ it('cancels a native inspection when the HTTP client disconnects', async () => {
   await vi.waitFor(() => expect(signal!.aborted).toBe(true))
 })
 
-it('scopes consumer management to an administrator, plugin and profile and requires explicit revisions', async () => {
-  const record = state.consumers.store.register({ pluginId: 'test.consumer', profileId: 'one', ownerId: '7', name: 'history' }, { types: ['run.completed'], start: 'now', resume: 'continue' })
+it('scopes global consumer management to an administrator and plugin and requires explicit revisions', async () => {
+  const record = state.consumers.store.register({ pluginId: 'test.consumer', name: 'history' }, { types: ['run.completed'], start: 'now', resume: 'continue' })
   const path = `/api/studio/plugins/test.consumer/consumers/${record.id}`
-  expect((await fetch(`${base}/api/studio/plugins/test.consumer/consumers`)).status).toBe(400)
+  expect((await fetch(`${base}/api/studio/plugins/test.consumer/consumers`)).status).toBe(200)
   state.role = 'admin'
   try { expect((await fetch(`${base}${path}/deliveries?profile=one`)).status).toBe(403) }
   finally { state.role = 'super_admin' }
-  expect((await fetch(`${base}${path}/deliveries?profile=two`)).status).toBe(404)
+  expect((await fetch(`${base}${path}/deliveries?profile=two`)).status).toBe(200)
   expect((await fetch(`${base}${path.replace('test.consumer', 'other.plugin')}/deliveries?profile=one`)).status).toBe(404)
   const request = (input: unknown) => fetch(`${base}${path}/control?profile=one`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
   expect((await request({ action: 'pause', revision: 1, ownerId: 'forged' })).status).toBe(400)
@@ -248,7 +263,7 @@ it('scopes consumer management to an administrator, plugin and profile and requi
 
 it('retries only the selected dead letter revision and reports expired cursors without silently resetting', async () => {
   const store = state.consumers.store
-  const record = store.register({ pluginId: 'test.consumer', profileId: 'one', ownerId: '7', name: 'dead' }, { types: ['run.completed'], start: 'now', resume: 'continue' })
+  const record = store.register({ pluginId: 'test.consumer', name: 'dead' }, { types: ['run.completed'], start: 'now', resume: 'continue' })
   store.events.append([{ schemaVersion: 1, id: 'dead-event', type: 'run.completed', occurredAt: 1, partitionKey: 'one:run', sequence: 0, subject: { profileId: 'one' }, data: { hidden: 'payload' }, correlationId: 'trace' }])
   store.fill(record.id)
   const delivery = store.claim(record.id, 0)!
@@ -351,7 +366,7 @@ it('binds manual setup checks to the authenticated owner/profile and rejects con
   expect(state.setupInstance).not.toHaveBeenCalled()
 })
 
-it('limits bundled plugin setup to super administrators and passes the exact current profile revision', async () => {
+it('limits bundled plugin setup to super administrators and passes the exact current global revision', async () => {
   state.bundledAgents.enable.mockResolvedValue({ enabled: true, revision: 1 })
   const request = (body: object) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   state.role = 'admin'
@@ -360,12 +375,12 @@ it('limits bundled plugin setup to super administrators and passes the exact cur
     expect((await fetch(`${base}/api/studio/bundled-agent-plugins/qwen/enable?profile=one`, request({ revision: 0 }))).status).toBe(403)
   } finally { state.role = 'super_admin' }
   expect(state.bundledAgents.enable).not.toHaveBeenCalled()
-  expect((await fetch(`${base}/api/studio/bundled-agent-plugins`)).status).toBe(400)
+  expect((await fetch(`${base}/api/studio/bundled-agent-plugins`)).status).toBe(200)
   expect((await fetch(`${base}/api/studio/bundled-agent-plugins/qwen/enable?profile=one`, request({ revision: 0, path: '/untrusted' }))).status).toBe(400)
   expect((await fetch(`${base}/api/studio/bundled-agent-plugins/qwen/enable?profile=one`, request({ revision: 0 }))).status).toBe(200)
-  expect(state.bundledAgents.enable).toHaveBeenCalledWith('qwen', 'one', '7', 0, undefined)
+  expect(state.bundledAgents.enable).toHaveBeenCalledWith('qwen', '7', 0, undefined)
   expect((await fetch(`${base}/api/studio/bundled-agent-plugins/qwen/enable?profile=one`, request({ revision: 1, grants: ['agents.register', 'commands.register'] }))).status).toBe(200)
-  expect(state.bundledAgents.enable).toHaveBeenLastCalledWith('qwen', 'one', '7', 1, ['agents.register', 'commands.register'])
+  expect(state.bundledAgents.enable).toHaveBeenLastCalledWith('qwen', '7', 1, ['agents.register', 'commands.register'])
 })
 
 it('requires an interactive super administrator for every native login terminal endpoint', async () => {
@@ -425,4 +440,17 @@ it('accepts only login revision/request keys and scoped terminal controls, with 
   expect(state.startInstall).not.toHaveBeenCalled()
   expect((await post('/agent-instances/instance/install', payload)).status).toBe(200)
   expect(state.startInstall).toHaveBeenCalledWith(expect.objectContaining({ principal: { id: '7', kind: 'user' }, profileId: 'one' }), 'instance', 1, 'install-key')
+})
+
+it('creates ordinary plugin chats with the authenticated scope and rejects private runtime overrides', async () => {
+  state.createOrdinaryChat.mockResolvedValue({ sessionId: 'draft', instanceId: 'internal', configurationRevision: 1 })
+  const input = { sessionId: 'draft', agentTypeId: 'codex', mode: 'global' }
+  const send = (body: object) => fetch(`${base}/api/studio/agent-chats?profile=one`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const response = await send(input)
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({ ok: true, data: { sessionId: 'draft', instanceId: 'internal' } })
+  expect(state.createOrdinaryChat).toHaveBeenLastCalledWith(expect.objectContaining({ principal: { kind: 'user', id: '7' }, profileId: 'one' }), input)
+  const calls = state.createOrdinaryChat.mock.calls.length
+  for (const patch of [{ ownerId: '8' }, { config: { command: 'untrusted' } }, { instanceId: 'foreign' }, { scope: { profileId: 'other' } }]) expect((await send({ ...input, ...patch })).status).toBe(400)
+  expect(state.createOrdinaryChat).toHaveBeenCalledTimes(calls)
 })

@@ -3,7 +3,7 @@ import { isAbsolute } from 'node:path'
 import { StudioError, nativeAgentLaunch, readAgentImages, mergeAgentContextConfiguration,
   type AgentContextConfiguration, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult,
   type AgentRuntime, type AgentRuntimeContext, type JsonObject, type ModelGatewayHandle, type ModelGatewayInput, type RuntimeCreateInput } from '@ekko-studio/plugin-sdk'
-import { AcpConnection } from './connection'
+import { AcpConnection, acpAutomaticApproval } from './connection'
 import { AgentEventQueue } from '../events/queue'
 import { ManagedProcessTransport } from '../process/transport'
 import { acpMcpServers } from './events'
@@ -112,6 +112,7 @@ export function createAcpRuntime(input: RuntimeCreateInput, runtime: AgentRuntim
             },
             permission(request, signal) {
               if (signal.aborted || cancelled) return Promise.resolve(null)
+              if (config.approvalRequired !== true) return Promise.resolve(acpAutomaticApproval(request))
               const requestId = randomUUID()
               return new Promise<string | null>((resolve, reject) => {
                 const abort = () => finish(null)

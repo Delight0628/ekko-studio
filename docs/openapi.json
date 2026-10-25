@@ -18,7 +18,7 @@
     },
     {
       "name": "Studio Plugins",
-      "description": "Studio backend plugin installation, protected system plugins, profile activation and registered Agent types; separate from Hermes native plugins"
+      "description": "Studio backend plugin installation, protected system plugins, global activation and registered Agent types; separate from Hermes native plugins"
     },
     {
       "name": "Profiles",
@@ -12290,6 +12290,188 @@
         }
       }
     },
+    "/api/studio/agent-chats": {
+      "post": {
+        "tags": [
+          "Studio Plugins"
+        ],
+        "summary": "Create an ordinary Agent chat with an internal plugin binding",
+        "description": "Keeps the existing Agent and global/model selection flow. The host registers the trusted bundled plugin and atomically creates a private instance, chat and retry receipt; it never installs or updates the native CLI. The draft sessionId is an idempotency key and cannot adopt existing history. Manual model connections stay in host storage, outside plugin configuration. Run-bound callers cannot create independent chats.",
+        "operationId": "createOrdinaryAgentChat",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owned chat creation receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "sessionId",
+                        "instanceId",
+                        "profileId",
+                        "configurationRevision",
+                        "createdAt"
+                      ],
+                      "properties": {
+                        "sessionId": {
+                          "type": "string"
+                        },
+                        "instanceId": {
+                          "type": "string"
+                        },
+                        "profileId": {
+                          "type": "string"
+                        },
+                        "configurationRevision": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "createdAt": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or manifest."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Access denied or SYSTEM_PLUGIN_PROTECTED; no deletion side effects."
+          },
+          "404": {
+            "description": "Plugin not installed."
+          },
+          "409": {
+            "description": "Revision conflict, registration conflict or active runtime leases."
+          },
+          "422": {
+            "description": "Plugin requests unsupported capabilities."
+          },
+          "503": {
+            "description": "Plugin host or runtime unavailable."
+          }
+        },
+        "parameters": [
+          {
+            "name": "profile",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Authorized Studio profile."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "sessionId",
+                  "agentTypeId",
+                  "mode"
+                ],
+                "properties": {
+                  "profile": {
+                    "type": "string"
+                  },
+                  "sessionId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  },
+                  "agentTypeId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "scoped",
+                      "global"
+                    ]
+                  },
+                  "workspace": {
+                    "type": "string",
+                    "maxLength": 4096
+                  },
+                  "model": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "provider": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "reasoningEffort": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "agentPreset": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "categoryId": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 1
+                  },
+                  "pushEnabled": {
+                    "type": "boolean"
+                  },
+                  "baseUrl": {
+                    "type": "string",
+                    "maxLength": 8192
+                  },
+                  "apiKey": {
+                    "type": "string",
+                    "maxLength": 8192,
+                    "writeOnly": true
+                  },
+                  "apiMode": {
+                    "type": "string",
+                    "enum": [
+                      "chat_completions",
+                      "codex_responses",
+                      "anthropic_messages"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/studio/agent-chats/{sessionId}/images/{id}": {
       "get": {
         "tags": [
@@ -16127,19 +16309,7 @@
           "503": {
             "description": "Plugin host or runtime unavailable."
           }
-        },
-        "parameters": [
-          {
-            "name": "profile",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Authorized Studio profile."
-          }
-        ]
+        }
       }
     },
     "/api/studio/announcements": {
@@ -16411,7 +16581,7 @@
         "tags": [
           "Studio Plugins"
         ],
-        "summary": "List implemented bundled Agent plugins and current profile setup state",
+        "summary": "List bundled Agent plugins and their global setup state",
         "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations.",
         "operationId": "listBundledAgentPlugins",
         "security": [
@@ -16444,19 +16614,7 @@
           "503": {
             "description": "Plugin host or runtime unavailable."
           }
-        },
-        "parameters": [
-          {
-            "name": "profile",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Authorized Studio profile."
-          }
-        ]
+        }
       }
     },
     "/api/studio/bundled-agent-plugins/{id}/enable": {
@@ -16464,8 +16622,8 @@
         "tags": [
           "Studio Plugins"
         ],
-        "summary": "Explicitly install and enable an implemented bundled Agent plugin",
-        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Only implemented bundled plugins listed by the corresponding GET endpoint are eligible. Uses trusted distribution paths, never caller paths or arbitrary plugin IDs. Requires the current profile revision (zero when absent); preserves existing settings and grants unless the administrator explicitly supplies the exact displayed required capabilities as grants. Stale permission selections are rejected. This is opt-in setup, not default installation of all reserved agents or installation of native CLIs. Existing installations are not upgraded or replaced by this endpoint.",
+        "summary": "Explicitly enable a bundled Agent plugin globally",
+        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Only implemented bundled plugins listed by the corresponding GET endpoint are eligible. Uses trusted distribution paths, never caller paths or arbitrary plugin IDs. Requires the current global revision (zero when absent); preserves existing settings and grants unless the administrator explicitly supplies the exact displayed required capabilities as grants. Stale permission selections are rejected. All 14 system plugins are registered and enabled globally by default; this endpoint explicitly re-enables a disabled plugin. Native CLIs are installed and updated only on user request. Existing installations are not upgraded or replaced by this endpoint.",
         "operationId": "enableBundledAgentPlugin",
         "security": [
           {
@@ -16506,16 +16664,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "profile",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Authorized Studio profile."
           }
         ],
         "requestBody": {
@@ -24240,13 +24388,155 @@
         ]
       }
     },
+    "/api/studio/plugins/{id}/configuration": {
+      "get": {
+        "tags": [
+          "Studio Plugins"
+        ],
+        "summary": "Read global plugin configuration",
+        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations.",
+        "operationId": "getPluginProfile",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Result wrapped as { ok: true, data }."
+          },
+          "400": {
+            "description": "Invalid request or manifest."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Access denied or SYSTEM_PLUGIN_PROTECTED; no deletion side effects."
+          },
+          "404": {
+            "description": "Plugin not installed."
+          },
+          "409": {
+            "description": "Revision conflict, registration conflict or active runtime leases."
+          },
+          "422": {
+            "description": "Plugin requests unsupported capabilities."
+          },
+          "503": {
+            "description": "Plugin host or runtime unavailable."
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Studio Plugins"
+        ],
+        "summary": "Configure a plugin globally",
+        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations.",
+        "operationId": "configurePlugin",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Result wrapped as { ok: true, data }."
+          },
+          "400": {
+            "description": "Invalid request or manifest."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Access denied or SYSTEM_PLUGIN_PROTECTED; no deletion side effects."
+          },
+          "404": {
+            "description": "Plugin not installed."
+          },
+          "409": {
+            "description": "Revision conflict, registration conflict or active runtime leases."
+          },
+          "422": {
+            "description": "Plugin requests unsupported capabilities."
+          },
+          "503": {
+            "description": "Plugin host or runtime unavailable."
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "enabled",
+                  "config",
+                  "grants",
+                  "revision"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "config": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "grants": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Explicit subset of the manifest capabilities; activation requires all declared capabilities."
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Current global configuration revision, or 0 for initial configuration."
+                  },
+                  "profile": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/studio/plugins/{id}/consumers": {
       "get": {
         "tags": [
           "Studio Plugins"
         ],
         "summary": "Get consumers",
-        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Durable consumers are scoped to this plugin and authorized profile. Diagnostics expose delivery metadata, never event payloads or lease tokens. Pause preserves pending deliveries; reset-now explicitly discards them and moves to the current event position. Retry requires the dead letter revision.",
+        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Durable consumers belong to the global plugin. Event execution authority is derived from each host-owned resource, never an installation account. Diagnostics expose delivery metadata, never event payloads or lease tokens. Pause preserves pending deliveries; reset-now explicitly discards them and moves to the current event position. Retry requires the dead letter revision.",
         "operationId": "listPluginConsumers",
         "security": [
           {
@@ -24287,16 +24577,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "profile",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Authorized Studio profile."
           }
         ]
       }
@@ -24307,7 +24587,7 @@
           "Studio Plugins"
         ],
         "summary": "Create control",
-        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Durable consumers are scoped to this plugin and authorized profile. Diagnostics expose delivery metadata, never event payloads or lease tokens. Pause preserves pending deliveries; reset-now explicitly discards them and moves to the current event position. Retry requires the dead letter revision.",
+        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Durable consumers belong to the global plugin. Event execution authority is derived from each host-owned resource, never an installation account. Diagnostics expose delivery metadata, never event payloads or lease tokens. Pause preserves pending deliveries; reset-now explicitly discards them and moves to the current event position. Retry requires the dead letter revision.",
         "operationId": "controlPluginConsumer",
         "security": [
           {
@@ -24356,16 +24636,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "profile",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Authorized Studio profile."
           }
         ],
         "requestBody": {
@@ -24408,7 +24678,7 @@
           "Studio Plugins"
         ],
         "summary": "Get deliveries",
-        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Durable consumers are scoped to this plugin and authorized profile. Diagnostics expose delivery metadata, never event payloads or lease tokens. Pause preserves pending deliveries; reset-now explicitly discards them and moves to the current event position. Retry requires the dead letter revision.",
+        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Durable consumers belong to the global plugin. Event execution authority is derived from each host-owned resource, never an installation account. Diagnostics expose delivery metadata, never event payloads or lease tokens. Pause preserves pending deliveries; reset-now explicitly discards them and moves to the current event position. Retry requires the dead letter revision.",
         "operationId": "getPluginConsumerDeliveries",
         "security": [
           {
@@ -24457,16 +24727,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "profile",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Authorized Studio profile."
           }
         ]
       }
@@ -24477,7 +24737,7 @@
           "Studio Plugins"
         ],
         "summary": "Create retry",
-        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Durable consumers are scoped to this plugin and authorized profile. Diagnostics expose delivery metadata, never event payloads or lease tokens. Pause preserves pending deliveries; reset-now explicitly discards them and moves to the current event position. Retry requires the dead letter revision.",
+        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Durable consumers belong to the global plugin. Event execution authority is derived from each host-owned resource, never an installation account. Diagnostics expose delivery metadata, never event payloads or lease tokens. Pause preserves pending deliveries; reset-now explicitly discards them and moves to the current event position. Retry requires the dead letter revision.",
         "operationId": "retryPluginConsumerDelivery",
         "security": [
           {
@@ -24526,16 +24786,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "profile",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Authorized Studio profile."
           }
         ],
         "requestBody": {
@@ -24583,7 +24833,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Profile activation state and stable error code. Does not expose configuration, credentials, paths or raw worker errors.",
+            "description": "Global activation state and stable error code. Does not expose configuration, credentials, paths or raw worker errors.",
             "content": {
               "application/json": {
                 "schema": {
@@ -24604,7 +24854,6 @@
                       "additionalProperties": false,
                       "required": [
                         "pluginId",
-                        "profileId",
                         "generation",
                         "configurationRevision",
                         "state",
@@ -24614,9 +24863,6 @@
                       ],
                       "properties": {
                         "pluginId": {
-                          "type": "string"
-                        },
-                        "profileId": {
                           "type": "string"
                         },
                         "generation": {
@@ -24685,16 +24931,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "profile",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Authorized Studio profile."
           }
         ]
       }
@@ -24705,7 +24941,7 @@
           "Studio Plugins"
         ],
         "summary": "Get profile",
-        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations.",
+        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Compatibility alias for /configuration; profile and account do not own this state.",
         "operationId": "getPluginProfile",
         "security": [
           {
@@ -24746,25 +24982,16 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "profile",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Authorized Studio profile."
           }
-        ]
+        ],
+        "deprecated": true
       },
       "put": {
         "tags": [
           "Studio Plugins"
         ],
         "summary": "Update profile",
-        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations.",
+        "description": "Requires super administrator access. System Coding Agent plugin identities are protected from deletion and replacement. This endpoint manages Studio plugin artifacts, not native CLI installations. Compatibility alias for /configuration; profile and account do not own this state.",
         "operationId": "configurePlugin",
         "security": [
           {
@@ -24805,16 +25032,6 @@
             "schema": {
               "type": "string"
             }
-          },
-          {
-            "name": "profile",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Authorized Studio profile."
           }
         ],
         "requestBody": {
@@ -24849,7 +25066,7 @@
                   "revision": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "Current profile configuration revision, or 0 for initial configuration."
+                    "description": "Current global configuration revision, or 0 for initial configuration."
                   },
                   "profile": {
                     "type": "string"
@@ -24858,7 +25075,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/api/studio/push/registration": {

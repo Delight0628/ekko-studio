@@ -16,6 +16,15 @@ import { PluginEventBus } from '../../packages/server/src/modules/studio/service
 import { createExecutionContext } from '../../packages/server/src/modules/studio/services/context/execution'
 import { createNativeAgentContext } from '../../packages/server/src/modules/studio/services/agents/native-context'
 import { StudioError, type ExecutionScope } from '../../packages/studio-plugin-sdk/src'
+import { SESSIONS_SCHEMA, MESSAGES_SCHEMA } from '../../packages/server/src/modules/studio/infrastructure/database/schemas'
+import { AgentChatProjection } from '../../packages/server/src/modules/studio/repositories/agent-chat-projection'
+import { AgentChatStore } from '../../packages/server/src/modules/studio/repositories/agent-chat-store'
+import { OrdinaryAgentChatStore } from '../../packages/server/src/modules/studio/repositories/ordinary-agent-chat-store'
+import { AgentChats } from '../../packages/server/src/modules/studio/services/agents/chats'
+import { OrdinaryAgentChats } from '../../packages/server/src/modules/studio/services/agents/ordinary-chats'
+import { AgentRunAdmission } from '../../packages/server/src/modules/studio/services/agents/admission'
+import { PluginHookRegistry } from '../../packages/server/src/modules/studio/services/events/plugin-hooks'
+import { BundledAgentPlugins } from '../../packages/server/src/modules/studio/services/plugins/bundled-agents'
 
 let root: string, runner: string
 const cleanups: Array<() => Promise<void>> = []
@@ -76,7 +85,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
   else if (r.method === 'session/cancel') process.exit(0);
 });`
 
-async function setup(mode: 'global' | 'scoped' = 'global', extraEnv: Record<string, string> = {}) {
+async function setup(mode: 'global' | 'scoped' = 'global', extraEnv: Record<string, string> = {}, withChat = false) {
   const directory = await mkdtemp(join(root, 'run-')), cli = join(directory, 'qwen.cjs')
   const pidFile = join(directory, 'pid'), traceFile = join(directory, 'trace')
   await writeFile(cli, fixture)
@@ -95,7 +104,9 @@ async function setup(mode: 'global' | 'scoped' = 'global', extraEnv: Record<stri
     models: { gateway, list: async () => [], get: async () => { throw new Error('unused') }, stream: async () => { throw new Error('unused') } },
     authorize: async () => {}, agents: { list: async () => [] }, sessions: { get: async () => null },
   })
-  const executionStore = new AgentExecutionStore(db)
+  if (withChat) for (const [table, columns] of [['sessions', SESSIONS_SCHEMA], ['messages', MESSAGES_SCHEMA]] as const) db.exec(`CREATE TABLE ${table} (${Object.entries(columns).map(([name, sql]) => `${name} ${sql}`).join(', ')})`)
+  const projection = withChat ? new AgentChatProjection(db) : undefined
+  const executionStore = new AgentExecutionStore(db, projection)
   const artifacts = new AgentArtifacts(db, executionStore, () => {})
   const coordinator = new AgentCoordinator({ store: executionStore, registry, events, logger, authorize: () => {}, authorizeChat: () => {}, validateInput: (scope, input) => artifacts.validate(scope, input), context, stateRoot: join(directory, 'state'),
     nativeContext: (instance, current, provider, signal) => createNativeAgentContext(instance, current, signal, runId => {
@@ -108,13 +119,13 @@ async function setup(mode: 'global' | 'scoped' = 'global', extraEnv: Record<stri
   await host.registerSystemArtifact(join(root, 'plugins/qwen-code'))
   await host.configure({ pluginId: 'studio.agent-qwen', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'commands.register', 'runs.start', 'processes.spawn', 'mcp.studio', 'models.gateway', 'artifacts.read'] }, 0)
   const instance = coordinator.createInstance(scope, { agentTypeId: 'qwen', mode, config: { ...(mode === 'scoped' ? { model: 'fixture/model' } : {}),
-    cwd: directory, command: process.execPath, args: [cli], env: { PID_FILE: pidFile, TRACE_FILE: traceFile, ...extraEnv },
+    approvalRequired: true, cwd: directory, command: process.execPath, args: [cli], env: { PID_FILE: pidFile, TRACE_FILE: traceFile, ...extraEnv },
   } })
   const start = (text: string) => coordinator.start(scope, instance.id, { content: [{ type: 'text', text }] }, text)
   const run = async (text: string) => { const r = start(text); await coordinator.wait(r.id); return coordinator.get(scope, r.id) }
   const trace = async () => (await readFile(traceFile, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
   const pid = async () => Number(await readFile(pidFile, 'utf8'))
-  return { readArtifact, artifacts, gateway, issued, directory, coordinator, host, store, executionStore, instance, start, run, trace, pid }
+  return { readArtifact, artifacts, gateway, issued, directory, coordinator, host, store, executionStore, instance, start, run, trace, pid, db, registry, projection, context }
 }
 function alive(pid: number) { try { process.kill(pid, 0); return true } catch { return false } }
 
@@ -426,4 +437,97 @@ it('injects only selected Studio MCP servers into ACP and keeps the private path
   const completed = (await f.trace()).filter(frame => frame.method === 'session/prompt')
   expect(completed[0].params.prompt[0].text).toContain('ekko_studio_api_openapi_get')
   expect(completed[1].params.prompt[0].text).toContain('second native MCP turn')
+})
+
+for (const mode of ['global', 'scoped'] as const) it(`runs an ordinary ${mode} chat through the real plugin worker, resumes it and writes one transcript`, async () => {
+  const f = await setup(mode, {}, true)
+  const chats = new AgentChats({ store: new AgentChatStore(f.db), projection: f.projection!, executions: f.executionStore, registry: f.registry, coordinator: f.coordinator,
+    admission: new AgentRunAdmission(f.coordinator, new PluginHookRegistry(), f.context), authorize: () => {},
+    createSession: input => { f.db.prepare(`INSERT INTO sessions(id,profile,source,agent,agent_mode,studio_user_id,started_at,last_active) VALUES(?,?,?,?,?,?,1,1)`)
+      .run(input.id, input.profile, input.source, input.agent, input.agent_mode, input.studio_user_id) } })
+  const ordinary = new OrdinaryAgentChats({ store: new OrdinaryAgentChatStore(f.db), registry: f.registry, coordinator: f.coordinator, chats,
+    authorize: () => {}, ensure: async () => { expect(f.host.diagnostic('studio.agent-qwen', 'one').state).toBe('ready') },
+    prepare: async () => { const { approvalRequired: _manual, ...config } = f.instance.config; return config }, defaultWorkspace: () => f.directory, updateSession: () => {} })
+  const selection = { sessionId: `ordinary-${mode}`, agentTypeId: 'qwen', mode, ...(mode === 'scoped' ? { model: 'fixture/model', provider: 'fixture' } : {}) }
+  const chat = await ordinary.create(scope, selection)
+  const first = await chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'approval' }] }, 'ordinary-first', new AbortController().signal)
+  await f.coordinator.wait(first.id)
+  expect(chats.get(scope, chat.sessionId, first.id).status).toBe('completed')
+  expect(chats.interactions(scope, chat.sessionId, first.id)).toEqual([])
+  const image = await f.artifacts.create(scope, await sharp({ create: { width: 2, height: 2, channels: 3, background: 'red' } }).png().toBuffer(), new AbortController().signal)
+  const second = await chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Resumed ordinary turn' }, { type: 'image', artifactId: image.id, mediaType: image.mediaType }] }, 'ordinary-second', new AbortController().signal)
+  await f.coordinator.wait(second.id)
+  expect(chats.get(scope, chat.sessionId, second.id).status).toBe('completed')
+  expect(f.db.prepare("SELECT role,content FROM messages WHERE session_id=? AND (role='user' OR role='assistant' AND content!='') ORDER BY id").all(chat.sessionId)).toMatchObject([
+    { role: 'user', content: 'approval' }, { role: 'assistant', content: 'approval' },
+    { role: 'user' }, { role: 'assistant', content: 'Resumed ordinary turn' },
+  ])
+  expect((await f.trace()).filter(item => item.method === 'session/load')).toHaveLength(1)
+  expect((await f.trace()).filter(item => item.method === 'session/prompt').at(-1).params.prompt).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'image', mimeType: image.mediaType })]))
+  expect((await ordinary.create(scope, selection)).instanceId).toBe(chat.instanceId)
+  if (mode === 'scoped') expect(f.gateway).toHaveBeenCalledWith(expect.objectContaining({ sessionId: chat.sessionId, runId: second.id }), expect.objectContaining({ model: 'fixture/model' }), expect.any(AbortSignal))
+  chats.close()
+})
+
+
+it('keeps tool execution automatic when no manual approval policy is configured', async () => {
+  const f = await setup()
+  const { approvalRequired: _manual, ...config } = f.instance.config
+  await f.coordinator.updateInstance(scope, f.instance.id, { revision: f.instance.revision, mode: f.instance.mode, config })
+  const run = f.start('approval')
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(scope, run.id).status).toBe('completed')
+  expect(f.coordinator.interactions(scope, run.id)).toEqual([])
+  expect((await f.trace()).find((frame: any) => frame.id === 'approve')?.result).toMatchObject({ outcome: { outcome: 'selected', optionId: 'yes' } })
+})
+
+it('continues an existing chat after host reconstruction by restoring the global plugin before admission', async () => {
+  const f = await setup('global', {}, true)
+  const createSession = (input: any) => { f.db.prepare('INSERT INTO sessions(id,profile,source,agent,agent_mode,studio_user_id,started_at,last_active) VALUES(?,?,?,?,?,?,1,1)')
+    .run(input.id, input.profile, input.source, input.agent, input.agent_mode, input.studio_user_id) }
+  const chats = new AgentChats({ store: new AgentChatStore(f.db), projection: f.projection!, executions: f.executionStore, registry: f.registry, coordinator: f.coordinator,
+    admission: new AgentRunAdmission(f.coordinator, new PluginHookRegistry(), f.context), authorize: () => {}, createSession })
+  const chat = chats.create(scope, f.instance.id, { revision: 1, idempotencyKey: 'restart-chat' })
+  const before = await chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Before restart' }] }, 'before', new AbortController().signal)
+  await chats.wait(before.id)
+  await f.coordinator.close(); chats.close(); await f.host.close()
+
+  const registry = new AgentRegistry(), events = new PluginEventBus(), logger = { info() {}, warn() {}, error() {} }
+  const host = new PluginHost({ store: f.store, registry, events, context: f.context, logger, runnerPath: runner, artifactsRoot: join(root, 'installed'),
+    eventContext: async (_state, _event, signal) => f.context(scope, signal), acceptEvents: async batch => { for (const event of batch) events.publish(event) } })
+  const bundles = new BundledAgentPlugins(host, f.store, runner, () => {})
+  const coordinator = new AgentCoordinator({ store: f.executionStore, registry, events, logger, authorize: () => {}, context: f.context, stateRoot: join(f.directory, 'state'),
+    authorizeChat: (current, instance, id) => restored.authorizeRunTarget(current, instance, id) })
+  const restored = new AgentChats({ store: new AgentChatStore(f.db), projection: f.projection!, executions: f.executionStore, registry, coordinator,
+    admission: new AgentRunAdmission(coordinator, new PluginHookRegistry(), f.context), authorize: () => {}, createSession,
+    prepareRuntime: (current, instance) => bundles.ensure(instance.agentTypeId, () => {}) })
+  cleanups.push(async () => { await coordinator.close(); restored.close(); await bundles.close(); await host.close(); events.close() })
+  expect(registry.list('one')).toEqual([])
+  const after = await restored.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'After restart' }] }, 'after', new AbortController().signal)
+  await restored.wait(after.id)
+  expect(restored.get(scope, chat.sessionId, after.id)).toMatchObject({ status: 'completed', instanceId: f.instance.id, sessionId: chat.sessionId, profileId: 'one' })
+  const frames = await f.trace()
+  expect(frames.filter(frame => frame.method === 'session/load')).toHaveLength(1)
+  expect(frames.filter(frame => frame.method === 'session/prompt').map(frame => frame.params.prompt[0].text)).toEqual(['Before restart', 'After restart'])
+  expect(f.db.prepare('SELECT count(*) AS n FROM studio_agent_chat_bindings').get()?.n).toBe(1)
+})
+
+it('replaces a retained runtime after its global worker reloads at the same artifact generation', async () => {
+  const f = await setup()
+  expect((await f.run('Before worker reload')).status).toBe('completed')
+  const previous = f.registry.resolve(scope.profileId, 'qwen')
+  await f.host.close()
+  const events = new PluginEventBus(), logger = { info() {}, warn() {}, error() {} }
+  const host = new PluginHost({ store: f.store, registry: f.registry, events, context: f.context, logger, runnerPath: runner,
+    artifactsRoot: join(root, 'installed'), eventContext: async (_state, _event, signal) => f.context(scope, signal),
+    acceptEvents: async batch => { for (const event of batch) events.publish(event) } })
+  cleanups.push(async () => { await f.coordinator.close(); await host.close(); events.close() })
+  await host.activate('studio.agent-qwen')
+  const current = f.registry.resolve('another-profile', 'qwen')
+  expect(current.provider).toEqual(previous.provider)
+  expect(current.definition).not.toBe(previous.definition)
+  expect((await f.run('After worker reload')).status).toBe('completed')
+  const frames = await f.trace()
+  expect(frames.filter(frame => frame.method === 'session/load')).toHaveLength(1)
+  expect(frames.filter(frame => frame.method === 'session/prompt').map(frame => frame.params.prompt[0].text)).toEqual(['Before worker reload', 'After worker reload'])
 })

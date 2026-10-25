@@ -32,12 +32,12 @@ interface Entry { summary: CommandSummary; invoke: Invoke; authorize(): void; ta
 export class PluginCommandRegistry {
   private entries = new Map<string, Entry>()
   list(profileId: string, agentTypeId: string, target?: RuntimeCommandTarget): CommandSummary[] {
-    return [...this.entries].filter(([key, entry]) => key.startsWith(`${profileId}:`) && this.matches(entry, agentTypeId, target))
+    return [...this.entries].filter(([key, entry]) => (key.startsWith('*:') || key.startsWith(`${profileId}:`)) && this.matches(entry, agentTypeId, target))
       .flatMap(([, entry]) => { try { entry.authorize(); return [jsonCopy(entry.summary)] } catch { return [] } })
       .sort((a, b) => a.id.localeCompare(b.id))
   }
   resolve(profileId: string, agentTypeId: string, id: string, revision: string, target?: RuntimeCommandTarget): Entry {
-    const found = [...this.entries].filter(([key, entry]) => key.startsWith(`${profileId}:`) && entry.summary.id === id && this.matches(entry, agentTypeId, target))
+    const found = [...this.entries].filter(([key, entry]) => (key.startsWith('*:') || key.startsWith(`${profileId}:`)) && entry.summary.id === id && this.matches(entry, agentTypeId, target))
     if (found.length > 1) throw new StudioError('REGISTRATION_CONFLICT', 'Command target is ambiguous')
     const entry = found[0]?.[1]
     if (!entry) throw new StudioError('PLUGIN_UNAVAILABLE', 'Command is unavailable')

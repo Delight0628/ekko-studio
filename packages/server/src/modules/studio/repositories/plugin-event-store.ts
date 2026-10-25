@@ -34,7 +34,7 @@ export class PluginEventStore {
           || this.db.prepare('SELECT MAX(sequence) AS sequence FROM studio_plugin_events WHERE partition_key=?').get(input.partitionKey)) as { sequence: number | null } | undefined
         const event: EventEnvelope = { ...input, sequence: (last?.sequence || 0) + 1 }
         this.db.prepare('INSERT INTO studio_plugin_events (id, partition_key, sequence, profile_id, occurred_at, envelope_json) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(event.id, event.partitionKey, event.sequence, event.subject.profileId, event.occurredAt, JSON.stringify(event))
+          .run(event.id, event.partitionKey, event.sequence, event.subject.profileId || '', event.occurredAt, JSON.stringify(event))
         this.db.prepare('INSERT INTO studio_plugin_event_partitions VALUES (?, ?) ON CONFLICT(partition_key) DO UPDATE SET sequence=excluded.sequence')
           .run(event.partitionKey, event.sequence)
         if (ownerId) this.db.prepare('INSERT INTO studio_plugin_event_owners VALUES (?, ?)').run(event.id, ownerId)
@@ -48,9 +48,9 @@ export class PluginEventStore {
     }
   }
 
-  read(profileId: string, afterPosition = 0, limit = 100): Array<{ position: number; event: EventEnvelope }> {
-    const rows = this.db.prepare('SELECT position, envelope_json FROM studio_plugin_events WHERE profile_id=? AND position>? ORDER BY position LIMIT ?')
-      .all(profileId, afterPosition, Math.max(1, Math.min(limit, 1000))) as Array<{ position: number; envelope_json: string }>
+  read(profileId: string | undefined, afterPosition = 0, limit = 100): Array<{ position: number; event: EventEnvelope }> {
+    const rows = this.db.prepare('SELECT position, envelope_json FROM studio_plugin_events WHERE (? IS NULL OR profile_id=?) AND position>? ORDER BY position LIMIT ?')
+      .all(profileId ?? null, profileId ?? null, afterPosition, Math.max(1, Math.min(limit, 1000))) as Array<{ position: number; envelope_json: string }>
     return rows.map(row => ({ position: row.position, event: JSON.parse(row.envelope_json) as EventEnvelope }))
   }
 

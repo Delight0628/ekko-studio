@@ -3,8 +3,7 @@ import { StudioError } from '../../contracts/plugins'
 import type { PluginHost } from './host'
 import type { PluginStore } from '../../repositories/plugin-store'
 
-// Only implemented, built artifacts are eligible for explicit setup. This is
-// independent of the reservation list and does not default-install 14 agents.
+// Trusted distribution artifacts. Registration never installs the native CLI.
 const bundles = [
   { id: 'qwen', name: 'Qwen Code', pluginId: 'studio.agent-qwen', directory: 'qwen-code' },
   { id: 'codex', name: 'Codex', pluginId: 'studio.agent-codex', directory: 'codex' },
@@ -29,22 +28,64 @@ const bundledCapabilities = ['agents.register', 'commands.register', 'runs.start
 export class BundledAgentPlugins {
   private pending = new Map<string, Promise<unknown>>()
   private closed = false
-  constructor(private host: PluginHost, private store: PluginStore, private runnerPath: string, private authorize: (profileId: string, ownerId: string) => void) {}
+  constructor(private host: PluginHost, private store: PluginStore, private runnerPath: string, private authorize: (ownerId: string) => void) {}
 
-  list(profileId: string) {
+  async registerDefaults(): Promise<void> {
+    for (const bundle of bundles) {
+      if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Plugin setup is shutting down')
+      await this.host.registerSystemArtifact(resolve(dirname(this.runnerPath), '../plugins', bundle.directory), bundle.pluginId,
+        () => { if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Plugin setup is shutting down') })
+      if (!this.store.state(bundle.pluginId)) {
+        const installed = this.store.get(bundle.pluginId)!
+        this.store.saveState({ pluginId: bundle.pluginId, enabled: true, config: {}, grants: [...installed.manifest.requires.capabilities] }, 0)
+      }
+    }
+  }
+
+  list(_legacyProfileId?: string) {
     return bundles.map(bundle => {
-      const profile = this.store.profile(bundle.pluginId, profileId), installed = this.store.get(bundle.pluginId)
+      const profile = this.store.state(bundle.pluginId), installed = this.store.get(bundle.pluginId)
       return { id: bundle.id, name: bundle.name, pluginId: bundle.pluginId, installed: !!installed,
         revision: profile?.revision || 0, enabled: profile?.enabled || false,
         requiredCapabilities: installed?.manifest.requires.capabilities || [...('requiredCapabilities' in bundle ? bundle.requiredCapabilities : bundledCapabilities)],
-        state: installed ? this.host.diagnostic(bundle.pluginId, profileId).state : 'not_installed' }
+        state: installed ? this.host.diagnostic(bundle.pluginId).state : 'not_installed' }
     })
   }
 
-  async enable(id: string, profileId: string, ownerId: string, revision: number, grants?: string[]) {
+  /** Trusted application entry: selecting a shipped Agent needs no setup form.
+   * Global disable and narrowed grants remain authoritative. */
+  async ensure(id: string, authorizeCaller: () => void): Promise<void> {
+    const bundle = bundles.find(value => value.id === id)
+    if (!bundle) throw new StudioError('NOT_FOUND', 'Bundled Agent plugin is unavailable')
     const authorize = () => {
       if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Plugin setup is shutting down')
-      this.authorize(profileId, ownerId)
+      authorizeCaller()
+    }
+    authorize()
+    const pending = this.pending.get(bundle.pluginId)
+    if (pending) { await pending; authorize(); return this.ensure(id, authorizeCaller) }
+    const task = Promise.resolve().then(async () => {
+      authorize()
+      const installed = this.store.get(bundle.pluginId) || await this.host.registerSystemArtifact(
+        resolve(dirname(this.runnerPath), '../plugins', bundle.directory), bundle.pluginId, authorize)
+      authorize()
+      if (installed.id !== bundle.pluginId || installed.installationPolicy.kind !== 'system') throw new StudioError('PLUGIN_UNAVAILABLE', 'Bundled Agent artifact identity does not match')
+      const current = this.store.state(bundle.pluginId)
+      if (!current) await this.host.configure({ pluginId: bundle.pluginId, enabled: true, config: {}, grants: [...installed.manifest.requires.capabilities] }, 0, authorize)
+      else {
+        if (!current.enabled || installed.manifest.requires.capabilities.some(capability => !current.grants.includes(capability))) throw new StudioError('PLUGIN_UNAVAILABLE', 'Agent plugin is disabled or its permissions were revoked')
+        if (this.host.diagnostic(bundle.pluginId).state !== 'ready') await this.host.activate(bundle.pluginId)
+      }
+      authorize()
+    })
+    this.pending.set(bundle.pluginId, task)
+    try { await task } finally { if (this.pending.get(bundle.pluginId) === task) this.pending.delete(bundle.pluginId) }
+  }
+
+  async enable(id: string, ownerId: string, revision: number, grants?: string[]) {
+    const authorize = () => {
+      if (this.closed) throw new StudioError('RUNTIME_UNAVAILABLE', 'Plugin setup is shutting down')
+      this.authorize(ownerId)
     }
     authorize()
     const bundle = bundles.find(value => value.id === id)
@@ -56,7 +97,7 @@ export class BundledAgentPlugins {
     if (this.pending.has(bundle.pluginId)) throw new StudioError('REVISION_CONFLICT', 'Bundled Agent plugin is being configured')
     const task = Promise.resolve().then(async () => {
       authorize()
-      const current = this.store.profile(bundle.pluginId, profileId)
+      const current = this.store.state(bundle.pluginId)
       if ((current?.revision || 0) !== revision) throw new StudioError('REVISION_CONFLICT', 'Plugin configuration changed')
       const existing = this.store.get(bundle.pluginId)
       const installed = existing || await this.host.registerSystemArtifact(resolve(dirname(this.runnerPath), '../plugins', bundle.directory), bundle.pluginId, authorize)
@@ -64,7 +105,7 @@ export class BundledAgentPlugins {
       if (installed.id !== bundle.pluginId || installed.installationPolicy.kind !== 'system') throw new StudioError('PLUGIN_UNAVAILABLE', 'Bundled Agent artifact identity does not match')
       const required = installed.manifest.requires.capabilities
       if (selectedGrants && (selectedGrants.length !== required.length || selectedGrants.some(value => !required.includes(value)))) throw new StudioError('REVISION_CONFLICT', 'Required plugin permissions changed; reload before authorizing')
-      return this.host.configure({ pluginId: bundle.pluginId, profileId, ownerId, enabled: true,
+      return this.host.configure({ pluginId: bundle.pluginId, enabled: true,
         config: current?.config || {}, grants: selectedGrants || current?.grants || [...required] }, revision, authorize)
     })
     this.pending.set(bundle.pluginId, task)

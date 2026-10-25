@@ -40,7 +40,7 @@ it('binds native requests to the host identity and commits measured usage before
   expect(text).toContain('response.completed')
   expect(f.request).toHaveBeenCalledExactlyOnceWith(body, expect.any(AbortSignal), 'run')
   expect(f.resolve).toHaveBeenCalledTimes(2)
-  expect(f.resolve).toHaveBeenLastCalledWith('one', 'provider/model', 'responses', expect.any(Function))
+  expect(f.resolve).toHaveBeenLastCalledWith('one', 'provider/model', 'responses', expect.any(Function), scope)
   expect(f.record).toHaveBeenCalledOnce()
   expect(f.calls()).toEqual([expect.objectContaining({ ownerId: 'owner', profileId: 'one', runId: 'run', model: 'provider/model', status: 'completed',
     usage: expect.objectContaining({ inputTokens: 10, outputTokens: 3, cacheReadTokens: 2 }) })])

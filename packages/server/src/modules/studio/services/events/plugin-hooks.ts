@@ -57,11 +57,11 @@ export class PluginHookRegistry {
     return () => { this.entries.delete(entry); entry.controller.abort(new StudioError('PLUGIN_UNAVAILABLE', 'Hook provider ended')) }
   }
 
-  has(profileId: string, point: HookPoint): boolean { return [...this.entries].some(entry => entry.profileId === profileId && entry.snapshot.point === point) }
+  has(profileId: string, point: HookPoint): boolean { return [...this.entries].some(entry => (entry.profileId === '*' || entry.profileId === profileId) && entry.snapshot.point === point) }
 
   async run<K extends HookPoint>(point: K, input: HookInputMap[K], context: ExecutionContext): Promise<{ input: HookInputMap[K]; snapshot: HookSnapshot[] }> {
     const compare = (left: string, right: string) => left < right ? -1 : left > right ? 1 : 0
-    const chain = [...this.entries].filter(entry => entry.profileId === context.scope.profileId && entry.snapshot.point === point)
+    const chain = [...this.entries].filter(entry => (entry.profileId === '*' || entry.profileId === context.scope.profileId) && entry.snapshot.point === point)
       .sort((a, b) => b.snapshot.priority - a.snapshot.priority || compare(a.snapshot.pluginId, b.snapshot.pluginId) || compare(a.snapshot.key, b.snapshot.key))
     let current = jsonCopy(input)
     const snapshot = chain.map(entry => jsonCopy(entry.snapshot)), end = performance.now() + (this.options.chainTimeoutMs ?? 5_000)

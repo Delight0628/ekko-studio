@@ -1603,6 +1603,17 @@ export function getCodingAgentManagedMcpServerConfigs(
   }))
 }
 
+/** Canonical application configuration, before native protocol formatting. */
+export function getCodingAgentPluginMcpServers(id: string, profile: string): Record<string, unknown> {
+  if (!getCodingAgentDefinition(id)) throw new Error('Unknown Coding Agent')
+  const disabled = getDisabledManagedMcpServers(id as CodingAgentId, profile)
+  return Object.fromEntries(HERMES_MCP_SERVERS.map(item => {
+    const raw = managedHermesMcpServerConfig(id as CodingAgentId, profile, item.name, item.toolset)
+    const value = Object.fromEntries(Object.entries(raw).filter(([key]) => ['command', 'args', 'env', 'url', 'headers', 'type'].includes(key)))
+    return [item.toolset === 'plan' ? 'ekko-studio-interaction' : item.name, { ...value, ...(disabled.has(item.name) ? { enabled: false } : {}) }]
+  }))
+}
+
 function migratePiRuntimeMcpContent(content: string): string | null {
   try {
     const parsed = JSON.parse(content)
@@ -2471,6 +2482,17 @@ export function getCodingAgentDefinitions(): CodingAgentDefinition[] {
 
 export function getCodingAgentDefinition(id: string): CodingAgentDefinition | null {
   return TOOL_DEFINITIONS.find(tool => tool.id === id) || null
+}
+
+/** Discovery only. Native protocols and process lifetime belong to the plugin. */
+export async function getCodingAgentPluginLaunch(id: string) {
+  const definition = getCodingAgentDefinition(id)
+  if (!definition) throw new Error('Unknown Coding Agent')
+  const env = await commandEnv()
+  const native = isNativeCodingAgent(id) ? await nativeAgentEnvironment(id, env) : {}
+  const zcode = id === 'zcode' ? await resolveZcodeCommand([], env, findCommandPaths) : undefined
+  return { command: zcode?.command || await resolveCommandForExecution(definition.command, env), args: zcode?.args || [],
+    env: { PATH: env.PATH || env.Path || '', ...native, ...zcode?.env } as Record<string, string> }
 }
 
 export function withCodingAgentRegistry(id: CodingAgentId, args: string[]): string[] {

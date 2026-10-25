@@ -12,6 +12,7 @@ import type { AgentRunCommandOrigin } from '../../repositories/agent-run-command
 export interface AgentChatSessionCreation {
   id: string; profile: string; source: string; agent: string; agent_mode: 'scoped' | 'global'
   user_id: string; studio_user_id: string; workspace?: string; model?: string
+  provider?: string; reasoning_effort?: string; agent_preset?: string; category_id?: number | null; push_enabled?: boolean
 }
 export interface AgentChatInteractionLease {
   contextId: string; instructions: string
@@ -28,13 +29,15 @@ export class AgentChats {
     coordinator: AgentCoordinator; admission: AgentRunAdmission; registry: AgentRegistry
     authorize(scope: ExecutionScope): void
     createSession(input: AgentChatSessionCreation): void
+    prepareRuntime?(scope: ExecutionScope, instance: AgentInstance): Promise<void>
     interactions?: { begin(sessionId: string, profileId: string, runId: string, isActive: () => boolean, interactive: boolean, ownerId: string): AgentChatInteractionLease }
     interactionError?(runId: string): void
   }) {}
 
   isBound(sessionId: string): boolean { return !!this.deps.projection.binding(sessionId) }
 
-  create(inputScope: ExecutionScope, instanceId: string, value: AgentChatCreationInput) {
+  create(inputScope: ExecutionScope, instanceId: string, value: AgentChatCreationInput,
+    session?: { id: string; settings: Pick<AgentChatSessionCreation, 'model' | 'provider' | 'reasoning_effort' | 'agent_preset' | 'category_id' | 'push_enabled'> }) {
     const scope = jsonCopy(inputScope), input = jsonCopy(value)
     this.check(scope)
     if (scope.sessionId !== undefined || scope.runId !== undefined || scope.workspaceId !== undefined) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Chat creation requires an unbound user scope')
@@ -53,10 +56,10 @@ export class AgentChats {
       this.deps.createSession({ id: binding.sessionId, profile: instance.profileId, source, agent: instance.agentTypeId, agent_mode: instance.mode,
         user_id: scope.principal.id, studio_user_id: scope.principal.id,
         ...(typeof instance.config.cwd === 'string' ? { workspace: instance.config.cwd } : {}),
-        ...(typeof instance.config.model === 'string' ? { model: instance.config.model } : {}) })
+        ...(typeof instance.config.model === 'string' ? { model: instance.config.model } : {}), ...session?.settings })
       this.deps.projection.attach(binding.sessionId, instance, source)
       this.check(scope)
-    }, source)
+    }, source, session?.id)
   }
 
   ownedBinding(scope: ExecutionScope, sessionId: string) {
@@ -74,9 +77,13 @@ export class AgentChats {
     if (current.instance.id !== instance.id) throw new StudioError('FORBIDDEN', 'Chat belongs to another Agent instance')
   }
 
-  start(inputScope: ExecutionScope, sessionId: string, value: AgentRunInput, idempotencyKey: string, signal: AbortSignal, command?: AgentRunCommandOrigin) {
+  async start(inputScope: ExecutionScope, sessionId: string, value: AgentRunInput, idempotencyKey: string, signal: AbortSignal, command?: AgentRunCommandOrigin) {
     const scope = jsonCopy(inputScope), input = jsonCopy(value)
     const { instance } = this.ownedBinding(scope, sessionId)
+    if (signal.aborted) throw new StudioError('CANCELLED', 'Run start was cancelled')
+    await this.deps.prepareRuntime?.(scope, instance)
+    this.ownedBinding(scope, sessionId)
+    if (signal.aborted) throw new StudioError('CANCELLED', 'Run start was cancelled')
     return this.deps.admission.startInChat(scope, sessionId, { instanceId: instance.id, input, idempotencyKey }, signal, command)
   }
 

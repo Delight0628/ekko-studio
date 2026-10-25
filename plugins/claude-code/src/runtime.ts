@@ -36,7 +36,7 @@ export function createClaudeRuntime(input: RuntimeCreateInput, runtime: AgentRun
       let rejectFailure!: (error: unknown) => void
       const failedNative = new Promise<never>((_, reject) => { rejectFailure = reject }); void failedNative.catch(() => {})
       const emit = (event: Output) => queue.push({ ...event, producerSequence: ++sequence } as AgentOutputEvent)
-      const project = claudeEvents(emit), interactions = claudeInteractions(emit)
+      const project = claudeEvents(emit), interactions = claudeInteractions(emit, config.permissionMode !== undefined && config.permissionMode !== 'bypassPermissions')
       const fail = (error: unknown) => { if (disposing) return; nativeFailure ??= error; terminalReject(error); rejectFailure(error) }
       const nativeEvent = (event: ClaudeRecord) => {
         if (cancelled || disposing) return

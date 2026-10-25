@@ -44,7 +44,7 @@ const openapi = {
 // Tag mappings based on route directories
 const tagMappings = {
   'modules/studio/routes/desktop-browser.ts': { name: 'Desktop Browser', description: 'Authenticated remote Desktop browser relay with explicit Desktop consent' },
-  'modules/studio/routes/studio-plugins.ts': { name: 'Studio Plugins', description: 'Studio backend plugin installation, protected system plugins, profile activation and registered Agent types; separate from Hermes native plugins' },
+  'modules/studio/routes/studio-plugins.ts': { name: 'Studio Plugins', description: 'Studio backend plugin installation, protected system plugins, global activation and registered Agent types; separate from Hermes native plugins' },
   'modules/hermes/routes/profiles.ts': { name: 'Profiles', description: 'Hermes profile management' },
   'modules/hermes/routes/models.ts': { name: 'Models', description: 'Model configuration' },
   'modules/hermes/routes/providers.ts': { name: 'Providers', description: 'Model provider management' },
@@ -1956,7 +1956,7 @@ for (const [path, methods] of Object.entries(openapi.paths)) {
       '401': { $ref: '#/components/responses/Unauthorized' }, '403': { description: 'Access denied or SYSTEM_PLUGIN_PROTECTED; no deletion side effects.' },
       '404': { description: 'Plugin not installed.' }, '409': { description: 'Revision conflict, registration conflict or active runtime leases.' },
       '422': { description: 'Plugin requests unsupported capabilities.' }, '503': { description: 'Plugin host or runtime unavailable.' } }
-    if (path.endsWith('/profile') || path.endsWith('/diagnostic') || path.includes('/consumers') || path.startsWith('/api/studio/agent-') || path.startsWith('/api/studio/bundled-agent-plugins')) {
+    if (path.startsWith('/api/studio/agent-') && path !== '/api/studio/agent-types') {
       operation.parameters = [...(operation.parameters || []).filter(parameter => parameter.name !== 'profile'), studioPluginProfile]
     }
   }
@@ -1973,16 +1973,16 @@ openapi.paths['/api/studio/plugins/{id}/consumers/{consumerId}/retry'].post.requ
 for (const [path, methods] of Object.entries(openapi.paths)) {
   if (!path.startsWith('/api/studio/plugins/') || !path.includes('/consumers')) continue
   for (const operation of Object.values(methods)) {
-    operation.description += ' Durable consumers are scoped to this plugin and authorized profile. Diagnostics expose delivery metadata, never event payloads or lease tokens. Pause preserves pending deliveries; reset-now explicitly discards them and moves to the current event position. Retry requires the dead letter revision.'
+    operation.description += ' Durable consumers belong to the global plugin. Event execution authority is derived from each host-owned resource, never an installation account. Diagnostics expose delivery metadata, never event payloads or lease tokens. Pause preserves pending deliveries; reset-now explicitly discards them and moves to the current event position. Retry requires the dead letter revision.'
     operation.responses['409'].description = 'Revision conflict or EVENT_CURSOR_EXPIRED; expired cursors require an explicit reset.'
   }
 }
 openapi.paths['/api/studio/plugins/{id}/diagnostic'].get.responses['200'] = {
-  description: 'Profile activation state and stable error code. Does not expose configuration, credentials, paths or raw worker errors.',
+  description: 'Global activation state and stable error code. Does not expose configuration, credentials, paths or raw worker errors.',
   content: { 'application/json': { schema: { type: 'object', required: ['ok', 'data'], properties: {
     ok: { type: 'boolean', enum: [true] }, data: { type: 'object', additionalProperties: false,
-      required: ['pluginId', 'profileId', 'generation', 'configurationRevision', 'state', 'errorCode', 'updatedAt', 'hasActiveLeases'], properties: {
-        pluginId: { type: 'string' }, profileId: { type: 'string' }, generation: { type: 'string' }, configurationRevision: { type: 'integer', minimum: 0 },
+      required: ['pluginId', 'generation', 'configurationRevision', 'state', 'errorCode', 'updatedAt', 'hasActiveLeases'], properties: {
+        pluginId: { type: 'string' }, generation: { type: 'string' }, configurationRevision: { type: 'integer', minimum: 0 },
         state: { type: 'string', enum: ['disabled', 'inactive', 'activating', 'ready', 'blocked', 'failed'] },
         errorCode: { type: 'string', nullable: true }, updatedAt: { type: 'integer', nullable: true }, hasActiveLeases: { type: 'boolean' },
       },
@@ -1993,10 +1993,18 @@ openapi.paths['/api/studio/plugins/{id}/profile'].put.requestBody = studioPlugin
   required: ['enabled', 'config', 'grants', 'revision'], properties: {
     enabled: { type: 'boolean' }, config: { type: 'object', additionalProperties: true },
     grants: { type: 'array', uniqueItems: true, items: { type: 'string' }, description: 'Explicit subset of the manifest capabilities; activation requires all declared capabilities.' },
-    revision: { type: 'integer', minimum: 0, description: 'Current profile configuration revision, or 0 for initial configuration.' },
+    revision: { type: 'integer', minimum: 0, description: 'Current global configuration revision, or 0 for initial configuration.' },
     profile: { type: 'string' },
   },
 })
+for (const method of ['get', 'put']) {
+  const alias = openapi.paths['/api/studio/plugins/{id}/profile'][method]
+  const canonical = openapi.paths['/api/studio/plugins/{id}/configuration'][method]
+  if (method === 'put') canonical.requestBody = structuredClone(alias.requestBody)
+  canonical.summary = method === 'get' ? 'Read global plugin configuration' : 'Configure a plugin globally'
+  alias.deprecated = true
+  alias.description += ' Compatibility alias for /configuration; profile and account do not own this state.'
+}
 // Plugin handlers own command semantics; these endpoints only discover and dispatch.
 const commandResultSchema = { type: 'object', additionalProperties: true, required: ['event', 'session_id', 'commandCallId', 'commandSequence', 'command', 'action', 'ok', 'message'], properties: {
   event: { type: 'string', enum: ['session.command'] }, session_id: { type: 'string' }, commandCallId: { type: 'string' }, commandSequence: { type: 'integer', minimum: 0 },
@@ -2071,6 +2079,15 @@ agentChatCreate.responses['200'] = { description: 'Owned chat creation receipt.'
     },
   } },
 } } } }
+const ordinaryChatCreate = openapi.paths['/api/studio/agent-chats'].post
+ordinaryChatCreate.summary = 'Create an ordinary Agent chat with an internal plugin binding'
+ordinaryChatCreate.description = 'Keeps the existing Agent and global/model selection flow. The host registers the trusted bundled plugin and atomically creates a private instance, chat and retry receipt; it never installs or updates the native CLI. The draft sessionId is an idempotency key and cannot adopt existing history. Manual model connections stay in host storage, outside plugin configuration. Run-bound callers cannot create independent chats.'
+ordinaryChatCreate.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, required: ['sessionId', 'agentTypeId', 'mode'], properties: {
+  profile: { type: 'string' }, sessionId: { type: 'string', pattern: '^[A-Za-z0-9_-]{1,128}$' }, agentTypeId: { type: 'string', minLength: 1, maxLength: 128 }, mode: { type: 'string', enum: ['scoped', 'global'] },
+  workspace: { type: 'string', maxLength: 4096 }, model: { type: 'string', maxLength: 256 }, provider: { type: 'string', maxLength: 256 }, reasoningEffort: { type: 'string', maxLength: 256 }, agentPreset: { type: 'string', maxLength: 256 },
+  categoryId: { type: 'integer', nullable: true, minimum: 1 }, pushEnabled: { type: 'boolean' }, baseUrl: { type: 'string', maxLength: 8192 }, apiKey: { type: 'string', maxLength: 8192, writeOnly: true }, apiMode: { type: 'string', enum: ['chat_completions', 'codex_responses', 'anthropic_messages'] },
+} })
+ordinaryChatCreate.responses['200'] = agentChatCreate.responses['200']
 const agentChatImage = openapi.paths['/api/studio/agent-chats/{sessionId}/images/{id}'].get
 agentChatImage.summary = 'Read an owned Agent chat image'
 agentChatImage.description += ' Authorizes the current chat and instance owner/profile, then reads immutable image bytes referenced by an accepted Run in this chat. Completed native runs remain readable. Unattached, foreign-chat or removed-chat references cannot be read. Responses disable caching and MIME sniffing.'
@@ -2154,10 +2171,10 @@ const loginCancel = openapi.paths[`${loginOperation}/cancel`].post
 loginCancel.summary = 'Stop the exact owned login terminal and wait for cleanup'
 loginCancel.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, properties: { profile: { type: 'string' } } })
 const bundleEnable = openapi.paths['/api/studio/bundled-agent-plugins/{id}/enable'].post
-bundleEnable.summary = 'Explicitly install and enable an implemented bundled Agent plugin'
-bundleEnable.description += ' Only implemented bundled plugins listed by the corresponding GET endpoint are eligible. Uses trusted distribution paths, never caller paths or arbitrary plugin IDs. Requires the current profile revision (zero when absent); preserves existing settings and grants unless the administrator explicitly supplies the exact displayed required capabilities as grants. Stale permission selections are rejected. This is opt-in setup, not default installation of all reserved agents or installation of native CLIs. Existing installations are not upgraded or replaced by this endpoint.'
+bundleEnable.summary = 'Explicitly enable a bundled Agent plugin globally'
+bundleEnable.description += ' Only implemented bundled plugins listed by the corresponding GET endpoint are eligible. Uses trusted distribution paths, never caller paths or arbitrary plugin IDs. Requires the current global revision (zero when absent); preserves existing settings and grants unless the administrator explicitly supplies the exact displayed required capabilities as grants. Stale permission selections are rejected. All 14 system plugins are registered and enabled globally by default; this endpoint explicitly re-enables a disabled plugin. Native CLIs are installed and updated only on user request. Existing installations are not upgraded or replaced by this endpoint.'
 bundleEnable.requestBody = studioPluginBody({ type: 'object', additionalProperties: false, required: ['revision'], properties: { revision: { type: 'integer', minimum: 0 }, grants: { type: 'array', maxItems: 128, uniqueItems: true, items: { type: 'string', maxLength: 256 } }, profile: { type: 'string' } } })
-openapi.paths['/api/studio/bundled-agent-plugins'].get.summary = 'List implemented bundled Agent plugins and current profile setup state'
+openapi.paths['/api/studio/bundled-agent-plugins'].get.summary = 'List bundled Agent plugins and their global setup state'
 const agentLocations = openapi.paths['/api/studio/agent-instances/{id}/locations'].post
 agentLocations.summary = 'Get native Agent resource locations'
 agentLocations.description += ' Resolves multiple skill roots and multiple configuration files/directories from the owned idle instance and its current revision. The plugin only declares locations; Studio owns scanning and file operations. Does not start a Run or accept caller-selected paths. Omitted categories are unsupported; empty arrays have no configured locations. Stable source IDs distinguish identical names.'

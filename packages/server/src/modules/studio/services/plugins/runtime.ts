@@ -4,7 +4,14 @@ import { getDb } from '../../infrastructure/database'
 import { config } from '../../public/config'
 import { logger as applicationLogger } from '../../public/logging'
 import { findUserById, userCanAccessProfile } from '../../repositories/users-store'
-import { addMessage, updateSessionStats, getSessionMetadata, createSession } from '../../repositories/session-store'
+import { addMessage, updateSessionStats, getSessionMetadata, createSession, updateSession } from '../../repositories/session-store'
+import { OrdinaryAgentChats } from '../agents/ordinary-chats'
+import { OrdinaryAgentChatStore } from '../../repositories/ordinary-agent-chat-store'
+import { defaultCodingAgentWorkspace } from '../../public/workspace-manager'
+import { getChatCodingAgentPluginMcpServers, getChatCodingAgentPluginLaunch } from '../../public/chat-agent-runtime'
+import { hostedModelCatalog, hostedModelCallable } from '../models/hosted-provider'
+import { isStudioManagedMcpServer } from '../mcp/managed-config'
+import { getSystemPrompt } from '../../public/runs/prompt'
 import { PluginStore } from '../../repositories/plugin-store'
 import { PluginEventStore } from '../../repositories/plugin-event-store'
 import { PluginConsumerStore } from '../../repositories/plugin-consumer-store'
@@ -29,7 +36,7 @@ import { PluginChatRunStore } from '../../repositories/plugin-chat-run-store'
 import { PluginChatRuns, authorizeOwnedChatSession } from '../chat-run/plugin'
 import { getChatRunServer } from '../chat-run/server-registry'
 import { PluginWorkflows } from '../workflow/plugin'
-import { authorizePluginEvent } from '../events/plugin-event-access'
+import { pluginEventExecutionScope } from '../events/plugin-event-access'
 import { studioSessionAccount } from '../../contracts/runs/usage'
 import { PluginHookRegistry } from '../events/plugin-hooks'
 import { configureSessionRemovalHook } from '../sessions/removal-hook'
@@ -52,6 +59,7 @@ const logger: ScopedLogger = {
 }
 
 export function authorizePluginScope(scope: ExecutionScope, operation?: ContextOperation, resourceId?: string): void {
+  if (scope.principal.kind === 'service' && scope.surface === 'event' && !scope.profileId && operation === 'agents.read') return
   if (scope.principal.kind !== 'user') throw new StudioError('FORBIDDEN', 'Plugin execution requires a user principal')
   const user = findUserById(scope.principal.id)
   if (!user || user.status !== 'active') throw new StudioError('FORBIDDEN', 'Execution principal is unavailable')
@@ -128,13 +136,26 @@ export function createStudioPluginRuntime(runnerPath: string) {
     } },
   })
   const chatProjection = new AgentChatProjection(db)
+  const ordinaryStore = new OrdinaryAgentChatStore(db)
   const executionStore = new AgentExecutionStore(db, chatProjection)
   const managementStore = new AgentManagementStore(db)
   managementStore.recoverInterrupted()
   const artifacts = new AgentArtifacts(db, executionStore, authorizePluginScope)
   executionStore.recover()
   modelStore.recover(record => executionStore.state.recordHostModelUsage(record))
-  const models = new PluginModels({ store: modelStore, state: executionStore.state, list: listApiModels, prepare: prepareModelResponse, native: resolveNativeModel,
+  const models = new PluginModels({ store: modelStore, state: executionStore.state, list: listApiModels, prepare: prepareModelResponse,
+    native: (profileId, modelId, protocol, authorize, scope) => {
+      if (!modelId.startsWith('studio-chat:')) return resolveNativeModel(profileId, modelId, protocol, authorize)
+      authorize()
+      const sessionId = modelId.slice('studio-chat:'.length)
+      if (!scope?.sessionId || scope.sessionId !== sessionId) throw new StudioError('FORBIDDEN', 'Chat model belongs to another execution scope')
+      agentChats.ownedBinding(scope, sessionId)
+      const selection = ordinaryStore.selection(sessionId)
+      if (!selection?.baseUrl || typeof selection.model !== 'string' || typeof selection.provider !== 'string') throw new StudioError('NOT_FOUND', 'Chat model connection is unavailable')
+      return resolveNativeModel(profileId, modelId, protocol, authorize, { profile: profileId, model: selection.model,
+        group: { provider: selection.provider, models: [selection.model], api_mode: String(selection.apiMode || '') },
+        runtime: { baseUrl: String(selection.baseUrl), apiKey: String(selection.apiKey || ''), ...(selection.apiMode ? { apiMode: String(selection.apiMode) } : {}) } })
+    },
     authorizeStart: current => {
       if (current.runId && !['running', 'waiting_input'].includes(executionStore.get(current.runId)?.status || '')) throw new StudioError('RUN_FINALIZING', 'Parent run no longer accepts model work')
     },
@@ -165,6 +186,11 @@ export function createStudioPluginRuntime(runnerPath: string) {
   const admission = new AgentRunAdmission(coordinator, hooks, context)
   const agentChats = new AgentChats({ store: new AgentChatStore(db), projection: chatProjection, executions: executionStore, coordinator, admission, registry,
     authorize: authorizePluginScope, createSession: input => { createSession(input) },
+    prepareRuntime: async (scope, instance) => {
+      if (bundledAgents.list().some(plugin => plugin.id === instance.agentTypeId)) {
+        await bundledAgents.ensure(instance.agentTypeId, () => authorizePluginScope(scope))
+      }
+    },
     interactions: { begin: (...args) => {
       const server = getChatRunServer()
       if (typeof server?.beginAgentTaskPlanRun !== 'function') throw new StudioError('CAPABILITY_UNSUPPORTED', 'Chat interactions are unavailable')
@@ -180,20 +206,15 @@ export function createStudioPluginRuntime(runnerPath: string) {
     try {
       if (managed) await getChatRunServer()?.settleManagedAgentChat?.(sessionId)
       if (hooks.has(profileId, 'sessions.remove')) await hooks.run('sessions.remove', { sessionId }, context({ ...scope, sessionId }, signal))
-      return lease ? { ownsNative: true as const, removed: () => lease.reset(), release: () => lease.release() } : undefined
+      return lease ? { ownsNative: true as const, removed: () => { lease.reset(); ordinaryStore.retire(sessionId) }, release: () => lease.release() } : undefined
     } catch (error) { lease?.release(); throw error }
   })
   const host = new PluginHost({ store, registry, events, consumers, hooks, runnerPath, artifactsRoot: resolve(config.appHome, 'plugins', 'artifacts'), logger, context,
-    eventContext: async (state, event, signal) => {
+    eventContext: async (_state, event, signal) => {
       const run = event.subject.runId ? executionStore.get(event.subject.runId) : null
       const session = event.subject.sessionId ? getSessionMetadata(event.subject.sessionId) : null
-      authorizePluginEvent(state, event, { recordedOwner: eventStore.owner(event.id), run, session })
-      const scope: ExecutionScope = {
-        scopeId: randomUUID(), principal: { kind: 'user', id: state.ownerId }, profileId: state.profileId,
-        ...(event.subject.sessionId ? { sessionId: event.subject.sessionId } : {}),
-        ...(event.subject.runId ? { runId: event.subject.runId } : {}), surface: 'event', traceId: event.correlationId,
-      }
-      authorizePluginScope(scope, 'sessions.read', event.subject.sessionId)
+      const scope = pluginEventExecutionScope(event, { recordedOwner: eventStore.owner(event.id), run, session })
+      if (scope.principal.kind === 'user') authorizePluginScope(scope, 'sessions.read', event.subject.sessionId)
       return context(scope, signal)
     },
     acceptEvents: async (batch: EventEnvelope[]) => { for (const event of eventStore.append(batch)) events.publish(event) },
@@ -233,11 +254,35 @@ export function createStudioPluginRuntime(runnerPath: string) {
       if (notification) events.publish(notification)
     }
   })
-  const bundledAgents = new BundledAgentPlugins(host, store, runnerPath, (_profileId, ownerId) => {
+  const bundledAgents = new BundledAgentPlugins(host, store, runnerPath, (ownerId) => {
     const user = findUserById(ownerId)
     if (!user || user.status !== 'active' || user.role !== 'super_admin') throw new StudioError('FORBIDDEN', 'Plugin installation requires a super administrator')
   })
-  return { host, bundledAgents, commands, store, eventStore, executionStore, artifacts, coordinator, registry, events, consumers, hooks, models, context, agentChats,
+  const ordinaryChats = new OrdinaryAgentChats({ store: ordinaryStore, registry, coordinator, chats: agentChats,
+    authorize: authorizePluginScope, defaultWorkspace: defaultCodingAgentWorkspace, updateSession: (id, { push_enabled, ...settings }) => {
+      updateSession(id, { ...settings, ...(push_enabled === undefined ? {} : { push_enabled: push_enabled ? 1 : 0 }) })
+    },
+    ensure: (scope, id) => bundledAgents.ensure(id, () => authorizePluginScope(scope)),
+    prepare: async (scope, selection) => {
+      const launch = await getChatCodingAgentPluginLaunch(selection.agentTypeId)
+      const servers = getChatCodingAgentPluginMcpServers(selection.agentTypeId, scope.profileId)
+      const managed = Object.entries(servers).filter(([name, value]) => isStudioManagedMcpServer(name, value))
+      const config: import('../../contracts/plugins').JsonObject = { ...launch, systemPrompt: getSystemPrompt(),
+        mcpServers: Object.fromEntries(Object.entries(servers).filter(([name, value]) => !isStudioManagedMcpServer(name, value)
+          && (value as { enabled?: boolean; disabled?: boolean }).enabled !== false && (value as { disabled?: boolean }).disabled !== true)) as import('../../contracts/plugins').JsonObject,
+        studioMcp: { enabled: managed.length > 0, ...Object.fromEntries(['api', 'browser', 'devices', 'use', 'interaction'].map(toolset => [toolset, managed.some(([name]) => name === `ekko-studio-${toolset}`)])) } }
+      if (selection.mode === 'global') { if (selection.model) config.model = selection.model }
+      else {
+        const entry = [...await hostedModelCatalog([scope.profileId])].find(([, value]) => value.model === selection.model && value.group.provider === selection.provider && hostedModelCallable(value))
+        if (selection.baseUrl) config.model = `studio-chat:${selection.sessionId}`
+        else {
+          if (!entry || selection.apiKey) throw new StudioError('NOT_FOUND', 'Selected chat model is unavailable')
+          config.model = entry[0]
+        }
+      }
+      return config
+    } })
+  return { host, bundledAgents, ordinaryChats, commands, store, eventStore, executionStore, artifacts, coordinator, registry, events, consumers, hooks, models, context, agentChats,
     async close() { unsubscribe(); await removeHook(); chat.close(); await bundledAgents.close(); await commands.close(); await coordinator.close(); agentChats.close(); if (getAgentChatService() === agentChats) setAgentChatService(undefined); await host.close(); await models.close(); await consumers.close(); events.close() } }
 }
 

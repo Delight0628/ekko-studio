@@ -85,13 +85,47 @@ function setup(sessions: ContextServices['sessions'] = { get: async () => null }
   }, signal, logger, { authorize: async () => {}, sessions, agents: { list: async profile => registry.list(profile) } })
   const host = new PluginHost({ store, registry, events, runnerPath: runner, artifactsRoot: join(root, 'artifacts'), logger, context,
     eventContext: async (state, event, signal) => context({
-      scopeId: 'event', principal: { kind: 'user', id: state.ownerId }, profileId: state.profileId, surface: 'event', traceId: event.correlationId,
+      scopeId: 'event', principal: { kind: 'user', id: '1' }, profileId: event.subject.profileId || 'default', surface: 'event', traceId: event.correlationId,
       ...(event.subject.runId ? { runId: event.subject.runId } : {}), ...(event.subject.sessionId ? { sessionId: event.subject.sessionId } : {}),
     }, signal), acceptEvents: async batch => { for (const event of eventStore.append(batch)) events.publish(event) } })
   const coordinator: AgentCoordinator = new AgentCoordinator({ store: new AgentExecutionStore(db), registry, events, logger, authorize: () => {}, context })
   cleanup.push(async () => { await coordinator.close(); await host.close(); events.close(); db.close() })
   return { db, store, registry, events, logger, host, ctx, coordinator, eventStore }
 }
+
+it('activates one global worker and passes distinct profile/account authority to each runtime', async () => {
+  const { host, store, registry, coordinator, eventStore } = setup()
+  const directory = await mkdtemp(join(root, 'global-'))
+  const manifest: PluginManifest = { schemaVersion: 1, id: 'test.global', version: '1.0.0', engines: { studioSdk: '^0.1.0', rpc: 1 },
+    backend: 'index.cjs', activation: 'global', contributes: { agents: ['test.global/agent'] }, requires: { capabilities: ['agents.register'] } }
+  await writeFile(join(directory, 'studio-plugin.json'), JSON.stringify(manifest))
+  await writeFile(join(directory, 'index.cjs'), `let activations = 0; module.exports = { apply(plugin) {
+    if ('profileId' in plugin.plugin || 'ownerId' in plugin.plugin) throw new Error('Plugin identity must be global');
+    activations++;
+    plugin.agents.register({ id: 'test.global/agent', name: 'Global fixture', configSchema: {}, capabilities: { text: true, modes: ['scoped'] },
+      create: async (_, factory) => ({ run: async (_, ctx) => ({
+        events: (async function* () { yield { type: 'message.delta', producerSequence: 1, messageId: 'answer',
+          text: [activations, factory.profileId, factory.ownerId, ctx.scope.profileId, ctx.scope.principal.id].join(':') } })(),
+        result: Promise.resolve({ status: 'completed' }), cancel: async () => {}
+      }), dispose: async () => {} })
+    });
+  } }`)
+  await host.install(directory)
+  await host.configure({ pluginId: manifest.id, enabled: true, config: {}, grants: manifest.requires.capabilities }, 0)
+  for (const [profileId, ownerId] of [['one', 'account-one'], ['two', 'account-two']]) {
+    await host.activate(manifest.id, profileId)
+    const scope: ExecutionScope = { scopeId: profileId, profileId, principal: { kind: 'user', id: ownerId }, surface: 'api', traceId: profileId }
+    expect(registry.list(profileId).map(agent => agent.id)).toEqual(['test.global/agent'])
+    const instance = coordinator.createInstance(scope, { agentTypeId: 'test.global/agent', config: {}, mode: 'scoped' })
+    const run = coordinator.start(scope, instance.id, { content: [{ type: 'text', text: 'hello' }] }, 'run')
+    await coordinator.wait(run.id)
+    expect(coordinator.output(scope, run.id, -1).find(event => event.type === 'message.delta')).toMatchObject({ text: `1:${profileId}:${ownerId}:${profileId}:${ownerId}` })
+    expect(() => coordinator.get({ ...scope, principal: { kind: 'user', id: 'another-account' } }, run.id)).toThrow()
+  }
+  expect(store.state(manifest.id)).toEqual({ pluginId: manifest.id, enabled: true, config: {}, grants: manifest.requires.capabilities, revision: 1 })
+  expect(eventStore.read(undefined).filter(row => row.event.type === 'plugin.ready')).toHaveLength(1)
+  expect(eventStore.read(undefined).filter(row => row.event.type === 'plugin.ready')[0].event.subject).toEqual({ pluginId: manifest.id })
+})
 
 it.each(['cancel', 'revoke'])('stops an uncooperative management callback before releasing its instance (%s)', async action => {
   const { host, store, registry, coordinator, logger } = setup()
@@ -464,7 +498,7 @@ describe('plugin worker integration', () => {
     await host.install(directory)
     await expect(host.configure({ pluginId: 'test.broken', profileId: 'default', ownerId: '1', enabled: true, config: {}, grants: manifest.requires.capabilities }, 0)).rejects.toThrow('Plugin operation failed')
     expect(registry.list('default')).toEqual([])
-    expect(eventStore.read('default').map(row => row.event)).toEqual([expect.objectContaining({
+    expect(eventStore.read(undefined).map(row => row.event)).toEqual([expect.objectContaining({
       type: 'plugin.failed', data: { pluginId: manifest.id, generation: expect.any(String) },
     })])
   }, 20_000)
@@ -504,7 +538,7 @@ describe('plugin worker integration', () => {
     await coordinator.wait(run.id)
     expect(coordinator.get(scope, run.id).status).toBe('completed')
     expect(coordinator.output(scope, run.id, -1)).toEqual([{ type: 'message.delta', producerSequence: 1, messageId: 'answer', text: 'Echo: persisted' }])
-    expect(eventStore.read('default').filter(row => row.event.type === 'run.completed')).toHaveLength(1)
+    expect(eventStore.read(undefined).filter(row => row.event.type === 'run.completed')).toHaveLength(1)
     await host.uninstall(installation.id)
     expect(coordinator.get(scope, run.id).status).toBe('completed')
     expect(coordinator.start(scope, instance.id, input, 'same-request').id).toBe(run.id)

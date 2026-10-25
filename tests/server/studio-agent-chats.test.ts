@@ -20,12 +20,17 @@ import type { DirectChatRunOptions } from '../../packages/server/src/modules/stu
 import { PluginCommandStore } from '../../packages/server/src/modules/studio/repositories/plugin-command-store'
 import { CommandExecutionScopes } from '../../packages/server/src/modules/studio/services/commands/scopes'
 import { AgentContextRuns } from '../../packages/server/src/modules/studio/services/agents/context-runs'
+import { OrdinaryAgentChats } from '../../packages/server/src/modules/studio/services/agents/ordinary-chats'
+import { OrdinaryAgentChatStore } from '../../packages/server/src/modules/studio/repositories/ordinary-agent-chat-store'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const scope: ExecutionScope = { scopeId: 'app', principal: { kind: 'user', id: '7' }, profileId: 'one', surface: 'api', traceId: 'trace' }
 const cleanup: Array<() => Promise<void>> = []
 afterEach(async () => { for (const close of cleanup.splice(0)) await close() })
 
-function setup(interactions?: ConstructorParameters<typeof AgentChats>[0]['interactions']) {
+function setup(interactions?: ConstructorParameters<typeof AgentChats>[0]['interactions'], prepareRuntime?: ConstructorParameters<typeof AgentChats>[0]['prepareRuntime']) {
   const db = new DatabaseSync(':memory:')
   for (const [table, columns] of [['sessions', SESSIONS_SCHEMA], ['messages', MESSAGES_SCHEMA]] as const) db.exec(`CREATE TABLE ${table} (${Object.entries(columns).map(([name, sql]) => `${name} ${sql}`).join(', ')})`)
   const projection = new AgentChatProjection(db), executions = new AgentExecutionStore(db, projection), store = new AgentChatStore(db)
@@ -57,10 +62,10 @@ function setup(interactions?: ConstructorParameters<typeof AgentChats>[0]['inter
     if (failCreation) throw new Error('fixture session failure')
   })
   const admission = new AgentRunAdmission(coordinator, hooks, context)
-  const chats = new AgentChats({ store, projection, executions, coordinator, admission, registry, authorize, createSession, interactions })
+  const chats = new AgentChats({ store, projection, executions, coordinator, admission, registry, authorize, createSession, interactions, prepareRuntime })
   cleanup.push(async () => { await coordinator.close(); chats.close(); events.close(); db.close() })
   const create = (key = 'create') => chats.create(scope, instance.id, { revision: 1, idempotencyKey: key })
-  return { db, chats, store, projection, executions, coordinator, admission, instance, registration, factory, createSession, create,
+  return { db, chats, store, projection, executions, coordinator, admission, instance, registration, factory, createSession, create, registry, authorize,
     revoke() { allowed = false }, fail() { failCreation = true }, recover() { failCreation = false },
     failDisposal() { failDisposal = true },
     hold() { held = Promise.withResolvers<void>() }, release() { held?.resolve(); held = undefined } }
@@ -213,17 +218,19 @@ it('reads corrected per-call usage once and preserves partial unknowns across mo
   expect(readAgentChatSummaries(f.db, [chat.sessionId])[chat.sessionId].agent_usage).toMatchObject({ modelCalls: 2, unknownModelCalls: 1, inputTokens: null, outputTokens: null })
   f.executions.state.recordHostModelUsage({ ...host, revision: 2, status: 'completed', usage: { inputTokens: 7, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0 } })
   const message = f.projection.message(run.id, 'message', 'm')!
-  expect(readAgentChatRunSummaries(f.db, chat.sessionId, [String(message.id)] )).toMatchObject([{ inputTokens: 25, outputTokens: 6, cacheReadTokens: null, costUsd: null, tokensPerSecond: null }])
+  expect(readAgentChatRunSummaries(f.db, chat.sessionId, [String(message.id)])).toEqual([])
+  expect(readAgentChatSummaries(f.db, [chat.sessionId])[chat.sessionId].agent_usage).toMatchObject({ inputTokens: 25, outputTokens: 6, cacheReadTokens: null, costUsd: null })
   f.executions.appendOutput(run.id, { type: 'usage.reported', producerSequence: 3, modelCallId: 'native-call', model: 'native-model', mode: 'final',
     revision: 3, inputTokens: 18, outputTokens: 4, cacheReadTokens: 4, cacheWriteTokens: 2, reasoningTokens: 1 })
-  expect(readAgentChatRunSummaries(f.db, chat.sessionId, [String(message.id)])[0]).toMatchObject({
-    inputTokens: 25, outputTokens: 6, cacheReadTokens: 4, cacheHitRate: 4 / 25,
-  })
+  expect(readAgentChatRunSummaries(f.db, chat.sessionId, [String(message.id)])).toEqual([])
   expect(readAgentChatSummaries(f.db, [chat.sessionId])[chat.sessionId].agent_usage).toMatchObject({
     inputTokens: 25, outputTokens: 6, cacheReadTokens: 4, cacheWriteTokens: 2, reasoningTokens: 1,
   })
   expect(readAgentChatRunSummaries(f.db, 'other-chat', [String(message.id)])).toEqual([])
   f.release(); await f.chats.wait(run.id)
+  expect(readAgentChatRunSummaries(f.db, chat.sessionId, [String(message.id)])[0]).toMatchObject({
+    inputTokens: 25, outputTokens: 6, cacheReadTokens: 4, cacheHitRate: 4 / 25, costUsd: null, tokensPerSecond: null,
+  })
 })
 
 it('includes host cache buckets once in total input and retains reported versus estimated cost corrections', async () => {
@@ -487,4 +494,106 @@ it('replays completed retries only to their observer without changing a later Ru
   await expect(delivery.replay(scope, chat.sessionId, second.id, 'second', replayed)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
   expect(f.chats.get(scope, chat.sessionId, second.id).status).toBe('running')
   f.release(); await delivery.idle(chat.sessionId); delivery.close()
+})
+
+function ordinarySetup() {
+  const f = setup(), root = mkdtempSync(join(tmpdir(), 'studio-ordinary-chat-'))
+  cleanup.push(async () => { rmSync(root, { recursive: true, force: true }) })
+  const store = new OrdinaryAgentChatStore(f.db), ensure = vi.fn(async () => {}), prepare = vi.fn(async (_scope, selection) => ({ model: selection.model }))
+  const updateSession = (id: string, settings: any) => {
+    f.db.prepare('UPDATE sessions SET model=?, provider=?, workspace=?, reasoning_effort=? WHERE id=?').run(settings.model, settings.provider, settings.workspace, settings.reasoning_effort, id)
+  }
+  const ordinary = new OrdinaryAgentChats({ store, registry: f.registry, coordinator: f.coordinator, chats: f.chats, authorize: f.authorize,
+    ensure, prepare, defaultWorkspace: () => root, updateSession })
+  const selection = { sessionId: 'draft-one', agentTypeId: f.instance.agentTypeId, mode: 'global', model: 'native-model' }
+  return { ...f, ordinary, ordinaryStore: store, selection, ensure, prepare }
+}
+
+it('internally binds concurrent ordinary-chat retries to one isolated instance and canonical transcript', async () => {
+  const f = ordinarySetup()
+  const [one, retry] = await Promise.all([f.ordinary.create(scope, f.selection), f.ordinary.create(scope, f.selection)])
+  expect(one).toEqual(retry)
+  expect(one.sessionId).toBe('draft-one')
+  expect(f.executions.instances('7', 'one')).toHaveLength(2) // fixture instance plus one chat instance
+  const two = await f.ordinary.create(scope, { ...f.selection, sessionId: 'draft-two' })
+  expect(two.instanceId).not.toBe(one.instanceId)
+  expect(f.factory).not.toHaveBeenCalled()
+  const run = await f.chats.start(scope, one.sessionId, { content: [{ type: 'text', text: 'Ordinary input' }] }, 'ordinary-run', new AbortController().signal)
+  await f.coordinator.wait(run.id)
+  expect(f.factory).toHaveBeenCalledOnce()
+  expect(f.db.prepare('SELECT role,content FROM messages WHERE session_id=? ORDER BY id').all(one.sessionId)).toEqual([
+    { role: 'user', content: 'Ordinary input' }, { role: 'assistant', content: 'Native answer' },
+  ])
+  expect(f.chats.summary(scope, one.sessionId)).toMatchObject({ agent_instance_id: one.instanceId, agent_chat_settings: true, model: 'native-model' })
+  expect((await f.ordinary.create(scope, f.selection)).sessionId).toBe(one.sessionId)
+})
+
+it('rejects ordinary chat identity overrides, reused drafts, history adoption and deleted-chat retries', async () => {
+  const f = ordinarySetup(), chat = await f.ordinary.create(scope, f.selection)
+  await expect(f.ordinary.create(scope, { ...f.selection, model: 'different' })).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  for (const current of [{ ...scope, profileId: 'two' }, { ...scope, principal: { kind: 'user' as const, id: '8' } }]) {
+    await expect(f.ordinary.create(current, f.selection)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  }
+  for (const extra of [{ sessionId: 'bound' }, { runId: 'bound' }, { workspaceId: 'bound' }]) {
+    await expect(f.ordinary.create({ ...scope, ...extra }, f.selection)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  }
+  for (const patch of [{ config: {} }, { ownerId: '8' }, { command: '/untrusted' }, { env: { AUTH_TOKEN: 'secret' } }, { workspace: '../relative' }]) {
+    await expect(f.ordinary.create(scope, { ...f.selection, ...patch })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+  }
+  f.db.prepare("INSERT INTO sessions(id,profile,source,studio_user_id,started_at,last_active) VALUES ('legacy','one','coding_agent','7',1,1)").run()
+  await expect(f.ordinary.create(scope, { ...f.selection, sessionId: 'legacy' })).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  f.db.prepare('DELETE FROM sessions WHERE id=?').run(chat.sessionId)
+  await expect(f.ordinary.create(scope, f.selection)).rejects.toBeInstanceOf(StudioError)
+  expect(f.db.prepare('SELECT count(*) AS n FROM sessions WHERE id=?').get(chat.sessionId)?.n).toBe(0)
+})
+
+it('rolls back an ordinary chat instance and receipt with failed session creation and respects late revocation', async () => {
+  const f = ordinarySetup()
+  f.fail()
+  await expect(f.ordinary.create(scope, f.selection)).rejects.toThrow('fixture session failure')
+  expect(f.executions.instances('7', 'one')).toHaveLength(1)
+  expect(f.ordinaryStore.selection('draft-one')).toBeUndefined()
+  f.recover()
+  f.ensure.mockImplementationOnce(async () => { f.revoke() })
+  await expect(f.ordinary.create(scope, f.selection)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  expect(f.prepare).toHaveBeenCalledOnce()
+  expect(f.executions.instances('7', 'one')).toHaveLength(1)
+})
+
+it('updates ordinary chat settings through the same instance and refuses to change an active Run', async () => {
+  const f = ordinarySetup(), chat = await f.ordinary.create(scope, f.selection)
+  await f.ordinary.update(scope, chat.sessionId, { model: 'native-next' })
+  expect(f.chats.summary(scope, chat.sessionId)).toMatchObject({ agent_instance_id: chat.instanceId, agent_instance_revision: 2, agent_chat_settings: true, model: 'native-next' })
+  expect(f.db.prepare('SELECT model FROM sessions WHERE id=?').get(chat.sessionId)?.model).toBe('native-next')
+  expect((await f.ordinary.create(scope, f.selection)).instanceId).toBe(chat.instanceId)
+  f.hold()
+  const run = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Active' }] }, 'active', new AbortController().signal)
+  await vi.waitFor(() => expect(f.executions.get(run.id)?.status).toBe('running'))
+  await expect(f.ordinary.update(scope, chat.sessionId, { model: 'racing' })).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  expect(f.ordinaryStore.selection(chat.sessionId)?.model).toBe('native-next')
+  expect(f.executions.instance(chat.instanceId)?.config.model).toBe('native-next')
+  f.release(); await f.coordinator.wait(run.id)
+})
+
+it('restores the bound profile provider before a continuation and rechecks ownership after activation', async () => {
+  let restore: (() => void) | undefined
+  const prepare = vi.fn(async () => { restore?.() })
+  const f = setup(undefined, prepare), chat = f.create()
+  const first = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'First' }] }, 'first', new AbortController().signal)
+  await f.chats.wait(first.id)
+  f.registration.dispose()
+  restore = () => {
+    const registration = f.registry.stage('one', first.provider, [f.instance.agentTypeId])
+    registration.register({ id: f.instance.agentTypeId, name: 'Restored Agent', configSchema: { type: 'object' }, capabilities: { text: true, modes: ['global'] }, create: f.factory })
+    registration.commit()
+  }
+  const second = await f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Continue' }] }, 'second', new AbortController().signal)
+  await f.chats.wait(second.id)
+  expect(second).toMatchObject({ sessionId: chat.sessionId, instanceId: chat.instanceId, profileId: 'one' })
+  expect(f.chats.get(scope, chat.sessionId, second.id).status).toBe('completed')
+  const calls = prepare.mock.calls.length
+  await expect(f.chats.start({ ...scope, profileId: 'other' }, chat.sessionId, { content: [{ type: 'text', text: 'Wrong profile' }] }, 'wrong', new AbortController().signal)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  expect(prepare).toHaveBeenCalledTimes(calls)
+  restore = () => { f.revoke() }
+  await expect(f.chats.start(scope, chat.sessionId, { content: [{ type: 'text', text: 'Revoked' }] }, 'revoked', new AbortController().signal)).rejects.toMatchObject({ code: 'FORBIDDEN' })
 })

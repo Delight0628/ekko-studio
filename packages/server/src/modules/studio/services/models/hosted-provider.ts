@@ -34,7 +34,7 @@ export function hostedModelSupported(group: HostedModelGroup, model: string): bo
   return !['bedrock_converse', 'codex_app_server'].includes(hostedModelApiMode(group, model) || '')
 }
 
-export interface HostedModelEntry { profile: string; group: HostedModelGroup; model: string }
+export interface HostedModelEntry { profile: string; group: HostedModelGroup; model: string; runtime?: { baseUrl: string; apiKey: string; apiMode?: string } }
 export function hostedModelCallable(entry: HostedModelEntry): boolean {
   return hostedModelSupported(entry.group, entry.model) && !entry.group.model_meta?.[entry.model]?.disabled
 }
@@ -74,7 +74,7 @@ export async function hostedModelCatalog(profiles: string[]): Promise<Map<string
 export async function resolveHostedModel(entry: HostedModelEntry, authorize: () => void = () => {}) {
   authorize()
   const { profile, group, model } = entry
-  const runtime = await resolveChatEkkoProviderRuntimeConfig({ profile, provider: group.provider, model, apiMode: hostedModelApiMode(group, model) })
+  const runtime = await resolveChatEkkoProviderRuntimeConfig({ profile, provider: group.provider, model, apiMode: hostedModelApiMode(group, model), ...entry.runtime })
   authorize()
   const { providerConfig } = resolveChatEkkoModelProviderConfigs({ ...runtime, provider: group.provider, model })
   const fetch = createChatEkkoAuthorizedProviderFetch({ profile, provider: group.provider, model, accessToken: runtime.apiKey })
@@ -93,9 +93,9 @@ export interface NativeModelTarget {
 }
 
 /** Resolve the CLI-facing protocol without exporting provider configuration or credentials. */
-export async function resolveNativeModel(profileId: string, modelId: string, protocol: ModelGatewayInput['protocol'], authorize: () => void): Promise<NativeModelTarget> {
+export async function resolveNativeModel(profileId: string, modelId: string, protocol: ModelGatewayInput['protocol'], authorize: () => void, selected?: HostedModelEntry): Promise<NativeModelTarget> {
   authorize()
-  const entry = (await hostedModelCatalog([profileId])).get(modelId)
+  const entry = selected || (await hostedModelCatalog([profileId])).get(modelId)
   authorize()
   if (!entry || !hostedModelCallable(entry)) throw new StudioError('NOT_FOUND', 'Model is unavailable')
   const resolved = await resolveHostedModel(entry, authorize)

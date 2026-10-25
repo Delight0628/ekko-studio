@@ -1,7 +1,7 @@
 import { shallowReactive } from 'vue'
 import { AgentChatTranscript } from '@/utils/agent-chat-transcript'
 import { onPersistedAgentMessage, onAgentInteraction } from '@/api/studio/chat'
-import { respondManagedAgent, uploadManagedAgentImage, removeManagedAgentImage } from '@/api/studio/agent-management'
+import { createOrdinaryAgentChat, respondManagedAgent, uploadManagedAgentImage, removeManagedAgentImage } from '@/api/studio/agent-management'
 import { agentChatArtifactPath } from '../../../../shared/agent-chat-artifact'
 import { generateClientUuid } from '@/utils/client-random'
 import { agentInteractionLabels, agentInteractionResponse } from '@/utils/agent-interaction'
@@ -47,7 +47,7 @@ export type ContentBlock = ContentBlockImport
 export const LIVE_CHAT_MESSAGE_PAGE_SIZE = 150
 export const LIVE_CHAT_MAX_LOADED_MESSAGES = 300
 const LEGACY_WORKSPACE_RUN_CHANGE_MESSAGE_PREFIX = 'workspace-run-change:'
-type ChatAgentId = 'hermes' | 'claude' | 'codex' | 'pi' | 'grok' | 'opencode' | 'dsh' | 'cursor' | 'antigravity' | 'qwen' | 'kimi' | 'codebuddy' | 'qoder' | 'copilot' | 'zcode' | 'ekko-agent'
+type ChatAgentId = 'hermes' | 'claude' | 'claude-code' | 'codex' | 'pi' | 'grok' | 'opencode' | 'dsh' | 'cursor' | 'antigravity' | 'qwen' | 'kimi' | 'codebuddy' | 'qoder' | 'copilot' | 'zcode' | 'ekko-agent'
 
 function agentToCodingAgentId(agent?: string): ChatCodingAgentId | undefined {
   if (isNativeCodingAgent(agent)) return agent
@@ -58,7 +58,7 @@ function agentToCodingAgentId(agent?: string): ChatCodingAgentId | undefined {
   if (agent === 'opencode') return 'opencode'
   if (agent === 'antigravity') return 'antigravity'
   if (agent === 'cursor') return 'cursor'
-  if (agent === 'claude') return 'claude-code'
+  if (agent === 'claude' || agent === 'claude-code') return 'claude-code'
   if (['ekko', 'ekko_agent', 'ekko-agent'].includes(agent || '')) return 'ekko-agent'
   return undefined
 }
@@ -487,6 +487,7 @@ export interface Session {
   agentSessionId?: string
   agentNativeSessionId?: string
   agentInstanceId?: string
+  agentChatSettings?: boolean
   agentInstanceRevision?: number
   agentUsage?: import('@/api/studio/sessions').ManagedAgentUsage
   codingAgentId?: ChatCodingAgentId
@@ -1225,6 +1226,7 @@ function mapHermesSession(s: SessionSummary): Session {
     agentSessionId: s.agent_session_id || undefined,
     agentNativeSessionId: s.agent_native_session_id || undefined,
     agentInstanceId: s.agent_instance_id,
+    agentChatSettings: s.agent_chat_settings,
     agentInstanceRevision: s.agent_instance_revision,
     agentUsage: s.agent_usage,
     codingAgentId,
@@ -1969,6 +1971,7 @@ export const useChatStore = defineStore('chat', () => {
           existing.endedAt = fresh.endedAt
           existing.model = fresh.model
           existing.agentInstanceId = fresh.agentInstanceId
+          existing.agentChatSettings = fresh.agentChatSettings
           existing.agentInstanceRevision = fresh.agentInstanceRevision
           existing.agentUsage = fresh.agentUsage
           existing.codingAgentMode = fresh.codingAgentMode
@@ -2070,7 +2073,7 @@ export const useChatStore = defineStore('chat', () => {
       if (!detail) return false
       if (detail.session.agent_instance_id) {
         const managed = mapHermesSession(detail.session)
-        for (const key of ['agentInstanceId', 'agentInstanceRevision', 'agentUsage', 'model', 'codingAgentMode', 'inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens'] as const) {
+        for (const key of ['agentInstanceId', 'agentChatSettings', 'agentInstanceRevision', 'agentUsage', 'model', 'codingAgentMode', 'inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens'] as const) {
           Object.assign(target, { [key]: managed[key] })
         }
       }
@@ -3697,6 +3700,8 @@ export const useChatStore = defineStore('chat', () => {
       const matchesReasoningWrite = !pendingReasoning || pendingReasoning.effort === (evt.reasoning_effort || undefined)
       if (typeof evt.model === 'string' && (!pendingReasoning?.model || matchesReasoningWrite)) target.model = evt.model
       if (typeof evt.provider === 'string') target.provider = evt.provider
+      if (typeof evt.workspace === 'string') target.workspace = evt.workspace
+      if (typeof evt.agent_instance_revision === 'number') target.agentInstanceRevision = evt.agent_instance_revision
       if (typeof evt.api_mode === 'string') target.apiMode = evt.api_mode as ProviderApiMode || undefined
       if (typeof evt.reasoning_effort === 'string') {
         const incomingEffort = evt.reasoning_effort || undefined
@@ -3720,6 +3725,7 @@ export const useChatStore = defineStore('chat', () => {
         .filter((session): session is Session => !!session)
       for (const target of new Set(targets)) {
         target.agentInstanceId = data.agent_instance_id || target.agentInstanceId
+        target.agentChatSettings = data.agent_chat_settings === true
         target.agentInstanceRevision = data.agent_instance_revision ?? target.agentInstanceRevision
         target.agentUsage = data.agent_usage
         if (data.agent_mode === 'global' || data.agent_mode === 'scoped') target.codingAgentMode = data.agent_mode
@@ -3858,6 +3864,29 @@ export const useChatStore = defineStore('chat', () => {
     } catch (error) { pluginCommandCalls.delete(sessionId); throw error }
   }
 
+  const pendingAgentChatBindings = new Map<string, Promise<void>>()
+  async function bindOrdinaryAgentChat(session: Session): Promise<void> {
+    const pending = pendingAgentChatBindings.get(session.id)
+    if (pending) return pending
+    const task = (async () => {
+      const app = useAppStore(), mode = session.codingAgentMode || 'scoped'
+      if (mode !== 'global') await app.waitForModelsForRun()
+      const receipt = await createOrdinaryAgentChat(session.profile || getProfileName(), {
+        sessionId: session.id, agentTypeId: session.codingAgentId || agentToCodingAgentId(session.agent)!, mode,
+        workspace: session.workspace || undefined, model: mode === 'global' ? session.model : session.model || app.selectedModel || undefined,
+        provider: mode === 'global' ? undefined : session.provider || app.selectedProvider || undefined,
+        reasoningEffort: session.reasoningEffort, agentPreset: session.agentPreset, categoryId: session.categoryId, pushEnabled: session.pushEnabled !== false,
+        ...(mode === 'global' ? {} : { baseUrl: session.baseUrl, apiKey: session.apiKey, apiMode: session.apiMode }),
+      })
+      if (receipt?.sessionId !== session.id || !receipt.instanceId) throw new Error('Invalid Agent chat binding')
+      for (const target of new Set([session, sessions.value.find(item => item.id === session.id), activeSession.value?.id === session.id ? activeSession.value : undefined])) {
+        if (target) Object.assign(target, { agentInstanceId: receipt.instanceId, agentInstanceRevision: receipt.configurationRevision, agentChatSettings: true, isLocalOnly: false })
+      }
+    })()
+    pendingAgentChatBindings.set(session.id, task)
+    try { await task } finally { if (pendingAgentChatBindings.get(session.id) === task) pendingAgentChatBindings.delete(session.id) }
+  }
+
   async function sendMessage(content: string, attachments?: Attachment[]) {
     const generation = runtimeGeneration
     if ((!content.trim() && !(attachments && attachments.length > 0))) return
@@ -3874,7 +3903,7 @@ export const useChatStore = defineStore('chat', () => {
     // Capture session ID at send time — all callbacks use this, not activeSessionId
     const sid = activeSessionId.value!
     const sendingSession = activeSession.value
-    const isManagedAgent = !!sendingSession?.agentInstanceId
+    let isManagedAgent = !!sendingSession?.agentInstanceId
     const shouldSendInitialSessionConfig = activeSession.value
       ? activeSession.value.messageCount == null || activeSession.value.messageCount === 0
       : false
@@ -3938,6 +3967,12 @@ export const useChatStore = defineStore('chat', () => {
     const uploadProfile = sendingSession?.profile || getProfileName()
     try {
 
+      if (!isManagedAgent && sendingSession?.isLocalOnly && sendingSession.source === 'coding_agent' && runtimeMode.value === 'default') {
+        await bindOrdinaryAgentChat(sendingSession)
+        if (generation !== runtimeGeneration) return
+        isManagedAgent = true
+      }
+
       // Build input in Anthropic format
       let input: string | ContentBlock[]
       let displayInput: string | ContentBlock[] | undefined
@@ -3945,15 +3980,20 @@ export const useChatStore = defineStore('chat', () => {
         // Has attachments: upload first, then build content blocks
         let uploaded: { name: string; path: string; mediaType?: string }[]
         if (isManagedAgent) {
-          if (attachments.length > 8 || attachments.reduce((sum, att) => sum + (att.file?.size || att.size), 0) > 6 * 1024 * 1024
-            || attachments.some(att => !att.file || att.file.size > 4 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(att.type))) throw new Error('CAPABILITY_UNSUPPORTED')
-          uploaded = []
-          for (const att of attachments) {
+          const images = attachments.filter(att => ['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(att.type))
+          if (images.length > 8 || images.reduce((sum, att) => sum + (att.file?.size || att.size), 0) > 6 * 1024 * 1024
+            || images.some(att => !att.file || att.file.size > 4 * 1024 * 1024)
+            || (!sendingSession?.agentChatSettings && images.length !== attachments.length)) throw new Error('CAPABILITY_UNSUPPORTED')
+          const files = attachments.filter(att => !images.includes(att))
+          const fileUploads = files.length ? await uploadFiles(files) : []
+          const byAttachment = new Map<Attachment, { name: string; path: string; mediaType?: string }>(files.map((att, index) => [att, fileUploads[index]]))
+          for (const att of images) {
             const image = await uploadManagedAgentImage(uploadProfile, att.file!)
             imageUploads.push(image.id)
-            uploaded.push({ name: att.name, path: agentChatArtifactPath(sid, image.id), mediaType: image.mediaType })
+            byAttachment.set(att, { name: att.name, path: agentChatArtifactPath(sid, image.id), mediaType: image.mediaType })
             if (generation !== runtimeGeneration) return
           }
+          uploaded = attachments.map(att => byAttachment.get(att)!)
         } else uploaded = await uploadFiles(attachments)
         if (generation !== runtimeGeneration) return
 
@@ -3984,6 +4024,12 @@ export const useChatStore = defineStore('chat', () => {
         if (attachments.some(attachment => attachment.context?.trim())) {
           displayInput = await buildContentBlocks(submittedContent, attachments, uploaded, false)
           if (generation !== runtimeGeneration) return
+        }
+        if (sendingSession?.agentChatSettings) {
+          const nativeBlocks = (blocks: ContentBlock[]) => blocks.map(block => block.type === 'file'
+            ? { type: 'text' as const, text: `[Attached file: ${block.name || block.path}]\nLocal file path for tools: ${block.path}` } : block)
+          input = nativeBlocks(input)
+          if (Array.isArray(displayInput)) displayInput = nativeBlocks(displayInput)
         }
       } else {
         // No attachments: use plain text format

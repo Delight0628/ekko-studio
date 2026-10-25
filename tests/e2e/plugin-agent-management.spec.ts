@@ -81,7 +81,8 @@ for (const mobile of [false, true]) for (const mode of ['scoped', 'global'] as c
   await sendNewChatMessage(page, 'Use the selected launch mode')
   await expect(page).toHaveURL(/\/hermes\/session\//)
   await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.emitted.find((item: any) => item.event === 'run')?.payload))
-    .toMatchObject({ coding_agent_id: 'codex', mode, input: 'Use the selected launch mode', ...(mode === 'scoped' ? { model: 'test-model' } : {}) })
+    .toMatchObject({ input: 'Use the selected launch mode', managed_agent_protocol: 1 })
+  expect(JSON.parse(api.requests.find(item => item.pathname === '/api/studio/agent-chats')!.postData!)).toMatchObject({ agentTypeId: 'codex', mode, ...(mode === 'scoped' ? { model: 'test-model' } : {}) })
   expect(api.checks).toEqual([])
   expect(api.unexpectedRequests).toEqual([])
 })
@@ -168,5 +169,62 @@ for (const mobile of [false, true]) test(`restores plugin chat images and approv
   await page.getByRole('button', { name: 'Allow once', exact: true }).click()
   expect(responses).toEqual([{ interactionId: 'approval', choiceId: 'allow-native-once', idempotencyKey: expect.any(String) }])
   expect(api.checks).toEqual([])
+  expect(api.unexpectedRequests).toEqual([])
+})
+
+for (const mobile of [false, true]) test(`one usage card follows the completed answer across tool calls and reload (${mobile ? 'mobile dark' : 'desktop light'})`, async ({ page }) => {
+  await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 })
+  const id = 'managed-usage', runId = 'usage-run'
+  const session = { id, profile: 'research', source: 'coding_agent', agent: 'qwen', agent_mode: 'global', agent_instance_id: 'owned-instance',
+    agent_instance_revision: 1, agent_chat_settings: true, model: '', title: 'Tool usage', started_at: 100, last_active: 100, message_count: 0 }
+  const api = await setup(page, mobile ? 'dark' : 'light', false, [session])
+  await page.addInitScript(id => {
+    const saved = localStorage.getItem('test-managed-usage-history')
+    ;(window as any).__PW_CHAT_SOCKET_RESUMES__ = { [id]: saved ? JSON.parse(saved) : { session_id: id, messages: [], events: [], isWorking: false, managed_agent_protocol: 1,
+      agent_instance_id: 'owned-instance', agent_instance_revision: 1, agent_chat_settings: true, agent_mode: 'global', agentInteractions: [] } }
+  }, id)
+  await mockChatSocket(page)
+  await page.goto(`/#/hermes/session/${id}?profile=research`)
+  const input = page.locator('.chat-input-area textarea')
+  await expect(input).toBeVisible()
+  await input.fill('Check and update files')
+  await input.press('Enter')
+  await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.emitted.filter((item: any) => item.event === 'run').length)).toBe(1)
+  await page.evaluate(({ id, runId }) => {
+    const state = (window as any).__PW_CHAT_SOCKET__, queueId = state.emitted.find((item: any) => item.event === 'run').payload.queue_id
+    const base = { session_id: id, agent_run_id: runId, run_id: runId, run_marker: runId, queue_id: queueId }
+    const row = (messageId: number, role: string, content: string, extra = {}) => ({ id: messageId, session_id: id, role, content, timestamp: 100, run_marker: runId, ...extra })
+    const rows = [row(1, 'user', 'Check and update files'), row(2, 'assistant', 'Checking files')]
+    state.broadcast('run.started', { ...base, event: 'run.started' })
+    state.broadcast('message.persisted', { ...base, event: 'message.persisted', messages: rows })
+    for (let index = 0; index < 3; index++) {
+      const tool = `tool-${index}`
+      const pair = [row(3 + index * 2, 'assistant', '', { tool_calls: [{ id: tool, type: 'function', function: { name: 'read_file', arguments: '{}' } }] }),
+        row(4 + index * 2, 'tool', `File ${index}`, { tool_name: 'read_file', tool_call_id: tool })]
+      rows.push(...pair)
+      state.broadcast('message.persisted', { ...base, event: 'message.persisted', messages: pair })
+    }
+    ;(window as any).__TEST_MANAGED_USAGE_ROWS__ = { base, rows }
+  }, { id, runId })
+  await expect(page.locator('.tool-run-card .tool-run-count')).toHaveText('3 tools')
+  await expect(page.locator('.run-usage-card')).toHaveCount(0)
+  await page.evaluate(({ id, runId }) => {
+    const state = (window as any).__PW_CHAT_SOCKET__, { base, rows } = (window as any).__TEST_MANAGED_USAGE_ROWS__
+    const answer = { ...rows[1], content: 'Files checked and updated.', run_usage: { runId, assistantMessageId: '2', inputTokens: 20, outputTokens: 5, cacheReadTokens: 0 } }
+    rows[1] = answer
+    state.broadcast('message.persisted', { ...base, event: 'message.persisted', messages: [answer] })
+    state.broadcast('run.completed', { ...base, event: 'run.completed', status: 'completed', queue_remaining: 0 })
+    localStorage.setItem('test-managed-usage-history', JSON.stringify({ session_id: id, messages: rows, events: [], isWorking: false, managed_agent_protocol: 1,
+      agent_instance_id: 'owned-instance', agent_instance_revision: 1, agent_chat_settings: true, agent_mode: 'global', agentInteractions: [] }))
+  }, { id, runId })
+  const cards = page.locator('.run-usage-card')
+  for (const reload of [false, true]) {
+    if (reload) await page.reload()
+    await expect(page.getByText('Files checked and updated.', { exact: true })).toBeVisible()
+    await expect(page.locator('.tool-run-card .tool-run-count')).toHaveCount(1)
+    await expect(cards).toHaveCount(1)
+    await expect(cards.locator('.run-usage-value').first()).toHaveText('5')
+    await expect(page.locator('.message.assistant').filter({ has: cards })).toContainText('Files checked and updated.')
+  }
   expect(api.unexpectedRequests).toEqual([])
 })

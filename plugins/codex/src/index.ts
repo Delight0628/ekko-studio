@@ -22,8 +22,8 @@ const schema: JsonObject = {
     systemPrompt: agentContextConfigurationProperties.systemPrompt,
     mcpServers: agentContextConfigurationProperties.mcpServers,
     studioMcp: agentContextConfigurationProperties.studioMcp,
-    approvalPolicy: { type: 'string', enum: ['untrusted', 'on-request', 'never'] },
-    sandbox: { type: 'string', enum: ['read-only', 'workspace-write', 'danger-full-access'] },
+    approvalPolicy: { type: 'string', enum: ['untrusted', 'on-request', 'never'], default: 'never' },
+    sandbox: { type: 'string', enum: ['read-only', 'workspace-write', 'danger-full-access'], default: 'danger-full-access' },
   },
 }
 
@@ -90,7 +90,7 @@ export const apply: StudioPlugin['apply'] = plugin => {
           const requests = new Set<string | number>()
           const emit = (event: Output) => events.push({ ...event, producerSequence: ++sequence } as AgentOutputEvent)
           const project = codexEvents(emit)
-          const interactions = codexInteractions(emit)
+          const interactions = codexInteractions(emit, config.approvalPolicy !== undefined && config.approvalPolicy !== 'never')
           const buffered: Array<[string, Record<string, any>]> = []
           let gateway: import('@ekko-studio/plugin-sdk').ModelGatewayHandle | undefined
           let bufferedBytes = 0, cancelTask: Promise<void> | undefined, closing: Promise<void> | undefined
@@ -155,7 +155,7 @@ export const apply: StudioPlugin['apply'] = plugin => {
                 const effectiveContext = mergeAgentContextConfiguration(contextConfiguration, ctx.nativeContext || {})
                 const nativeConfiguration = codexContextConfiguration(effectiveContext)
                 const overrides = { ...nativeConfiguration, ...(gateway?.transport === 'translated' ? { web_search: 'disabled' } : {}) }
-                const parameters = { ...Object.fromEntries(['model', 'approvalPolicy', 'sandbox'].filter(key => config[key] !== undefined).map(key => [key, config[key]])),
+                const parameters = { approvalPolicy: 'never', sandbox: 'danger-full-access', ...Object.fromEntries(['model', 'approvalPolicy', 'sandbox'].filter(key => config[key] !== undefined).map(key => [key, config[key]])),
                   ...(effectiveContext.systemPrompt ? { developerInstructions: effectiveContext.systemPrompt } : {}),
                   ...(Object.keys(overrides).length ? { config: overrides } : {}) }
                 const response = await rpc.request(threadId ? 'thread/resume' : 'thread/start', { ...parameters, ...(gateway ? { model: gateway.model } : {}), cwd, ...(threadId ? { threadId } : {}) })

@@ -215,7 +215,7 @@ for (const method of ['inspect', 'locations', 'setup', 'prepareLogin', 'prepareI
       ...(params.nativeCli ? { nativeCli: params.nativeCli as unknown as AgentRuntimeContext['nativeCli'] } : {}),
       ...(params.stateDirectory ? { stateDirectory: string(params.stateDirectory) } : {}),
       provider: { kind: 'plugin', pluginId: identity!.id, generation: identity!.generation, version: identity!.version },
-      runtimeSessionId: callId, profileId: identity!.profileId, ownerId: string(params.ownerId), logger, signal: controller.signal,
+      runtimeSessionId: callId, profileId: string(params.profileId), ownerId: string(params.ownerId), logger, signal: controller.signal,
       processes: remoteProcesses(peer, handle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation),
       mcp: remoteMcp(peer, handle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation),
     }
@@ -258,7 +258,7 @@ peer.handle('runtime.create', async value => {
     finally { replacing = false }
   }
   if (params.commands === true) runtimeCommands.set(id, catalog)
-  const ctx: AgentRuntimeContext = { ...(params.nativeCli ? { nativeCli: params.nativeCli as unknown as AgentRuntimeContext['nativeCli'] } : {}), ...(typeof params.stateDirectory === 'string' ? { stateDirectory: params.stateDirectory } : {}), provider, profileId: identity.profileId, ownerId: string(params.ownerId), runtimeSessionId: id, logger, signal: controller.signal,
+  const ctx: AgentRuntimeContext = { ...(params.nativeCli ? { nativeCli: params.nativeCli as unknown as AgentRuntimeContext['nativeCli'] } : {}), ...(typeof params.stateDirectory === 'string' ? { stateDirectory: params.stateDirectory } : {}), provider, profileId: string(params.profileId), ownerId: string(params.ownerId), runtimeSessionId: id, logger, signal: controller.signal,
     ...(params.commands === true ? { commands: { replace } } : {}),
     processes: remoteProcesses(peer, runtimeHandle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation),
     mcp: remoteMcp(peer, runtimeHandle, controller.signal, () => callbackScope.getStore() || runtimeScope.getStore(), assertContributionMutation) }

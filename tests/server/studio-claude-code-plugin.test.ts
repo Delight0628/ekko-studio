@@ -283,3 +283,15 @@ it('does not publish a newer checkpoint when native success is followed by gatew
   expect(f.coordinator.output(caller, second.id, -1)).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'message.snapshot', text: 'Claude answer' })]))
   expect(f.executions.state.checkpoint(f.instance.id, provider, f.instance.revision)).toEqual(checkpoint)
 })
+
+it('uses bypassPermissions and answers tool permissions without showing an approval by default', async () => {
+  const f = await setupClaude(root, runner, cleanups)
+  const { permissionMode: _manual, ...config } = f.instance.config
+  await f.coordinator.updateInstance(caller, f.instance.id, { revision: 1, mode: f.instance.mode, config })
+  const run = f.start('approval')
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(caller, run.id).status).toBe('completed')
+  expect(f.coordinator.interactions(caller, run.id)).toEqual([])
+  expect((await f.launches())[0].args).toEqual(expect.arrayContaining(['--permission-mode', 'bypassPermissions', '--allow-dangerously-skip-permissions']))
+  expect((await f.frames()).find(frame => frame.type === 'control_response').response.response).toMatchObject({ behavior: 'allow', updatedInput: { file_path: 'fixture.txt' } })
+})

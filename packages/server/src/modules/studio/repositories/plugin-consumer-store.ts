@@ -3,7 +3,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { StudioError, type EventEnvelope, type StudioErrorCode } from '../contracts/plugins'
 import { PluginEventStore } from './plugin-event-store'
 
-export interface ConsumerIdentity { pluginId: string; profileId: string; ownerId: string; name: string }
+export interface ConsumerIdentity { pluginId: string; profileId?: string; ownerId?: string; name: string }
 export interface ConsumerSpec { types: string[]; start: 'now' | 'earliest'; resume: 'continue' | 'from-now' }
 export interface ConsumerRecord extends ConsumerIdentity {
   id: string; types: string[]; position: number; state: 'active' | 'paused' | 'expired'; revision: number
@@ -41,12 +41,13 @@ export class PluginConsumerStore {
   register(identity: ConsumerIdentity, input: ConsumerSpec): ConsumerRecord {
     const spec = parseConsumerSpec(input)
     if (typeof identity.name !== 'string' || !/^[a-z][a-z0-9.-]{0,127}$/.test(identity.name)) throw new StudioError('INVALID_ARGUMENT', 'Invalid consumer name')
+    if (!identity.profileId && !identity.ownerId && spec.resume === 'continue') this.migrateGlobalConsumer(identity, spec)
     const previous = this.db.prepare('SELECT id FROM studio_plugin_consumers WHERE plugin_id=? AND profile_id=? AND owner_id=? AND name=?')
-      .get(identity.pluginId, identity.profileId, identity.ownerId, identity.name) as { id: string } | undefined
+      .get(identity.pluginId, identity.profileId || '', identity.ownerId || '', identity.name) as { id: string } | undefined
     if (previous && spec.resume === 'continue' && this.expired(previous.id)) throw new StudioError('EVENT_CURSOR_EXPIRED', 'Consumer cursor is older than retained events')
     return this.transaction(() => {
       const old = this.db.prepare('SELECT * FROM studio_plugin_consumers WHERE plugin_id=? AND profile_id=? AND owner_id=? AND name=?')
-        .get(identity.pluginId, identity.profileId, identity.ownerId, identity.name) as unknown as ConsumerRow | undefined
+        .get(identity.pluginId, identity.profileId || '', identity.ownerId || '', identity.name) as unknown as ConsumerRow | undefined
       if (old) {
         if (spec.resume === 'from-now') {
           this.db.prepare('DELETE FROM studio_plugin_deliveries WHERE consumer_id=?').run(old.id)
@@ -61,21 +62,55 @@ export class PluginConsumerStore {
       if (spec.start === 'earliest' && this.events.floor() > 0) throw new StudioError('EVENT_CURSOR_EXPIRED', 'Earlier events are no longer retained')
       const id = randomUUID()
       this.db.prepare("INSERT INTO studio_plugin_consumers (id, plugin_id, profile_id, owner_id, name, types_json, position, state) VALUES (?, ?, ?, ?, ?, ?, ?, 'active')")
-        .run(id, identity.pluginId, identity.profileId, identity.ownerId, identity.name, JSON.stringify(spec.types), spec.start === 'now' ? this.events.head() : 0)
+        .run(id, identity.pluginId, identity.profileId || '', identity.ownerId || '', identity.name, JSON.stringify(spec.types), spec.start === 'now' ? this.events.head() : 0)
       return this.get(id)!
     })
   }
 
   get(id: string): ConsumerRecord | null {
     const row = this.db.prepare('SELECT * FROM studio_plugin_consumers WHERE id=?').get(id) as unknown as ConsumerRow | undefined
-    return row ? { id, pluginId: row.plugin_id, profileId: row.profile_id, ownerId: row.owner_id, name: row.name,
+    return row ? { id, pluginId: row.plugin_id, ...(row.profile_id ? { profileId: row.profile_id, ownerId: row.owner_id } : {}), name: row.name,
       types: JSON.parse(row.types_json), position: row.position, state: row.state, revision: row.revision, errorCode: row.error_code } : null
   }
   registerMany(inputs: Array<{ identity: ConsumerIdentity; spec: ConsumerSpec }>): ConsumerRecord[] {
     return this.transaction(() => inputs.map(input => this.register(input.identity, input.spec)))
   }
-  list(pluginId: string, profileId: string): ConsumerRecord[] {
-    return (this.db.prepare('SELECT id FROM studio_plugin_consumers WHERE plugin_id=? AND profile_id=? ORDER BY name, owner_id').all(pluginId, profileId) as Array<{ id: string }>).map(row => this.get(row.id)!)
+  list(pluginId: string, profileId?: string): ConsumerRecord[] {
+    return (this.db.prepare('SELECT id FROM studio_plugin_consumers WHERE plugin_id=? AND profile_id=? ORDER BY name, owner_id').all(pluginId, profileId || '') as Array<{ id: string }>).map(row => this.get(row.id)!)
+  }
+
+  /** Merge prior cursors and outstanding work without replaying acknowledged deliveries.
+   * Legacy rows remain available for rollback; only the global record is mounted. */
+  private migrateGlobalConsumer(identity: ConsumerIdentity, spec: ConsumerSpec): void {
+    const global = this.db.prepare("SELECT id FROM studio_plugin_consumers WHERE plugin_id=? AND name=? AND profile_id='' AND owner_id=''").get(identity.pluginId, identity.name)
+    if (global) return
+    const prior = this.db.prepare("SELECT * FROM studio_plugin_consumers WHERE plugin_id=? AND name=? AND profile_id<>''").all(identity.pluginId, identity.name) as unknown as ConsumerRow[]
+    if (!prior.length) return
+    if (prior.some(row => row.types_json !== JSON.stringify(spec.types))) throw new StudioError('REVISION_CONFLICT', 'Legacy consumer event types disagree; an explicit reset is required')
+    this.transaction(() => {
+      const id = randomUUID(), head = this.events.head()
+      const expired = prior.some(row => this.expired(row.id)), paused = prior.some(row => row.state === 'paused')
+      this.db.prepare(`INSERT INTO studio_plugin_consumers (id, plugin_id, profile_id, owner_id, name, types_json, position, state, error_code)
+        VALUES (?, ?, '', '', ?, ?, ?, ?, ?)`).run(id, identity.pluginId, identity.name, JSON.stringify(spec.types), head,
+        expired ? 'expired' : paused ? 'paused' : 'active', expired ? 'EVENT_CURSOR_EXPIRED' : null)
+      for (const row of prior) {
+        this.db.prepare(`INSERT OR IGNORE INTO studio_plugin_deliveries
+          (consumer_id, position, partition_key, status, attempts, available_at, revision, error_code)
+          SELECT ?, position, partition_key, CASE WHEN status='processing' THEN 'pending' ELSE status END,
+            attempts, available_at, revision+1, error_code FROM studio_plugin_deliveries WHERE consumer_id=?`).run(id, row.id)
+        // Capture unscanned events in each prior partition, preserving the original cursor.
+        let position = row.position
+        while (position < head) {
+          const batch = this.events.read(row.profile_id, position, 1000).filter(item => item.position <= head)
+          if (!batch.length) break
+          for (const item of batch) {
+            if (spec.types.includes(item.event.type)) this.db.prepare(`INSERT OR IGNORE INTO studio_plugin_deliveries
+              (consumer_id, position, partition_key, status) VALUES (?, ?, ?, 'pending')`).run(id, item.position, item.event.partitionKey)
+            position = item.position
+          }
+        }
+      }
+    })
   }
 
   private expired(id: string): boolean {

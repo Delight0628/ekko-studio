@@ -71,7 +71,7 @@ const manifestSchema = {
   properties: {
     schemaVersion: { const: 1 }, id: { type: 'string', maxLength: 128 }, version: { type: 'string', maxLength: 64 },
     engines: { type: 'object', additionalProperties: false, required: ['studioSdk', 'rpc'], properties: { studioSdk: { type: 'string', maxLength: 128 }, rpc: { const: 1 } } },
-    backend: { type: 'string', minLength: 1, maxLength: 512 }, activation: { const: 'profile' },
+    backend: { type: 'string', minLength: 1, maxLength: 512 }, activation: { enum: ['global', 'profile'] },
     contributes: { type: 'object', additionalProperties: false, required: ['agents'], properties: {
       agents: { type: 'array', maxItems: 64, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 256 } },
       commands: { type: 'array', maxItems: 64, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 256 } },

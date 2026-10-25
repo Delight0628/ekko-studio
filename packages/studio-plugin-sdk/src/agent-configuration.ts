@@ -3,6 +3,8 @@ import { StudioError } from './errors'
 
 /** Optional instance inputs, not an inventory of native management resources. */
 export interface AgentContextConfiguration {
+  /** Tool approvals are automatic by default, matching Studio's Coding Agent flow. */
+  approvalRequired?: boolean
   systemPrompt?: string
   mcpServers?: Record<string, AgentMcpServerConfiguration>
   /** Explicitly opt in to host toolsets. Interaction tools require a bound chat context. */
@@ -25,6 +27,7 @@ const enabled = { enabled: { type: 'boolean' }, disabled: { type: 'boolean' } }
 
 /** Spread into a plugin's configSchema.properties to expose the same configuration in every client. */
 export const agentContextConfigurationProperties: JsonObject = {
+  approvalRequired: { type: 'boolean', default: false },
   systemPrompt: { type: 'string', maxLength: 65536 },
   studioMcp: { type: 'object', additionalProperties: false, required: ['enabled'], properties: {
     enabled: { type: 'boolean' }, api: { type: 'boolean' }, browser: { type: 'boolean' }, devices: { type: 'boolean' }, use: { type: 'boolean' }, interaction: { type: 'boolean' },

@@ -7,7 +7,7 @@ import type { SessionMessage } from '../contracts/runs/session'
 import { MESSAGES_TABLE, SESSIONS_TABLE } from '../infrastructure/database/schemas'
 import { BUILTIN_HISTORY_SOURCES } from '../contracts/history-source'
 import { recordSkillUsageMessage } from './skill-usage-store'
-import { readAgentChatRunSummaries, readAgentChatSummaries } from './agent-chat-summary'
+import { readAgentChatRunSummaries, readAgentChatSummaries, readAgentChatUsageMessageId } from './agent-chat-summary'
 
 type Source = typeof BUILTIN_HISTORY_SOURCES[number]
 export interface AgentChatBinding { sessionId: string; instanceId: string; ownerId: string; profileId: string; source: Source }
@@ -166,8 +166,8 @@ export class AgentChatProjection implements AgentExecutionProjection {
       else if (event.type === 'tool.completed' || event.type === 'tool.failed') add('tool-result', event.callId)
     }
     if (refreshUsage || events.some(event => event.type === 'usage.reported')) {
-      const last = this.db.prepare("SELECT max(message_id) AS id FROM studio_agent_chat_messages WHERE run_id=? AND kind IN ('message','tool-call')").get(runId)
-      if (last?.id) ids.add(Number(last.id))
+      const target = readAgentChatUsageMessageId(this.db, runId)
+      if (target !== undefined) ids.add(target)
     }
     const rows = [...ids].sort((a, b) => a - b).map(id => {
       const row = this.db.prepare(`SELECT * FROM ${MESSAGES_TABLE} WHERE id=?`).get(id)!

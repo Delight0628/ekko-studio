@@ -4,7 +4,7 @@ import {
   type ScopedLogger, type StudioEventMap, type Disposer, type ExecutionScope, type ServiceDependency, type AgentProviderRef,
 } from '../../contracts/plugins'
 import { SYSTEM_CODING_PLUGINS, isSystemPluginId } from '../../contracts/system-plugins'
-import { PluginStore, type PluginInstallation, type PluginProfileState } from '../../repositories/plugin-store'
+import { PluginStore, type PluginInstallation, type PluginState } from '../../repositories/plugin-store'
 import { AgentRegistry } from '../agents/registry'
 import { PluginEventBus } from '../events/plugin-events'
 import { inspectPluginArtifact, stagePluginArtifact } from './artifacts'
@@ -18,7 +18,7 @@ import { ReliablePluginConsumers } from '../events/reliable-consumers'
 import { parseConsumerSpec } from '../../repositories/plugin-consumer-store'
 import { PluginHookRegistry } from '../events/plugin-hooks'
 
-interface ActivePlugin { worker: PluginWorker; resources: ResourceScope; generation: string; profileId: string; withdraw(): EventEnvelope[] }
+interface ActivePlugin { worker: PluginWorker; resources: ResourceScope; generation: string; withdraw(): EventEnvelope[] }
 export interface PluginHostOptions {
   store: PluginStore
   registry: AgentRegistry
@@ -28,7 +28,7 @@ export interface PluginHostOptions {
   artifactsRoot: string
   runnerPath: string
   logger: ScopedLogger
-  eventContext(state: PluginProfileState, event: EventEnvelope, signal: AbortSignal): Promise<ExecutionContext>
+  eventContext(state: PluginState, event: EventEnvelope, signal: AbortSignal): Promise<ExecutionContext>
   context(scope: ExecutionScope, signal: AbortSignal): ExecutionContext
   acceptEvents(events: EventEnvelope[]): Promise<void>
 }
@@ -60,26 +60,26 @@ export class PluginHost {
 
   list(): PluginInstallation[] { return this.options.store.list() }
 
-  authorizeNativeMcp(provider: AgentProviderRef, profileId: string): void {
+  authorizeNativeMcp(provider: AgentProviderRef, _profileId: string): void {
     if (provider.kind === 'builtin') return
-    const active = this.active.get(this.key(provider.pluginId, profileId))
+    const active = this.active.get(provider.pluginId)
     if (this.closed || !active || active.generation !== provider.generation) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin activation is unavailable')
     active.worker.authorizeNativeMcp()
   }
 
-  leaseManagement(provider: AgentProviderRef, profileId: string, cancel: () => void, completed: Promise<void>) {
+  leaseManagement(provider: AgentProviderRef, _profileId: string, cancel: () => void, completed: Promise<void>) {
     if (provider.kind === 'builtin') return { authorize() {}, release() {} }
-    const active = this.active.get(this.key(provider.pluginId, profileId))
+    const active = this.active.get(provider.pluginId)
     if (this.closed || !active || active.generation !== provider.generation) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin activation is unavailable')
     return active.worker.leaseManagement(cancel, completed)
   }
 
-  diagnostic(pluginId: string, profileId: string) {
-    const installation = this.requireInstallation(pluginId), profile = this.options.store.profile(pluginId, profileId)
-    const saved = this.options.store.diagnostic(pluginId, profileId), active = this.active.get(this.key(pluginId, profileId))
+  diagnostic(pluginId: string, _legacyProfileId?: string) {
+    const installation = this.requireInstallation(pluginId), profile = this.options.store.state(pluginId)
+    const saved = this.options.store.diagnostic(pluginId), active = this.active.get(pluginId)
     const current = saved?.configurationRevision === (profile?.revision || 0) ? saved : null
-    const state = !profile?.enabled ? 'disabled' : active ? 'ready' : current?.state === 'ready' ? 'inactive' : current?.state || 'inactive'
-    return { pluginId, profileId, generation: installation.generation, configurationRevision: profile?.revision || 0,
+    const state = !profile?.enabled ? current?.state === 'blocked' ? 'blocked' : 'disabled' : active ? 'ready' : current?.state === 'ready' ? 'inactive' : current?.state || 'inactive'
+    return { pluginId, generation: installation.generation, configurationRevision: profile?.revision || 0,
       state, errorCode: state === 'blocked' || state === 'failed' ? current?.errorCode || null : null,
       updatedAt: current?.updatedAt || null, hasActiveLeases: !!active?.worker.hasLeases() }
   }
@@ -109,32 +109,31 @@ export class PluginHost {
       generation: `${inspected.manifest.version}-${inspected.digest}`, artifactPath: source })
   }
 
-  configure(input: Omit<PluginProfileState, 'revision'>, expectedRevision: number, authorize?: () => void): Promise<PluginProfileState> {
+  configure(input: Omit<PluginState, 'revision'> & { profileId?: string; ownerId?: string }, expectedRevision: number, authorize?: () => void): Promise<PluginState> {
     return this.serial(input.pluginId, async () => {
       const installation = this.requireInstallation(input.pluginId)
-      if (!input.profileId.trim() || !input.ownerId.trim()) throw new StudioError('INVALID_ARGUMENT', 'Profile and owner are required')
       compileSchema(installation.manifest.configSchema ?? { type: 'object', additionalProperties: false })(input.config)
       if (input.grants.some(grant => !installation.manifest.requires.capabilities.includes(grant))) throw new StudioError('INVALID_ARGUMENT', 'Grant was not declared by plugin')
-      const active = this.active.get(this.key(input.pluginId, input.profileId))
+      const active = this.active.get(input.pluginId)
       if (active?.worker.hasLeases()) throw new StudioError('REVISION_CONFLICT', 'Drain Agent sessions before changing plugin configuration')
-      if (active && requiredServiceDependents(this.options.store, input.pluginId, input.profileId).some(state => this.active.has(this.key(state.pluginId, state.profileId)))) {
+      if (active && requiredServiceDependents(this.options.store, input.pluginId).some(state => this.active.has(state.pluginId))) {
         throw new StudioError('REVISION_CONFLICT', 'Disable dependent plugins before changing their service provider')
       }
       // Compare and persist before stopping any healthy activation.
       authorize?.()
-      const wasEnabled = this.options.store.profile(input.pluginId, input.profileId)?.enabled
-      const state = this.options.store.saveProfile(jsonCopy(input), expectedRevision)
-      await this.stop(input.pluginId, input.profileId, wasEnabled && !state.enabled ? 'disabled' : undefined)
+      const wasEnabled = this.options.store.state(input.pluginId)?.enabled
+      const state = this.options.store.saveState(jsonCopy(input), expectedRevision)
+      await this.stop(input.pluginId, wasEnabled && !state.enabled ? 'disabled' : undefined)
       if (state.enabled) await this.activateState(installation, state)
       return state
     })
   }
 
-  activate(pluginId: string, profileId: string): Promise<void> {
+  activate(pluginId: string, _legacyProfileId?: string): Promise<void> {
     return this.serial(pluginId, async () => {
-      const state = this.options.store.profile(pluginId, profileId)
-      if (!state?.enabled) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin is not enabled in this profile')
-      if (this.active.has(this.key(pluginId, profileId))) return
+      const state = this.options.store.state(pluginId)
+      if (!state?.enabled) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin is not enabled')
+      if (this.active.has(pluginId)) return
       await this.activateState(this.requireInstallation(pluginId), state)
     })
   }
@@ -145,22 +144,18 @@ export class PluginHost {
     return this.serial(pluginId, async () => {
       this.options.store.assertRemovable(pluginId)
       if (requiredServiceDependents(this.options.store, pluginId).length) throw new StudioError('REVISION_CONFLICT', 'Plugin is required by enabled service consumers')
-      const entries = [...this.active].filter(([key]) => key.startsWith(`${pluginId}:`))
-      if (entries.some(([, value]) => value.worker.hasLeases())) throw new StudioError('REVISION_CONFLICT', 'Plugin still has active runtime leases')
-      const profiles = new Set(this.options.store.enabledProfiles().filter(state => state.pluginId === pluginId).map(state => state.profileId))
-      for (const [, active] of entries) profiles.add(active.profileId)
-      for (const profileId of profiles) {
-        await this.stop(pluginId, profileId, 'disabled')
-      }
+      const active = this.active.get(pluginId)
+      if (active?.worker.hasLeases()) throw new StudioError('REVISION_CONFLICT', 'Plugin still has active runtime leases')
+      await this.stop(pluginId, 'disabled')
       this.options.store.remove(pluginId)
     })
   }
 
   async restore(): Promise<void> {
-    for (const state of this.options.store.enabledProfiles()) {
+    for (const state of this.options.store.enabled()) {
       if (!this.options.store.get(state.pluginId)) continue
-      try { await this.activate(state.pluginId, state.profileId) }
-      catch { this.options.logger.warn('Plugin activation failed', { pluginId: state.pluginId, profileId: state.profileId }) }
+      try { await this.activate(state.pluginId) }
+      catch { this.options.logger.warn('Plugin activation failed', { pluginId: state.pluginId }) }
     }
   }
 
@@ -168,8 +163,8 @@ export class PluginHost {
     this.closed = true
     await Promise.allSettled([...this.operations.values()])
     const active = [...this.active.values()]
-    for (const state of this.options.store.enabledProfiles()) {
-      if (this.active.has(this.key(state.pluginId, state.profileId))) this.options.store.recordDiagnostic(state.pluginId, state.profileId, 'inactive')
+    for (const state of this.options.store.enabled()) {
+      if (this.active.has(state.pluginId)) this.options.store.recordDiagnostic(state.pluginId, 'inactive')
     }
     this.active.clear()
     // Shutdown withdraws the process-local directory, without announcing a profile disable.
@@ -178,22 +173,22 @@ export class PluginHost {
     await Promise.allSettled([...this.cleanups])
   }
 
-  private async activateState(installation: PluginInstallation, state: PluginProfileState): Promise<void> {
-    this.options.store.recordDiagnostic(installation.id, state.profileId, 'activating')
+  private async activateState(installation: PluginInstallation, state: PluginState): Promise<void> {
+    this.options.store.recordDiagnostic(installation.id, 'activating')
     try {
-      const order = pluginActivationOrder(this.options.store, installation.id, state.profileId)
-      for (const id of order) if (id !== installation.id) await this.activate(id, state.profileId)
+      const order = pluginActivationOrder(this.options.store, installation.id)
+      for (const id of order) if (id !== installation.id) await this.activate(id)
       await this.activateWorker(installation, state)
     } catch (error) {
       const code = error instanceof StudioError ? error.code : 'INTERNAL'
-      this.options.store.recordDiagnostic(installation.id, state.profileId,
+      this.options.store.recordDiagnostic(installation.id,
         ['FORBIDDEN', 'PLUGIN_UNAVAILABLE', 'PLUGIN_VERSION_INCOMPATIBLE', 'REGISTRATION_CONFLICT'].includes(code) ? 'blocked' : 'failed', code)
-      await this.notifyFailure(installation, state.profileId)
+      await this.notifyFailure(installation)
       throw error
     }
   }
 
-  private async activateWorker(installation: PluginInstallation, state: PluginProfileState): Promise<void> {
+  private async activateWorker(installation: PluginInstallation, state: PluginState): Promise<void> {
     const manifest = parseManifest(installation.manifest)
     this.validateDeclarations(manifest)
     if (manifest.requires.capabilities.some(capability => !state.grants.includes(capability))) throw new StudioError('FORBIDDEN', 'Plugin capabilities have not been granted')
@@ -202,13 +197,13 @@ export class PluginHost {
     if (`${artifact.manifest.version}-${artifact.digest}` !== installation.generation || artifact.manifest.id !== installation.id) {
       throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin artifact integrity check failed')
     }
-    const key = this.key(installation.id, state.profileId)
+    const key = installation.id
     const resources = new ResourceScope(() => this.options.logger.warn('Plugin resource cleanup failed', { pluginId: installation.id }))
     const provider = { kind: 'plugin' as const, pluginId: installation.id, version: manifest.version, generation: installation.generation }
-    const registration = this.options.registry.stage(state.profileId, provider, manifest.contributes.agents)
+    const registration = this.options.registry.stage('*', provider, manifest.contributes.agents)
     const authorize = (capability: string): void => {
       if (resources.signal.aborted) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin activation ended')
-      const latest = this.options.store.profile(installation.id, state.profileId)
+      const latest = this.options.store.state(installation.id)
       if (!latest?.enabled || !latest.grants.includes(capability) || !manifest.requires.capabilities.includes(capability)) throw new StudioError('FORBIDDEN', 'Plugin capability is not granted')
     }
     let worker: PluginWorker
@@ -216,18 +211,18 @@ export class PluginHost {
       const active = this.active.get(key)
       if (active?.worker === worker) {
         this.active.delete(key)
-        this.options.store.recordDiagnostic(installation.id, state.profileId, 'failed', 'PLUGIN_UNAVAILABLE')
+        this.options.store.recordDiagnostic(installation.id, 'failed', 'PLUGIN_UNAVAILABLE')
         const withdrawn = active.withdraw()
         this.trackCleanup(resources.close())
-        this.trackCleanup(this.invalidateDependents(installation.id, state.profileId))
-        this.trackCleanup(this.options.acceptEvents([...withdrawn, this.lifecycleEvent('plugin.failed', installation, state.profileId)]))
+        this.trackCleanup(this.invalidateDependents(installation.id))
+        this.trackCleanup(this.options.acceptEvents([...withdrawn, this.lifecycleEvent('plugin.failed', installation)]))
         return
       }
       this.trackCleanup(resources.close())
     }, authorize)
     resources.add(() => worker.close())
     resources.add(() => registration.dispose())
-    const commandRegistration = this.commands.stage(state.profileId, provider, manifest.contributes.commands || [], manifest.contributes.agents,
+    const commandRegistration = this.commands.stage('*', provider, manifest.contributes.commands || [], manifest.contributes.agents,
       async (id, input, ctx) => {
         authorize('commands.register')
         await worker.invokeCommand(id, input, { ...this.options.context(ctx.scope, AbortSignal.any([ctx.signal, resources.signal])), session: ctx.session, reply: ctx.reply })
@@ -241,7 +236,7 @@ export class PluginHost {
       if (!params || Object.keys(params).some(key => key !== 'id') || typeof params.id !== 'string' || !manifest.contributes.commands?.includes(params.id)) throw new StudioError('FORBIDDEN', 'Undeclared command')
       commandRegistration.remove(params.id); return null
     })
-    const serviceRegistration = this.services.stage(state.profileId, manifest.contributes.services || [], async (id, ctx, method, input, authority) => {
+    const serviceRegistration = this.services.stage('*', manifest.contributes.services || [], async (id, ctx, method, input, authority) => {
       authorize(`services.provide:${id}`)
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(new StudioError('DEADLINE_EXCEEDED', 'Service deadline exceeded')), 5_000)
@@ -249,7 +244,7 @@ export class PluginHost {
       try { return await worker.invokeService(id, method, input, forwarded, authority) }
       finally { clearTimeout(timer); controller.abort() }
     }, () => {
-      const current = this.options.store.profile(installation.id, state.profileId)
+      const current = this.options.store.state(installation.id)
       return !this.closed && this.active.get(key)?.worker === worker && !!current?.enabled && manifest.requires.capabilities.every(capability => current.grants.includes(capability))
     })
     resources.add(() => serviceRegistration.dispose())
@@ -263,7 +258,7 @@ export class PluginHost {
     worker.peer.handle('service.status', value => {
       const params = value as JsonObject
       if (!params || Object.keys(params).some(key => key !== 'dependency')) throw new StudioError('INVALID_ARGUMENT', 'Invalid service status request')
-      return toJson(this.services.status(state.profileId, dependency(params.dependency)))
+      return toJson(this.services.status('*', dependency(params.dependency)))
     })
     worker.callService = async (ctx, args, authority) => {
       if (!args || typeof args !== 'object' || Array.isArray(args) || typeof args.method !== 'string'
@@ -274,7 +269,7 @@ export class PluginHost {
     }
     const providedServices = new Map<string, { id: string; version: string }>()
     const serviceEvent = (type: 'service.available' | 'service.unavailable', service: { id: string; version: string }) =>
-      this.event(type, { profileId: state.profileId, pluginId: manifest.id }, { serviceId: service.id, version: service.version })
+      this.event(type, { pluginId: manifest.id }, { serviceId: service.id, version: service.version })
     worker.peer.handle('service.remove', async value => {
       if (worker.isExecutingHook()) throw new StudioError('FORBIDDEN', 'Hook cannot alter contributions')
       const id = String((value as JsonObject).id)
@@ -283,7 +278,7 @@ export class PluginHost {
       const service = providedServices.get(id)
       providedServices.delete(id)
       if (service) {
-        this.trackCleanup(this.invalidateDependents(installation.id, state.profileId))
+        this.trackCleanup(this.invalidateDependents(installation.id))
         await this.options.acceptEvents([serviceEvent('service.unavailable', service)])
       }
       return null
@@ -295,7 +290,7 @@ export class PluginHost {
     const pendingEvents: EventEnvelope[] = []
     let committed = false
     const agentEvent = (type: 'agent.available' | 'agent.unavailable', agentTypeId: string) =>
-      this.event(type, { profileId: state.profileId, pluginId: manifest.id, agentTypeId }, { agentTypeId })
+      this.event(type, { pluginId: manifest.id, agentTypeId }, { agentTypeId })
     const withdraw = (): EventEnvelope[] => {
       const events = [...removers.keys()].map(id => agentEvent('agent.unavailable', id))
       events.push(...[...providedServices.values()].map(service => serviceEvent('service.unavailable', service)))
@@ -322,7 +317,7 @@ export class PluginHost {
       worker.authorizeEmission(scopeHandle, type)
       authorize(`events.emit:${type}`)
       compileSchema(manifest.contributes.events![type])(data)
-      const event = this.event(type, { profileId: state.profileId, pluginId: manifest.id }, data as JsonObject)
+      const event = this.event(type, { pluginId: manifest.id }, data as JsonObject)
       if (!committed) {
         if (pendingEvents.length >= 128) throw new StudioError('RESOURCE_EXHAUSTED', 'Too many activation events')
         pendingEvents.push(event)
@@ -330,7 +325,7 @@ export class PluginHost {
       return { id: event.id }
     })
     try {
-      const activated = await worker.activate(artifact.entry, { id: manifest.id, version: manifest.version, generation: installation.generation, profileId: state.profileId }, state.config)
+      const activated = await worker.activate(artifact.entry, { id: manifest.id, version: manifest.version, generation: installation.generation }, state.config)
       for (const service of activated.services) authorize(`services.provide:${service.id}`)
       serviceRegistration.validate(activated.services)
       if (activated.commands.length) authorize('commands.register')
@@ -345,7 +340,6 @@ export class PluginHost {
         authorize(capability)
         stagedSubscriptions.push(() => {
           const dispose = this.options.events.subscribe(subscription.type as keyof StudioEventMap, {
-            profileId: state.profileId,
             context: async (event, signal) => {
               authorize(capability)
               return this.options.eventContext(state, event, signal)
@@ -367,14 +361,14 @@ export class PluginHost {
           if (!CORE_EVENTS.includes(type as keyof StudioEventMap)) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Unsupported reliable event type')
           authorize(`events.consume:${type}`)
         }
-        return { identity: { pluginId: manifest.id, profileId: state.profileId, ownerId: state.ownerId, name }, spec }
+        return { identity: { pluginId: manifest.id, name }, spec }
       })
       if (activated.hooks.length && !this.options.hooks) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Hooks are unavailable')
-      const stagedHooks = this.options.hooks?.validate(state.profileId, manifest.id, activated.hooks) || []
+      const stagedHooks = this.options.hooks?.validate('*', manifest.id, activated.hooks) || []
       for (const hook of stagedHooks) authorize(`hooks.before:${hook.point}`)
       if (resources.signal.aborted) throw new StudioError('PLUGIN_UNAVAILABLE', 'Plugin exited during activation')
       for (const required of manifest.requires.services || []) {
-        if (!required.optional && !this.services.status(state.profileId, required).available) throw new StudioError('PLUGIN_UNAVAILABLE', 'Required service disappeared during activation')
+        if (!required.optional && !this.services.status('*', required).available) throw new StudioError('PLUGIN_UNAVAILABLE', 'Required service disappeared during activation')
       }
       registration.validate()
       const registeredConsumers = this.options.consumers?.store.registerMany(stagedConsumers) || []
@@ -396,7 +390,7 @@ export class PluginHost {
         consumers.set(consumer.name, resources.add(dispose))
       }
       for (const hook of stagedHooks) {
-        const dispose = this.options.hooks!.register(state.profileId, manifest.id, installation.generation, hook, async (input, ctx) => {
+        const dispose = this.options.hooks!.register('*', manifest.id, installation.generation, hook, async (input, ctx) => {
           authorize(`hooks.before:${hook.point}`)
           const result = await worker.invokeHook(hook, input, this.options.context(ctx.scope, AbortSignal.any([ctx.signal, resources.signal])))
           authorize(`hooks.before:${hook.point}`)
@@ -404,10 +398,10 @@ export class PluginHost {
         })
         hooks.set(JSON.stringify([hook.point, hook.options.key]), resources.add(dispose))
       }
-      this.active.set(key, { worker, resources, generation: installation.generation, profileId: state.profileId, withdraw })
-      this.options.store.recordDiagnostic(installation.id, state.profileId, 'ready')
+      this.active.set(key, { worker, resources, generation: installation.generation, withdraw })
+      this.options.store.recordDiagnostic(installation.id, 'ready')
       committed = true
-      await this.options.acceptEvents([...pendingEvents, this.lifecycleEvent('plugin.ready', installation, state.profileId),
+      await this.options.acceptEvents([...pendingEvents, this.lifecycleEvent('plugin.ready', installation),
         ...[...removers.keys()].map(id => agentEvent('agent.available', id)),
         ...[...providedServices.values()].map(service => serviceEvent('service.available', service))])
     } catch (error) {
@@ -419,18 +413,18 @@ export class PluginHost {
     }
   }
 
-  private lifecycleEvent(type: 'plugin.ready' | 'plugin.disabled' | 'plugin.failed', installation: PluginInstallation, profileId: string): EventEnvelope {
-    return this.event(type, { profileId, pluginId: installation.id }, { pluginId: installation.id, generation: installation.generation })
+  private lifecycleEvent(type: 'plugin.ready' | 'plugin.disabled' | 'plugin.failed', installation: PluginInstallation): EventEnvelope {
+    return this.event(type, { pluginId: installation.id }, { pluginId: installation.id, generation: installation.generation })
   }
 
-  private async notifyFailure(installation: PluginInstallation, profileId: string): Promise<void> {
-    try { await this.options.acceptEvents([this.lifecycleEvent('plugin.failed', installation, profileId)]) }
-    catch { this.options.logger.warn('Plugin failure notification failed', { pluginId: installation.id, profileId }) }
+  private async notifyFailure(installation: PluginInstallation): Promise<void> {
+    try { await this.options.acceptEvents([this.lifecycleEvent('plugin.failed', installation)]) }
+    catch { this.options.logger.warn('Plugin failure notification failed', { pluginId: installation.id }) }
   }
 
   private event(type: string, subject: EventEnvelope['subject'], data: JsonObject): EventEnvelope {
     const id = randomUUID()
-    return { schemaVersion: 1, id, type, occurredAt: Date.now(), partitionKey: `${subject.profileId}:${subject.pluginId}`, sequence: 0, subject, data, correlationId: id }
+    return { schemaVersion: 1, id, type, occurredAt: Date.now(), partitionKey: `plugin:${subject.pluginId}`, sequence: 0, subject, data, correlationId: id }
   }
 
   private validateDeclarations(manifest: PluginInstallation['manifest']): void {
@@ -454,13 +448,13 @@ export class PluginHost {
     return installation
   }
 
-  private async invalidateDependents(pluginId: string, profileId: string): Promise<void> {
-    await Promise.all(requiredServiceDependents(this.options.store, pluginId, profileId).map(async dependent => {
-      if (!this.active.has(this.key(dependent.pluginId, profileId))) return
+  private async invalidateDependents(pluginId: string): Promise<void> {
+    await Promise.all(requiredServiceDependents(this.options.store, pluginId).map(async dependent => {
+      if (!this.active.has(dependent.pluginId)) return
       const requirements = this.options.store.get(dependent.pluginId)?.manifest.requires.services || []
-      if (requirements.every(service => service.optional || this.services.status(profileId, service).available)) return
-      const stopped = this.stop(dependent.pluginId, profileId, 'dependency')
-      await Promise.all([stopped, this.invalidateDependents(dependent.pluginId, profileId)])
+      if (requirements.every(service => service.optional || this.services.status('*', service).available)) return
+      const stopped = this.stop(dependent.pluginId, 'dependency')
+      await Promise.all([stopped, this.invalidateDependents(dependent.pluginId)])
     }))
   }
 
@@ -470,18 +464,17 @@ export class PluginHost {
       .finally(() => this.cleanups.delete(pending))
   }
 
-  private async stop(pluginId: string, profileId: string, reason?: 'disabled' | 'dependency'): Promise<void> {
-    const key = this.key(pluginId, profileId), active = this.active.get(key)
-    this.options.store.recordDiagnostic(pluginId, profileId, reason === 'dependency' ? 'blocked' : reason === 'disabled' ? 'disabled'
-      : this.options.store.profile(pluginId, profileId)?.enabled ? 'inactive' : 'disabled', reason === 'dependency' ? 'PLUGIN_UNAVAILABLE' : undefined)
+  private async stop(pluginId: string, reason?: 'disabled' | 'dependency'): Promise<void> {
+    const key = pluginId, active = this.active.get(key)
+    this.options.store.recordDiagnostic(pluginId, reason === 'dependency' ? 'blocked' : reason === 'disabled' ? 'disabled'
+      : this.options.store.state(pluginId)?.enabled ? 'inactive' : 'disabled', reason === 'dependency' ? 'PLUGIN_UNAVAILABLE' : undefined)
     this.active.delete(key)
     const withdrawn = active?.withdraw() || []
     const closing = active?.resources.close()
-    if (reason) withdrawn.push(this.lifecycleEvent(reason === 'disabled' ? 'plugin.disabled' : 'plugin.failed', this.requireInstallation(pluginId), profileId))
+    if (reason) withdrawn.push(this.lifecycleEvent(reason === 'disabled' ? 'plugin.disabled' : 'plugin.failed', this.requireInstallation(pluginId)))
     try { if (withdrawn.length) await this.options.acceptEvents(withdrawn) }
     finally { await closing }
   }
-  private key(pluginId: string, profileId: string): string { return `${pluginId}:${profileId}` }
 
   private serial<T>(key: string, operation: () => Promise<T>): Promise<T> {
     if (this.closed) return Promise.reject(new StudioError('PLUGIN_UNAVAILABLE', 'Plugin host is closed'))

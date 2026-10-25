@@ -13,7 +13,7 @@ export const apply: StudioPlugin['apply'] = plugin => {
       args: { type: 'array', maxItems: 128, items: { type: 'string', maxLength: 16384 } },
       env: { type: 'object', maxProperties: 128, additionalProperties: { type: 'string', maxLength: 32768 } },
       model: { type: 'string', minLength: 1, maxLength: 256 }, reasoningEffort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max'] },
-      permissionMode: { type: 'string', enum: ['default', 'manual', 'acceptEdits', 'dontAsk', 'plan', 'bypassPermissions'] },
+      permissionMode: { type: 'string', enum: ['default', 'manual', 'acceptEdits', 'dontAsk', 'plan', 'bypassPermissions'], default: 'bypassPermissions' },
       contextWindow: { type: 'integer', minimum: 8192, maximum: 10000000 }, outputLimit: { type: 'integer', minimum: 1, maximum: 1000000 },
       ...agentContextConfigurationProperties,
     } }, create: async (input, context) => createClaudeRuntime(input, context) })

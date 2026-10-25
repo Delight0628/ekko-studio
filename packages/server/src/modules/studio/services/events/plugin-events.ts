@@ -2,7 +2,7 @@ import { StudioError, type Disposer, type EventEnvelope, type ExecutionContext, 
 import { jsonCopy } from '../plugins/validation'
 
 export interface EventSubscriptionScope {
-  profileId: string
+  profileId?: string
   context(event: EventEnvelope, signal: AbortSignal): Promise<ExecutionContext>
 }
 
@@ -45,7 +45,7 @@ export class PluginEventBus {
   publish(input: EventEnvelope): void {
     const event = jsonCopy(input)
     for (const subscriber of this.subscriptions) {
-      if (!subscriber.accepting || subscriber.type !== event.type || subscriber.scope.profileId !== event.subject.profileId) continue
+      if (!subscriber.accepting || subscriber.type !== event.type || (subscriber.scope.profileId !== undefined && subscriber.scope.profileId !== event.subject.profileId)) continue
       if (subscriber.pending >= (this.options.maxPending ?? 128)) {
         subscriber.accepting = false
         subscriber.controller.abort()

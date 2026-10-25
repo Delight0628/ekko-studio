@@ -21,13 +21,13 @@ export class AgentRegistry {
 
   resolve(profileId: string, id: string): { definition: AgentTypeDefinition; provider: AgentProviderRef } {
     const entry = this.entries.get(`${profileId}:${id}`) || this.entries.get(`*:${id}`)
-    if (!entry) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent type is not available in this profile')
+    if (!entry) throw new StudioError('RUNTIME_UNAVAILABLE', 'Agent type is not available')
     return { definition: entry.definition, provider: jsonCopy(entry.provider) }
   }
 
   stage(profileId: string, providerInput: AgentProviderRef, allowedIds: readonly string[]) {
     const provider = jsonCopy(providerInput)
-    if (!profileId || (profileId === '*' && provider.kind === 'plugin')) throw new StudioError('FORBIDDEN', 'Plugins require a concrete profile scope')
+    if (!profileId) throw new StudioError('FORBIDDEN', 'Registration scope is required')
     const token = {}
     const pending = new Map<string, Entry>()
     let state: 'staging' | 'committed' | 'disposed' = 'staging'

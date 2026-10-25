@@ -33,7 +33,7 @@ async function setup(options: { granted?: boolean; crash?: boolean; shared?: boo
   const context = (scope: ExecutionScope, signal: AbortSignal) => createExecutionContext(scope, signal, logger, { authorize: async () => {}, agents: { list: async () => [] }, sessions: { get: async () => null } })
   const coordinator = new AgentCoordinator({ store: new AgentExecutionStore(db), registry, events, logger, authorize: () => {}, context })
   const host = new PluginHost({ store, registry, events, hooks, context, logger, runnerPath: runner, artifactsRoot: join(root, 'installed'),
-    eventContext: async (state, _event, signal) => context({ ...scope, principal: { kind: 'user', id: state.ownerId } }, signal), acceptEvents: async batch => { for (const event of batch) events.publish(event) } })
+    eventContext: async (state, _event, signal) => context({ ...scope, principal: { kind: 'user', id: scope.principal.id } }, signal), acceptEvents: async batch => { for (const event of batch) events.publish(event) } })
   cleanups.push(async () => { await coordinator.close(); await host.close(); events.close(); db.close() })
   const capabilities = ['agents.register', ...(options.granted === false ? [] : [options.mcpSdk ? 'mcp.connect' : 'processes.spawn']), ...(options.hook ? ['hooks.before:sessions.remove'] : [])]
   const manifest = { schemaVersion: 1, id: 'test.process', version: '1.0.0', engines: { studioSdk: '^0.1.0', rpc: 1 }, backend: 'index.cjs', activation: 'profile',

@@ -601,6 +601,10 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
     if (pathname === '/api/studio/agent-instances' && request.method() === 'GET') {
       return route.fulfill({ json: { ok: true, data: [] } })
     }
+    if (pathname === '/api/studio/agent-chats' && request.method() === 'POST') {
+      const input = request.postDataJSON()
+      return route.fulfill({ json: { ok: true, data: { sessionId: input.sessionId, instanceId: `chat-${input.sessionId}`, profileId: url.searchParams.get('profile'), configurationRevision: 1, createdAt: Date.now() } } })
+    }
     if (pathname === '/api/studio/commands' && request.method() === 'GET') {
       await route.fulfill({ json: { ok: true, data: [] } }); return
     }

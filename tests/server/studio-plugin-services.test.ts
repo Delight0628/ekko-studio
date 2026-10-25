@@ -46,7 +46,7 @@ function setup() {
     authorize: async () => {}, sessions: { get: read }, agents: { list: async profile => registry.list(profile) },
   })
   const host = new PluginHost({ store, registry, events, context, logger, runnerPath: runner, artifactsRoot: join(root, 'artifacts'),
-    eventContext: async (state, event, signal) => context({ ...scope, profileId: state.profileId, principal: { kind: 'user', id: state.ownerId }, traceId: event.correlationId }, signal),
+    eventContext: async (state, event, signal) => context({ ...scope, profileId: event.subject.profileId || scope.profileId, principal: { kind: 'user', id: scope.principal.id }, traceId: event.correlationId }, signal),
     acceptEvents: async batch => { for (const event of eventStore.append(batch)) events.publish(event) },
   })
   cleanup.push(async () => { await host.close(); events.close(); db.close() })
@@ -99,7 +99,7 @@ it.each([false, true])('uses real worker services with caller identity and permi
   await host.configure({ ...state(provider), enabled: false }, 1)
 })
 
-it('restores providers before consumers and never resolves a service from another profile', async () => {
+it('restores global providers before consumers and preserves each service caller context', async () => {
   const { host, store, install, state, events, output } = setup()
   const provider = manifest('test.provider', [token], [], ['sessions.read'])
   const consumer = manifest('test.consumer', [], [dependency], ['events.subscribe:plugin.ready'])
@@ -112,15 +112,17 @@ it('restores providers before consumers and never resolves a service from anothe
   await install(optional, consumerSource({ ...dependency, optional: true } as any))
   await host.configure(state(optional, 'two'), 0); await events.idle()
   await vi.waitFor(() => expect(output('service-results')).toHaveLength(2))
-  expect(output('service-results')[1].data.results).toEqual([{ available: false }, 'PLUGIN_UNAVAILABLE', 'PLUGIN_UNAVAILABLE', 'PLUGIN_UNAVAILABLE', 'PLUGIN_UNAVAILABLE', 'FORBIDDEN'])
+  expect(output('service-results')[1].data.results).toEqual([{ available: true, version: '1.2.0' }, { input: 'hello', principal: 'caller', profile: 'one', trace: expect.any(String) }, 'INVALID_ARGUMENT', 'INVALID_ARGUMENT', 'FORBIDDEN', 'FORBIDDEN'])
   const refresh = () => events.publish({ schemaVersion: 1, id: String(Math.random()), type: 'plugin.ready', occurredAt: Date.now(), partitionKey: 'optional', sequence: 1,
     subject: { profileId: 'two', pluginId: optional.id }, data: { pluginId: optional.id }, correlationId: 'optional-trace' })
-  await host.configure(state(provider, 'two'), 0)
+  await host.activate(provider.id, 'two')
   refresh(); await events.idle()
   await vi.waitFor(() => expect(output('service-results')).toHaveLength(3))
   expect(output('service-results')[2].data.results[0]).toEqual({ available: true, version: '1.2.0' })
   expect(output('service-results')[2].data.results[1]).toMatchObject({ principal: 'caller', profile: 'two', trace: 'optional-trace' })
-  await host.configure({ ...state(provider, 'two'), enabled: false }, 1)
+  await expect(host.configure({ ...state(provider), enabled: false }, 1)).rejects.toMatchObject({ code: 'REVISION_CONFLICT' })
+  await host.configure({ ...state(consumer), enabled: false }, 1)
+  await host.configure({ ...state(provider), enabled: false }, 1)
   refresh(); await events.idle()
   await vi.waitFor(() => expect(output('service-results')).toHaveLength(4))
   expect(output('service-results')[3].data.results[0]).toEqual({ available: false })
@@ -132,11 +134,11 @@ it('rejects missing dependencies, incompatible versions and cycles before applyi
   await install(missing, `module.exports = { apply(ctx) { ctx.logger.info('must-not-apply') } }`)
   await expect(host.configure(state(missing), 0)).rejects.toMatchObject({ code: 'PLUGIN_UNAVAILABLE' })
   expect(host.diagnostic(missing.id, 'one')).toMatchObject({ state: 'blocked', errorCode: 'PLUGIN_UNAVAILABLE', configurationRevision: 1 })
-  expect(store.diagnostic(missing.id, 'one')).toMatchObject({ state: 'blocked', errorCode: 'PLUGIN_UNAVAILABLE' })
+  expect(store.diagnostic(missing.id)).toMatchObject({ state: 'blocked', errorCode: 'PLUGIN_UNAVAILABLE' })
   expect(output('must-not-apply')).toHaveLength(0)
-  expect(eventStore.read('one').map(row => row.event)).toEqual([expect.objectContaining({ type: 'plugin.failed', subject: { pluginId: missing.id, profileId: 'one' } })])
+  expect(eventStore.read(undefined).map(row => row.event)).toEqual([expect.objectContaining({ type: 'plugin.failed', subject: { pluginId: missing.id } })])
   await host.configure({ ...state(missing), enabled: false }, 1)
-  expect(eventStore.read('one').map(row => row.event.type)).toEqual(['plugin.failed', 'plugin.disabled'])
+  expect(eventStore.read(undefined).map(row => row.event.type)).toEqual(['plugin.failed', 'plugin.disabled'])
   const provider = manifest('test.provider', [token])
   await install(provider, providerSource); store.saveProfile(state(provider), 0)
   const incompatible = manifest('test.incompatible', [], [{ ...dependency, version: '^2.0.0' }])
@@ -154,7 +156,7 @@ it('rejects missing dependencies, incompatible versions and cycles before applyi
   expect(() => pluginActivationOrder(store, left.id, 'one')).toThrow('cycle')
 })
 
-it('notifies optional consumers after directory changes, isolated by profile, with one withdrawal per contribution', async () => {
+it('notifies global consumers once after directory changes and publishes one withdrawal per contribution', async () => {
   const { host, install, state, events, eventStore, output, registry } = setup()
   const provider = manifest('test.provider', [token], [], ['agents.register'])
   provider.contributes.agents = ['test.provider/agent']
@@ -172,7 +174,7 @@ it('notifies optional consumers after directory changes, isolated by profile, wi
         status: await service.status(), agents: (await ctx.agents.list()).map(agent => agent.id) });
     });
   } }`)
-  await host.configure(state(optional), 0); await host.configure(state(optional, 'two'), 0)
+  await host.configure(state(optional), 0); await host.activate(optional.id, 'two')
   await host.configure(state(provider), 0); await events.idle()
   await vi.waitFor(() => expect(output('service-change')).toHaveLength(1))
   expect(output('service-change')[0].data).toEqual({ type: 'service.available', profile: 'one',
@@ -182,7 +184,7 @@ it('notifies optional consumers after directory changes, isolated by profile, wi
   expect(output('service-change')[1].data).toMatchObject({ type: 'service.unavailable', profile: 'one', status: { available: false }, agents: [] })
   expect(registry.list('one')).toEqual([])
   await host.configure({ ...state(provider), enabled: false }, 2)
-  const lifecycle = () => eventStore.read('one').filter(row => row.event.subject.pluginId === provider.id).map(row => row.event.type)
+  const lifecycle = () => eventStore.read(undefined).filter(row => row.event.subject.pluginId === provider.id).map(row => row.event.type)
   expect(lifecycle()).toEqual(['plugin.ready', 'agent.available', 'service.available', 'agent.unavailable', 'service.unavailable', 'plugin.disabled'])
   await host.configure(state(provider), 3); await events.idle()
   await host.configure(state(provider), 4); await events.idle()
@@ -220,15 +222,15 @@ it('withdraws only consumers of a disposed service and publishes a single Agent/
   expect(host.diagnostic(secondConsumer.id, 'one').state).toBe('ready')
   expect(host.diagnostic(provider.id, 'one').state).toBe('ready')
   expect(registry.list('one')).toEqual([])
-  expect(eventStore.read('one').filter(row => row.event.type === 'service.unavailable').map(row => row.event.data)).toEqual([{ serviceId: token.id, version: token.version }])
-  expect(eventStore.read('one').filter(row => row.event.type === 'agent.unavailable')).toHaveLength(1)
+  expect(eventStore.read(undefined).filter(row => row.event.type === 'service.unavailable').map(row => row.event.data)).toEqual([{ serviceId: token.id, version: token.version }])
+  expect(eventStore.read(undefined).filter(row => row.event.type === 'agent.unavailable')).toHaveLength(1)
   await host.configure({ ...state(secondConsumer), enabled: false }, 1)
   await host.configure({ ...state(firstConsumer), enabled: false }, 1)
   await host.configure({ ...state(provider), enabled: false }, 1)
-  expect(eventStore.read('one').filter(row => row.event.type === 'service.unavailable').map(row => row.event.data)).toEqual([
+  expect(eventStore.read(undefined).filter(row => row.event.type === 'service.unavailable').map(row => row.event.data)).toEqual([
     { serviceId: token.id, version: token.version }, { serviceId: second.id, version: second.version },
   ])
-  expect(eventStore.read('one').filter(row => row.event.type === 'agent.unavailable')).toHaveLength(1)
+  expect(eventStore.read(undefined).filter(row => row.event.type === 'agent.unavailable')).toHaveLength(1)
 })
 
 it('reaps an activation even if its profile was disabled outside the host, and does not announce shutdown as a disable', async () => {
@@ -238,12 +240,12 @@ it('reaps an activation even if its profile was disabled outside the host, and d
   await host.configure(state(provider), 0)
   store.saveProfile({ ...state(provider), enabled: false }, 1)
   await host.uninstall(provider.id)
-  expect(eventStore.read('one').map(row => row.event.type)).toEqual(['plugin.ready', 'service.available', 'service.unavailable', 'plugin.disabled'])
+  expect(eventStore.read(undefined).map(row => row.event.type)).toEqual(['plugin.ready', 'service.available', 'service.unavailable', 'plugin.disabled'])
   await install(provider, providerSource)
   await host.configure(state(provider), 2)
-  const before = eventStore.read('one')
+  const before = eventStore.read(undefined)
   await host.close()
-  expect(eventStore.read('one')).toEqual(before)
+  expect(eventStore.read(undefined)).toEqual(before)
   expect(host.diagnostic(provider.id, 'one').state).toBe('inactive')
 })
 
@@ -337,10 +339,10 @@ it('marks a crashed provider failed and withdraws required consumers while leavi
   await vi.waitFor(() => expect(host.diagnostic(consumer.id, 'one').state).toBe('blocked'))
   expect(host.diagnostic(provider.id, 'one')).toMatchObject({ state: 'failed', errorCode: 'PLUGIN_UNAVAILABLE' })
   expect(host.diagnostic(unrelated.id, 'one').state).toBe('ready')
-  await vi.waitFor(() => expect(eventStore.read('one').filter(row => row.event.type === 'plugin.failed')).toHaveLength(2))
-  const failures = eventStore.read('one').filter(row => row.event.type === 'plugin.failed').map(row => row.event.subject.pluginId)
+  await vi.waitFor(() => expect(eventStore.read(undefined).filter(row => row.event.type === 'plugin.failed')).toHaveLength(2))
+  const failures = eventStore.read(undefined).filter(row => row.event.type === 'plugin.failed').map(row => row.event.subject.pluginId)
   expect(failures.sort()).toEqual([consumer.id, provider.id])
-  expect(eventStore.read('one').filter(row => row.event.type === 'service.unavailable').map(row => row.event.data)).toEqual([{ serviceId: crash.id, version: crash.version }])
+  expect(eventStore.read(undefined).filter(row => row.event.type === 'service.unavailable').map(row => row.event.data)).toEqual([{ serviceId: crash.id, version: crash.version }])
 })
 
 it.each([

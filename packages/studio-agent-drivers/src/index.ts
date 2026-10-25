@@ -1,4 +1,4 @@
-export { AcpConnection, AcpRequestError, type AcpImageInput, type AcpPermissionRequest } from './acp/connection'
+export { AcpConnection, AcpRequestError, acpAutomaticApproval, type AcpImageInput, type AcpPermissionRequest } from './acp/connection'
 export { acpMcpServers, applyNativeAcpUpdate, type AcpEventHost } from './acp/events'
 export { ManagedProcessTransport, type ManagedProcessPort, type AgentProcessIO } from './process/transport'
 export { ManagedJsonRpcTransport } from './process/json-rpc'

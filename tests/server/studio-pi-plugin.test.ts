@@ -76,7 +76,7 @@ async function setup(mode: 'global' | 'scoped' = 'global', extra: Record<string,
   const manifest = JSON.parse(await readFile(join(root, 'plugins/pi/studio-plugin.json'), 'utf8'))
   await host.registerSystemArtifact(join(root, 'plugins/pi'), manifest.id)
   await host.configure({ pluginId: manifest.id, profileId: caller.profileId, ownerId: caller.principal.id, enabled: true, config: {}, grants: manifest.requires.capabilities }, 0)
-  const config = { cwd: directory, command: process.execPath, args: [cli], model: 'fixture/native-model',
+  const config = { approvalRequired: true, cwd: directory, command: process.execPath, args: [cli], model: 'fixture/native-model',
     env: { TRACE: trace, HOME: directory, USERPROFILE: directory, PI_CODING_AGENT_DIR: join(directory, 'native'), CONTROL_FILE: join(directory, 'control'), ...extra } }
   const instance = coordinator.createInstance(caller, { agentTypeId: 'pi', mode, config })
   let sequence = 0
@@ -292,4 +292,15 @@ it('fails before sending user input when native Pi silently skips the managed ex
   const environment = JSON.parse(await readFile(f.trace + '.env', 'utf8'))
   await expect(readFile(environment.descriptor)).rejects.toMatchObject({ code: 'ENOENT' })
   await expect(readFile(environment.descriptor + '.ready')).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('automatically confirms tool dialogs when manual approvals were not configured', async () => {
+  const f = await setup()
+  const { approvalRequired: _manual, ...config } = f.instance.config
+  await f.coordinator.updateInstance(caller, f.instance.id, { revision: 1, mode: f.instance.mode, config })
+  const run = f.start('confirm')
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(caller, run.id).status).toBe('completed')
+  expect(f.coordinator.interactions(caller, run.id)).toEqual([])
+  expect((await f.frames()).find(frame => frame.type === 'extension_ui_response')).toMatchObject({ id: 'dialog', confirmed: true })
 })

@@ -76,7 +76,7 @@ const defaultReasoningEffortLabel = computed(() => t(isHermesSession(reasoningSe
   ? 'chat.reasoningEffort.options.default' : 'chat.reasoningEffort.options.none'))
 const isMoaSession = computed(() => reasoningSession.value?.provider === 'moa')
 const isGlobalCodingAgentSession = computed(() => reasoningSession.value?.codingAgentMode === 'global')
-const isReadOnlyCodingAgentEffort = computed(() => !!composerSession.value?.agentInstanceId || (!props.draft && isGlobalCodingAgentSession.value && isExternalCodingAgentSession(composerSession.value)))
+const isReadOnlyCodingAgentEffort = computed(() => (!!composerSession.value?.agentInstanceId && !composerSession.value.agentChatSettings) || (!props.draft && isGlobalCodingAgentSession.value && isExternalCodingAgentSession(composerSession.value)))
 function effortLabel(value: string) {
   return DEFAULT_REASONING_EFFORTS.includes(value) || ['ultra', 'disabled', 'enabled'].includes(value) ? t(`chat.reasoningEffort.options.${value}`) : value
 }
@@ -1076,7 +1076,7 @@ async function handleSend() {
   }
   const text = inputText.value.trim()
   if (!text && attachments.value.length === 0) return
-  if (composerSession.value?.agentInstanceId && (attachments.value.length > 8
+  if (composerSession.value?.agentInstanceId && !composerSession.value.agentChatSettings && (attachments.value.length > 8
     || attachments.value.reduce((sum, att) => sum + (att.file?.size || att.size), 0) > 6 * 1024 * 1024
     || attachments.value.some(att => !att.file || att.file.size > 4 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(att.type)))) {
     message.error(t('agentManagement.imageInputLimit'))

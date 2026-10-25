@@ -65,9 +65,9 @@ export class ReliablePluginConsumers {
     return record
   }
 
-  requireRecord(pluginId: string, profileId: string, id: string): ConsumerRecord {
+  requireRecord(pluginId: string, id: string): ConsumerRecord {
     const record = this.store.get(id)
-    if (!record || record.pluginId !== pluginId || record.profileId !== profileId) throw new StudioError('NOT_FOUND', 'Consumer is unavailable')
+    if (!record || record.pluginId !== pluginId || record.profileId !== undefined) throw new StudioError('NOT_FOUND', 'Consumer is unavailable')
     return record
   }
 

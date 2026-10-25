@@ -16,6 +16,7 @@ export interface SessionSummary {
   agent_session_id?: string
   agent_native_session_id?: string
   agent_instance_id?: string
+  agent_chat_settings?: boolean
   agent_instance_revision?: number
   agent_usage?: ManagedAgentUsage
   model: string

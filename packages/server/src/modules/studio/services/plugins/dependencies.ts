@@ -2,18 +2,18 @@ import { satisfies } from 'semver'
 import { StudioError } from '../../contracts/plugins'
 import type { PluginStore } from '../../repositories/plugin-store'
 
-/** Resolve enabled providers in one profile before importing any plugin code. */
-export function pluginActivationOrder(store: PluginStore, pluginId: string, profileId: string): string[] {
+/** Resolve globally enabled providers before importing any plugin code. */
+export function pluginActivationOrder(store: PluginStore, pluginId: string, _legacyProfileId?: string): string[] {
   const visiting = new Set<string>(), visited = new Set<string>(), ordered: string[] = []
   const visit = (id: string) => {
     if (visiting.has(id)) throw new StudioError('REGISTRATION_CONFLICT', 'Plugin service dependencies contain a cycle')
     if (visited.has(id)) return
-    const installation = store.get(id), state = store.profile(id, profileId)
+    const installation = store.get(id), state = store.state(id)
     if (!installation || !state?.enabled) throw new StudioError('PLUGIN_UNAVAILABLE', 'Required service provider is not enabled')
     visiting.add(id)
     for (const dependency of installation.manifest.requires.services || []) {
       const publisher = dependency.id.split('/')[0]
-      const provider = store.get(publisher), enabled = store.profile(publisher, profileId)?.enabled
+      const provider = store.get(publisher), enabled = store.state(publisher)?.enabled
       const service = provider?.manifest.contributes.services?.find(value => value.id === dependency.id)
       if (!enabled || !service || !satisfies(service.version, dependency.version)) {
         if (dependency.optional) continue
@@ -29,9 +29,8 @@ export function pluginActivationOrder(store: PluginStore, pluginId: string, prof
   return ordered
 }
 
-export function requiredServiceDependents(store: PluginStore, pluginId: string, profileId?: string): Array<{ pluginId: string; profileId: string }> {
-  return store.enabledProfiles().filter(state => (!profileId || state.profileId === profileId)
-    && state.pluginId !== pluginId && store.get(state.pluginId)?.manifest.requires.services?.some(dependency =>
+export function requiredServiceDependents(store: PluginStore, pluginId: string, profileId?: string): Array<{ pluginId: string }> {
+  return store.enabled().filter(state => state.pluginId !== pluginId && store.get(state.pluginId)?.manifest.requires.services?.some(dependency =>
       !dependency.optional && dependency.id.split('/')[0] === pluginId))
-    .map(({ pluginId, profileId }) => ({ pluginId, profileId }))
+    .map(({ pluginId }) => ({ pluginId }))
 }

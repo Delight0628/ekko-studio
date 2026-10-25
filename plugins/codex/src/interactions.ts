@@ -33,7 +33,7 @@ function questions(value: unknown): Question[] {
 }
 
 /** One native request can have several independently persisted Studio questions. */
-export function codexInteractions(emit: (event: Output) => void) {
+export function codexInteractions(emit: (event: Output) => void, approvalRequired = true) {
   const pending = new Map<string, { kind: 'approval' | 'clarification'; choices: AgentInteractionChoice[]; allowText: boolean; finish(answer: string | null): void }>()
   const withdrawn = new Set<string>()
   let count = 0
@@ -73,6 +73,7 @@ export function codexInteractions(emit: (event: Output) => void) {
           || ['title', 'description'].some(key => schema[key] !== undefined && (typeof schema[key] !== 'string' || schema[key].length > 4096))) {
           throw new StudioError('CAPABILITY_UNSUPPORTED', 'MCP elicitation fields require a supported form or credential interaction')
         }
+        if (!approvalRequired && !signal.aborted) return { action: 'accept', content: {} }
         const action = await ask({ prompt: `${params.serverName}\n${params.message}`, allowText: false,
           choices: [{ id: 'accept', label: 'Allow once' }, { id: 'decline', label: 'Decline' }],
         }, 'approval', signal)
@@ -90,6 +91,7 @@ export function codexInteractions(emit: (event: Output) => void) {
       if (!['item/commandExecution/requestApproval', 'item/fileChange/requestApproval'].includes(method)) throw new Error('Unsupported Codex client request')
       const choices = ['accept', 'decline', 'cancel'].filter(choice => !Array.isArray(params.availableDecisions) || params.availableDecisions.includes(choice))
       if (!choices.length) return { decision: 'cancel' }
+      if (!approvalRequired) return { decision: !signal.aborted && choices.includes('accept') ? 'accept' : 'cancel' }
       const decision = await ask({ allowText: false,
         prompt: [params.reason, params.command, params.cwd, params.grantRoot].filter(value => typeof value === 'string').join('\n').slice(0, 16384) || 'Codex requests permission',
         choices: choices.map(id => ({ id, label: id === 'accept' ? 'Allow once' : id === 'decline' ? 'Decline' : 'Cancel turn' })),

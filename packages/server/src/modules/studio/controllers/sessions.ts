@@ -182,6 +182,24 @@ function denyManagedInstanceSetting(ctx: any, session?: any): boolean {
   return true
 }
 
+async function updateOrdinaryAgentSettings(ctx: any, session: any, patch: import('../contracts/plugins').JsonObject): Promise<boolean> {
+  if (!session?.agent_chat_settings) return false
+  const { getStudioPluginRuntime } = await import('../services/plugins/runtime')
+  const { respond } = await import('./studio-plugins')
+  await respond(ctx, async () => {
+    const run = getRunRequestContext(ctx)
+    const scope: import('../contracts/plugins').ExecutionScope = { scopeId: randomUUID(), traceId: randomUUID(),
+      principal: { kind: 'user', id: String(ctx.state?.user?.id ?? '') }, profileId: session.profile || 'default', surface: 'chat',
+      ...(run ? { sessionId: run.sessionId, ...(run.runId ? { runId: run.runId } : {}) } : {}) }
+    const result = await getStudioPluginRuntime().ordinaryChats.update(scope, session.id, patch)
+    const updated = localGetSession(session.id)!
+    getChatRunServer()?.emitSessionSettingsUpdated(session.id, { model: updated.model, provider: updated.provider, reasoning_effort: updated.reasoning_effort,
+      workspace: updated.workspace || undefined, agent_instance_revision: result.revision })
+    return { revision: result.revision }
+  })
+  return true
+}
+
 function isVisibleWebUiSessionSource(source?: string | null): boolean {
   return source === 'api_server' || source === 'cli' || source === 'desktop' || source === 'builtin_agent' || source === 'coding_agent' || source === 'global_agent'
 }
@@ -397,7 +415,7 @@ export async function listConversations(ctx: any) {
   const profile = explicitProfileFilter(ctx)
   const sessions = localListSessions(profile, source, limit && limit > 0 ? limit : 200, managedListOptions(ctx))
   const summaries: ConversationSummary[] = sessions.map(s => ({
-    ...(s.agent_instance_id ? { agent_instance_id: s.agent_instance_id, agent_instance_revision: s.agent_instance_revision, agent_usage: s.agent_usage } : {}),
+    ...(s.agent_instance_id ? { agent_instance_id: s.agent_instance_id, agent_instance_revision: s.agent_instance_revision, agent_chat_settings: s.agent_chat_settings, agent_usage: s.agent_usage } : {}),
     id: s.id,
     profile: s.profile || null,
     source: s.source,
@@ -1655,6 +1673,7 @@ export async function setWorkspace(ctx: any) {
   const id = ctx.params.id
   const existing = getSession(id)
   if (denySessionAccess(ctx, existing)) return
+  if (await updateOrdinaryAgentSettings(ctx, existing, { workspace: normalizeDirectoryTarget(workspace || '') || '' })) return
   if (denyManagedInstanceSetting(ctx, existing)) return
   if (ctx.state?.sessionShare) sessionShareService.authorizeWorkspaceSwitch(ctx.state.sessionShare.token, ctx.state.sessionShare.actor, workspace)
   if (!existing) {
@@ -1724,6 +1743,7 @@ export async function setModel(ctx: any) {
   const id = ctx.params.id
   const existing = getSession(id)
   if (denySessionAccess(ctx, existing)) return
+  if (await updateOrdinaryAgentSettings(ctx, existing, { model: model.trim(), provider: (provider || '').trim(), reasoningEffort: '' })) return
   if (denyManagedInstanceSetting(ctx, existing)) return
   const profile = existing?.profile || requestedProfile(ctx) || 'default'
   const cleanModel = model.trim()
@@ -1772,7 +1792,6 @@ export async function setReasoningEffort(ctx: any) {
     return
   }
   if (denySessionAccess(ctx, existing)) return
-  if (denyManagedInstanceSetting(ctx, existing)) return
 
   const body = (ctx.request.body || {}) as { reasoningEffort?: unknown; reasoning_effort?: unknown; model?: unknown }
   const rawEffort = body.reasoningEffort ?? body.reasoning_effort
@@ -1799,6 +1818,8 @@ export async function setReasoningEffort(ctx: any) {
   }
   const updates = { reasoning_effort: reasoningEffort,
     ...(typeof body.model === 'string' ? { model: body.model.trim() } : {}) }
+  if (await updateOrdinaryAgentSettings(ctx, existing, { reasoningEffort, ...(typeof body.model === 'string' ? { model: body.model.trim() } : {}) })) return
+  if (denyManagedInstanceSetting(ctx, existing)) return
   localUpdateSession(id, updates)
   if (existing.agent === 'grok') invalidateCodingAgentSessionRuntime(id)
   getChatRunServer()?.emitSessionSettingsUpdated(id, updates)
@@ -2255,7 +2276,7 @@ export async function getConversationMessagesPaginated(ctx: any) {
 
   ctx.body = {
     session: {
-      ...((session as any).agent_instance_id ? { agent_instance_id: (session as any).agent_instance_id, agent_instance_revision: (session as any).agent_instance_revision, agent_usage: (session as any).agent_usage } : {}),
+      ...((session as any).agent_instance_id ? { agent_instance_id: (session as any).agent_instance_id, agent_instance_revision: (session as any).agent_instance_revision, agent_chat_settings: (session as any).agent_chat_settings, agent_usage: (session as any).agent_usage } : {}),
       id: session.id,
       profile: session.profile,
       source: session.source,

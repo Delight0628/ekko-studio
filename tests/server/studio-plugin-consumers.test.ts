@@ -205,7 +205,7 @@ it('keeps management scoped and rejects stale controls before cancelling callbac
   const { store, consumer, append } = setup(); append('event')
   const dispatcher = dispatch(store, { now: () => 0 })
   for (const [plugin, profile] of [['other', 'one'], ['test.consumer', 'other']]) {
-    expect(() => dispatcher.requireRecord(plugin, profile, consumer.id)).toThrow(expect.objectContaining({ code: 'NOT_FOUND' }))
+    expect(() => dispatcher.requireRecord(plugin, consumer.id)).toThrow(expect.objectContaining({ code: 'NOT_FOUND' }))
   }
   let signal: AbortSignal | undefined
   dispatcher.mount(consumer, { context, deliver: async (_event, ctx) => { signal = ctx.signal; await new Promise(() => {}) }, deadline: async () => {} })

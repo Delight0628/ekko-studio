@@ -11,6 +11,7 @@ export interface AgentChatUsage {
 export interface AgentChatSummary {
   agent_instance_id: string
   agent_instance_revision: number
+  agent_chat_settings?: boolean
   agent_usage: AgentChatUsage
   model: string; workspace: string | null; agent_mode: string
 }
@@ -48,13 +49,17 @@ function usage(row?: Record<string, unknown>): AgentChatUsage {
 export function readAgentChatSummaries(db: DatabaseSync, sessionIds: string[]): Record<string, AgentChatSummary> {
   if (!sessionIds.length || !available(db)) return {}
   const ids = [...new Set(sessionIds)], placeholders = ids.map(() => '?').join(',')
+  const ordinary = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='studio_ordinary_agent_chats'").get()
   const bindings = db.prepare(`SELECT b.session_id, b.instance_id, i.revision, i.mode,
-    json_extract(i.config_json,'$.model') AS model, json_extract(i.config_json,'$.cwd') AS workspace
-    FROM studio_agent_chat_bindings b JOIN studio_agent_instances i ON i.id=b.instance_id WHERE b.session_id IN (${placeholders})`).all(...ids)
+    ${ordinary ? "CASE WHEN o.session_id IS NOT NULL THEN json_extract(o.selection_json,'$.model') ELSE json_extract(i.config_json,'$.model') END" : "json_extract(i.config_json,'$.model')"} AS model,
+    ${ordinary ? 'o.session_id IS NOT NULL' : '0'} AS chat_settings, json_extract(i.config_json,'$.cwd') AS workspace
+    FROM studio_agent_chat_bindings b JOIN studio_agent_instances i ON i.id=b.instance_id
+    ${ordinary ? 'LEFT JOIN studio_ordinary_agent_chats o ON o.session_id=b.session_id' : ''} WHERE b.session_id IN (${placeholders})`).all(...ids)
   const totals = db.prepare(`SELECT t.session_id, ${metrics} FROM studio_agent_run_targets t JOIN studio_agent_usage u ON u.run_id=t.run_id
     WHERE t.session_id IN (${placeholders}) GROUP BY t.session_id`).all(...ids)
   const byId = new Map(totals.map(row => [String(row.session_id), row]))
   return Object.fromEntries(bindings.map(row => [String(row.session_id), { agent_instance_id: String(row.instance_id), agent_instance_revision: Number(row.revision),
+    ...(row.chat_settings ? { agent_chat_settings: true } : {}),
     agent_mode: String(row.mode), model: typeof row.model === 'string' ? row.model : '', workspace: typeof row.workspace === 'string' ? row.workspace : null,
     agent_usage: usage(byId.get(String(row.session_id))) }]))
 }
@@ -62,9 +67,9 @@ export function readAgentChatSummaries(db: DatabaseSync, sessionIds: string[]): 
 export function readAgentChatRunSummaries(db: DatabaseSync, sessionId: string, assistantIds: string[]): RunUsageSummary[] {
   if (!assistantIds.length || !available(db)) return []
   const rows = db.prepare(`SELECT p.run_id, m.id, ${metrics} FROM studio_agent_chat_messages p JOIN ${MESSAGES_TABLE} m ON m.id=p.message_id
-    JOIN studio_agent_run_targets t ON t.run_id=p.run_id LEFT JOIN studio_agent_usage u ON u.run_id=p.run_id
+    JOIN studio_agent_run_targets t ON t.run_id=p.run_id JOIN studio_agent_runs r ON r.id=p.run_id LEFT JOIN studio_agent_usage u ON u.run_id=p.run_id
     WHERE m.session_id=? AND t.session_id=m.session_id AND p.kind IN ('message','tool-call') AND m.id IN (${assistantIds.map(() => '?').join(',')})
-    AND m.id=(SELECT max(last.message_id) FROM studio_agent_chat_messages last WHERE last.run_id=p.run_id AND last.kind IN ('message','tool-call'))
+    AND r.status IN ('completed','failed','cancelled','interrupted') AND m.id=${usageMessage('p.run_id')}
     GROUP BY p.run_id, m.id`).all(sessionId, ...assistantIds)
   return rows.map(row => {
     const value = usage(row)
@@ -72,4 +77,17 @@ export function readAgentChatRunSummaries(db: DatabaseSync, sessionId: string, a
       cacheReadTokens: value.cacheReadTokens, cacheHitRate: value.inputTokens != null && value.inputTokens > 0 && value.cacheReadTokens != null ? value.cacheReadTokens / value.inputTokens : null,
       costUsd: value.costUsd, tokensPerSecond: null, speedSource: null, isEstimated: value.estimatedCost }
   })
+}
+
+// A message id is allocated at first delta, so the final answer may precede
+// later tool rows. Prefer its text over the newest tool/empty reasoning row.
+function usageMessage(run: string): string {
+  return `(SELECT target.message_id FROM studio_agent_chat_messages target JOIN ${MESSAGES_TABLE} answer ON answer.id=target.message_id
+    WHERE target.run_id=${run} AND target.kind IN ('message','tool-call') AND answer.role='assistant'
+    ORDER BY CASE WHEN target.kind='message' AND trim(answer.content)!='' THEN 0 ELSE 1 END, target.message_id DESC LIMIT 1)`
+}
+
+export function readAgentChatUsageMessageId(db: DatabaseSync, runId: string): number | undefined {
+  const row = db.prepare(`SELECT ${usageMessage('r.id')} AS id FROM studio_agent_runs r WHERE r.id=? AND r.status IN ('completed','failed','cancelled','interrupted')`).get(runId)
+  return typeof row?.id === 'number' ? row.id : undefined
 }

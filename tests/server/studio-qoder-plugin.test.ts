@@ -57,7 +57,7 @@ async function setup() {
   const manifest = JSON.parse(await readFile(join(root, 'plugins/qoder/studio-plugin.json'), 'utf8'))
   await host.registerSystemArtifact(join(root, 'plugins/qoder'), manifest.id)
   await host.configure({ pluginId: manifest.id, profileId: caller.profileId, ownerId: caller.principal.id, enabled: true, config: {}, grants: manifest.requires.capabilities }, 0)
-  const config = { cwd: directory, command: process.execPath, args: [cli], model: 'native-model',
+  const config = { approvalRequired: true, cwd: directory, command: process.execPath, args: [cli], model: 'native-model',
     env: { TRACE: trace, HOME: directory, USERPROFILE: directory, QODER_CONFIG_DIR: join(directory, 'native') } }
   const instance = coordinator.createInstance(caller, { agentTypeId: 'qoder', mode: 'global', config })
   let sequence = 0
@@ -130,4 +130,16 @@ it('preserves Qoder platform restrictions and native path precedence', () => {
   expect(qoderDirectories({ cwd: '/workspace', env: { ...env, QODER_CONFIG_DIR_NAME: 'e\u0301quipe' } }).project).toBe(join('/workspace', 'équipe'))
   for (const name of ['../escape', '.git', 'NUL.txt', 'trailing.', ' leading']) expect(() => qoderDirectories({ cwd: '/workspace', env: { ...env, QODER_CONFIG_DIR_NAME: name } })).toThrow()
   expect(() => qoderDirectories({ cwd: '/workspace', args: ['--config-dir', 'relative'] })).toThrow()
+})
+
+
+it('keeps tool execution automatic when no manual approval policy is configured', async () => {
+  const f = await setup()
+  const { approvalRequired: _manual, ...config } = f.instance.config
+  await f.coordinator.updateInstance(caller, f.instance.id, { revision: f.instance.revision, mode: f.instance.mode, config })
+  const run = f.start('approval')
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(caller, run.id).status).toBe('completed')
+  expect(f.coordinator.interactions(caller, run.id)).toEqual([])
+  expect((await f.frames()).find((frame: any) => frame.id === 'approve')?.result).toMatchObject({ outcome: { outcome: 'selected', optionId: 'yes' } })
 })

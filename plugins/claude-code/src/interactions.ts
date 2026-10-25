@@ -6,7 +6,7 @@ const string = (value: unknown, max: number): value is string => typeof value ==
 const plain = (value: string) => value.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
 type Response = Parameters<NonNullable<AgentRunHandle['respond']>>[0]
 
-export function claudeInteractions(emit: (event: Output) => void) {
+export function claudeInteractions(emit: (event: Output) => void, approvalRequired = true) {
   const native = new Map<string, { withdrawn: boolean; resolve(): void }>(), pending = new Map<string, { nativeId: string; choices: string[]; allowText: boolean; finish(value: string | null): void }>()
   const withdrawn = new Set<string>()
   const cancelledNative = new Set<string>()
@@ -49,6 +49,7 @@ export function claudeInteractions(emit: (event: Output) => void) {
             return { behavior: 'allow', updatedInput: { ...request.input, answers } }
           }
           if (request.requires_user_interaction && request.tool_name !== 'ExitPlanMode') throw new StudioError('CAPABILITY_UNSUPPORTED', 'This Claude tool requires a native interaction surface')
+          if (!approvalRequired) return { behavior: 'allow', updatedInput: request.input }
           const detail = JSON.stringify(request.input).slice(0, 12000)
           const answer = await Promise.race([ask(nativeId, 0, [request.title || request.tool_name, request.decision_reason, detail].filter(part => typeof part === 'string').join('\n'),
             [{ id: 'allow', label: 'Allow once' }, { id: 'deny', label: 'Decline' }], false, 'approval'), stopped])
@@ -57,6 +58,7 @@ export function claudeInteractions(emit: (event: Output) => void) {
         if (request.subtype === 'elicitation') {
           const schema = request.requested_schema
           if (request.mode === 'url' || !schema || schema.type !== 'object' || Object.keys(schema.properties || {}).length || (schema.required || []).length) throw new StudioError('CAPABILITY_UNSUPPORTED', 'MCP elicitation fields require a supported form or credential interaction')
+          if (!approvalRequired) return { action: 'accept', content: {} }
           const answer = await Promise.race([ask(nativeId, 0, String(request.message || 'MCP confirmation required'), [{ id: 'accept', label: 'Allow once' }, { id: 'decline', label: 'Decline' }], false, 'approval'), stopped])
           return answer === 'accept' && !entry.withdrawn ? { action: 'accept', content: {} } : { action: entry.withdrawn ? 'cancel' : 'decline' }
         }

@@ -39,9 +39,9 @@ async function setup(source: string, capabilities = ['hooks.before:runs.start'],
   builtin.register({ id: 'ekko', name: 'Fixture', configSchema: {}, capabilities: { text: true, modes: ['scoped'] }, create: async () => ({
     run: async input => { inputs.push(input); return { events: (async function* () {})(), result: Promise.resolve({ status: 'completed' as const }), cancel: async () => {} } }, dispose: async () => {},
   }) }); builtin.commit()
-  const instance = coordinator.createInstance({ ...caller, principal: { kind: 'user', id: '1' } }, { agentTypeId: 'ekko', mode: 'scoped', config: {} })
+  const instance = coordinator.createInstance(caller, { agentTypeId: 'ekko', mode: 'scoped', config: {} })
   const host = new PluginHost({ store, registry, events, hooks, context, logger, runnerPath: runner, artifactsRoot: join(root, 'artifacts'),
-    eventContext: async (state, _event, signal) => context({ ...caller, principal: { kind: 'user', id: state.ownerId } }, signal), acceptEvents: async batch => { emitted.push(...batch); for (const event of batch) events.publish(event) },
+    eventContext: async (state, _event, signal) => context({ ...caller, principal: { kind: 'user', id: caller.principal.id } }, signal), acceptEvents: async batch => { emitted.push(...batch); for (const event of batch) events.publish(event) },
   })
   cleanup.push(async () => { await coordinator.close(); await host.close(); events.close(); db.close() })
   const manifest: PluginManifest = { schemaVersion: 1, id: 'test.hook', version: '1.0.0', engines: { studioSdk: '^0.1.0', rpc: 1 }, backend: 'index.cjs', activation: 'profile',
@@ -155,7 +155,7 @@ it('routes a real SDK start through a hook in the same worker without deadlock o
   await f.host.configure(f.state, 0); await f.events.idle()
   await vi.waitFor(() => expect(f.messages()).toContain('accepted'))
   const result = f.messages().trim().split('\n').map(line => JSON.parse(line)).find(value => value.message === 'accepted').data
-  expect(result).toMatchObject({ same: true, owner: '1', hooks: [{ pluginId: 'test.hook', key: 'rewrite' }] })
+  expect(result).toMatchObject({ same: true, owner: '7', hooks: [{ pluginId: 'test.hook', key: 'rewrite' }] })
   await f.coordinator.wait(result.id)
   expect(f.inputs).toEqual([{ content: [{ type: 'text', text: 'hook input' }] }])
   expect(f.runStore.get(result.id)?.status).toBe('completed')

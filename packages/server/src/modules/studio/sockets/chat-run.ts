@@ -566,6 +566,8 @@ export class ChatRunSocket {
     api_mode?: string
     reasoning_effort?: string
     push_enabled?: boolean
+    workspace?: string
+    agent_instance_revision?: number
   }): void {
     this.nsp.to(`session:${sessionId}`).emit('session.settings.updated', {
       event: 'session.settings.updated',
@@ -2195,7 +2197,7 @@ export class ChatRunSocket {
       parentLastMessage: socket.data?.sessionShare ? null : sessionDetail?.parent_last_message || null,
       parentLastMessageRole: socket.data?.sessionShare ? null : sessionDetail?.parent_last_message_role || null,
       workspace: sessionDetail?.workspace || null,
-      ...(managed ? { agent_instance_id: sessionDetail?.agent_instance_id, agent_instance_revision: sessionDetail?.agent_instance_revision,
+      ...(managed ? { agent_instance_id: sessionDetail?.agent_instance_id, agent_instance_revision: sessionDetail?.agent_instance_revision, agent_chat_settings: sessionDetail?.agent_chat_settings,
         agent_usage: sessionDetail?.agent_usage, agent_mode: sessionDetail?.agent_mode, agentInteractions } : {}),
       model: sessionDetail?.model || '',
       provider: sessionDetail?.provider || '',

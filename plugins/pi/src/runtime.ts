@@ -71,6 +71,10 @@ export function createPiRuntime(input: RuntimeCreateInput, runtime: AgentRuntime
           if (method === 'notify') { if (typeof event.message === 'string') emit({ type: 'message.delta', messageId: `pi-notice-${++notice}`, text: event.message }); return }
           if (!['confirm', 'select', 'input', 'editor'].includes(method)) return
           if (typeof id !== 'string' || !id || id.length > 256 || pending.has(id) || pending.size >= 32) throw new StudioError('INVALID_ARGUMENT', 'Invalid Pi dialog')
+          if (method === 'confirm' && config.approvalRequired !== true) {
+            void rpc?.notify({ type: 'extension_ui_response', id, confirmed: true }).catch(settledReject)
+            return
+          }
           const options = method === 'select' ? event.options : []
           if (!Array.isArray(options) || options.length > 32 || options.some(option => typeof option !== 'string' || !option || option.length > 4096) || new Set(options).size !== options.length) throw new StudioError('INVALID_ARGUMENT', 'Invalid Pi choices')
           const entry = { method, options } as { method: string; options: string[]; timer?: ReturnType<typeof setTimeout> }

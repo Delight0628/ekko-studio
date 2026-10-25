@@ -11,7 +11,7 @@ export interface ModelGatewayPorts {
   state: AgentRunStateStore
   authorize(scope: ExecutionScope): void
   authorizeStart?(scope: ExecutionScope): void
-  resolve: typeof resolveNativeModel
+  resolve(profileId: string, modelId: string, protocol: ModelGatewayInput['protocol'], authorize: () => void, scope?: ExecutionScope): ReturnType<typeof resolveNativeModel>
 }
 interface Lease {
   key: string; token: string; scope: ExecutionScope; input: ModelGatewayInput
@@ -48,7 +48,7 @@ export class PluginModelGateways {
     }
     authorize()
     const operation = (async () => {
-      const native = await this.ports.resolve(scope.profileId, input.model, input.protocol, authorize)
+      const native = await this.ports.resolve(scope.profileId, input.model, input.protocol, authorize, scope)
       authorize()
       const port = await this.listen()
       authorize()
@@ -139,7 +139,7 @@ export class PluginModelGateways {
       }
       streaming = body.stream === true
       check()
-      target = await this.ports.resolve(lease.scope.profileId, lease.input.model, lease.input.protocol, check)
+      target = await this.ports.resolve(lease.scope.profileId, lease.input.model, lease.input.protocol, check, lease.scope)
       check()
       // The CLI-facing protocol is stable. Each freshly authorized target
       // validates whether this request can be represented by its current protocol.

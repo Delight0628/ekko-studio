@@ -54,20 +54,19 @@ export const installPlugin = (ctx: Context) => respond(ctx, async () => {
 })
 
 export const configurePlugin = (ctx: Context) => respond(ctx, async () => {
-  const profileId = profile(ctx)
   const input = body(ctx, ['enabled', 'config', 'grants', 'revision', 'profile'])
   if (typeof input.enabled !== 'boolean' || !input.config || typeof input.config !== 'object' || Array.isArray(input.config)
     || !Array.isArray(input.grants) || input.grants.some(value => typeof value !== 'string') || !Number.isSafeInteger(input.revision) || Number(input.revision) < 0) throw new StudioError('INVALID_ARGUMENT', 'Invalid plugin configuration')
-  return getStudioPluginRuntime().host.configure({ pluginId: ctx.params.id, profileId, ownerId: userId(ctx),
+  return getStudioPluginRuntime().host.configure({ pluginId: ctx.params.id,
     enabled: input.enabled, config: input.config, grants: input.grants as string[] }, Number(input.revision))
 })
 
-export const getPluginProfile = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().store.profile(ctx.params.id, profile(ctx)))
-export const getPluginDiagnostic = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().host.diagnostic(ctx.params.id, profile(ctx)))
-export const listPluginConsumers = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().consumers.store.list(ctx.params.id, profile(ctx)))
+export const getPluginProfile = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().store.state(ctx.params.id))
+export const getPluginDiagnostic = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().host.diagnostic(ctx.params.id))
+export const listPluginConsumers = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().consumers.store.list(ctx.params.id))
 function consumer(ctx: Context) {
   const consumers = getStudioPluginRuntime().consumers
-  const record = consumers.requireRecord(ctx.params.id, profile(ctx), ctx.params.consumerId)
+  const record = consumers.requireRecord(ctx.params.id, ctx.params.consumerId)
   return { consumers, record }
 }
 export const getPluginConsumerDeliveries = (ctx: Context) => respond(ctx, () => {
@@ -89,9 +88,10 @@ export const removePlugin = (ctx: Context) => respond(ctx, async () => {
   await getStudioPluginRuntime().host.uninstall(ctx.params.id)
   return { removed: true }
 })
-export const listAgentTypes = (ctx: Context) => respond(ctx, () => ({
-  revision: getStudioPluginRuntime().registry.getRevision(), agents: getStudioPluginRuntime().registry.list(profile(ctx)),
-}))
+export const listAgentTypes = (ctx: Context) => respond(ctx, () => {
+  userId(ctx)
+  return { revision: getStudioPluginRuntime().registry.getRevision(), agents: getStudioPluginRuntime().registry.list('') }
+})
 
 export function executionScope(ctx: Context): ExecutionScope {
   const profileId = profile(ctx), run = getRunRequestContext(ctx)
@@ -105,10 +105,14 @@ export const createAgentChat = (ctx: Context) => respond(ctx, () => {
   return getStudioPluginRuntime().agentChats.create(executionScope(ctx), ctx.params.id,
     { revision: input.revision as number, idempotencyKey: input.idempotencyKey as string })
 })
-export const listBundledAgentPlugins = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().bundledAgents.list(profile(ctx)))
+export const createOrdinaryAgentChat = (ctx: Context) => respond(ctx, () => {
+  const { profile: _profile, ...input } = body(ctx, ['profile', 'sessionId', 'agentTypeId', 'mode', 'workspace', 'model', 'provider', 'reasoningEffort', 'agentPreset', 'categoryId', 'pushEnabled', 'baseUrl', 'apiKey', 'apiMode'])
+  return getStudioPluginRuntime().ordinaryChats.create(executionScope(ctx), input)
+})
+export const listBundledAgentPlugins = (ctx: Context) => respond(ctx, () => getStudioPluginRuntime().bundledAgents.list())
 export const enableBundledAgentPlugin = (ctx: Context) => respond(ctx, () => {
   const input = body(ctx, ['revision', 'grants', 'profile'])
-  return getStudioPluginRuntime().bundledAgents.enable(ctx.params.id, profile(ctx), userId(ctx), input.revision as number, input.grants as string[] | undefined)
+  return getStudioPluginRuntime().bundledAgents.enable(ctx.params.id, userId(ctx), input.revision as number, input.grants as string[] | undefined)
 })
 export const setupAgentInstance = (ctx: Context) => respond(ctx, async () => {
   const input = body(ctx, ['revision', 'profile'])

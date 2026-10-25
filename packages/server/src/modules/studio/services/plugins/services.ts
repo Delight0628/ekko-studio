@@ -15,7 +15,7 @@ export class PluginServiceRegistry {
     const registration = {}, pending = new Map<string, Entry>()
     let phase: 'staging' | 'committed' | 'disposed' = 'staging'
     let validated = false
-    if (!profileId || profileId === '*') throw new StudioError('FORBIDDEN', 'Services require a concrete profile')
+    if (!profileId) throw new StudioError('FORBIDDEN', 'Service registration scope is required')
     for (const declaration of declarations) {
       const token = parseServiceToken(declaration)
       if (pending.has(token.id)) throw new StudioError('REGISTRATION_CONFLICT', 'Duplicate service registration')
@@ -57,13 +57,13 @@ export class PluginServiceRegistry {
   }
 
   status(profileId: string, dependency: ServiceDependency): { available: boolean; version?: string } {
-    const entry = this.entries.get(this.key(profileId, dependency.id))
+    const entry = this.entries.get(this.key('*', dependency.id)) || this.entries.get(this.key(profileId, dependency.id))
     return entry?.available() && satisfies(entry.token.version, dependency.version) ? { available: true, version: entry.token.version } : { available: false }
   }
 
   async call(context: ExecutionContext, dependency: ServiceDependency, method: string, input: JsonValue, authority: ServiceAuthority): Promise<JsonValue> {
     if (context.signal.aborted) throw new StudioError('CANCELLED', 'Service caller scope ended')
-    const entry = this.entries.get(this.key(context.scope.profileId, dependency.id))
+    const entry = this.entries.get(this.key('*', dependency.id)) || this.entries.get(this.key(context.scope.profileId, dependency.id))
     if (!entry || !this.status(context.scope.profileId, dependency).available) throw new StudioError('PLUGIN_UNAVAILABLE', 'Service is unavailable')
     return entry.invoke(context, method, input, authority)
   }

@@ -10,6 +10,7 @@ import { PluginConsumerStore } from '../../packages/server/src/modules/studio/re
 import { ReliablePluginConsumers } from '../../packages/server/src/modules/studio/services/events/reliable-consumers'
 import { AgentRegistry } from '../../packages/server/src/modules/studio/services/agents/registry'
 import { PluginEventBus } from '../../packages/server/src/modules/studio/services/events/plugin-events'
+import { pluginEventExecutionScope } from '../../packages/server/src/modules/studio/services/events/plugin-event-access'
 import { createExecutionContext } from '../../packages/server/src/modules/studio/services/context/execution'
 import type { ExecutionScope, PluginManifest } from '../../packages/studio-plugin-sdk/src'
 
@@ -29,8 +30,9 @@ async function setup(source: string, capabilities = ['events.consume:run.complet
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, read = vi.fn(async () => null)
   const context = (scope: ExecutionScope, signal: AbortSignal) => createExecutionContext(scope, signal, logger, { authorize: async () => {}, sessions: { get: read } })
   const host = new PluginHost({ store, registry, events, consumers, context, logger, runnerPath: runner, artifactsRoot: join(root, 'artifacts'),
-    eventContext: async (state, event, signal) => context({ scopeId: event.id, principal: { kind: 'user', id: state.ownerId }, profileId: state.profileId,
-      surface: 'event', traceId: event.correlationId }, signal),
+    eventContext: async (_state, event, signal) => context(pluginEventExecutionScope(event, {
+      recordedOwner: consumerStore.events.owner(event.id), run: null, session: null,
+    }), signal),
     acceptEvents: async batch => { for (const event of consumerStore.events.append(batch)) events.publish(event) },
   })
   cleanup.push(async () => { await host.close(); await consumers.close(); events.close(); db.close() })
@@ -41,7 +43,7 @@ async function setup(source: string, capabilities = ['events.consume:run.complet
   await host.install(directory)
   const state = { pluginId: manifest.id, profileId: 'one', ownerId: 'owner', enabled: true, config: {}, grants: capabilities }
   const append = (id: string, profileId = 'one') => consumerStore.events.append([{ schemaVersion: 1, id, type: 'run.completed', occurredAt: now,
-    subject: { profileId }, partitionKey: `${profileId}:run`, sequence: 0, data: { runId: 'run' }, correlationId: 'original-trace' }])
+    subject: { profileId, sessionId: 'session' }, partitionKey: `${profileId}:run`, sequence: 0, data: { runId: 'run' }, correlationId: 'original-trace' }], profileId === 'one' ? 'owner' : 'another-owner')
   const messages = () => logger.info.mock.calls.filter(call => call[0] === 'Plugin stdout').map(call => String((call[1] as { text: string }).text)).join('')
   return { host, store, state, consumers, consumerStore, read, append, messages, advance: (ms: number) => { now += ms } }
 }
@@ -56,15 +58,16 @@ it('delivers a missed notification through real SDK RPC and resumes its durable 
   const f = await setup(source); f.append('before-enable'); f.append('foreign', 'two')
   await f.host.configure(f.state, 0); f.consumers.poll(); await f.consumers.idle()
   await vi.waitFor(() => expect(f.messages()).toContain('before-enable'))
-  expect(f.messages()).toContain('original-trace'); expect(f.messages()).toContain('owner'); expect(f.messages()).not.toContain('foreign')
-  expect(f.read).toHaveBeenCalledTimes(1)
+  await vi.waitFor(() => expect(f.messages()).toContain('foreign'))
+  expect(f.messages()).toContain('original-trace'); expect(f.messages()).toContain('owner'); expect(f.messages()).toContain('foreign'); expect(f.messages()).toContain('another-owner')
+  expect(f.read).toHaveBeenCalledTimes(2)
   await f.host.configure({ ...f.state, enabled: false }, 1)
-  const record = f.consumerStore.list('test.consumer', 'one')[0]
+  const record = f.consumerStore.list('test.consumer')[0]
   f.append('while-disabled')
   await f.host.configure(f.state, 2); f.consumers.poll(); await f.consumers.idle()
   await vi.waitFor(() => expect(f.messages()).toContain('while-disabled'))
-  expect(f.read).toHaveBeenCalledTimes(2)
-  expect(f.consumerStore.list('test.consumer', 'one')[0].id).toBe(record.id)
+  expect(f.read).toHaveBeenCalledTimes(3)
+  expect(f.consumerStore.list('test.consumer')[0].id).toBe(record.id)
   await f.host.configure({ ...f.state, enabled: false }, 3); await f.host.uninstall('test.consumer')
   expect(f.consumerStore.get(record.id)).not.toBeNull()
 })
@@ -81,11 +84,11 @@ it('redelivers the same event after a real worker dies after its side effect but
   f.append('stable-event-id'); await f.host.configure(f.state, 0); f.consumers.poll(); await f.consumers.idle()
   await vi.waitFor(() => expect(f.host.diagnostic('test.consumer', 'one').state).toBe('failed'))
   expect(await readFile(sideEffect, 'utf8')).toBe('stable-event-id')
-  expect(f.consumerStore.deliveries(f.consumerStore.list('test.consumer', 'one')[0].id)[0]).toMatchObject({ attempts: 1, status: 'pending', error_code: 'PLUGIN_UNAVAILABLE' })
+  expect(f.consumerStore.deliveries(f.consumerStore.list('test.consumer')[0].id)[0]).toMatchObject({ attempts: 1, status: 'pending', error_code: 'PLUGIN_UNAVAILABLE' })
   f.advance(1000); await f.host.activate('test.consumer', 'one'); f.consumers.poll(); await f.consumers.idle()
   await vi.waitFor(() => expect(f.messages()).toContain('replayed'))
   expect(f.messages()).toContain('"previous":"stable-event-id"')
-  expect(f.consumerStore.deliveries(f.consumerStore.list('test.consumer', 'one')[0].id)).toEqual([])
+  expect(f.consumerStore.deliveries(f.consumerStore.list('test.consumer')[0].id)).toEqual([])
 })
 
 it('rechecks grants before replay and does not expose filtered events to the worker', async () => {
@@ -102,7 +105,7 @@ it('rejects undeclared reliable consumers before publishing a ready plugin or cu
   const f = await setup(source, ['sessions.read'])
   await expect(f.host.configure(f.state, 0)).rejects.toMatchObject({ code: 'FORBIDDEN' })
   expect(f.host.diagnostic('test.consumer', 'one').state).toBe('blocked')
-  expect(f.consumerStore.list('test.consumer', 'one')).toEqual([])
+  expect(f.consumerStore.list('test.consumer')).toEqual([])
 })
 
 it('does not reset retained delivery state when another activation contribution is invalid', async () => {

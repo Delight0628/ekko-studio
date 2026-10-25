@@ -8,6 +8,11 @@ export interface AcpPermissionRequest {
   options: Array<{ optionId: string; name: string; kind: string }>
 }
 
+export function acpAutomaticApproval(request: AcpPermissionRequest): string | null {
+  return (request.options.find(option => option.kind === 'allow_once')
+    || request.options.find(option => option.kind === 'allow_always'))?.optionId ?? null
+}
+
 interface Pending {
   method: string
   resolve(value: any): void

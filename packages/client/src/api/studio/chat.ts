@@ -59,6 +59,7 @@ export interface StartRunResponse {
 
 // SSE event types from /v1/runs/{id}/events
 export interface RunEvent {
+  agent_instance_revision?: number
   /** Private replay of a previously completed canonical invocation. */
   replayed?: boolean
   agent_run_id?: string
@@ -173,6 +174,7 @@ export interface RunEvent {
 export interface ResumeSessionPayload {
   managed_agent_protocol?: number
   agent_instance_id?: string
+  agent_chat_settings?: boolean
   agent_instance_revision?: number
   agent_usage?: import('./sessions').ManagedAgentUsage
   agent_mode?: string

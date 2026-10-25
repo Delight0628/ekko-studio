@@ -1,5 +1,5 @@
 import {
-  StudioError, type AgentRunHandle, type AgentRunInput, type AgentRunContext, type AgentRuntime,
+  StudioError, type AgentRunHandle, type AgentRunInput, type AgentRunContext, type AgentRuntime, type AgentTypeDefinition,
   type ExecutionScope, type ExecutionContext, type JsonObject, type JsonValue, type ScopedLogger,
   type AgentProviderRef, type AgentInteractionResponse, type AgentInteraction, type AgentInteractionReceipt,
 } from '../../contracts/plugins'
@@ -33,6 +33,7 @@ interface ActiveRun {
 }
 interface RuntimeLease {
   instanceId: string
+  definition: AgentTypeDefinition
   surface: ExecutionScope['surface']
   id: string; provider: AgentProviderRef; revision: number; controller: AbortController
   runtime: Promise<AgentRuntime>; creating: boolean; idleTimer?: ReturnType<typeof setTimeout>; disposing?: Promise<void>
@@ -189,7 +190,7 @@ export class AgentCoordinator {
     } finally { if (!this.management.isBlocked(instanceId)) this.configuring.delete(instanceId) }
   }
 
-  async updateInstance(scope: ExecutionScope, instanceId: string, value: AgentInstanceConfiguration): Promise<AgentInstance> {
+  async updateInstance(scope: ExecutionScope, instanceId: string, value: AgentInstanceConfiguration, commit?: (instance: AgentInstance) => void): Promise<AgentInstance> {
     scope = jsonCopy(scope)
     const input = jsonCopy(value)
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['revision', 'config', 'mode'].includes(key))
@@ -218,7 +219,7 @@ export class AgentCoordinator {
       const keys = new Set([...Object.keys(current.instance.config), ...Object.keys(input.config)])
       const preserve = compatible !== undefined && current.instance.mode === input.mode
         && [...keys].every(key => compatible.includes(key) || isDeepStrictEqual(current.instance.config[key], input.config[key]))
-      return this.options.store.configureInstance(current.instance, input, preserve ? current.provider : undefined)
+      return this.options.store.configureInstance(current.instance, input, preserve ? current.provider : undefined, commit)
     } finally { this.configuring.delete(instanceId) }
   }
 
@@ -626,7 +627,7 @@ export class AgentCoordinator {
       const disposals = [...this.leases.values()].filter(lease => lease.instanceId === instance.id && lease.disposing).map(lease => lease.disposing)
       if (disposals.length) await Promise.race([Promise.all(disposals), aborted])
       let lease = this.leases.get(leaseKey)
-      if (lease && (lease.disposing || lease.surface !== scope.surface || lease.revision !== run.configRevision || JSON.stringify(lease.provider) !== JSON.stringify(run.provider))) {
+      if (lease && (lease.disposing || lease.definition !== resolved.definition || lease.surface !== scope.surface || lease.revision !== run.configRevision || JSON.stringify(lease.provider) !== JSON.stringify(run.provider))) {
         await this.disposeLease(leaseKey, 'Provider, configuration or execution surface changed')
         lease = undefined
       }
@@ -656,7 +657,7 @@ export class AgentCoordinator {
           return resolved.definition.create({ instanceId: instance.id, config: instance.config, configRevision: instance.revision, mode: instance.mode,
             ...(resume === undefined ? {} : { resume }) }, runtimeContext)
         })
-        lease = { id, instanceId: instance.id, surface: scope.surface, provider: run.provider, revision: run.configRevision, controller, runtime: creating, creating: true, processes, mcp }
+        lease = { id, instanceId: instance.id, definition: resolved.definition, surface: scope.surface, provider: run.provider, revision: run.configRevision, controller, runtime: creating, creating: true, processes, mcp }
         this.leases.set(leaseKey, lease)
         const pending = lease
         void creating.then(() => { pending.creating = false }, () => { pending.creating = false })

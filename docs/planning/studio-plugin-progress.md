@@ -1,5 +1,8 @@
 # Studio 插件体系实施记录
 
+> 最新边界修正：插件本体、安装、启停、配置、worker、Agent/命令/服务注册均为全局，不属于 profile 或账号。下文早期按 profile 激活及按安装者执行回调的记录已被此约束替代；会话、Run、模型凭据和原生运行目录仍按真实执行上下文隔离。普通单聊内部自动绑定已实施，仍需完整验收；默认免工具授权，保留主动提问。工具消息用量卡片和全局插件续聊恢复已补回归。完整迁移验收仍为 0/14。
+
+
 更新：2026-10-25。分支：`feat/studio-plugin-context`。基线：`8f215f59d`。
 
 本文件记录实际实现；[架构总案](studio-plugin-architecture.md)、[契约](studio-plugin-contracts.md)和[实施计划](studio-plugin-execution.md)仍定义完整交付范围。当前为迁移开发状态，尚未完成全量插件化；旧聊天 HTTP 入口已去掉本机 Socket 回环，运行引擎和存储仍使用原实现。

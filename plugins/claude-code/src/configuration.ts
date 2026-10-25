@@ -89,8 +89,9 @@ export async function prepareClaude(config: JsonObject, mode: 'global' | 'scoped
   }
   if (config.model || gateway) args.push('--model', gateway?.model || String(config.model))
   if (config.reasoningEffort) args.push('--effort', String(config.reasoningEffort))
-  if (config.permissionMode) args.push('--permission-mode', String(config.permissionMode))
-  if (config.permissionMode === 'bypassPermissions') args.push('--allow-dangerously-skip-permissions')
+  const permissionMode = config.permissionMode || 'bypassPermissions'
+  args.push('--permission-mode', String(permissionMode))
+  if (permissionMode === 'bypassPermissions') args.push('--allow-dangerously-skip-permissions')
   if (config.contextWindow) env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(config.contextWindow)
   if (config.outputLimit) env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(config.outputLimit)
   return { env, args, nativePrompt, cleanup: async () => { if (path) await rm(path, { force: true }) } }

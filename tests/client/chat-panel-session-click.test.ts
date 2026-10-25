@@ -42,7 +42,7 @@ describe('ChatPanel session clicks', () => {
     expect(source).toContain('pendingSessionModelSwitch')
     expect(source).toContain('chatStore.switchSessionModel(model, provider, sessionModelSessionId.value, apiMode)')
     expect(source).toContain('activeSessionUsesGlobalCodingAgentConfig')
-    expect(source).toContain(':model-disabled="!!chatStore.activeSession?.agentInstanceId || activeSessionUsesGlobalCodingAgentConfig"')
+    expect(source).toContain(':model-disabled="(!!chatStore.activeSession?.agentInstanceId && !chatStore.activeSession.agentChatSettings) || activeSessionUsesGlobalCodingAgentConfig"')
     expect(source).toContain('contextSession.value?.codingAgentMode !== "global"')
     expect(source).toContain('requestedSession?.codingAgentMode === "global"')
     expect(readFileSync('packages/client/src/stores/hermes/chat.ts', 'utf8')).toContain(

@@ -53,6 +53,10 @@ const bridgeGetRuntimeStateMock = vi.fn()
 const emitSessionSettingsUpdatedMock = vi.fn()
 const getChatRunServerMock = vi.fn()
 const agentStatusMocks = vi.hoisted(() => ({ hermesAvailable: true }))
+const ordinarySettings = vi.hoisted(() => ({ update: vi.fn() }))
+vi.mock('../../packages/server/src/modules/studio/services/plugins/runtime', () => ({
+  getStudioPluginRuntime: () => ({ ordinaryChats: ordinarySettings }), authorizePluginScope: vi.fn(),
+}))
 vi.mock('../../packages/server/src/modules/studio/repositories/session-message-deletion', () => ({
   getMessageSelectionGroups: vi.fn(() => []),
 }))
@@ -371,6 +375,7 @@ describe('session conversations controller', () => {
   })
   beforeEach(() => {
     vi.resetModules()
+    ordinarySettings.update.mockReset().mockResolvedValue({ revision: 4 })
     agentStatusMocks.hermesAvailable = true
     listConversationSummariesFromDbMock.mockReset()
     getConversationDetailFromDbMock.mockReset()
@@ -2478,6 +2483,25 @@ describe('session conversations controller', () => {
     expect(ctx.status).toBe(400)
     expect(getLocalUsageStatsMock).not.toHaveBeenCalled()
     expect(getUsageStatsFromDbMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['setModel', { model: 'next-model', provider: 'provider' }, { model: 'next-model', provider: 'provider', reasoningEffort: '' }],
+    ['setWorkspace', { workspace: '/tmp/next-workspace' }, { workspace: '/tmp/next-workspace' }],
+    ['setReasoningEffort', { reasoningEffort: 'high' }, { reasoningEffort: 'high' }],
+  ])('updates an automatic plugin chat through %s with the stored session authority', async (method, body, patch) => {
+    getSessionMock.mockReturnValue({ id: 'managed-chat', profile: 'chat-profile', source: 'coding_agent', agent: 'codex',
+      agent_instance_id: 'internal-instance', agent_chat_settings: true, model: 'old-model' })
+    const mod = await import('../../packages/server/src/modules/studio/controllers/sessions')
+    const { setAgentChatService } = await import('../../packages/server/src/modules/studio/services/agents/chat-registry')
+    setAgentChatService({ isBound: () => true, ownedBinding: vi.fn() } as any)
+    const ctx: any = { params: { id: 'managed-chat' }, query: {}, state: { profile: { name: 'active-profile' }, user: { id: 7, role: 'super_admin' } },
+      request: { body }, set: vi.fn() }
+    try { await (mod as any)[method](ctx) } finally { setAgentChatService(undefined) }
+    expect(ordinarySettings.update).toHaveBeenCalledWith(expect.objectContaining({ profileId: 'chat-profile', principal: { kind: 'user', id: '7' } }), 'managed-chat', patch)
+    expect(localUpdateSessionMock).not.toHaveBeenCalled()
+    expect(invalidateCodingAgentSessionRuntimeMock).not.toHaveBeenCalled()
+    expect(ctx.body).toEqual({ ok: true, data: { revision: 4 } })
   })
 
   it('sets a session model and provider in the local session store', async () => {

@@ -65,7 +65,7 @@ async function setup(mode: 'global' | 'scoped' = 'global', extraEnv: Record<stri
   const manifest = JSON.parse(await readFile(join(root, 'plugins/copilot/studio-plugin.json'), 'utf8'))
   await host.registerSystemArtifact(join(root, 'plugins/copilot'), manifest.id)
   await host.configure({ pluginId: manifest.id, profileId: caller.profileId, ownerId: caller.principal.id, enabled: true, config: {}, grants: manifest.requires.capabilities }, 0)
-  const instance = coordinator.createInstance(caller, { agentTypeId: 'copilot', mode, config: { cwd: directory, command: process.execPath, args: [cli],
+  const instance = coordinator.createInstance(caller, { agentTypeId: 'copilot', mode, config: { approvalRequired: true, cwd: directory, command: process.execPath, args: [cli],
     model: 'fixture', env: { TRACE: trace, HOME: directory, USERPROFILE: directory, COPILOT_HOME: join(directory, 'native'), ...extraEnv }, ...config } })
   let sequence = 0
   const start = (text: string) => coordinator.start(caller, instance.id, { content: [{ type: 'text', text }] }, `run-${++sequence}`)
@@ -192,4 +192,16 @@ it.each(['hello', 'crash', 'wait'])('removes temporary MCP credentials after %s 
   expect(environment.root).toBe(join(f.directory, 'native'))
   expect(environment.mcp.mcpServers.local.env.TOKEN).toBe('lease-only')
   await expect(readFile(environment.mcpPath)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+
+it('keeps tool execution automatic when no manual approval policy is configured', async () => {
+  const f = await setup()
+  const { approvalRequired: _manual, ...config } = f.instance.config
+  await f.coordinator.updateInstance(caller, f.instance.id, { revision: f.instance.revision, mode: f.instance.mode, config })
+  const run = f.start('approval')
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(caller, run.id).status).toBe('completed')
+  expect(f.coordinator.interactions(caller, run.id)).toEqual([])
+  expect((await f.frames()).find((frame: any) => frame.id === 'approve')?.result).toMatchObject({ outcome: { outcome: 'selected', optionId: 'yes' } })
 })

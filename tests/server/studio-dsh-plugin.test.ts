@@ -114,7 +114,7 @@ async function setup(mode: 'global' | 'scoped' = 'global', env: Record<string, s
   const manifest = JSON.parse(await readFile(join(artifact, 'studio-plugin.json'), 'utf8'))
   await host.registerSystemArtifact(artifact, manifest.id)
   await host.configure({ pluginId: manifest.id, profileId: caller.profileId, ownerId: caller.principal.id, enabled: true, config: {}, grants: manifest.requires.capabilities }, 0)
-  const config: any = { cwd: directory, command: process.execPath, args: [real?.command || native.cli], model: real ? JSON.stringify(['native-web', 'fixture-model']) : 'native-model', agentPreset: 'custom-preset',
+  const config: any = { approvalRequired: true, cwd: directory, command: process.execPath, args: [real?.command || native.cli], model: real ? JSON.stringify(['native-web', 'fixture-model']) : 'native-model', agentPreset: 'custom-preset',
     env: { TRACE: trace, HOME: directory, USERPROFILE: directory, DSH_HOME: native.sourceHome, ...env } }
   if (real) {
     const mcp = join(directory, 'mcp.cjs')
@@ -331,3 +331,15 @@ it.skipIf(!process.env.STUDIO_DSH_REAL_COMMAND).each(['global', 'scoped'] as con
   expect(output.filter(event => event.type === 'message.delta').map(event => event.text).join('')).toBe('Native DSH answer')
   expect(output.filter(event => event.type === 'usage.reported')).toHaveLength(mode === 'global' ? 3 : 0)
 }, 90000)
+
+
+it('keeps tool execution automatic when no manual approval policy is configured', async () => {
+  const f = await setup()
+  const { approvalRequired: _manual, ...config } = f.instance.config
+  await f.coordinator.updateInstance(caller, f.instance.id, { revision: f.instance.revision, mode: f.instance.mode, config })
+  const run = f.start('approval')
+  await f.coordinator.wait(run.id)
+  expect(f.coordinator.get(caller, run.id).status).toBe('completed')
+  expect(f.coordinator.interactions(caller, run.id)).toEqual([])
+  expect((await f.frames()).find((frame: any) => frame.id === 'approve')?.result).toMatchObject({ outcome: { outcome: 'selected', optionId: 'yes' } })
+})

@@ -190,3 +190,28 @@ it.each(['delete', 'transfer', 'retype', 'reprofile', 'resurface'])('ends the ca
   expect(f.messages('a')).toHaveLength(1)
   if (action !== 'delete') expect(f.session('a').ended_at).toBeNull()
 })
+
+it('publishes one terminal usage card on the answer instead of each tool-call row', () => {
+  const f = setup(), run = f.start('a', 'tools')
+  const output: AgentOutputEvent[] = [
+    { type: 'message.delta', messageId: 'answer', producerSequence: 0, text: 'Checking files' },
+    { type: 'tool.started', callId: 'read', name: 'read_file', data: { path: 'a.ts' }, producerSequence: 1 },
+    { type: 'tool.completed', callId: 'read', name: 'read_file', data: 'contents', producerSequence: 2 },
+    { type: 'tool.started', callId: 'write', name: 'write_file', data: { path: 'b.ts' }, producerSequence: 3 },
+    { type: 'usage.reported', modelCallId: 'call', model: 'model', mode: 'final', revision: 1, inputTokens: 20, outputTokens: 5, producerSequence: 4 },
+    { type: 'tool.completed', callId: 'write', name: 'write_file', data: 'saved', producerSequence: 5 },
+    { type: 'message.snapshot', messageId: 'answer', producerSequence: 6, text: 'Updated both files.' },
+  ]
+  for (const event of output) {
+    f.store.appendOutput(run.id, event)
+    expect(f.projection.rows(run.id, [event], true).every(row => !(row as any).run_usage)).toBe(true)
+  }
+  f.store.finish(run.id, 'completed', null)
+  const rows = f.projection.rows(run.id, [], false, true)
+  expect(rows).toMatchObject([{ role: 'assistant', content: 'Updated both files.', run_usage: { runId: run.id, inputTokens: 20, outputTokens: 5 } }])
+  expect(rows).toHaveLength(1)
+  const restored = f.projection.rows(run.id, output, true)
+  expect(restored.filter(row => (row as any).run_usage)).toHaveLength(1)
+  expect(restored.find(row => (row as any).run_usage)?.content).toBe('Updated both files.')
+  expect(restored.filter(row => row.tool_calls?.length).every(row => !(row as any).run_usage)).toBe(true)
+})

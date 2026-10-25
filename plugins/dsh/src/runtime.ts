@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
-import { AgentEventQueue, ManagedProcessTransport, acpCommandCatalog } from '@ekko-studio/agent-drivers'
+import { AgentEventQueue, ManagedProcessTransport, acpCommandCatalog, acpAutomaticApproval } from '@ekko-studio/agent-drivers'
 import { StudioError, mergeAgentContextConfiguration, nativeAgentLaunch, readAgentImages, type AgentContextConfiguration,
   type AgentOutputEvent, type AgentRunHandle, type AgentRunResult, type AgentRuntime, type AgentRuntimeContext, type JsonObject,
   type ModelGatewayHandle, type RuntimeCreateInput } from '@ekko-studio/plugin-sdk'
@@ -88,6 +88,7 @@ export function createDshRuntime(input: RuntimeCreateInput, runtime: AgentRuntim
             },
             permission(request, signal) {
               if (signal.aborted || cancelled) return Promise.resolve(null)
+              if (config.approvalRequired !== true) return Promise.resolve(acpAutomaticApproval(request))
               const requestId = randomUUID()
               return new Promise(resolve => {
                 const finish = (choice: string | null) => { pending.delete(requestId); signal.removeEventListener('abort', abort); resolve(choice) }, abort = () => finish(null)

@@ -15,7 +15,6 @@ export interface PluginIdentity {
   readonly id: string
   readonly version: string
   readonly generation: string
-  readonly profileId: string
 }
 
 export interface ExecutionScope {
@@ -526,7 +525,8 @@ export interface AgentTypeDefinition {
 }
 
 export interface EventSubject {
-  profileId: string
+  /** Absent for global plugin lifecycle events; present for profile data events. */
+  profileId?: string
   sessionId?: string
   runId?: string
   pluginId?: string
@@ -612,7 +612,8 @@ export interface PluginManifest {
   version: string
   engines: { studioSdk: string; rpc: 1 }
   backend: string
-  activation: 'profile'
+  /** Plugins activate once globally. 'profile' is accepted only for legacy manifests. */
+  activation: 'global' | 'profile'
   contributes: { agents: string[]; commands?: string[]; runtimeCommands?: string[]; events?: Record<string, JsonSchema>; services?: ServiceToken[] }
   requires: { capabilities: string[]; services?: ServiceDependency[] }
   configSchema?: JsonSchema

@@ -87,7 +87,7 @@ interface PluginContext {
 }
 ```
 
-PluginContext 绑定插件、generation 和启用 profile，管理贡献及资源。它不具有“当前登录用户”。激活期不能通过 `ctx.sessions` 读取任意用户会话；业务服务通过宿主派发的 ExecutionContext 使用。
+PluginContext 绑定全局插件及 generation，管理贡献和资源，不绑定 profile 或账号。它不具有“当前登录用户”。激活期不能通过 `ctx.sessions` 读取任意用户会话；业务服务通过宿主派发的 ExecutionContext 使用。
 
 `register`、`on`、`provide`、路由和任务注册均返回幂等 Disposer，并自动进入当前插件资源栈。插件可以提前解除单项资源；宿主停用时逆序清理剩余资源。`lifecycle.onDispose(fn)` 用于补充清理，不能代替宿主对受管资源的登记。
 
@@ -123,7 +123,7 @@ interface AgentRunContext extends ExecutionContext {
 
 事件上下文权限由订阅授权、插件能力授予、资源可见性共同限定，不继承事件发起者的管理员身份。计划任务保存经过授权的 owner/服务身份和 profile，执行时重新检查权限。新身份无法访问历史资源时明确拒绝，不静默升级权限。
 
-插件激活期的 storage 仅保存明确属于插件/profile 的公共配置或内部索引。用户私有业务数据通过执行上下文的 storage 访问，默认追加 owner 隔离。共享数据必须由服务契约明确声明可见范围，不能把“同一 profile”自动等同于“全部用户互相可读”。
+插件激活期的 storage 仅保存明确属于全局插件的公共配置或内部索引。用户私有业务数据通过执行上下文的 storage 访问，默认追加 owner 隔离。共享数据必须由服务契约明确声明可见范围，不能把“同一 profile”自动等同于“全部用户互相可读”。
 
 跨 Run 的原生进程使用 AgentRuntimeContext：包含 runtime lease、提供方引用、已解析实例配置、受管进程与恢复存储，不持有某个已结束 HTTP 请求的 user、signal 或可变 profile。单轮 signal 取消本轮工作；runtime signal 结束原生会话。插件运行时另外受 plugin signal 约束；内置运行时由应用与所属模块的生命周期管理。
 
@@ -536,7 +536,7 @@ hook 可按授权作用于内置 Agent 的 Run。插件停用或故障清理时�
   "version": "1.0.0",
   "engines": { "studioSdk": "^1.0.0", "rpc": 1 },
   "backend": "dist/index.js",
-  "activation": "profile",
+  "activation": "global",
   "contributes": {
     "agents": ["acme.research/assistant"],
     "commands": [],
@@ -564,7 +564,7 @@ installed/disabled → uninstalling → removed
 任意未激活版本 → blocked（版本、依赖、权限或平台不满足）
 ```
 
-`uninstalling → removed` 仅适用于 user 安装；system 安装禁止进入卸载状态。首次启动和升级迁移根据受信任随包清单幂等登记全部 14 个系统插件，校验工件并保留已有配置、实例、授权和 profile 启停选择。缺少原生 CLI 或登录仅影响运行就绪状态，不能使插件安装记录消失；随包工件损坏则保留目录并报告诊断及修复路径，不降级成可删除的用户插件。
+`uninstalling → removed` 仅适用于 user 安装；system 安装禁止进入卸载状态。首次启动和升级迁移根据受信任随包清单幂等登记全部 14 个系统插件，校验工件并保留已有全局配置、实例和能力授予；旧 profile 配置一致时合并为全局状态，冲突时保留原记录并阻止自动激活。缺少原生 CLI 或登录仅影响运行就绪状态，不能使插件安装记录消失；随包工件损坏则保留目录并报告诊断及修复路径，不降级成可删除的用户插件。
 
 安装状态与各 profile 的启用状态分别持久化。安装前只读 manifest，不导入代码探测元数据；校验来源、摘要、依赖和平台后写入不可变 generation。生产依赖在 staging 中准备，默认不执行未知生命周期脚本；需要构建/原生依赖的工件必须有明确的安装策略和日志，不能隐式使用实时 `latest`。
 
@@ -578,13 +578,13 @@ installed/disabled → uninstalling → removed
 
 数据迁移作用于版本化快照/独立命名空间。发布前确保旧代仍在运行时不会同时写不兼容数据；不支持并行读写的迁移必须先排空。持有原生会话的外部文件兼容性也纳入判断，不能只回滚插件目录。
 
-停用先撤销新调用入口，再排空或取消已有执行、停止计划触发、清理订阅与服务、关闭 worker 和受管子进程。系统插件也可按 profile 停用，但保留安装工件和静态目录。用户插件卸载检查权限、安装策略、依赖和租约，默认保留插件配置/数据、历史 Run 和消费游标；“清除插件数据”是单独操作，不影响 Studio 会话历史和用户原生 Home，也不能删除系统插件安装定义。
+停用先撤销新调用入口，再排空或取消已有执行、停止计划触发、清理订阅与服务、关闭 worker 和受管子进程。系统插件也可全局停用，但保留安装工件和静态目录。用户插件卸载检查权限、安装策略、依赖和租约，默认保留插件配置/数据、历史 Run 和消费游标；“清除插件数据”是单独操作，不影响 Studio 会话历史和用户原生 Home，也不能删除系统插件安装定义。
 
 系统插件默认版本随 Studio 发布清单更新，替换工件必须通过受信任的系统更新/修复路径；普通同 ID 安装不能覆盖它。更新与回滚沿用上述租约和数据兼容规则，保护策略始终保留。垃圾回收只清理无租约且不再承担当前版本/回滚保留职责的旧 generation，不能清掉当前系统插件或将其标记 removed。
 
 ## 9 Worker RPC 与运行环境
 
-宿主与 worker 使用独立控制通道，stdout/stderr 只作日志。callback 和 factory 不直接 JSON 序列化，由 SDK 注册 handler ID，通过 RPC 分发。握手校验协议 major、工件摘要、generation、profile 和声明能力。
+宿主与 worker 使用独立控制通道，stdout/stderr 只作日志。callback 和 factory 不直接 JSON 序列化，由 SDK 注册 handler ID，通过 RPC 分发。握手校验协议 major、工件摘要、全局 generation 和声明能力；运行及管理 RPC 的 owner/profile 由宿主按调用单独注入。
 
 RPC envelope 包含 request ID、method、scope handle、deadline 和关联 trace。scope handle 由宿主发放并在连接/generation/生命周期内绑定，worker 不能通过修改 payload 伪造主体。AbortSignal 和流通过 ID 映射控制消息，不传递进程内对象。
 
@@ -630,7 +630,7 @@ Codex 的 `mcpServer/elicitation/request` 当前只支持无字段的 form 确�
 
 ## 10 配置和权限
 
-权限至少区分安装管理、类型贡献、领域读写、事件订阅、hook、路由、模型调用、文件、受管进程、网络和秘密引用。授予范围包含 plugin、generation 策略、profile、owner/用户范围和必要的资源约束；新版本增加能力时需重新满足授予条件。
+权限至少区分安装管理、类型贡献、领域读写、事件订阅、hook、路由、模型调用、文件、受管进程、网络和秘密引用。插件能力授予以全局 plugin/generation 为范围；具体调用再与宿主注入的 owner/profile 和资源约束取交集，安装者身份不授予执行权限；新版本增加能力时需重新满足授予条件。
 
 每次调用以宿主实际身份解析，不以插件传入的 actor/profile 为准。配置更新使用 revision，保存后对新 Run 生效；当前 Run 的配置和权限快照可审计，但权限撤销仍应立即阻止后续敏感调用。
 

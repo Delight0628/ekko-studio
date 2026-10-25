@@ -573,6 +573,7 @@ export async function bootstrap() {
   setChatRunServer(chatRunServer)
   activeGroupChatServer.setChatRunService(chatRunServer)
   chatRunServer.init()
+  await pluginRuntime.bundledAgents.registerDefaults()
   await pluginRuntime.host.restore()
   const mobileTerminal = setupMobileTerminal(activeGroupChatServer.getIO(), context => {
     if (context.source === 'single') {

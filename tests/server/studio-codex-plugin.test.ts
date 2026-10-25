@@ -150,7 +150,7 @@ async function setup(env: Record<string, string> = {}, mode: 'global' | 'scoped'
   cleanups.push(async () => { await coordinator.close(); await host.close(); events.close(); db.close() })
   await host.registerSystemArtifact(join(root, 'plugins/codex'))
   await host.configure({ pluginId: 'studio.agent-codex', profileId: 'one', ownerId: 'installer', enabled: true, config: {}, grants: ['agents.register', 'commands.register', 'runs.start', 'processes.spawn', 'mcp.studio', 'models.gateway', 'artifacts.read'] }, 0)
-  const instance = coordinator.createInstance(scope, { agentTypeId: 'codex', mode, config: { ...(mode === 'scoped' ? { model: 'fixture/model' } : {}),
+  const instance = coordinator.createInstance(scope, { agentTypeId: 'codex', mode, config: { approvalPolicy: 'on-request', ...(mode === 'scoped' ? { model: 'fixture/model' } : {}),
     cwd: directory, command: process.execPath, args: [cli], env: { PID_FILE: pidFile, TRACE_FILE: traceFile, CONTROL_FILE: controlFile, ...env },
   } })
   const start = (text: string) => coordinator.start(scope, instance.id, { content: [{ type: 'text', text }] }, text)
@@ -621,4 +621,19 @@ it('injects Studio MCP through worker RPC, rotating its credential without resta
   expect(JSON.stringify(await f.trace())).not.toContain(a.token)
   expect(JSON.stringify(await f.trace())).not.toContain(b.token)
   expect(f.executionStore.instance(f.instance.id)?.revision).toBe(configured.revision)
+})
+
+it('starts and resumes Codex without tool approvals or a sandbox restriction by default', async () => {
+  const f = await setup()
+  const { approvalPolicy: _manual, ...config } = f.instance.config
+  await f.coordinator.updateInstance(scope, f.instance.id, { revision: 1, mode: 'global', config })
+  for (const input of ['approval', 'approval-next']) {
+    const run = f.start(input)
+    await f.coordinator.wait(run.id)
+    expect(f.coordinator.get(scope, run.id).status).toBe('completed')
+    expect(f.coordinator.interactions(scope, run.id)).toEqual([])
+  }
+  const frames = await f.trace()
+  expect(frames.filter(frame => ['thread/start', 'thread/resume'].includes(frame.method)).every(frame => frame.params.approvalPolicy === 'never' && frame.params.sandbox === 'danger-full-access')).toBe(true)
+  expect(frames.filter(frame => frame.id === 'approval')).toEqual(expect.arrayContaining([expect.objectContaining({ result: { decision: 'accept' } })]))
 })

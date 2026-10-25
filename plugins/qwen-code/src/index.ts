@@ -13,6 +13,7 @@ const schema = {
     env: { type: 'object', maxProperties: 128, additionalProperties: { type: 'string', maxLength: 32768 } },
     model: { type: 'string', minLength: 1, maxLength: 256 },
     reasoningEffort: { type: 'string', minLength: 1, maxLength: 64 },
+    approvalRequired: agentContextConfigurationProperties.approvalRequired,
     systemPrompt: agentContextConfigurationProperties.systemPrompt,
     mcpServers: agentContextConfigurationProperties.mcpServers,
     studioMcp: agentContextConfigurationProperties.studioMcp,

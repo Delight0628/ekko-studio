@@ -5,9 +5,9 @@ vi.mock('@/api/studio/background-status', () => ({ observeBackgroundStatus: vi.f
 
 const api = vi.hoisted(() => ({
   startRunViaSocket: vi.fn(), resumeSession: vi.fn(), registerSessionHandlers: vi.fn(),
-  onPersistedAgentMessage: vi.fn(() => vi.fn()), onAgentInteraction: vi.fn(() => vi.fn()), respondManagedAgent: vi.fn(),
+  onPersistedAgentMessage: vi.fn(() => vi.fn()), onAgentInteraction: vi.fn(() => vi.fn()), respondManagedAgent: vi.fn(), createOrdinaryAgentChat: vi.fn(),
 }))
-vi.mock('@/api/studio/agent-management', () => ({ respondManagedAgent: api.respondManagedAgent }))
+vi.mock('@/api/studio/agent-management', () => ({ respondManagedAgent: api.respondManagedAgent, createOrdinaryAgentChat: api.createOrdinaryAgentChat }))
 vi.mock('@/api/studio/chat', () => ({
   ...api,
   unregisterSessionHandlers: vi.fn(),
@@ -200,4 +200,56 @@ describe('sidebar working state', () => {
     expect(store.isStreaming).toBe(false)
     expect(store.isRunActive).toBe(false)
   })
+})
+
+it('binds a new ordinary Agent internally before sending and keeps the captured chat when the user switches tabs', async () => {
+  const store = useChatStore()
+  store.setRuntimeMode('default')
+  const first = store.newChat({ source: 'coding_agent', codingAgentId: 'codex', codingAgentMode: 'global', profile: 'research', model: 'native-model', workspace: '/project' })
+  const binding = Promise.withResolvers<any>()
+  api.createOrdinaryAgentChat.mockReturnValue(binding.promise)
+  const sent = store.sendMessage('First plugin input')
+  await vi.waitFor(() => expect(api.createOrdinaryAgentChat).toHaveBeenCalledOnce())
+  expect(api.startRunViaSocket).not.toHaveBeenCalled()
+  expect(api.createOrdinaryAgentChat.mock.calls[0]).toMatchObject(['research', { sessionId: first.id, agentTypeId: 'codex', mode: 'global', model: 'native-model', workspace: '/project' }])
+  store.newChat({ profile: 'default' })
+  binding.resolve({ sessionId: first.id, instanceId: 'internal-instance', configurationRevision: 1 })
+  await sent
+  expect(api.startRunViaSocket.mock.calls[0][0]).toMatchObject({ session_id: first.id, profile: 'research', input: 'First plugin input' })
+  expect(api.startRunViaSocket.mock.calls[0][0]).not.toHaveProperty('coding_agent_id')
+  expect(store.sessions.find(item => item.id === first.id)).toMatchObject({ agentInstanceId: 'internal-instance', agentChatSettings: true })
+  expect(store.activeSession?.agentInstanceId).toBeUndefined()
+})
+
+it('does not start the legacy executor when internal binding fails, and can retry the same draft', async () => {
+  const store = useChatStore()
+  store.setRuntimeMode('default')
+  const chat = store.newChat({ source: 'coding_agent', codingAgentId: 'qoder', codingAgentMode: 'global' })
+  api.createOrdinaryAgentChat.mockRejectedValueOnce(new Error('Plugin unavailable'))
+  await store.sendMessage('First attempt')
+  expect(api.startRunViaSocket).not.toHaveBeenCalled()
+  expect(store.activeSession?.agentInstanceId).toBeUndefined()
+  api.createOrdinaryAgentChat.mockResolvedValueOnce({ sessionId: chat.id, instanceId: 'retry-instance', configurationRevision: 1 })
+  await store.sendMessage('Second attempt')
+  expect(api.startRunViaSocket).toHaveBeenCalledOnce()
+  expect(api.createOrdinaryAgentChat.mock.calls.map(call => call[1].sessionId)).toEqual([chat.id, chat.id])
+})
+
+it('moves a corrected run summary off an old tool row and keeps one card on the answer', async () => {
+  const store = useChatStore()
+  store.setRuntimeMode('default')
+  store.sessions = [session('one')]
+  await store.switchSession('one')
+  const persisted = api.onPersistedAgentMessage.mock.calls[0][0] as (event: any) => void
+  const row = (id: number, role: string, content: string, extra = {}) => ({ id, role, content, session_id: 'one', run_marker: 'run', timestamp: 1, ...extra })
+  const emit = (messages: any[]) => persisted({ session_id: 'one', agent_run_id: 'run', messages })
+  emit([row(1, 'user', 'Check files'), row(2, 'assistant', 'Checking'), row(3, 'assistant', '', {
+    tool_calls: [{ id: 'tool', type: 'function', function: { name: 'read_file', arguments: '{}' } }], run_usage: { runId: 'run', assistantMessageId: '3' },
+  })])
+  emit([row(4, 'tool', 'contents', { tool_name: 'read_file', tool_call_id: 'tool' })])
+  emit([row(2, 'assistant', 'Files checked.', { run_usage: { runId: 'run', assistantMessageId: '2', inputTokens: 20, outputTokens: 5 } })])
+  expect(store.activeSession?.messages.filter(message => message.runUsage)).toMatchObject([{ id: '2', content: 'Files checked.', runUsage: { inputTokens: 20, outputTokens: 5 } }])
+  expect(store.activeSession?.messages.filter(message => message.runUsage)).toHaveLength(1)
+  expect(store.activeSession?.messages.filter(message => message.role === 'assistant' && !message.content)).toEqual([])
+  expect(store.activeSession?.messages.filter(message => message.role === 'tool')).toHaveLength(1)
 })

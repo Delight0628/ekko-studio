@@ -192,7 +192,7 @@ export class PluginWorker {
         }, 250)
         context.signal.addEventListener('abort', abort, { once: true })
         const task = Promise.resolve().then(() => this.peer.request(`management.${method}`, toJson({ callId, agentTypeId: meta.id,
-          runtimeHandle: processScope.handle, ownerId: context.ownerId, ...(context.nativeCli ? { nativeCli: context.nativeCli } : {}), ...(context.stateDirectory ? { stateDirectory: context.stateDirectory } : {}),
+          runtimeHandle: processScope.handle, ownerId: context.ownerId, profileId: context.profileId, ...(context.nativeCli ? { nativeCli: context.nativeCli } : {}), ...(context.stateDirectory ? { stateDirectory: context.stateDirectory } : {}),
           input }))).finally(() => { finished = true })
         if (context.signal.aborted) abort()
         try {
@@ -255,7 +255,7 @@ export class PluginWorker {
           if (failed?.status === 'rejected') throw failed.reason
         }
         this.runtimes.add(id)
-        try { await this.peer.request('runtime.create', toJson({ agentTypeId: meta.id, runtimeSessionId: id, runtimeHandle: processScope.handle, ownerId: context.ownerId,
+        try { await this.peer.request('runtime.create', toJson({ agentTypeId: meta.id, runtimeSessionId: id, runtimeHandle: processScope.handle, ownerId: context.ownerId, profileId: context.profileId,
           ...(commandScope ? { commands: true } : {}), ...(context.nativeCli ? { nativeCli: context.nativeCli } : {}), ...(context.stateDirectory ? { stateDirectory: context.stateDirectory } : {}), input })) }
         catch (error) {
           this.runtimes.delete(id)
@@ -266,7 +266,12 @@ export class PluginWorker {
         const dispose = (reason: string): Promise<void> => disposal ??= (async () => {
           commandScope?.dispose(); this.runtimeCommands.delete(processScope.handle)
           context.signal.removeEventListener('abort', aborted)
-          try { await this.peer.request('runtime.dispose', { runtimeSessionId: id, reason }, 5_000) }
+          try {
+            // A replaced worker has no runtime to call. Its close barrier still
+            // confirms process exit and all hosted resource cleanup.
+            if (this.closed) await this.close()
+            else await this.peer.request('runtime.dispose', { runtimeSessionId: id, reason }, 5_000)
+          }
           catch (error) { await this.close(); throw error }
           finally { await releaseResources(); this.runtimes.delete(id) }
         })()

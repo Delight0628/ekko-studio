@@ -84,7 +84,7 @@ export async function setupClaude(root: string, runner: string, cleanup: Array<(
   const manifest = JSON.parse(await readFile(join(root, 'plugins/claude-code/studio-plugin.json'), 'utf8'))
   await host.registerSystemArtifact(join(root, 'plugins/claude-code'), manifest.id)
   await host.configure({ pluginId: manifest.id, profileId: claudeCaller.profileId, ownerId: claudeCaller.principal.id, enabled: true, config: {}, grants: manifest.requires.capabilities }, 0)
-  const config: JsonObject = { cwd: directory, command: process.execPath, args: [cli], model: 'fixture/model',
+  const config: JsonObject = { permissionMode: 'default', cwd: directory, command: process.execPath, args: [cli], model: 'fixture/model',
     env: { TRACE: trace, HOME: directory, USERPROFILE: directory, CLAUDE_CONFIG_DIR: join(directory, 'native') }, ...overrides }
   const instance = coordinator.createInstance(claudeCaller, { agentTypeId: 'claude-code', mode, config })
   let sequence = 0

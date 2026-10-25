@@ -21,7 +21,6 @@ const context = (signal: AbortSignal, authorize = vi.fn(async () => {})) => crea
 describe('Studio plugin contracts and registry', () => {
   it('publishes registrations atomically and does not revoke a new generation during old cleanup', () => {
     const registry = new AgentRegistry()
-    expect(() => registry.stage('*', provider('invalid'), [definition.id])).toThrow('concrete profile')
     const old = registry.stage('one', provider('old'), [definition.id])
     old.register(definition)
     expect(registry.list('one')).toEqual([])
