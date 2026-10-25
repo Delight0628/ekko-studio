@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { build } from 'esbuild'
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest'
 import { PluginHost } from '../../packages/server/src/modules/studio/services/plugins/host'
@@ -64,7 +64,8 @@ async function setup(options: { granted?: boolean; crash?: boolean; shared?: boo
     } });
   } }`)
   if (options.acp) {
-    await build({ entryPoints: ['packages/studio-agent-drivers/src/index.ts'], bundle: true, platform: 'node', target: 'node24.22.1', format: 'cjs', outfile: join(directory, 'driver.cjs'), logLevel: 'silent' })
+    await build({ entryPoints: ['packages/studio-agent-drivers/src/index.ts'], bundle: true, platform: 'node', target: 'node24.22.1', format: 'cjs', outfile: join(directory, 'driver.cjs'), logLevel: 'silent',
+      alias: { '@ekko-studio/plugin-sdk': resolve('packages/studio-plugin-sdk/src/index.ts') } })
     await writeFile(join(directory, 'cli.cjs'), `const reply = value => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...value }) + '\\n');
       require('node:readline').createInterface({ input: process.stdin }).on('line', line => { const request = JSON.parse(line);
         if (request.method === 'initialize') reply({ id: request.id, result: { protocolVersion: 1, agentCapabilities: {} } });
@@ -89,6 +90,7 @@ async function setup(options: { granted?: boolean; crash?: boolean; shared?: boo
   }
   if (options.mcp) {
     await build({ stdin: { contents: `export { ManagedJsonRpcTransport } from './packages/studio-agent-drivers/src'; export { Client, parseJSONRPCMessage } from '@modelcontextprotocol/client';`, resolveDir: process.cwd() },
+      alias: { '@ekko-studio/plugin-sdk': resolve('packages/studio-plugin-sdk/src/index.ts') },
       bundle: true, platform: 'node', target: 'node24.22.1', format: 'cjs', outfile: join(directory, 'driver.cjs'), logLevel: 'silent' })
     await writeFile(join(directory, 'cli.cjs'), await readFile('tests/fixtures/fake-mcp-server.cjs'))
     await writeFile(join(directory, 'index.cjs'), `const { Client, parseJSONRPCMessage, ManagedJsonRpcTransport } = require('./driver.cjs');
