@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
+import { createHash } from 'node:crypto';
 import { DatabaseSync } from "node:sqlite";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
@@ -57,7 +58,7 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
   let calls = 0, completedTurns = 0, completedCommands = 0, installedClis = 0;
   const managedInstall = process.env.STUDIO_MANAGED_CLI === '1';
   const vendors = process.env.STUDIO_AGENT_VENDORS ? process.env.STUDIO_AGENT_VENDORS.split(',') : ['codex', 'qwen-code'];
-  if (!vendors.length || vendors.some(value => !['codex', 'qwen-code', 'kimi'].includes(value))) throw new Error('Unknown native verification vendor');
+  if (!vendors.length || vendors.some(value => !['codex', 'qwen-code', 'kimi', 'codebuddy'].includes(value))) throw new Error('Unknown native verification vendor');
   const fixtureInputTokens = process.env.STUDIO_NATIVE_COMMANDS === '1' ? 12000 : 12;
   let activeTarget = 'native', activeVendor, searchIssued = false;
   let nativeMcpEnabled = false, nativeMcpIssued = false, nativeMcpContext;
@@ -95,21 +96,31 @@ data: ${JSON.stringify({ type, ...data })}
 
 `);
     const id = `response-${calls}`, messageId = `message-${calls}`, text = `Native fixture answer ${calls}`;
-    const searchTool = body.tools?.find(tool => (tool.name || tool.function?.name) === 'tool_search');
     const flattenedTools = (body.tools || []).flatMap(tool => tool.type === 'namespace' ? (tool.tools || []).map(child => ({ ...child, namespace: tool.name })) : [tool]);
+    const matchTool = (tool, name) => (tool.name || tool.function?.name) === name || activeVendor === 'codebuddy'
+      && (tool.name || tool.function?.name) === `studio_${createHash('sha256').update(JSON.stringify([null, name])).digest('hex').slice(0, 48)}`;
+    const searchTool = flattenedTools.find(tool => matchTool(tool, 'tool_search') || matchTool(tool, 'ToolSearch'));
     const deferredTools = (body.messages || []).flatMap(message => Array.isArray(message.content) ? message.content : []).filter(part => part.type === 'tool_result')
       .flatMap(part => [...String(part.content).matchAll(/<function>(.*?)<\/function>/gs)].map(match => JSON.parse(match[1])));
+    const codebuddyResults = activeVendor === 'codebuddy' ? JSON.stringify([
+      ...(body.messages || []).filter(message => message.role === 'tool').map(message => message.content),
+      ...(body.messages || []).flatMap(message => Array.isArray(message.content) ? message.content.filter(part => part.type === 'tool_result').map(part => part.content) : []),
+      ...(Array.isArray(body.input) ? body.input.filter(item => item.type === 'function_call_output').map(item => item.output) : []),
+    ]) : '';
+    const codebuddyApi = codebuddyResults.match(/\bmcp__[A-Za-z0-9_.:-]*ekko_studio_api_request\b/)?.[0];
     const apiTool = flattenedTools.find(tool => (tool.name || tool.function?.name || '').includes('ekko_studio_api_request'))
-      || deferredTools.find(tool => tool.name?.includes('ekko_studio_api_request'));
-    const discover = activeVendor === 'qwen-code' && searchTool && !searchIssued;
+      || deferredTools.find(tool => tool.name?.includes('ekko_studio_api_request')) || (codebuddyApi ? { name: codebuddyApi } : undefined);
+    const discover = ['qwen-code', 'codebuddy'].includes(activeVendor) && searchTool && !searchIssued;
     if (discover || (nativeMcpEnabled && apiTool && !nativeMcpIssued)) {
       if (discover) searchIssued = true; else nativeMcpIssued = true;
       const deferred = !discover && !!apiTool.parametersJsonSchema;
-      const toolName = discover ? 'tool_search' : deferred ? 'tool_call' : apiTool.name || apiTool.function.name;
+      const codebuddyProxy = !discover && codebuddyApi && flattenedTools.find(tool => matchTool(tool, 'DeferExecuteTool'));
+      const toolName = discover ? searchTool.name || searchTool.function.name : codebuddyProxy ? codebuddyProxy.name || codebuddyProxy.function.name : deferred ? 'tool_call' : apiTool.name || apiTool.function.name;
       const nativeArgs = { method: 'GET', path: '/api/studio/fixture-native-context', context_id: nativeMcpContext };
       const toolId = `tool-${calls}`, args = JSON.stringify(discover
-        ? { query: nativeMcpEnabled ? 'continuity ekko_studio_api_request' : 'continuity', max_results: nativeMcpEnabled ? 10 : 5 }
-        : deferred ? { name: apiTool.name, arguments: nativeArgs } : nativeArgs);
+        ? activeVendor === 'codebuddy' ? { queries: nativeMcpEnabled ? ['ekko_studio_api_request', 'continuity'] : ['continuity'], top_k: 10 }
+          : { query: nativeMcpEnabled ? 'continuity ekko_studio_api_request' : 'continuity', max_results: nativeMcpEnabled ? 10 : 5 }
+        : codebuddyProxy ? { toolName: codebuddyApi, params: nativeArgs } : deferred ? { name: apiTool.name, arguments: nativeArgs } : nativeArgs);
       if (req.url.includes('responses')) {
         const item = { type: 'function_call', id: toolId, call_id: toolId, name: toolName, arguments: args, ...(!discover && apiTool.namespace ? { namespace: apiTool.namespace } : {}) };
         send('response.created', { response: { id, object: 'response', status: 'in_progress', output: [] } });
@@ -161,8 +172,10 @@ data: ${JSON.stringify({ type, ...data })}
   studioConfig.port = server.address().port;
   const db = new DatabaseSync(':memory:'), modelStore = new PluginModelCallStore(db), executionStore = new AgentExecutionStore(db), state = executionStore.state;
   const gateways = new PluginModelGateways({ store: modelStore, state, authorize() {}, resolve: async (_profile, publicModel, protocol) => {
-    const Client = activeTarget === 'chat' ? OpenAICompatibleModelClient
-      : (activeTarget === 'other' ? protocol !== 'responses' : protocol === 'responses') ? OpenAIResponsesModelClient : AnthropicMessagesModelClient;
+    const Client = activeTarget === 'native'
+      ? protocol === 'chat-completions' ? OpenAICompatibleModelClient : protocol === 'responses' ? OpenAIResponsesModelClient : AnthropicMessagesModelClient
+      : activeTarget === 'chat' ? protocol === 'chat-completions' ? AnthropicMessagesModelClient : OpenAICompatibleModelClient
+        : protocol === 'responses' ? AnthropicMessagesModelClient : OpenAIResponsesModelClient;
     const client = new Client({ id: 'fixture', type: 'custom', defaultModel: 'fixture-model', baseUrl: `${base}/v1`, apiKey: 'host-only-fixture-key' });
     return { images: true, transport: activeTarget === 'native' ? 'native' : 'translated',
       request: (body, signal, sessionId) => activeTarget === 'native' ? client.nativeRequest(body, { model: 'fixture-model', messages: [], signal })
@@ -201,6 +214,15 @@ requires_openai_auth = false
           config.args = ["--auth-type", "anthropic", "--model", "fixture-model"];
           Object.assign(config.env, { QWEN_HOME: home, QWEN_RUNTIME_DIR: join(home, "runtime"), ANTHROPIC_API_KEY: "fixture-only", ANTHROPIC_BASE_URL: base, ANTHROPIC_MODEL: "fixture-model" });
           await writeFile(join(home, "settings.json"), JSON.stringify({ security: { auth: { selectedType: "anthropic" } }, model: { name: "fixture-model" }, modelProviders: { anthropic: [{ id: "fixture-model", envKey: "ANTHROPIC_API_KEY", baseUrl: base, generationConfig: { maxOutputTokens: 256, modalities: { image: true } } }] } }), { mode: 384 });
+        } else if (vendor === 'codebuddy') {
+          config.command = process.env.STUDIO_CODEBUDDY_COMMAND || 'codebuddy';
+          config.args = ['--model', 'fixture-model'];
+          Object.assign(config.env, { CODEBUDDY_CONFIG_DIR: home, EKKO_SCOPED_MODEL_TOKEN: 'fixture-only', CODEBUDDY_MODEL: 'fixture-model',
+            CODEBUDDY_SMALL_FAST_MODEL: 'fixture-model', CODEBUDDY_BIG_SLOW_MODEL: 'fixture-model', CODEBUDDY_CODE_SUBAGENT_MODEL: 'fixture-model',
+            CODEBUDDY_API_KEY: 'fixture-only', CODEBUDDY_AUTH_TOKEN: '', CODEBUDDY_BASE_URL: `${base}/v1`, CODEBUDDY_CUSTOM_HEADERS: '' });
+          await writeFile(join(home, 'settings.json'), JSON.stringify({ model: 'fixture-model', autoUpdates: false }));
+          await writeFile(join(home, 'models.json'), JSON.stringify({ models: [{ id: 'fixture-model', name: 'Local fixture', vendor: 'Ekko Studio', apiKey: '${EKKO_SCOPED_MODEL_TOKEN}',
+            url: `${base}/v1/chat/completions`, maxInputTokens: 131072, maxOutputTokens: 32768, supportsToolCall: true, supportsImages: true }], availableModels: ['fixture-model'] }));
         } else {
           config.command = process.env.STUDIO_KIMI_COMMAND || 'kimi';
           await writeFile(join(home, 'config.toml'), '# Local native verification fixture\n');
@@ -354,7 +376,7 @@ Follow fixture instructions.`) }, { filename: '技能目录/assets/fixture.bin',
             if (result.status !== 'completed') throw new Error(`${vendor} ${mode} native turn failed: ${result.errorCode}`);
             if (nativeMcpEnabled && !nativeMcpRequests.some(call => call.sessionId === (result.sessionId ?? `agent-run:${result.id}`) && call.contextId === nativeMcpContext)) {
               const summary = tools => (tools || []).map(tool => ({ type: tool.type, name: tool.name || tool.function?.name, ...(tool.tools ? { tools: summary(tool.tools) } : {}) }));
-              throw new Error(`${vendor} did not call the host-injected Studio MCP with its current turn context: ${JSON.stringify({ issued: nativeMcpIssued, nativeClientRequests, tools: requests.slice(requestOffset).map(body => summary(body.tools)), outputs: requests.slice(requestOffset).flatMap(body => body.input || []).filter(item => item.type === 'function_call_output').map(item => item.output) })}`);
+              throw new Error(`${vendor} did not call the host-injected Studio MCP with its current turn context: ${JSON.stringify({ issued: nativeMcpIssued, nativeClientRequests, tools: requests.slice(requestOffset).map(body => summary(body.tools)), outputs: requests.slice(requestOffset).flatMap(body => body.input || []).filter(item => item.type === 'function_call_output').map(item => item.output), ...(process.env.STUDIO_NATIVE_DIAGNOSTICS === '1' ? { toolResults: requests.slice(requestOffset).flatMap(body => body.messages || []).filter(message => message.role === 'tool').map(message => String(message.content).slice(0, 8000)) } : {}) })}`);
             }
             const nativeInput = JSON.stringify(requests.slice(requestOffset));
             const nativeTools = JSON.stringify(requests.slice(requestOffset).map(body => body.tools));

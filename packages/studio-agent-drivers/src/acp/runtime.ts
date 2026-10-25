@@ -15,6 +15,8 @@ export interface AcpRuntimeOptions {
   /** Some native launches select a model in memory rather than through ACP's persisted model selector. */
   promptConfiguration?(requested: { model?: string; reasoningEffort?: string }): { model?: string; reasoningEffort?: string }
   commands?: { update(value: unknown): void; drain(): Promise<void> }
+  /** Some ACP servers keep watchers after stdin EOF; confirm host cleanup after their final result. */
+  completion?: 'exit' | 'managed-stop'
   /** The owning plugin interprets native application errors; the driver never branches on a vendor. */
   handleError?(error: unknown, emit: (event: Omit<AgentOutputEvent, 'producerSequence'>) => void): void
 }
@@ -138,10 +140,11 @@ export function createAcpRuntime(input: RuntimeCreateInput, runtime: AgentRuntim
           // A result frame does not prove that the CLI drained or exited.
           let timer: ReturnType<typeof setTimeout> | undefined
           try {
-            const exit = await Promise.race([transport.exited, new Promise<never>((_, reject) => {
-              timer = setTimeout(() => reject(new Error(`${options.name} did not exit after its final result`)), 1500)
+            const exit = await Promise.race([transport.exited, new Promise<null>((resolve, reject) => {
+              timer = setTimeout(() => options.completion === 'managed-stop' ? resolve(null) : reject(new Error(`${options.name} did not exit after its final result`)), 1500)
             })])
-            if (!cancelled && exit.code !== 0) throw new Error(`${options.name} process failed after its final result`)
+            if (exit === null) await transport.dispose()
+            else if (!cancelled && exit.code !== 0) throw new Error(`${options.name} process failed after its final result`)
           } finally { clearTimeout(timer) }
           await commands.drain()
           return cancelled ? { status: 'cancelled' } : { status: 'completed', checkpoint: { nativeSessionId: nativeSessionId! } }

@@ -11,6 +11,7 @@ const bundles = [
   { id: 'kimi', name: 'Kimi Code', pluginId: 'studio.agent-kimi', directory: 'kimi' },
   { id: 'qoder', name: 'Qoder', pluginId: 'studio.agent-qoder', directory: 'qoder',
     requiredCapabilities: ['agents.register', 'commands.register', 'runs.start', 'processes.spawn', 'mcp.studio', 'artifacts.read'] },
+  { id: 'codebuddy', name: 'CodeBuddy', pluginId: 'studio.agent-codebuddy', directory: 'codebuddy' },
 ] as const
 const bundledCapabilities = ['agents.register', 'commands.register', 'runs.start', 'processes.spawn', 'mcp.studio', 'models.gateway', 'artifacts.read']
 
