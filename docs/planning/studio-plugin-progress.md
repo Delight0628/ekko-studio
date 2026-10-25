@@ -16,7 +16,7 @@
 | 事件 | `ctx.on` / `ctx.once`、profile/owner 授权、每分区有序通知；`ctx.events.consume` 持久化游标、租约、重试/死信和保留期；仅把明确允许的旧业务事件字段投影到公共事件表 |
 | Agent API 执行 | 实例、接受请求、幂等、启动、流输出、完成屏障、取消、终态与事件事务落库；崩溃恢复标记 interrupted，不自动重放输入 |
 | 原生管理检查 | 通用 `management.inspect/setup/prepareLogin`、目录能力发现、独立管理操作、所有者/profile 鉴权及受管登录终端；CLI 版本探测与手工安装指引、Codex 脱敏账号状态及模型分页，Qwen ACP 信息/认证方式；完整管理和真实账号验收仍未完成 |
-| 管理页面 | 现有配置页可创建/修改自有实例，按注册 schema 展示字段，复杂类型使用 JSON；超级管理员可显式安装并启用六个已实现的随包插件，保留现有配置和 grants；不默认登记其余保留 ID |
+| 管理页面 | 现有配置页可创建/修改自有实例，按注册 schema 展示字段，复杂类型使用 JSON；超级管理员可显式安装并启用七个已实现的随包插件，保留现有配置和 grants；不默认登记其余保留 ID |
 | 配置连续性 | 插件声明兼容字段；空闲实例更新原子保留目录关联和成功 checkpoint，完整提供方引用保持匹配；网关逐请求授权并允许协议直通/转换切换。跨模式、工作区或工件升级迁移仍待完成 |
 | 原生资源编辑 | 多位置扫描、实例表单、Skills/配置读取保存，以及完整 Skill 包导入和目录版本化删除；来源/内容版本、只读别名、运行互斥和下轮重新加载；App、任意目录树管理及完整恢复验收待完成 |
 | 受管进程 | runtime 租约持有管道/PTY 进程，宿主签发句柄、用户/profile/runtime 隔离、有界字节读取、管道写入背压与 PTY 输入预算、resize、环境白名单、退出确认和进程树终止；worker 不持有原生进程对象 |
@@ -28,7 +28,7 @@
 | 输入框命令 | 激活期与聊天租约内动态注册、真实 worker handler、原始参数、可信作用域、异步结果与持久回执、取消/撤权回收；Qwen ACP 目录及两款插件的原生压缩已接入，其他原生管理操作、内置引擎及 App 迁移待完成 |
 | 工程接入 | bootstrap、鉴权 API、生成式 OpenAPI、runner 构建、插件私有导入边界检查、独立 Echo 样例 |
 
-安装策略测试中的 14 条 fixture 只验证保护和幂等规则。**当前没有把这 14 个 Agent 注册成已安装系统插件**，也没有用空壳包代替厂商迁移。已有 Qwen、Codex、Kimi、CodeBuddy 与 Copilot 独立包的 global/scoped 文本与图片运行增量；Qoder 保留 global-only 模式；scoped 网关已支持三种协议六个转换方向。尚未默认安装或替换旧入口，不能计为完整迁移。旧 Coding Agent 仍使用原执行和管理路径。Hermes/Ekko 仍是原内置模块。
+安装策略测试中的 14 条 fixture 只验证保护和幂等规则。**当前没有把这 14 个 Agent 注册成已安装系统插件**，也没有用空壳包代替厂商迁移。已有 Qwen、Codex、Kimi、CodeBuddy、Copilot 与 OpenCode 独立包的 global/scoped 文本与图片运行增量；Qoder 保留 global-only 模式；scoped 网关已支持三种协议六个转换方向。尚未默认安装或替换旧入口，不能计为完整迁移。旧 Coding Agent 仍使用原执行和管理路径。Hermes/Ekko 仍是原内置模块。
 
 ## 当前开发接口
 
@@ -51,7 +51,7 @@
 | `GET /api/studio/command-calls/:id` | 查询自有调用状态及有序的现有格式结果 |
 | `POST /api/studio/command-calls/:id/cancel` | 取消调用，等待实际 handler 清理；不合作时关闭该 worker |
 | `GET /api/studio/agent-types` | 当前已激活插件提供的目录；尚未合并旧内置目录 |
-| `GET /api/studio/bundled-agent-plugins` | 六个已实现随包插件及当前 profile 状态；超级管理员 |
+| `GET /api/studio/bundled-agent-plugins` | 七个已实现随包插件及当前 profile 状态；超级管理员 |
 | `POST /api/studio/bundled-agent-plugins/:id/enable` | 按 profile revision 显式登记并启用受信任随包工件；不接受目录、不升级已有工件；超级管理员 |
 | `POST /api/studio/agent-images` | 上传至当前用户/profile 的图片工件，原始字节体，返回 artifact 引用 |
 | `DELETE /api/studio/agent-images/:id` | 删除自有且尚未被已接受 Run 引用的图片 |
@@ -97,6 +97,15 @@
 后续仍有七大交付块：统一运行与剩余业务入口、插件基础能力收尾、通用 Web/Desktop/App 界面、14 个 Coding Agent 独立插件包、Hermes/Ekko 内置统一接入、安装升级与发布分发、最终迁移验收与旧代码清理。输入框命令贡献已交付 SDK/宿主与 Web 基础链路，原生适配和跨客户端接入仍未完成，详见下节。旧聊天 SDK 的已有自有会话文本启动、查询和取消已完成，不再列为待开发项。
 
 资源位置/输入框命令契约、命令基础链路、现有 Skills/配置编辑页接入和兼容配置连续性已交付。后续顺序：补齐 Qwen/Codex 管理、Studio MCP 和原生命令 → 接入聊天界面形成可体验闭环 → 扩展到其余 Agent 和业务入口 → 分发与最终验收。MCP 工具 SDK 已整合、提交并推送，原生配置注入等剩余能力随迁移继续推进。Hermes/Ekko 继续保持内置身份；14 个厂商插件须逐个迁移和验收，保留 ID 或 fixture 不计为交付。
+
+### OpenCode 独立插件（2026-10-25）
+
+- 新增 `studio.agent-opencode`，固定 `opencode-ai@1.19.4` 的原生二进制，使用该版本正式 ACP 的图片、MCP、审批、session/resume 与动态命令；无 server/client 私有导入。global 保留原生配置层和账号；scoped 隔离 Home/XDG/配置/数据库，通过 bundled OpenAI-compatible provider 使用 Chat Completions，临时 token 仅在环境中，原生 JSON/JSONC/Skills/指令文件不被启动覆盖。
+- inspect 仅 initialize，不创建会话或推断认证；手工登录为 `opencode auth login`。资源声明包含自定义配置目录、XDG 全局层、项目层、兼容 Skills，跨来源别名维持只读。固定私有安装使用通用 binary runner，未为厂商增加宿主运行分支。
+- 真实 CLI 基础矩阵通过 14 轮/26 次本地模型请求/5 次 Studio MCP；另以原生实际公布的 `studio-resource-check` Skill 命令验证 global/scoped，共 14 轮 + 2 次原生命令、28 次模型请求、5 次 MCP，保持原生会话。1.19.4 未公布 compact/compress；压缩探针明确失败，保留不支持，不伪造命令。第一次指定 Skill 探针因验证脚本未开启目录收集而失败，已修正通用参数后复验通过。
+- 宿主实际安装了两个独立固定版本 CLI（global/scoped），版本探测及原子选择后完成 7 轮聊天、16 次本地模型请求、5 次 MCP；包括重启恢复/图片/资源与聊天隔离。无真实账号或远程提供商调用。日志 `/tmp/studio-opencode-real-{native,commands,skill-command-v2,managed}.log`。
+- worker/随包专项 2 文件 15 项通过，生产管理浏览器 13 项通过，包含手机 OpenCode 启用和原生登录指引。最终生产构建、插件类型和 harness 通过。日志 `/tmp/studio-opencode-{final-focused,browser,final-build,types,final-harness}.log`。
+- 这是第七个独立插件实现；余下 zcode、antigravity、claude-code、pi、grok、dsh、cursor。完整迁移仍为 **0/14**。
 
 ### Copilot 独立插件（2026-10-25）
 

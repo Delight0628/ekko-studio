@@ -6,9 +6,9 @@
 
 - 仓库 `/Users/ekko/Desktop/git/hermes-studio/studio`，分支 `feat/studio-plugin-context`。
 - PR #3513 保持草稿：<https://github.com/EKKOLearnAI/ekko-studio/pull/3513>。不合并，不自动转 ready。
-- 本轮提交：`15a6371a1` Kimi/共享 ACP/独立公共包；`d45ce0454` 干净 worker fixture 的 SDK 别名修复；`198d198ca` Qoder；`900e7aa22` Chat Completions 网关；`01114c99f` CodeBuddy；`68fa9cc1b` 主题浏览器用例等待页面就绪。Copilot 实现和证据随本文件所在提交一并交付；以当前 `git log`/`git status` 核对最新 HEAD 和后续工作区。
+- 本轮提交：`15a6371a1` Kimi/共享 ACP/独立公共包；`d45ce0454` 干净 worker fixture 的 SDK 别名修复；`198d198ca` Qoder；`900e7aa22` Chat Completions 网关；`01114c99f` CodeBuddy；`68fa9cc1b` 主题浏览器用例等待页面就绪；`a31dc201c` Copilot；`8db1d3fd2` 页面就绪修复。OpenCode 实现和证据随本文件所在提交一并交付；以当前 `git log`/`git status` 核对最新 HEAD 和后续工作区。
 - 原工作区 Kimi、共享 ACP、依赖构建改动全部保留并提交。不能 reset/clean 后续未提交工作。
-- 已有 **6 个独立插件实现**：Qwen、Codex、Kimi、Qoder、CodeBuddy、Copilot；完整迁移验收仍为 **0/14**。实现数量不代表完整验收。
+- 已有 **7 个独立插件实现**：Qwen、Codex、Kimi、Qoder、CodeBuddy、Copilot、OpenCode；完整迁移验收仍为 **0/14**。实现数量不代表完整验收。
 - 需求真源：`studio-plugin-architecture.md`、`studio-plugin-contracts.md`、`studio-plugin-execution.md`。实际证据：`studio-plugin-progress.md`。
 
 ## 已验证的增量
@@ -43,6 +43,12 @@ inspect 使用 ACP metadata 和 Content-Length JSON-RPC SDK `auth.getStatus`/`mo
 
 最终真实 CLI 14 轮、19 次本地模型请求、5 次 Studio MCP 通过，含 global/scoped、图片/资源、重启恢复、三种协议及跨轮切换；OpenAI 与 Claude 两种模型选择各有通过证据。服务端专项 95 项、其他插件/上下文/目录/网关专项 120 项、生产管理浏览器 12 项通过；完整构建、harness 和包外 SDK/driver 验证通过。日志 `/tmp/studio-copilot-{final-focused,regressions,browser,final-build,final-harness,packages,real-final}.log`。未验收真实账号。
 
+### OpenCode
+
+固定原生 CLI 1.19.4，使用正式 ACP；global 保留原生配置和账号，scoped 隔离 Home/XDG/配置/数据库，以 Chat Completions 接入 bundled provider，token 仅在环境中。原生文件保持用户编辑，资源含多配置层/JSONC/Skills/指令；inspect 只 initialize，认证 unknown，登录 `opencode auth login`。
+
+真实 CLI 14 轮/26 次本地模型请求/5 次 MCP 通过；实际公布的 Skill 命令 global/scoped 共 2 次与 14 轮矩阵通过（28 次模型请求/5 次 MCP），同一原生会话。原生未公布 compact/compress，压缩探针失败并保留不支持；没有伪造支持。宿主实际固定版本安装两个 binary CLI，通过版本/原子选择后完成 global/scoped 7 轮、16 次本地模型、5 次 MCP。worker/随包专项 15 项，生产管理浏览器 13 项、生产构建/插件类型/harness 通过；没有真实账号验收。日志 `/tmp/studio-opencode-real-{native,commands,skill-command-v2,managed}.log` 与 `/tmp/studio-opencode-{final-focused,browser,final-build,types,final-harness}.log`。
+
 ### 最新冻结回归
 
 `01114c99f` 独立 QA build/coverage 通过：944 文件 / 9,853 项，12 文件 / 33 项条件跳过，2 workers、默认时限，413.00 秒。生产浏览器首轮 969 通过 / 1 失败；主题编辑器已有 inert，测试 fill 绕过加载锁定，`68fa9cc1b` 修复测试等待，原断言/期限未改、产品源码未改。专项 light/dark 通过；冻结 `68fa9cc1b` 完整重跑为 968 通过/2 失败，11.1 分钟；APNG/版本预览两项单独复测通过，两轮全量均不记为全绿。日志 `/tmp/studio-five-plugins-qa-browser-v2.log`；不要把首轮记为全绿。
@@ -51,8 +57,8 @@ inspect 使用 ACP metadata 和 Content-Length JSON-RPC SDK `auth.getStatus`/`mo
 
 ## 继续顺序
 
-1. 核对 Copilot 提交/推送及 CI；收尾冻结 `68fa9cc1b` 的完整浏览器，再对下一冻结提交做验证，更新原草稿 PR。QA 副本使用自己的 node_modules；不要在测试中切 checkout。
-2. 迁移余下 8 个独立插件：**zcode、antigravity、claude-code、pi、grok、opencode、dsh、cursor**。保留已有能力和真实管理语义；协议/进程代码可抽公共驱动，厂商配置保留在各插件。禁止插件导入 server/client 私有源码，禁止宿主万能厂商 runner。OpenCode 1.19.4 已开始临时安装/原生 ACP 调研，尚未实现，目录 `/tmp/studio-opencode-native-qa`。
+1. 核对 OpenCode 提交/推送及 CI，冻结新提交完成 coverage/browser/build，更新原草稿 PR。QA 副本使用自己的 node_modules；不要在测试中切 checkout。`68fa9cc1b` 的两项浏览器失败已保留证据并修复，`8db1d3fd2` 交付页面就绪修复。
+2. 迁移余下 7 个独立插件：**zcode、antigravity、claude-code、pi、grok、dsh、cursor**。保留已有能力和真实管理语义；协议/进程代码可抽公共驱动，厂商配置保留在各插件。禁止插件导入 server/client 私有源码，禁止宿主万能厂商 runner。已开始只读调研 Pi RPC 文档与 npm 固定版本，尚未实现。
 3. 统一旧单聊/历史接管、群聊、工作流、全局任务及 API 的运行协调器；父子 Run、共享取消/预算、计量归属、唯一写入和完成屏障。
 4. 补齐 SDK 完整 ctx、事件/限额/诊断，Web/Desktop/App 动态目录和管理/聊天协议。已有 PTY、MCP resources/prompts、Studio MCP、Skills 包导入删除不应再列为待开发。
 5. Hermes/Ekko 保持 builtin 身份接入相同 Agent 契约；插件宿主故障不能影响内置引擎，避免重复写入。
@@ -69,7 +75,7 @@ inspect 使用 ACP metadata 和 Content-Length JSON-RPC SDK `auth.getStatus`/`mo
 - 当前辅助运行器 `/tmp/studio-plugin-run-clean.py` 接收日志路径和命令；全量 `npm run test:coverage -- --maxWorkers=2` 保持默认时限，不加超时/删断言/跳过失败。
 - 完整 Electron 探针在清理环境后设置 `EKKO_TEST_ELECTRON_EXECUTABLE=/Users/ekko/Desktop/git/hermes-studio/studio/packages/desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron`；辅助运行器使用 `STUDIO_QA_ELECTRON=1`。
 - QA：`/Users/ekko/.cache/studio-plugin-chat-foundation-qa`，自身 npm ci 已完成；禁止重新共享主工作区 node_modules 或跨工作区的 SDK 链接。浏览器 root 4173、QA 4183，独立客户端缓存。
-- 实际 CLI 路径：Kimi `/Users/ekko/.nvm/versions/node/v24.16.0/bin/kimi`；Qoder `/tmp/studio-qoder-native-qa/node_modules/@qoder-ai/qodercli/bundle/qodercli.js`；CodeBuddy `/tmp/studio-codebuddy-native-qa/node_modules/@tencent-ai/codebuddy-code/bin/codebuddy`；Copilot `/Users/ekko/.nvm/versions/node/v24.16.0/bin/copilot`。均用临时 Home 和本地模型，不读真实用户账号。
+- 实际 CLI 路径：Kimi `/Users/ekko/.nvm/versions/node/v24.16.0/bin/kimi`；Qoder `/tmp/studio-qoder-native-qa/node_modules/@qoder-ai/qodercli/bundle/qodercli.js`；CodeBuddy `/tmp/studio-codebuddy-native-qa/node_modules/@tencent-ai/codebuddy-code/bin/codebuddy`；Copilot `/Users/ekko/.nvm/versions/node/v24.16.0/bin/copilot`；OpenCode `/tmp/studio-opencode-native-qa/node_modules/opencode-ai/bin/opencode.exe`（macOS 也是此文件名，实际 Mach-O binary）。均用临时 Home 和本地模型，不读真实用户账号。
 - 原已推送 `ead6a4c3f` 的 9,802/967 只是旧冻结结果；不能冒充本轮或后续提交结果。
 - 每轮读取自己的 session tasks，使用最新输入的 context_id，不复用旧 context/session。完整用户目标保持 open，PR 保持 draft。
 - 长轮次中 interaction 同步曾返回 Unauthorized，默认、default、tester 均未恢复；没有复制 token 或绕过认证。已有 durable goal 保持 open；后续恢复后按实际证据更新，期间以本文件保存进度。

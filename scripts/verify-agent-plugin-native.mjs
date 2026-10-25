@@ -58,7 +58,7 @@ export { AnthropicMessagesModelClient } from './packages/ekko-agent/src/model/pr
   let calls = 0, completedTurns = 0, completedCommands = 0, installedClis = 0;
   const managedInstall = process.env.STUDIO_MANAGED_CLI === '1';
   const vendors = process.env.STUDIO_AGENT_VENDORS ? process.env.STUDIO_AGENT_VENDORS.split(',') : ['codex', 'qwen-code'];
-  if (!vendors.length || vendors.some(value => !['codex', 'qwen-code', 'kimi', 'codebuddy', 'copilot'].includes(value))) throw new Error('Unknown native verification vendor');
+  if (!vendors.length || vendors.some(value => !['codex', 'qwen-code', 'kimi', 'codebuddy', 'copilot', 'opencode'].includes(value))) throw new Error('Unknown native verification vendor');
   const fixtureInputTokens = process.env.STUDIO_NATIVE_COMMANDS === '1' ? 12000 : 12;
   let activeTarget = 'native', activeVendor, searchIssued = false;
   let nativeMcpEnabled = false, nativeMcpIssued = false, nativeMcpContext;
@@ -215,6 +215,15 @@ requires_openai_auth = false
           config.args = ["--auth-type", "anthropic", "--model", "fixture-model"];
           Object.assign(config.env, { QWEN_HOME: home, QWEN_RUNTIME_DIR: join(home, "runtime"), ANTHROPIC_API_KEY: "fixture-only", ANTHROPIC_BASE_URL: base, ANTHROPIC_MODEL: "fixture-model" });
           await writeFile(join(home, "settings.json"), JSON.stringify({ security: { auth: { selectedType: "anthropic" } }, model: { name: "fixture-model" }, modelProviders: { anthropic: [{ id: "fixture-model", envKey: "ANTHROPIC_API_KEY", baseUrl: base, generationConfig: { maxOutputTokens: 256, modalities: { image: true } } }] } }), { mode: 384 });
+        } else if (vendor === 'opencode') {
+          config.command = process.env.STUDIO_OPENCODE_COMMAND || 'opencode';
+          Object.assign(config.env, { XDG_CONFIG_HOME: join(home, 'config'), XDG_DATA_HOME: join(home, 'data'), XDG_CACHE_HOME: join(home, 'cache'),
+            XDG_STATE_HOME: join(home, 'state'), OPENCODE_CONFIG_DIR: join(home, 'opencode'), OPENCODE_DB: join(home, 'opencode.db'),
+            OPENCODE_DISABLE_MODELS_FETCH: '1', OPENCODE_DISABLE_AUTOUPDATE: '1',
+            OPENCODE_CONFIG_CONTENT: JSON.stringify({ autoupdate: false, model: 'fixture/fixture-model', small_model: 'fixture/fixture-model',
+              enabled_providers: ['fixture'], provider: { fixture: { npm: '@ai-sdk/openai-compatible', options: { baseURL: `${base}/v1`, apiKey: 'fixture-only' },
+                models: { 'fixture-model': { name: 'Fixture model', attachment: true, tool_call: true,
+                  modalities: { input: ['text', 'image'], output: ['text'] }, limit: { context: 131072, output: 256 } } } } } }) });
         } else if (vendor === 'copilot') {
           config.command = process.env.STUDIO_COPILOT_COMMAND || 'copilot';
           config.args = ['--model', 'fixture-model'];
@@ -243,7 +252,7 @@ requires_openai_auth = false
           definition = value;
         } } });
         nativeCatalog = staticCatalog;
-        if (process.env.STUDIO_NATIVE_COMMANDS === '1' || process.env.STUDIO_NATIVE_DIAGNOSTICS === '1') {
+        if (process.env.STUDIO_NATIVE_COMMANDS === '1' || process.env.STUDIO_NATIVE_COMMAND || process.env.STUDIO_NATIVE_DIAGNOSTICS === '1') {
           const create = definition.create;
           definition.create = async (input, context) => {
             let diagnostics = '';
@@ -351,7 +360,7 @@ Follow fixture instructions.`) }, { filename: '技能目录/assets/fixture.bin',
           if (target === 'switch') activeTarget = turn === 1 ? 'chat' : 'native';
           if (turn) {
             instance = await coordinator.updateInstance(caller, instance.id, { revision: instance.revision, mode,
-              config: { ...instance.config, mcpServers: mcpServers(instance.revision + 1), model: mode === 'scoped' ? 'fixture/next-model' : 'fixture-model', systemPrompt: 'Preserve the prior conversation and reply briefly.' } });
+              config: { ...instance.config, mcpServers: mcpServers(instance.revision + 1), model: mode === 'scoped' ? 'fixture/next-model' : vendor === 'opencode' ? 'fixture/fixture-model' : 'fixture-model', systemPrompt: 'Preserve the prior conversation and reply briefly.' } });
             const next = await coordinator.resourceLocations(caller, instance.id, instance.revision);
             if (JSON.stringify(next.configs) !== JSON.stringify(catalog.configs)) throw new Error('Compatible configuration changed resource locations');
             await coordinator.close();
@@ -413,16 +422,17 @@ Follow fixture instructions.`) }, { filename: '技能目录/assets/fixture.bin',
               ...(chatTarget ? { chat: chatTarget.sessionId, nativeHistoryIsolated: true } : {}), configurationRevision: instance.revision, mcpConfigurationApplied: true, coordinatorRestart: !!turn, providerReactivation: !!turn, imageForwarded: turn ? true : void 0 }));
             if (result.status !== "completed" || !output.some((event) => ["message.delta", "message.snapshot"].includes(event.type) && event.text.includes("Native fixture answer"))) throw new Error(`${vendor} real turn did not complete`);
             completedTurns++;
-            if (process.env.STUDIO_NATIVE_COMMANDS === '1' && turn === 0 && target === 'native') {
-              const command = nativeCatalog.find(value => /^(compact|compress)$/.test(value.definition.name));
+            if ((process.env.STUDIO_NATIVE_COMMANDS === '1' || process.env.STUDIO_NATIVE_COMMAND) && turn === 0 && target === 'native') {
+              const command = nativeCatalog.find(value => process.env.STUDIO_NATIVE_COMMAND
+                ? value.definition.name === process.env.STUDIO_NATIVE_COMMAND : /^(compact|compress)$/.test(value.definition.name));
               console.log(JSON.stringify({ vendor, mode, nativeCommands: nativeCatalog.map(value => value.definition.name) }));
-              if (!command) throw new Error(`${vendor} did not advertise a native compaction command`);
+              if (!command) throw new Error(`${vendor} did not advertise the requested native command`);
               const commandRun = coordinator.start(caller, instance.id, { content: [{ type: 'text', text: `/${command.definition.name}` }], timeoutMs: 20000 }, `${vendor}-${mode}-native-command`);
               await coordinator.wait(commandRun.id);
               const compacted = coordinator.get(caller, commandRun.id);
-              if (compacted.status !== 'completed') throw new Error(`${vendor} ${mode} native compaction failed: ${compacted.errorCode}`);
+              if (compacted.status !== 'completed') throw new Error(`${vendor} ${mode} native command failed: ${compacted.errorCode}`);
               const checkpoint = state.checkpoint(instance.id, compacted.provider, instance.revision);
-              if (JSON.stringify(checkpoint) !== JSON.stringify(nextCheckpoint)) throw new Error(`${vendor} compaction changed its native conversation`);
+              if (JSON.stringify(checkpoint) !== JSON.stringify(nextCheckpoint)) throw new Error(`${vendor} command changed its native conversation`);
               completedCommands++;
               console.log(JSON.stringify({ vendor, mode, nativeCommand: command.definition.name, status: compacted.status, sameNativeSession: true }));
             }
@@ -441,7 +451,7 @@ Follow fixture instructions.`) }, { filename: '技能目录/assets/fixture.bin',
     if (process.env.STUDIO_NATIVE_KEEP_FIXTURE === '1') console.log(JSON.stringify({ fixtureRoot: root }));
     else await rm(root, { recursive: true, force: true });
   }
-  console.log(JSON.stringify({ passed: true, turns: completedTurns, ...(managedInstall ? { managedCliInstallations: installedClis } : {}), ...(process.env.STUDIO_NATIVE_COMMANDS === '1' ? { nativeCommands: completedCommands } : {}), localModelRequests: calls, nativeStudioMcpRequests: nativeMcpRequests.length, remoteProvider: false, accountLogin: false }));
+  console.log(JSON.stringify({ passed: true, turns: completedTurns, ...(managedInstall ? { managedCliInstallations: installedClis } : {}), ...(process.env.STUDIO_NATIVE_COMMANDS === '1' || process.env.STUDIO_NATIVE_COMMAND ? { nativeCommands: completedCommands } : {}), localModelRequests: calls, nativeStudioMcpRequests: nativeMcpRequests.length, remoteProvider: false, accountLogin: false }));
 }
 main().catch((error) => {
   console.error(error);

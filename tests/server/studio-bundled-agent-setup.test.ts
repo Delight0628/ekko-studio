@@ -26,7 +26,7 @@ function setup() {
 
 it('lists only implemented bundles and enables one through a trusted distribution path', async () => {
   const f = setup()
-  expect(f.service.list('one').map(item => item.id)).toEqual(['qwen', 'codex', 'kimi', 'qoder', 'codebuddy', 'copilot'])
+  expect(f.service.list('one').map(item => item.id)).toEqual(['qwen', 'codex', 'kimi', 'qoder', 'codebuddy', 'copilot', 'opencode'])
   expect(f.store.list()).toEqual([])
   const result = await f.service.enable('qwen', 'one', 'owner', 0)
   expect(result).toMatchObject({ enabled: true, ownerId: 'owner', profileId: 'one', revision: 1 })
