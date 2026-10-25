@@ -973,6 +973,7 @@ for (const brightness of ['light', 'dark'] as const) {
     expect(await popover.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     await page.screenshot({ path: `/tmp/download-recent-${brightness}.png` })
     await popover.getByRole('button', { name: 'Full download history' }).click()
+    await expect(popover).not.toBeVisible()
     await expect(page).toHaveURL(/hermes\/chat/)
     await expect(panel.locator('.panel-download-history')).toBeVisible()
     await expect.poll(() => page.evaluate(() => (window as any).__PW_DESKTOP_BROWSER__.viewportCalls.at(-1).visible)).toBe(false)
