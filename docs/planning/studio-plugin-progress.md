@@ -106,6 +106,7 @@
 - 主线程补齐 runtime `usage.reported` 可选缓存/推理明细、严格校验与逐字段 revision 归并，保持输入总量包含缓存、明细不重复累计；scoped 仍由宿主模型调用唯一写入。归并/模型网关/聊天专项 95 项通过，Pi/原生管理/随包专项 76 项通过；补充 host/runtime 混合缓存汇总回归后聊天文件 24 项通过。
 - 安装计划增加受限布尔 `preferDedupe`，只映射 `--prefer-dedupe`，安装专项 21 项通过。手动安装 setup 可返回官方 HTTPS 文档，管理页显示链接而不虚构 npm 命令；保持手动 CLI 不声明自动安装。Gemini 纯 codec 抽到公共 driver、旧入口兼容 reexport，旧适配/图片/依赖边界 14 项通过；尚未新增宿主 Gemini 网关。
 - Pi 已接入随包列表、手机管理测试和三平台 worker CI；CI 触发补充 `plugins/**`。client/server 类型、前端生产构建、harness 通过，生产管理浏览器 15 项通过（2 workers、无重试）。日志 `/tmp/studio-parallel-{pi-integration-focused,pi-management-browser,client-types,client-build,server-types,harness}.log`，用量 `/tmp/studio-plugin-native-usage-details.log`，安装 `/tmp/studio-plugin-cli-install-dedupe.log`。
+- 冻结 `0d93d39c3` 的独立 QA 首次构建发现 driver 声明仍为旧缓存：类型检查只对 driver 执行 noEmit，后续服务端编译无法找到新增 Gemini 公共导出。修正为与 SDK 一起先构建 driver 声明，后续按冻结提交复验；首次失败日志 `/tmp/studio-eight-plugins-qa-build.log` 不记为通过。
 
 ### 七插件冻结回归及 Electron 测试调整（2026-10-25）
 

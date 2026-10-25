@@ -47,7 +47,7 @@
     "dev:client": "cross-env HERMES_WEB_UI_BACKEND_PORT=8647 vite --host --port 8649 --strictPort",
     "dev:server": "npm run build:plugins && nodemon",
     "build:plugins": "npm --prefix packages/studio-plugin-sdk run build && npm --prefix packages/studio-agent-drivers run build && tsc -p packages/studio-plugin-runner/tsconfig.json && tsc -p plugins/tsconfig.json && node scripts/build-plugin-runtime.mjs && node scripts/build-agent-plugins.mjs",
-    "typecheck:plugins": "npm --prefix packages/studio-plugin-sdk run build && tsc -p packages/studio-agent-drivers/tsconfig.json --noEmit && tsc -p packages/studio-plugin-runner/tsconfig.json && tsc -p plugins/tsconfig.json",
+    "typecheck:plugins": "npm --prefix packages/studio-plugin-sdk run build && npm --prefix packages/studio-agent-drivers run build && tsc -p packages/studio-plugin-runner/tsconfig.json && tsc -p plugins/tsconfig.json",
     "verify:plugins:native": "npm run build:plugins && node scripts/verify-agent-plugin-native.mjs",
     "build": "npm run openapi:generate && npm run typecheck:plugins && vue-tsc -b && vite build && tsc --noEmit -p packages/server/tsconfig.json && node scripts/build-server.mjs",
     "harness:check": "node scripts/harness-check.mjs && npm --prefix packages/ekko-agent run api:docs:check",
