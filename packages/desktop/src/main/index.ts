@@ -1508,6 +1508,10 @@ ipcMain.handle('hermes-desktop:browser-clear-profile-data', (event, profileId?: 
 ipcMain.handle('hermes-desktop:browser-cancel-download', (event, downloadId?: unknown) => (
   browserForEvent(event).cancelDownload(String(downloadId || ''))
 ))
+ipcMain.handle('hermes-desktop:browser-download-action', (event, downloadId: unknown, action: unknown) => {
+  if (typeof downloadId !== 'string' || !['open', 'reveal', 'remove', 'trash'].includes(String(action))) throw new Error('Invalid download action')
+  return browserForEvent(event).downloadAction(downloadId, action as 'open' | 'reveal' | 'remove' | 'trash')
+})
 ipcMain.handle('hermes-desktop:browser-take-over', (event, tabId?: unknown) => {
   browserForEvent(event)
   browserBroker?.revokeTab(String(tabId || ''))

@@ -412,6 +412,16 @@ export default {
   },
   socialMessages: socialMessagesKo,
   browser: {
+    openDownload: "파일 열기",
+    revealDownload: "폴더에서 보기",
+    removeDownload: "기록에서 제거",
+    trashDownload: "파일을 휴지통으로 이동",
+    downloadActive: "다운로드 중입니다. 먼저 취소하세요.",
+    downloadFileUnavailable: "파일이 이동 또는 삭제되었거나 일반 파일이 아닙니다.",
+    downloadOpenFailed: "다운로드한 파일을 열 수 없습니다.",
+    downloadActionFailed: "다운로드 작업을 완료할 수 없습니다.",
+    downloadNotFound: "다운로드 기록이 더 이상 없습니다.",
+
     remoteOwnerActive: 'Current control device',
     remoteOwnerStandby: 'Standby — another device is active',
     remoteOwnerBusy: 'Standby — browser operation in progress',

@@ -1,6 +1,6 @@
 import { downloadBrowserFile } from './browser-download'
 import { t } from '../desktop-i18n'
-import { realpathSync, mkdirSync } from 'node:fs'
+import { realpathSync, mkdirSync, statSync, lstatSync } from 'node:fs'
 import { isAbsolute, relative } from 'node:path'
 import { BrowserProfileLeases } from './browser-profile-lease'
 import { applyBrowserColorScheme, browserBackground, type BrowserColorScheme } from './browser-theme'
@@ -127,6 +127,8 @@ export class BrowserManager {
   private readonly records = new Map<string, TabRecord>()
   private tabMutationQueue: Promise<void> = Promise.resolve()
   private readonly downloads: DesktopBrowserDownload[] = []
+  private readonly downloadedFileIdentities = new Map<string, ReturnType<typeof lstatSync>>()
+  private readonly downloadActions = new Set<string>()
   private readonly downloadItems = new Map<string, DownloadItem>()
   private readonly agentDownloads = new BrowserDownloadStore()
   private readonly permissions: BrowserSitePermission[] = []
@@ -414,6 +416,60 @@ export class BrowserManager {
       if (profileId === this.activeProfileId) {
         for (const record of this.records.values()) record.view.webContents.reload()
       }
+    }
+    this.emitState()
+    return this.state()
+  }
+
+  async downloadAction(downloadId: string, action: 'open' | 'reveal' | 'remove' | 'trash'): Promise<DesktopBrowserState> {
+    if (!['open', 'reveal', 'remove', 'trash'].includes(action)) throw new Error('BROWSER_DOWNLOAD_INVALID_ACTION')
+    if (this.downloadActions.has(downloadId)) throw new Error('BROWSER_DOWNLOAD_ACTIVE')
+    this.downloadActions.add(downloadId)
+    try { return await this.performDownloadAction(downloadId, action) }
+    finally { this.downloadActions.delete(downloadId) }
+  }
+
+  private async performDownloadAction(downloadId: string, action: 'open' | 'reveal' | 'remove' | 'trash'): Promise<DesktopBrowserState> {
+    const download = this.downloads.find(item => item.id === downloadId)
+    if (!download) throw new Error('BROWSER_DOWNLOAD_NOT_FOUND')
+    // Resolve only Desktop-owned records, never a path supplied by the renderer.
+    if (this.downloadItems.has(downloadId) || download.state === 'progressing') throw new Error('BROWSER_DOWNLOAD_ACTIVE')
+    if (action === 'remove') {
+      this.downloads.splice(this.downloads.indexOf(download), 1)
+      this.downloadedFileIdentities.delete(downloadId)
+    } else {
+      const path = download.savePath
+      if (download.state !== 'completed' || !path || !isAbsolute(path)) throw new Error('BROWSER_DOWNLOAD_FILE_UNAVAILABLE')
+      let regular = false
+      let identity: ReturnType<typeof lstatSync> | undefined
+      try { identity = lstatSync(path); regular = identity.isFile() } catch { /* moved or deleted outside Desktop */ }
+      const original = this.downloadedFileIdentities.get(downloadId)
+      if (original && identity && (original.dev !== identity.dev || original.ino !== identity.ino
+        || original.size !== identity.size || original.mtimeMs !== identity.mtimeMs)) regular = false
+      if (!regular) throw new Error('BROWSER_DOWNLOAD_FILE_UNAVAILABLE')
+      if (action === 'open') {
+        if (await shell.openPath(path)) throw new Error('BROWSER_DOWNLOAD_OPEN_FAILED')
+      } else if (action === 'reveal') {
+        shell.showItemInFolder(path)
+      } else if (action === 'trash') {
+        const result = await dialog.showMessageBox(this.window, {
+          type: 'warning', title: t('browser.trashDownloadTitle'),
+          message: t('browser.trashDownloadMessage', { name: download.fileName }),
+          buttons: [t('common.cancel'), t('browser.trashDownloadConfirm')], defaultId: 0, cancelId: 0,
+        })
+        if (result.response !== 1) return this.state()
+        // Revalidate after the asynchronous native confirmation. Never trash a directory/symlink.
+        try {
+          const current = lstatSync(path)
+          regular = current.isFile() && current.dev === identity?.dev && current.ino === identity?.ino
+            && current.mtimeMs === identity?.mtimeMs && current.size === identity?.size
+        } catch { regular = false }
+        if (!regular) throw new Error('BROWSER_DOWNLOAD_FILE_UNAVAILABLE')
+        await shell.trashItem(path)
+        // Other records can point at the same overwritten destination; leave their history intact.
+        this.downloads.splice(this.downloads.indexOf(download), 1)
+        this.downloadedFileIdentities.delete(downloadId)
+      } else throw new Error('BROWSER_DOWNLOAD_INVALID_ACTION')
     }
     this.emitState()
     return this.state()
@@ -1221,8 +1277,12 @@ export class BrowserManager {
     const record = [...this.records.values()].find(candidate => candidate.view.webContents === contents)
     if (!record || record.tab.profileId !== profile.id) { item.cancel(); return }
     const safeFileName = basename(item.getFilename()).replace(/[\u0000-\u001f]/g, '_') || 'download'
-    const basePath = join(profile.downloadPath, safeFileName)
-    const savePath = profile.downloadConflictPolicy === 'uniquify' ? nextDownloadPath(profile.downloadPath, safeFileName) : basePath
+    let directory = profile.downloadPath
+    if (profile.lastDownloadDirectory) {
+      try { if (statSync(profile.lastDownloadDirectory).isDirectory()) directory = profile.lastDownloadDirectory } catch { /* unavailable drive: use the managed directory */ }
+    }
+    const basePath = join(directory, safeFileName)
+    const savePath = profile.downloadConflictPolicy === 'uniquify' ? nextDownloadPath(directory, safeFileName) : basePath
     const askForPath = profile.askBeforeDownload
       || (profile.downloadConflictPolicy === 'ask' && existsSync(basePath))
     // Electron only supports configuring the destination while will-download is
@@ -1237,11 +1297,20 @@ export class BrowserManager {
     }
     this.downloads.unshift(download)
     this.downloadItems.set(download.id, item)
+    const rememberDirectory = () => {
+      const path = item.getSavePath()
+      // A cancelled save dialog has no confirmed destination. Never copy another profile's preference.
+      if (!path || !isAbsolute(path) || item.getState() === 'cancelled') return
+      void this.profileStore.rememberDownloadDirectory(profile.id, dirname(path)).catch(error => {
+        console.warn('[desktop-browser] failed to remember download directory:', error)
+      })
+    }
     item.on('updated', (_event, state) => {
       if (!this.downloadItems.has(download.id)) return
       download.receivedBytes = item.getReceivedBytes()
       download.totalBytes = item.getTotalBytes()
       download.savePath = item.getSavePath() || download.savePath
+      rememberDirectory()
       const currentState = item.getState()
       download.state = currentState === 'progressing'
         ? (state === 'interrupted' ? 'interrupted' : 'progressing')
@@ -1254,6 +1323,12 @@ export class BrowserManager {
       download.totalBytes = item.getTotalBytes()
       download.savePath = item.getSavePath() || download.savePath
       download.state = state
+      if (state === 'completed') {
+        rememberDirectory()
+        try {
+          if (download.savePath) this.downloadedFileIdentities.set(download.id, lstatSync(download.savePath))
+        } catch { /* file may already have been moved outside Desktop */ }
+      }
       this.emitState()
     })
     this.emitState()

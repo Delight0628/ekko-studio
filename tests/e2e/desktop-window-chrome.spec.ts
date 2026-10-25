@@ -5,8 +5,8 @@ import { authenticate, mockChatSocket, mockHermesApi, TEST_ACCESS_KEY } from './
 type DesktopPlatform = 'darwin' | 'linux' | 'win32'
 type DesktopWindowKind = 'main' | 'chat'
 
-async function installDesktopBridge(page: Page, platform: DesktopPlatform, withBrowser = false, windowKind: DesktopWindowKind = 'main', initialTabCount = 1) {
-  await page.addInitScript(({ desktopPlatform, includeBrowser, desktopWindowKind, tabCount }) => {
+async function installDesktopBridge(page: Page, platform: DesktopPlatform, withBrowser = false, windowKind: DesktopWindowKind = 'main', initialTabCount = 1, completedDownload = false) {
+  await page.addInitScript(({ desktopPlatform, includeBrowser, desktopWindowKind, tabCount, completedDownload }) => {
     const state = {
       actions: [] as string[],
       isMaximized: false,
@@ -34,11 +34,13 @@ async function installDesktopBridge(page: Page, platform: DesktopPlatform, withB
       }],
       downloads: [{
         id: 'download-1', profileId: 'profile-default', fileName: 'report.pdf', sourceUrl: 'https://example.test/report.pdf',
-        savePath: '/tmp/hermes-browser/download/report.pdf', receivedBytes: 25, totalBytes: 100,
-        state: 'progressing', startedAt: '2026-01-03T00:00:00.000Z',
+        savePath: '/tmp/hermes-browser/download/report.pdf', receivedBytes: completedDownload ? 100 : 25, totalBytes: 100,
+        state: completedDownload ? 'completed' : 'progressing', startedAt: '2026-01-03T00:00:00.000Z',
       }], permissions: [], visible: false, maxTabs: 12,
     }
     const browserHarness = {
+      downloadActions: [] as Array<{ id: string; action: string }>,
+      failDownloadAction: false,
       viewportCalls: [] as Array<{ bounds: unknown; visible: boolean }>,
       createdProfiles: [] as Array<{ name: string; proxyMode?: string }>,
       annotationCount: 0,
@@ -85,6 +87,12 @@ async function installDesktopBridge(page: Page, platform: DesktopPlatform, withB
       updateProfile: async () => browserState.profiles[0],
       deleteProfile: async () => browserState,
       clearProfileData: async () => browserState,
+      downloadAction: async (id: string, action: string) => {
+        browserHarness.downloadActions.push({ id, action })
+        if (browserHarness.failDownloadAction) throw new Error('BROWSER_DOWNLOAD_FILE_UNAVAILABLE')
+        if (action === 'remove' || action === 'trash') browserState.downloads = browserState.downloads.filter(item => item.id !== id)
+        return { ...browserState, downloads: [...browserState.downloads] }
+      },
       cancelDownload: async (downloadId: string) => {
         const download = browserState.downloads.find(item => item.id === downloadId)
         if (download) download.state = 'cancelled'
@@ -148,7 +156,7 @@ async function installDesktopBridge(page: Page, platform: DesktopPlatform, withB
         ...(browser ? { browser } : {}),
       },
     })
-  }, { desktopPlatform: platform, includeBrowser: withBrowser, desktopWindowKind: windowKind, tabCount: initialTabCount })
+  }, { desktopPlatform: platform, includeBrowser: withBrowser, desktopWindowKind: windowKind, tabCount: initialTabCount, completedDownload })
 }
 
 async function openDesktopJobs(page: Page, platform: DesktopPlatform) {
@@ -936,4 +944,54 @@ test('remote device browser is shared automatically without a consent control', 
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.allSockets
     .some((socket: any) => String(socket.url).endsWith('/desktop-browser') && socket.connected))).toBe(true)
+})
+
+
+for (const brightness of ['light', 'dark'] as const) {
+  test(`download history actions remain distinct and wrap in ${brightness} mode`, async ({ page }) => {
+    await installDesktopBridge(page, 'darwin', true, 'main', 1, true)
+    await authenticate(page, TEST_ACCESS_KEY, 'research')
+    await page.addInitScript(() => localStorage.setItem('hermes_locale', 'en'))
+    await mockChatSocket(page)
+    await mockHermesApi(page, { theme: { brightness } })
+    await page.goto('/#/hermes/chat')
+    await page.locator('.header-tool-toggle').click()
+    const panel = page.locator('.chat-tool-panel')
+    await panel.getByRole('tab', { name: 'Browser', exact: true }).click()
+    await panel.getByRole('button', { name: 'Downloads', exact: true }).click()
+    const popover = page.locator('.download-popover')
+    for (const name of ['Open file', 'Show in folder', 'Remove from history', 'Move file to Trash / Recycle Bin']) {
+      await expect(popover.getByRole('button', { name, exact: true })).toBeVisible()
+    }
+    await popover.getByRole('button', { name: 'Open file', exact: true }).click()
+    await popover.getByRole('button', { name: 'Show in folder', exact: true }).click()
+    expect(await page.evaluate(() => (window as any).__PW_DESKTOP_BROWSER__.downloadActions.map((item: any) => item.action))).toEqual(['open', 'reveal'])
+    await page.evaluate(() => { (window as any).__PW_DESKTOP_BROWSER__.failDownloadAction = true })
+    await popover.getByRole('button', { name: 'Open file', exact: true }).click()
+    await expect(page.locator('.n-message')).toContainText('moved or deleted')
+    await expect(popover).toContainText('report.pdf')
+    await page.evaluate(() => { (window as any).__PW_DESKTOP_BROWSER__.failDownloadAction = false })
+    const actions = popover.locator('.download-actions')
+    expect(await actions.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+    await page.screenshot({ path: `/tmp/download-actions-${brightness}.png` })
+    await popover.getByRole('button', { name: 'Remove from history', exact: true }).click()
+    await expect(popover).not.toContainText('report.pdf')
+    expect(await page.evaluate(() => (window as any).__PW_DESKTOP_BROWSER__.downloadActions.at(-1).action)).toBe('remove')
+  })
+}
+
+test('download settings view exposes the same actions and does not show file actions for cancelled downloads', async ({ page }) => {
+  await installDesktopBridge(page, 'win32', true)
+  await authenticate(page)
+  await page.addInitScript(() => localStorage.setItem('hermes_locale', 'en'))
+  await mockHermesApi(page)
+  await page.goto('/#/hermes/browser')
+  await page.locator('.n-tabs-tab').filter({ hasText: /^Downloads$/ }).click()
+  const record = page.locator('.download-record')
+  await record.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(record).toContainText('Cancelled')
+  await expect(record.getByRole('button', { name: 'Open file', exact: true })).toHaveCount(0)
+  await expect(record.getByRole('button', { name: 'Move file to Trash / Recycle Bin', exact: true })).toHaveCount(0)
+  await record.getByRole('button', { name: 'Remove from history', exact: true }).click()
+  await expect(record).toHaveCount(0)
 })

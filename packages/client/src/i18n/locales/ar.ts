@@ -412,6 +412,16 @@ export default {
   },
   socialMessages: socialMessagesAr,
   browser: {
+    openDownload: "فتح الملف",
+    revealDownload: "إظهار في المجلد",
+    removeDownload: "إزالة من السجل",
+    trashDownload: "نقل الملف إلى سلة المهملات",
+    downloadActive: "التنزيل نشط. ألغِه أولاً.",
+    downloadFileUnavailable: "تم نقل الملف أو حذفه، أو أنه ليس ملفاً عادياً.",
+    downloadOpenFailed: "تعذر فتح الملف الذي تم تنزيله.",
+    downloadActionFailed: "تعذر إكمال الإجراء.",
+    downloadNotFound: "لم يعد سجل التنزيل متاحاً.",
+
     remoteOwnerActive: 'Current control device',
     remoteOwnerStandby: 'Standby — another device is active',
     remoteOwnerBusy: 'Standby — browser operation in progress',

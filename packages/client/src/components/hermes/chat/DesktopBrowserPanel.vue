@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BrowserDownloadActions from '@/components/hermes/BrowserDownloadActions.vue'
 import { useTheme } from '@/composables/useTheme'
 import { NSpin, NButton, NInput, NPopover, NSelect, useDialog, useMessage } from 'naive-ui'
 import { remoteBrowserOwnerState, remoteBrowserEnabled } from '@/composables/useRemoteBrowserRelay'
@@ -562,6 +563,7 @@ onUnmounted(() => {
               <progress v-if="item.state === 'progressing' && item.totalBytes > 0" :value="item.receivedBytes" :max="item.totalBytes" />
               <progress v-else-if="item.state === 'progressing'" />
               <span>{{ downloadSummary(item) }}</span>
+              <BrowserDownloadActions :item="item" @state="applyState" />
             </article>
           </section>
         </NPopover>

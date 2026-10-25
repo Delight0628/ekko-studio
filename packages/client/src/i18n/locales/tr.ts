@@ -338,6 +338,16 @@ export default {
   agentAutoUpdate: { label: 'Otomatik güncellemeler' },
 
   browser: {
+    openDownload: "Dosyayı aç",
+    revealDownload: "Klasörde göster",
+    removeDownload: "Geçmişten kaldır",
+    trashDownload: "Dosyayı çöp kutusuna taşı",
+    downloadActive: "İndirme sürüyor. Önce iptal edin.",
+    downloadFileUnavailable: "Dosya taşınmış, silinmiş veya normal bir dosya değil.",
+    downloadOpenFailed: "İndirilen dosya açılamadı.",
+    downloadActionFailed: "İndirme işlemi tamamlanamadı.",
+    downloadNotFound: "Bu indirme kaydı artık kullanılamıyor.",
+
     remoteOwnerActive: 'Current control device',
     remoteOwnerStandby: 'Standby — another device is active',
     remoteOwnerBusy: 'Standby — browser operation in progress',

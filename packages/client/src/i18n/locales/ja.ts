@@ -412,6 +412,16 @@ export default {
   },
   socialMessages: socialMessagesJa,
   browser: {
+    openDownload: "ファイルを開く",
+    revealDownload: "保存先フォルダーを開く",
+    removeDownload: "履歴から削除",
+    trashDownload: "ファイルをゴミ箱へ移動",
+    downloadActive: "ダウンロード中です。先にキャンセルしてください。",
+    downloadFileUnavailable: "ファイルが移動・削除されたか、通常のファイルではありません。",
+    downloadOpenFailed: "ダウンロードしたファイルを開けません。",
+    downloadActionFailed: "ダウンロード操作を完了できません。",
+    downloadNotFound: "このダウンロード履歴は存在しません。",
+
     remoteOwnerActive: 'Current control device',
     remoteOwnerStandby: 'Standby — another device is active',
     remoteOwnerBusy: 'Standby — browser operation in progress',

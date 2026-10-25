@@ -412,6 +412,16 @@ export default {
   },
   socialMessages: socialMessagesRu,
   browser: {
+    openDownload: "Открыть файл",
+    revealDownload: "Показать в папке",
+    removeDownload: "Убрать из истории",
+    trashDownload: "Переместить файл в корзину",
+    downloadActive: "Загрузка продолжается. Сначала отмените её.",
+    downloadFileUnavailable: "Файл перемещён, удалён или не является обычным файлом.",
+    downloadOpenFailed: "Не удалось открыть загруженный файл.",
+    downloadActionFailed: "Не удалось выполнить действие.",
+    downloadNotFound: "Запись загрузки больше недоступна.",
+
     remoteOwnerActive: 'Current control device',
     remoteOwnerStandby: 'Standby — another device is active',
     remoteOwnerBusy: 'Standby — browser operation in progress',

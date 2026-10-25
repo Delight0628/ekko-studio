@@ -40,6 +40,7 @@ jobs:
           tests/desktop/desktop-device-storage.test.ts
           tests/desktop/browser-profile-lease.test.ts
           tests/desktop/browser-profile-directory.test.ts
+          tests/desktop/browser-download-actions.test.ts
           tests/desktop/webui-startup-diagnostics.test.ts
           --maxWorkers=1 --testTimeout=30000
       - name: Desktop build and updater lifecycle

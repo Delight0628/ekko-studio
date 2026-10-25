@@ -412,6 +412,16 @@ export default {
   },
   socialMessages: socialMessagesFr,
   browser: {
+    openDownload: "Ouvrir le fichier",
+    revealDownload: "Afficher dans le dossier",
+    removeDownload: "Retirer de l’historique",
+    trashDownload: "Mettre le fichier à la corbeille",
+    downloadActive: "Téléchargement en cours. Annulez-le d’abord.",
+    downloadFileUnavailable: "Le fichier a été déplacé ou supprimé, ou n’est pas un fichier ordinaire.",
+    downloadOpenFailed: "Impossible d’ouvrir le fichier téléchargé.",
+    downloadActionFailed: "Impossible de terminer l’action.",
+    downloadNotFound: "Ce téléchargement n’est plus dans l’historique.",
+
     remoteOwnerActive: 'Current control device',
     remoteOwnerStandby: 'Standby — another device is active',
     remoteOwnerBusy: 'Standby — browser operation in progress',

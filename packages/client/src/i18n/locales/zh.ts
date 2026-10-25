@@ -412,6 +412,16 @@ export default {
   },
   socialMessages: socialMessagesZh,
   browser: {
+    openDownload: "打开文件",
+    revealDownload: "打开所在文件夹",
+    removeDownload: "移除记录",
+    trashDownload: "移到废纸篓 / 回收站",
+    downloadActive: "下载仍在进行，请先取消。",
+    downloadFileUnavailable: "下载文件已移动或删除，或不是普通文件。",
+    downloadOpenFailed: "无法打开下载文件。",
+    downloadActionFailed: "无法完成下载操作。",
+    downloadNotFound: "此下载记录已不存在。",
+
     remoteOwnerActive: '当前控制设备',
     remoteOwnerStandby: '待命：另一设备正在使用，闲置10分钟后可接管',
     remoteOwnerBusy: '待命：浏览器操作正在执行',

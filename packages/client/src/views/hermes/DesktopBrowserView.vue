@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BrowserDownloadActions from '@/components/hermes/BrowserDownloadActions.vue'
 import PageLoading from '@/components/common/PageLoading.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -327,6 +328,7 @@ onUnmounted(() => {
               <progress v-if="item.state === 'progressing' && item.totalBytes > 0" :value="item.receivedBytes" :max="item.totalBytes" />
               <progress v-else-if="item.state === 'progressing'" />
               <span>{{ downloadSummary(item) }}</span>
+              <BrowserDownloadActions :item="item" @state="applyState" />
               <span v-if="item.savePath">{{ item.savePath }}</span>
             </article>
           </NTabPane>

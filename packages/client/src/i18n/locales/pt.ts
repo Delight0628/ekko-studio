@@ -412,6 +412,16 @@ export default {
   },
   socialMessages: socialMessagesPt,
   browser: {
+    openDownload: "Abrir arquivo",
+    revealDownload: "Mostrar na pasta",
+    removeDownload: "Remover do histórico",
+    trashDownload: "Mover arquivo para a lixeira",
+    downloadActive: "O download está ativo. Cancele-o primeiro.",
+    downloadFileUnavailable: "O arquivo foi movido ou excluído, ou não é um arquivo regular.",
+    downloadOpenFailed: "Não foi possível abrir o arquivo baixado.",
+    downloadActionFailed: "Não foi possível concluir a ação.",
+    downloadNotFound: "Este registro de download não está mais disponível.",
+
     remoteOwnerActive: 'Current control device',
     remoteOwnerStandby: 'Standby — another device is active',
     remoteOwnerBusy: 'Standby — browser operation in progress',
