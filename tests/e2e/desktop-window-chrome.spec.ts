@@ -1028,7 +1028,9 @@ test('full history groups, searches, handles unavailable files and clears only c
   await expect(history).toContainText('No matching downloads')
   await search.fill('example.test')
   await expect(history.locator('.download-record')).toHaveCount(3)
-  await page.setViewportSize({ width: 480, height: 800 })
+  await page.setViewportSize({ width: 800, height: 800 })
+  // Desktop's shell has its own minimum width. Exercise a narrow history column within it.
+  await history.evaluate(el => { el.style.width = '340px'; el.style.maxWidth = '100%' })
   expect(await history.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
   await page.screenshot({ path: '/tmp/download-history-narrow.png' })
   await search.fill('gone')
