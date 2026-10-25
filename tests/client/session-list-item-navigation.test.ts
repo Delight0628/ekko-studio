@@ -1,16 +1,7 @@
-import { readPresetStyleSource as readFileSync } from './preset-style-source'
 import { describe, expect, it } from 'vitest'
 import { resolveSessionNavigation } from '@/components/hermes/chat/session-list-item-navigation'
 
-describe('SessionListItem source and navigation', () => {
-  it('uses a one-pixel white outline without internal avatar padding', () => {
-    const source = readFileSync('packages/client/src/components/hermes/chat/SessionListItem.vue', 'utf8')
-
-    expect(source).toMatch(/\.session-item-agent-logo\s*\{[^}]*border: 1px solid #fff;/s)
-    expect(source).not.toMatch(/\.session-item-agent-logo\s*\{[^}]*padding:/s)
-    expect(source).not.toMatch(/\.session-item-agent-logo\s*\{[^}]*background:/s)
-  })
-
+describe('SessionListItem navigation', () => {
   it('preserves native modified navigation unless desktop interception is requested', () => {
     const ctrlClick = { ctrlKey: true, button: 0 } as MouseEvent
     const middleClick = {

@@ -177,7 +177,13 @@ for (const entry of ['/hermes/chat', '/studio/agents']) {
   })
 }
 
-for (const agent of agentCatalog.agents) {
+// Exercise each request family and the global-only picker path in the browser.
+// Catalog identities/modes and CLI adapters have exhaustive unit coverage in
+// native-coding-agents.test.ts and coding-agents-launch.test.ts.
+const creationAgents = agentCatalog.agents.filter(agent =>
+  agent.kind !== 'coding-agent' || agent.id === 'codex' || agent.id === 'qoder',
+)
+for (const agent of creationAgents) {
   for (const mode of agent.modes) {
     test(`${agent.name} ${mode} new chat skips history resume and starts its first run`, async ({ page }) => {
       await authenticate(page, TEST_ACCESS_KEY, 'research')
