@@ -11,9 +11,10 @@
 - 生产浏览器 4 文件 33 项通过（4 workers、无重试），包括 Kimi 移动端授权启用、实例创建与登录检查。首轮两项断言错误已修复，无跳过或放宽功能要求。
 - Kimi 实际 CLI 2.1.1 本轮再次完成 14 轮聊天、19 次本地模型请求、5 次 Studio MCP 调用；没有真实账号或远程付费服务验收。
 - 日志 `/tmp/studio-kimi-final-{build,harness,focused,native}.log`、`/tmp/studio-kimi-final-browser-v2.log`、`/tmp/studio-kimi-external-packages.log`。
-- QA 已移除原 node_modules 符号链接并完成自身 `npm ci --ignore-scripts`/PTY rebuild/build；冻结 `15a6371a1` 的完整 coverage/browser 回归正在运行，不能切换该副本 checkout。完整验收仍为 **0/14**。
+- QA 已移除原 node_modules 符号链接并完成自身 `npm ci --ignore-scripts`/PTY rebuild/build；冻结 `15a6371a1` 的完整回归已通过：9,821 项单元测试、968 项生产浏览器；33 项按原条件跳过。QA 当前已空闲，可在下一冻结提交后切换。完整验收仍为 **0/14**。
 - 新增第四个 Qoder 独立插件，固定 CLI 1.1.78；5 文件 49 项服务端专项、10 项管理页生产浏览器、实际受管 CLI 元数据检查已通过。保留 global-only 模式，真实账号/远程推理未验收；其余 10 个 Agent 待迁移。详细证据见 progress。
-- 三平台 CI 暴露两处旧 worker fixture 缺少 SDK source alias，已修复并在移开 SDK dist 后通过 16 项。CI 后续结果待确认，不能沿用旧 HEAD 的 13 项通过声明。
+- 三平台 CI 暴露两处旧 worker fixture 缺少 SDK source alias，已修复并在移开 SDK dist 后通过 16 项。Qoder HEAD 的三平台 managed-process CI 已通过，其他 CI 仍在运行，不能沿用旧 HEAD 的 13 项通过声明。
+- 本地已补齐 Chat Completions 原生模型网关和到 Responses/Anthropic 的转换，网关/协议专项 68 项、三个 ACP 插件连同网关专项共 108 项通过；包外消费验证通过。等待最终提交后，开始 CodeBuddy/Copilot 独立插件。
 
 ## 1. 从这里继续
 

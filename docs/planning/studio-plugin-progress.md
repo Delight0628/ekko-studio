@@ -98,6 +98,19 @@
 
 资源位置/输入框命令契约、命令基础链路、现有 Skills/配置编辑页接入和兼容配置连续性已交付。后续顺序：补齐 Qwen/Codex 管理、Studio MCP 和原生命令 → 接入聊天界面形成可体验闭环 → 扩展到其余 Agent 和业务入口 → 分发与最终验收。MCP 工具 SDK 已整合、提交并推送，原生配置注入等剩余能力随迁移继续推进。Hermes/Ekko 继续保持内置身份；14 个厂商插件须逐个迁移和验收，保留 ID 或 fixture 不计为交付。
 
+### 原生 Chat Completions 网关（2026-10-25，专项验证）
+
+- 公共 SDK 增加 `chat-completions` 协议，ACP 驱动允许插件按模型选择协议；宿主提供 `/v1/chat/completions` Run 租约，同协议原生直通，并复用 canonical Responses codecs 补齐到 Responses/Anthropic 的两个转换方向。
+- Native Chat 的 finish_reason、迟到 usage 和 `[DONE]` 一起等待权威计量落库；单 choice 校验、截断失败、输入/输出预算、取消和逐请求授权沿用原网关。缺失 usage 维持 unknown，不把 codec 合成的零值作为实测；缓存写入和 reasoning 计数继续保留。
+- 网关/协议专项 2 文件 68 项通过，含新增原生 Chat 的迟到用量/截断，以及两个转换方向的文本、工具、图片、缺失计量、token 截断和取消。最终构建、SDK/driver 类型和 server 类型检查通过；日志 `/tmp/studio-chat-gateway-{build,types,server-types,harness}.log` 与 `/tmp/studio-chat-gateway-focused-v2.log`。
+- 这是后续 CodeBuddy/Copilot scoped 迁移的公共基础，尚未将二者注册为已实现插件。完整迁移仍为 **0/14**。
+
+### Kimi 冻结回归（2026-10-25，提交 `15a6371a1`）
+
+独立 QA 副本使用自己的 npm 依赖及正确 workspace 链接；生产构建通过。coverage 942 文件、9,821 项通过，12 文件/33 项按原条件跳过，默认时限、2 workers，469.15 秒；生产浏览器 968 项通过，4 workers、无重试，10.8 分钟。两个实际 Electron 设备/存储探针及原有实际桌面探针按配置执行。日志 `/tmp/studio-kimi-qa-{install,rebuild,build,coverage,browser}.log`，coverage 目录 `/tmp/studio-kimi-qa-coverage`。
+
+该冻结提交早于 Qoder 与 clean worker fixture 修复，不将其结果冒充后续提交的全量验收。Qoder 提交的三平台 managed-process CI 已通过；其余 CI 继续跟踪，PR 保持草稿。
+
 ### Qoder 独立插件（2026-10-25，专项验证）
 
 - 新增 `studio.agent-qoder` 独立包，保留既有 global 模式与 Windows ARM64 限制；使用共享 ACP 生命周期，插件拥有配置、管理及资源位置，不导入应用私有源码。固定私有 CLI 安装计划为 `@qoder-ai/qodercli@1.1.78`，原生登录使用 `qoder login`。

@@ -2,14 +2,14 @@ import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { StudioError, nativeAgentLaunch, readAgentImages, mergeAgentContextConfiguration,
   type AgentContextConfiguration, type AgentOutputEvent, type AgentRunHandle, type AgentRunResult,
-  type AgentRuntime, type AgentRuntimeContext, type JsonObject, type ModelGatewayHandle, type RuntimeCreateInput } from '@ekko-studio/plugin-sdk'
+  type AgentRuntime, type AgentRuntimeContext, type JsonObject, type ModelGatewayHandle, type ModelGatewayInput, type RuntimeCreateInput } from '@ekko-studio/plugin-sdk'
 import { AcpConnection } from './connection'
 import { AgentEventQueue } from '../events/queue'
 import { ManagedProcessTransport } from '../process/transport'
 import { acpMcpServers } from './events'
 
 export interface AcpRuntimeOptions {
-  name: string; command: string; args: string[]; protocol?: 'anthropic' | 'responses'
+  name: string; command: string; args: string[]; protocol?: ModelGatewayInput['protocol'] | ((model: string) => ModelGatewayInput['protocol'])
   prepareScoped?(runtime: AgentRuntimeContext, gateway: ModelGatewayHandle, config: JsonObject): Promise<{ args: string[]; env: Record<string, string> }>
   environment?(config: JsonObject, runtime: AgentRuntimeContext, signal: AbortSignal): Promise<Record<string, string>>
   /** Some native launches select a model in memory rather than through ACP's persisted model selector. */
@@ -67,7 +67,8 @@ export function createAcpRuntime(input: RuntimeCreateInput, runtime: AgentRuntim
           const nativeEnvironment = await options.environment?.(config, runtime, ctx.signal)
           const model = input.model || config.model as string | undefined
           if (scoped && !model) throw new StudioError('INVALID_ARGUMENT', `Scoped ${options.name} requires a Studio model`)
-          gateway = scoped ? await ctx.models.gateway({ model: model!, protocol: options.protocol || 'anthropic' }) : undefined
+          const protocol = typeof options.protocol === 'function' ? options.protocol(model || '') : options.protocol || 'anthropic'
+          gateway = scoped ? await ctx.models.gateway({ model: model!, protocol }) : undefined
           if (gateway && images.size && gateway.images !== true) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Selected Studio model does not support images')
           const isolated = gateway ? await options.prepareScoped!(runtime, gateway, config) : undefined
           if (cancelled) return { status: 'cancelled' }

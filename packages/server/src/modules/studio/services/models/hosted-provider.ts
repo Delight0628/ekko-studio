@@ -1,4 +1,4 @@
-import { StudioError } from '../../contracts/plugins'
+import { StudioError, type ModelGatewayInput } from '../../contracts/plugins'
 import { getModelRuntimeCapabilities } from '../../public/provider-runtime'
 import { recordSessionUsage, type RecordSessionUsageInput } from '../usage/usage-recorder'
 import type { ModelClient } from '../../../../../../ekko-agent/src/model/types'
@@ -93,14 +93,14 @@ export interface NativeModelTarget {
 }
 
 /** Resolve the CLI-facing protocol without exporting provider configuration or credentials. */
-export async function resolveNativeModel(profileId: string, modelId: string, protocol: 'responses' | 'anthropic', authorize: () => void): Promise<NativeModelTarget> {
+export async function resolveNativeModel(profileId: string, modelId: string, protocol: ModelGatewayInput['protocol'], authorize: () => void): Promise<NativeModelTarget> {
   authorize()
   const entry = (await hostedModelCatalog([profileId])).get(modelId)
   authorize()
   if (!entry || !hostedModelCallable(entry)) throw new StudioError('NOT_FOUND', 'Model is unavailable')
   const resolved = await resolveHostedModel(entry, authorize)
   authorize()
-  const native = resolved.client.nativeRequest && resolved.requestStyle === (protocol === 'responses' ? 'openai-responses' : 'anthropic-messages')
+  const native = resolved.client.nativeRequest && resolved.requestStyle === { responses: 'openai-responses', anthropic: 'anthropic-messages', 'chat-completions': 'openai-chat' }[protocol]
   const images = resolved.client.capabilities.vision && getModelRuntimeCapabilities({ profile: entry.profile, provider: entry.group.provider, model: entry.model })?.input?.includes('image') === true
   if (!native && !canTranslateNative(resolved.client, protocol)) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Model does not support this protocol conversion')
   authorize()

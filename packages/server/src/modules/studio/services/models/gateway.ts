@@ -37,7 +37,7 @@ export class PluginModelGateways {
     const input: ModelGatewayInput = JSON.parse(JSON.stringify(value))
     if (!scope.runId) throw new StudioError('CAPABILITY_UNSUPPORTED', 'Native model gateways require an active Run')
     if (!input || Array.isArray(input) || Object.keys(input).some(key => !['model', 'protocol'].includes(key))
-      || typeof input.model !== 'string' || !input.model.trim() || input.model.length > 256 || !['responses', 'anthropic'].includes(input.protocol)) {
+      || typeof input.model !== 'string' || !input.model.trim() || input.model.length > 256 || !['responses', 'anthropic', 'chat-completions'].includes(input.protocol)) {
       throw new StudioError('INVALID_ARGUMENT', 'Invalid native model gateway input')
     }
     if (this.leases.size + this.opening.size >= 64) throw new StudioError('RESOURCE_EXHAUSTED', 'Native model gateway limit exceeded')
@@ -90,13 +90,14 @@ export class PluginModelGateways {
     })
   }
   private async dispatch(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const path = /^\/([a-f0-9]{48})\/v1\/(responses|messages)$/.exec(request.url || '')
+    const path = /^\/([a-f0-9]{48})\/v1\/(responses|messages|chat\/completions)$/.exec(request.url || '')
     const lease = path && this.leases.get(path[1])
     const token = String(request.headers.authorization || '').replace(/^Bearer /i, '') || String(request.headers['x-api-key'] || '')
     if (!lease || Buffer.byteLength(token) !== Buffer.byteLength(lease.token) || !timingSafeEqual(Buffer.from(token), Buffer.from(lease.token))) {
       response.writeHead(401, { 'content-type': 'application/json', 'cache-control': 'no-store' }); response.end('{"error":{"message":"Native gateway unavailable"}}'); return
     }
-    if (request.method !== 'POST' || path![2] !== (lease.input.protocol === 'responses' ? 'responses' : 'messages')) {
+    const endpoint = { responses: 'responses', anthropic: 'messages', 'chat-completions': 'chat/completions' }[lease.input.protocol]
+    if (request.method !== 'POST' || path![2] !== endpoint) {
       response.writeHead(404); response.end(); return
     }
     if (lease.active.size >= 4 || [...this.leases.values()].reduce((sum, entry) => sum + entry.active.size, 0) >= 64) {
@@ -133,6 +134,9 @@ export class PluginModelGateways {
       const raw = Buffer.concat(chunks).toString('utf8'), body = JSON.parse(raw)
       if (!body || typeof body !== 'object' || Array.isArray(body) || (body.stream !== undefined && typeof body.stream !== 'boolean')
         || body.background || body.prompt || body.previous_response_id || body.conversation || body.store === true) throw new StudioError('INVALID_ARGUMENT', 'Native requests require foreground execution and full history')
+      if (lease.input.protocol === 'chat-completions' && (!Array.isArray(body.messages) || body.n !== undefined && body.n !== 1)) {
+        throw new StudioError('INVALID_ARGUMENT', 'Native Chat Completions requires messages and a single choice')
+      }
       streaming = body.stream === true
       check()
       target = await this.ports.resolve(lease.scope.profileId, lease.input.model, lease.input.protocol, check)

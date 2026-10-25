@@ -26,7 +26,7 @@ function setup(options: { failedCleanup?: boolean } = {}) {
   const calls = () => db.prepare('SELECT record_json FROM studio_plugin_model_calls').all().map(row => JSON.parse(String(row.record_json)))
   return { db, store, state, authorize, authorizeStart, request, record, resolve, gateways, open, calls }
 }
-const post = (gateway: ModelGatewayHandle, body: unknown = { model: 'caller-model', input: 'hi', stream: true }, headers = {}) => fetch(`${gateway.baseUrl}/${gateway.protocol === 'responses' ? 'responses' : 'messages'}`, {
+const post = (gateway: ModelGatewayHandle, body: unknown = { model: 'caller-model', input: 'hi', stream: true }, headers = {}) => fetch(`${gateway.baseUrl}/${gateway.protocol === 'responses' ? 'responses' : gateway.protocol === 'chat-completions' ? 'chat/completions' : 'messages'}`, {
   method: 'POST', headers: { authorization: `Bearer ${gateway.token}`, 'content-type': 'application/json', ...headers }, body: JSON.stringify(body),
 })
 
@@ -47,6 +47,46 @@ it('binds native requests to the host identity and commits measured usage before
   expect(f.state.usage('run')).toEqual([expect.objectContaining({ source: 'host', final: true, inputTokens: 10 })])
   await gateway.dispose()
   expect((await post(gateway)).status).toBe(401)
+})
+
+it('holds Chat completion and late usage until accounting commits once', async () => {
+  const f = setup(), gateway = await f.gateways.open(scope, { model: 'provider/model', protocol: 'chat-completions' }, new AbortController().signal)
+  let upstream!: ReadableStreamDefaultController<Uint8Array>
+  const encoder = new TextEncoder(), frame = (value: any) => encoder.encode(`data: ${JSON.stringify(value)}\n\n`)
+  f.request.mockResolvedValue(new Response(new ReadableStream({ start(controller) {
+    upstream = controller
+    controller.enqueue(frame({ choices: [{ index: 0, delta: { content: 'hello' }, finish_reason: null }] }))
+    controller.enqueue(frame({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }))
+  } }), { headers: { 'content-type': 'text/event-stream' } }))
+  const response = await post(gateway, { messages: [{ role: 'user', content: 'hello' }], stream: true })
+  const reader = response.body!.getReader(), first = new TextDecoder().decode((await reader.read()).value)
+  expect(first).toContain('hello'); expect(first).not.toContain('"stop"')
+  expect(f.record).not.toHaveBeenCalled()
+  upstream.enqueue(frame({ choices: [], usage: { prompt_tokens: 12, completion_tokens: 3, prompt_tokens_details: { cached_tokens: 2 } } }))
+  upstream.enqueue(encoder.encode('data: [DONE]\n\n')); upstream.close()
+  let tail = ''
+  while (true) { const next = await reader.read(); if (next.done) break; tail += new TextDecoder().decode(next.value) }
+  expect(tail).toContain('"stop"'); expect(tail).toContain('prompt_tokens'); expect(tail).toContain('[DONE]')
+  expect(f.record).toHaveBeenCalledOnce()
+  expect(f.calls()).toEqual([expect.objectContaining({ status: 'completed', usage: expect.objectContaining({ inputTokens: 10, outputTokens: 3, cacheReadTokens: 2 }) })])
+})
+
+it.each([false, true])('meters native Chat completions and rejects truncated streams (stream=%s)', async stream => {
+  const f = setup(), gateway = await f.gateways.open(scope, { model: 'provider/model', protocol: 'chat-completions' }, new AbortController().signal)
+  const data = { choices: [{ index: 0, message: { role: 'assistant', content: 'partial' }, finish_reason: 'length' }], usage: { prompt_tokens: 4, completion_tokens: 2 } }
+  f.request.mockResolvedValue(stream ? new Response(`data: ${JSON.stringify(data)}\n\ndata: [DONE]\n\n`, { headers: { 'content-type': 'text/event-stream' } }) : Response.json(data))
+  const response = await post(gateway, { messages: [], stream })
+  expect(await response.text()).toContain('length')
+  expect(f.calls()[0]).toMatchObject({ status: 'incomplete', usage: { inputTokens: 4, outputTokens: 2 } })
+  if (stream) {
+    f.request.mockResolvedValue(new Response(`data: ${JSON.stringify(data)}\n\n`, { headers: { 'content-type': 'text/event-stream' } }))
+    const incomplete = await post(gateway, { messages: [], stream })
+    expect(incomplete.status).toBe(502)
+    expect(f.calls().at(-1)).toMatchObject({ status: 'failed' })
+  }
+  const accepted = f.calls().length
+  expect((await post(gateway, { messages: [], n: 2, stream })).status).toBe(400)
+  expect(f.calls()).toHaveLength(accepted)
 })
 
 it('preserves Anthropic tool and signature frames while merging cumulative usage exactly once', async () => {

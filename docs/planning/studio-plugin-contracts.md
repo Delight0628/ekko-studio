@@ -146,7 +146,7 @@ interface AgentRunContext extends ExecutionContext {
 
 当前 SDK 模型调用提供 `models.list()`、`models.stream(ModelStreamInput)` 和 `models.get(id)`。流返回 `ModelStreamHandle`，通过 `for await (const event of handle.events)` 读取，提前结束迭代或 `await handle.cancel()` 会等待宿主取消；完整回执含输出与可为 null 的用量。`idempotencyKey` 是必填项，终态重试只返回持久回执，活动重试返回冲突而不重复执行。宿主固定 owner/profile/session/Run 归属，插件请求不能覆盖。支持范围、权限、限额与尚未完成的旧入口迁移见[模型调用实施记录](studio-plugin-progress.md#t05t06-进展sdk-受管模型调用)。
 
-当前 SDK 另提供 `ctx.models.gateway({ model, protocol })`，要求 `models.gateway` 授权与已有 Run 绑定。`protocol` 为 `responses` 或 `anthropic`。同协议保持原生直通；跨协议复用旧 Coding Agent proxy 提取的共享适配器，支持 Responses→Chat Completions/Anthropic，以及 Anthropic→Chat Completions/Responses。返回 `{ baseUrl, token, model, protocol, transport, images, dispose }`，其中 token 是本机网关临时凭据，上游密钥不离开宿主。每次 HTTP 请求重新解析模型配置；用户、profile、session、Run 归属均由宿主固定。请求中的 model 不能覆盖实际目标。
+当前 SDK 另提供 `ctx.models.gateway({ model, protocol })`，要求 `models.gateway` 授权与已有 Run 绑定。`protocol` 为 `responses`、`anthropic` 或 `chat-completions`。同协议保持原生直通；跨协议复用旧 Coding Agent proxy 提取的共享适配器，支持三种协议之间的六个转换方向。Chat Completions 使用 `/v1/chat/completions`，仅接受单一 choice；流的 finish_reason、迟到 usage 及 `[DONE]` 一起等待权威计量完成，缺少终止标记按失败处理。返回 `{ baseUrl, token, model, protocol, transport, images, dispose }`，其中 token 是本机网关临时凭据，上游密钥不离开宿主。每次 HTTP 请求重新解析模型配置；用户、profile、session、Run 归属均由宿主固定。请求中的 model 不能覆盖实际目标。
 
 `transport` 为准入时的 `native` 或 `translated` 提示。CLI 侧协议保持不变，每次请求重新解析并授权所选宿主模型；同一 Run 内允许原生直通与转换互切，具体请求仍须满足目标协议的能力检查。转换路径支持文本、图片及普通函数工具；保留命名空间身份并按上游原始用量与结束状态计量，不以旧适配器补出的零或 EOF 作为权威结果。厂商托管工具、custom grammar、严格工具/schema 输出与强制工具选择不属于通用转换契约，明确拒绝；厂商私有推理签名不承诺跨协议重放。Codex 转换模式通过 thread/start 或 thread/resume 的临时 config 覆盖禁用原生 web search，不把该设置写入用户配置文件。其他模型协议仍明确拒绝，Gemini 等后续单独验收。
 

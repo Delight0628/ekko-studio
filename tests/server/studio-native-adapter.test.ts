@@ -5,14 +5,18 @@ import { AnthropicMessagesModelClient } from '../../packages/ekko-agent/src/mode
 import { translatedNativeRequest } from '../../packages/server/src/modules/studio/services/models/native-adapter'
 import { NativeModelWire, nativeModelFrames } from '../../packages/server/src/modules/studio/services/models/native-wire'
 
-type Protocol = 'responses' | 'anthropic'
-type Style = 'chat' | Protocol
+type Protocol = 'responses' | 'anthropic' | 'chat-completions'
+type Style = 'chat' | 'responses' | 'anthropic'
 const imageUrl = 'data:image/png;base64,aGVsbG8='
-const cases: [Protocol, Style][] = [['responses', 'chat'], ['responses', 'anthropic'], ['anthropic', 'chat'], ['anthropic', 'responses']]
+const cases: [Protocol, Style][] = [['responses', 'chat'], ['responses', 'anthropic'], ['anthropic', 'chat'], ['anthropic', 'responses'],
+  ['chat-completions', 'responses'], ['chat-completions', 'anthropic']]
 const frame = (data: any) => `data: ${JSON.stringify(data)}\n\n`
 const input = (protocol: Protocol, stream = false) => protocol === 'responses'
   ? { input: [{ role: 'user', content: [{ type: 'input_text', text: 'read image' }, { type: 'input_image', image_url: imageUrl }] }], tools: [{ type: 'function', name: 'read', parameters: { type: 'object' } }], stream }
-  : { messages: [{ role: 'user', content: [{ type: 'text', text: 'read image' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }] }], tools: [{ name: 'read', input_schema: { type: 'object' } }], max_tokens: 100, stream }
+  : protocol === 'chat-completions'
+    ? { messages: [{ role: 'user', content: [{ type: 'text', text: 'read image' }, { type: 'image_url', image_url: { url: imageUrl } }] }],
+      tools: [{ type: 'function', function: { name: 'read', parameters: { type: 'object' } } }], stream_options: { include_usage: true }, max_tokens: 100, stream }
+    : { messages: [{ role: 'user', content: [{ type: 'text', text: 'read image' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }] }], tools: [{ name: 'read', input_schema: { type: 'object' } }], max_tokens: 100, stream }
 
 function reply(style: Style, name: string, stream: boolean, missingUsage = false, incomplete = false) {
   // Chat/Responses include cached tokens in input; Anthropic reports them separately.
@@ -30,6 +34,7 @@ function reply(style: Style, name: string, stream: boolean, missingUsage = false
   if (style === 'chat') text = frame({ choices: [{ delta: { tool_calls: [{ index: 0, id, function: { name, arguments: args } }] } }] })
     + frame({ choices: [{ delta: {}, finish_reason: incomplete ? 'length' : 'tool_calls' }], usage }) + 'data: [DONE]\n\n'
   else if (style === 'responses') text = frame({ type: 'response.output_item.added', output_index: 0, item: { ...item, arguments: '' } })
+    + frame({ type: 'response.function_call_arguments.delta', item_id: id, delta: args })
     + frame({ type: 'response.output_item.done', output_index: 0, item })
     + frame({ type: incomplete ? 'response.incomplete' : 'response.completed', response: { status: incomplete ? 'incomplete' : 'completed', output: [item], usage } })
   else text = frame({ type: 'message_start', message: { id: 'msg-test', usage } })
@@ -55,7 +60,11 @@ async function collect(response: Response, protocol: Protocol) {
   const wire = new NativeModelWire(protocol), events: any[] = []
   const streaming = response.headers.get('content-type')?.includes('event-stream') === true
   for await (const chunk of nativeModelFrames(response, streaming, wire)) {
-    events.push(JSON.parse(streaming ? chunk.data.split('\n').find(line => line.startsWith('data:'))!.slice(5) : chunk.data))
+    if (!streaming) events.push(JSON.parse(chunk.data))
+    else for (const line of chunk.data.split('\n').filter(line => line.startsWith('data:'))) {
+      const data = line.slice(5).trim()
+      if (data !== '[DONE]') events.push(JSON.parse(data))
+    }
   }
   return { events, wire }
 }
@@ -67,6 +76,7 @@ describe.each(cases)('%s CLI through %s provider', (protocol, style) => {
     expect(JSON.stringify(f.requests[0])).toContain(style === 'anthropic' ? 'aGVsbG8=' : imageUrl)
     expect(JSON.stringify(events)).toContain('call-test')
     expect(JSON.stringify(events)).toContain('read')
+    expect(JSON.stringify(events)).toContain('example')
     expect(wire.status).toBe('completed')
     expect(wire.usage).toEqual({ inputTokens: 12, outputTokens: 5, cacheReadTokens: 4, cacheWriteTokens: 3, reasoningTokens: 2, isEstimated: false })
     if (protocol === 'responses') expect((stream ? events.at(-1).response : events.at(-1)).usage.total_tokens).toBe(24)
@@ -114,6 +124,27 @@ it('cancels the original response reader and signal when the CLI disconnects', a
   await reader.cancel()
   expect(cancel).toHaveBeenCalledOnce()
   expect(f.fetch.mock.calls[0][1].signal.aborted).toBe(true)
+})
+
+it('cancels the original provider when a translated Chat client disconnects', async () => {
+  const f = fixture('chat-completions', 'responses'), cancel = vi.fn()
+  f.fetch.mockResolvedValueOnce(new Response(new ReadableStream({ start(controller) {
+    controller.enqueue(new TextEncoder().encode(frame({ type: 'response.output_text.delta', delta: 'partial' })))
+  }, cancel }), { headers: { 'content-type': 'text/event-stream' } }))
+  const reader = (await f.call(input('chat-completions', true))).body!.getReader()
+  expect(new TextDecoder().decode((await reader.read()).value)).toContain('partial')
+  await reader.cancel()
+  expect(cancel).toHaveBeenCalledOnce()
+  expect(f.fetch.mock.calls[0][1].signal.aborted).toBe(true)
+})
+
+it('rejects Chat translation constraints that cannot be preserved before provider IO', async () => {
+  const f = fixture('chat-completions', 'responses')
+  for (const extra of [{ n: 2 }, { response_format: { type: 'json_schema' } }, { stop: ['END'] }, { logprobs: true }]) {
+    await expect(f.call({ ...input('chat-completions'), ...extra })).rejects.toMatchObject({ code: 'CAPABILITY_UNSUPPORTED' })
+  }
+  await expect(f.call({ messages: [{ role: 'assistant', tool_calls: {} }] } as any)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+  expect(f.fetch).not.toHaveBeenCalled()
 })
 
 it('rejects unavailable model capabilities and unsupported strict/server tools before provider IO', async () => {

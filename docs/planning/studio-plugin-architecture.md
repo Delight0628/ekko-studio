@@ -120,6 +120,8 @@ Hermes、Ekko 保留在现有内置模块中。bootstrap 将它们的运行工�
 
 `ctx` 是类型化服务入口和资源作用域。领域服务保留独立实现，内部按需注入窄接口。禁止每个领域服务都依赖完整 `StudioContext`，以免形成循环依赖和隐式服务查找。
 
+原生模型网关采用 Run 租约和宿主计量，支持 Responses、Anthropic 与 Chat Completions 三种 CLI 协议；同协议直通，跨协议复用共享 codec。Chat 的完成标记与迟到 usage 一起经过计量屏障，不把 finish_reason 单独视为权威完成。具体限制见[网关契约](studio-plugin-contracts.md#23-领域服务方法规范)。
+
 当前实施已将会话删除和新 Agent 实例启动分别收敛为 HTTP/SDK 共用服务。`ctx.runs.start` 暂限未绑定 session/workspace/Run 的独立实例执行，接收后由协调器持有生命周期；旧聊天准入规则已迁入服务，HTTP/Socket 通过调用者和事件端口共用原执行器，HTTP 已移除本机回环；统一上下文接入和父子 Run 迁移仍未完成。实际边界见[实施记录](studio-plugin-progress.md#t02-进展agent-实例启动共用领域服务)，下表继续定义完整目标。
 
 以下目录覆盖目前后端的主要业务。每个拟议公共方法在实现前必须完成输入输出 schema、权限、取消、错误和副作用归属登记。

@@ -9,11 +9,23 @@ export class NativeModelWire {
   usage: ReturnType<typeof normalizeTokenUsage> | undefined
   status: Status | undefined
   private anthropicUsage: Record<string, unknown> = {}
-  constructor(private readonly protocol: ModelGatewayInput['protocol']) {}
+  constructor(readonly protocol: ModelGatewayInput['protocol']) {}
+
+  finishChat(): void {
+    if (this.protocol !== 'chat-completions' || !this.status) throw unavailable()
+  }
 
   observe(value: any, streaming: boolean): boolean {
     if (!value || typeof value !== 'object' || Array.isArray(value) || value.error || value.type === 'error') throw unavailable()
-    if (this.protocol === 'responses') {
+    if (this.protocol === 'chat-completions') {
+      if (!Array.isArray(value.choices) || value.choices.length > 1 || !streaming && value.choices.length !== 1) throw unavailable()
+      if (value.usage) this.usage = normalizeTokenUsage(value.usage, {}, { inputIncludesCache: true })
+      const reason = value.choices[0]?.finish_reason
+      if (reason) this.status = ['length', 'content_filter'].includes(reason) ? 'incomplete' : 'completed'
+      if (!streaming && !this.status) throw unavailable()
+      // Streaming usage can arrive after finish_reason. [DONE] closes the wire.
+      return !streaming
+    } else if (this.protocol === 'responses') {
       const response = streaming ? value.response : value
       if (response?.usage) this.usage = normalizeTokenUsage(response.usage, {}, { inputIncludesCache: true })
       if (value.type === 'response.failed' || response?.status === 'failed') throw unavailable()
@@ -43,7 +55,7 @@ export async function* nativeModelFrames(response: Response, streaming: boolean,
   const mediaType = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()
   if (mediaType !== (streaming ? 'text/event-stream' : 'application/json')) { await response.body.cancel(); throw unavailable() }
   const reader = response.body.getReader(), decoder = new TextDecoder('utf-8', { fatal: true })
-  let buffer = '', bytes = 0
+  let buffer = '', bytes = 0, tail = ''
   try {
     while (true) {
       const { value, done } = await reader.read()
@@ -57,7 +69,17 @@ export async function* nativeModelFrames(response: Response, streaming: boolean,
           buffer = buffer.slice(match.index + match[0].length)
           if (Buffer.byteLength(frame) > 1024 * 1024) throw new StudioError('RESOURCE_EXHAUSTED', 'Native model frame limit exceeded')
           if (!data) { yield { data: `${frame}\n\n`, terminal: false }; continue }
+          if (data === '[DONE]') {
+            wire.finishChat()
+            yield { data: `${tail}${frame}\n\n`, terminal: true }
+            return
+          }
           const terminal = wire.observe(JSON.parse(data), true)
+          if (wire.protocol === 'chat-completions' && wire.status) {
+            tail += `${frame}\n\n`
+            if (Buffer.byteLength(tail) > 1024 * 1024) throw new StudioError('RESOURCE_EXHAUSTED', 'Native terminal output limit exceeded')
+            continue
+          }
           yield { data: `${frame}\n\n`, terminal }
           if (terminal) return
         }

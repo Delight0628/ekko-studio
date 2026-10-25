@@ -89,7 +89,7 @@ export interface StudioDomainServices {
   }
 }
 
-export interface ModelGatewayInput { model: string; protocol: 'responses' | 'anthropic' }
+export interface ModelGatewayInput { model: string; protocol: 'responses' | 'anthropic' | 'chat-completions' }
 export interface ModelGatewayHandle {
   readonly baseUrl: string
   /** Ephemeral gateway credential, never an upstream provider key. */
