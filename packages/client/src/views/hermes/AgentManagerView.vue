@@ -25,7 +25,6 @@ import {
 import { fetchRuntimeVersionStatus, type RuntimeVersionStatus } from '@/api/hermes/runtime-versions'
 import HermesDataDirectoryHint from '@/components/hermes/HermesDataDirectoryHint.vue'
 import VersionManagementModal from '@/components/layout/VersionManagementModal.vue'
-import AgentInstanceManager from '@/components/coding-agents/AgentInstanceManager.vue'
 import { useAppStore } from '@/stores/hermes/app'
 import { useChatStore } from '@/stores/hermes/chat'
 import { desktopBridge } from '@/utils/desktop-bridge'
@@ -515,8 +514,6 @@ onUnmounted(() => {
         </div>
       </header>
       </PageHeader>
-
-      <AgentInstanceManager instance-id="" agent-type-id="" @saved="(id, agentTypeId) => router.push({ name: 'codingAgent.config', params: { agentId: agentTypeId, section: 'settings' }, query: { instance: id } })" />
 
       <div class="agent-manager-spin">
         <div class="agent-manager-content">

@@ -1,25 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
 import sharp from 'sharp'
 import { authenticate, mockHermesApi, mockChatSocket, TEST_ACCESS_KEY } from './fixtures'
+import { selectNewChatAgent, selectNewChatLaunchMode, sendNewChatMessage } from './new-chat-helpers'
 
-const nativeAgents = {
-  qwen: { name: 'Qwen Code', version: '0.25.0', package: '@qwen-code/qwen-code@0.25.0', loginArgs: [] },
-  kimi: { name: 'Kimi Code', version: '2.1.1', package: '@moonshot-ai/kimi-code@2.1.1', loginArgs: ['login'] },
-  qoder: { name: 'Qoder', version: '1.1.78', package: '@qoder-ai/qodercli@1.1.78', loginArgs: ['login'] },
-  codebuddy: { name: 'CodeBuddy', version: '2.175.0', package: '@tencent-ai/codebuddy-code@2.175.0', loginArgs: [] },
-  copilot: { name: 'Copilot', version: '1.0.91', package: '@github/copilot@1.0.91', loginArgs: ['login'] },
-  opencode: { name: 'OpenCode', version: '1.19.4', package: 'opencode-ai@1.19.4', loginArgs: ['auth', 'login'] },
-  pi: { name: 'Pi', version: '1.4.0', package: '@earendil-works/pi-coding-agent@1.4.0', loginArgs: [] },
-  dsh: { name: 'DeepSeek Harness', version: '0.1.7-rc.2', package: '@deepseek-ai/dsh@0.1.7-rc.2', loginArgs: ['web'] },
-  'claude-code': { name: 'Claude Code', version: '2.1.310', package: '@anthropic-ai/claude-code@2.1.310', command: 'claude', loginArgs: ['auth', 'login'] },
-  antigravity: { name: 'Antigravity', version: '1.4.7', package: '', command: 'agy', loginArgs: [], installationDocs: 'https://antigravity.google/docs/cli/install' },
-  cursor: { name: 'Cursor', version: '2026.10.22-27dcf5f', package: '', command: 'agent', loginArgs: ['login'], installationDocs: 'https://cursor.com/docs/cli/installation' },
-  grok: { name: 'Grok', version: '1.0.70', package: '@xai-official/grok@1.0.70', loginArgs: ['login'] },
-  zcode: { name: 'ZCode', version: '0.16.9', package: '', loginArgs: ['login'], installationDocs: 'https://github.com/zai-org/ZCode' },
-}
-async function setup(page: Page, brightness = 'light', wallpaper = false, active = true, agent: keyof typeof nativeAgents = 'qwen', installationDocs?: string) {
+const agents = ['claude-code', 'codex', 'pi', 'grok', 'opencode', 'dsh', 'cursor', 'antigravity', 'qwen', 'kimi', 'codebuddy', 'qoder', 'copilot', 'zcode']
+async function setup(page: Page, brightness = 'light', wallpaper = false, sessions: any[] = []) {
   await authenticate(page, TEST_ACCESS_KEY, 'research')
-  const sessions: any[] = []
   const api = await mockHermesApi(page, { sessions, theme: { brightness,
     background: wallpaper ? { name: 'wall.png', mime: 'image/png', updatedAt: 1 } : null,
     appearance: { global: { opacity: 0.4 }, regions: { card: { opacity: wallpaper ? 0 : 0.8, blur: 8, radius: 14 }, overlay: { opacity: 0.85 }, input: { opacity: 0.5 } } },
@@ -28,203 +14,92 @@ async function setup(page: Page, brightness = 'light', wallpaper = false, active
     const png = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#204060' } }).png().toBuffer()
     await page.route('**/api/theme/background?*', route => route.fulfill({ contentType: 'image/png', body: png }))
   }
-  const descriptor = nativeAgents[agent]
-  const { name, version } = descriptor
-  installationDocs ??= 'installationDocs' in descriptor ? descriptor.installationDocs : undefined
-  const nativeCommand = 'command' in descriptor ? descriptor.command : agent
-  const types = [{ id: agent, name, configSchema: { type: 'object', required: ['cwd'], additionalProperties: false, properties: {
-    cwd: { type: 'string' }, model: { type: 'string' }, env: { type: 'object' }, args: { type: 'array' }, systemPrompt: { type: 'string' }, studioMcp: { type: 'object' },
-  } }, capabilities: { text: true, nativeMcp: true, modes: ['qoder', 'cursor'].includes(agent) ? ['global'] : ['scoped', 'global'] }, management: { inspect: true, setup: true } }]
-  let instances: any[] = [], conflict = false, failChat = false
-  const writes: any[] = [], enables: any[] = [], checks: any[] = [], chatCreations: any[] = []
-  await page.route('**/api/studio/agent-types?*', route => route.fulfill({ json: { data: { agents: active ? types : [] } } }))
-  await page.route('**/api/studio/bundled-agent-plugins**', async route => {
-    const request = route.request()
-    if (request.method() === 'POST') { enables.push(request.postDataJSON()); active = true; return route.fulfill({ json: { data: { enabled: true, revision: 1 } } }) }
-    return route.fulfill({ json: { data: [{ id: agent, name, pluginId: `studio.agent-${agent}`, revision: 0, installed: active, enabled: active, state: active ? 'ready' : 'not_installed', requiredCapabilities: ['agents.register', 'processes.spawn'] }] } })
-  })
-  await page.route('**/api/studio/agent-instances**', async route => {
-    const request = route.request(), url = new URL(request.url())
-    expect(url.searchParams.get('profile')).toBe('research')
-    if (url.pathname.endsWith('/chats')) {
-      const body = request.postDataJSON(), item = instances[0]
-      chatCreations.push(body)
-      const id = 'managed-chat'
-      if (!sessions.length) sessions.push({ id, profile: 'research', source: 'coding_agent', agent: item.agentTypeId, agent_mode: item.mode,
-        agent_instance_id: item.id, agent_instance_revision: item.revision, model: item.config.model || '', workspace: item.config.cwd,
-        title: 'Managed chat', started_at: 100, last_active: 100, message_count: 0, agent_usage: { inputTokens: null, outputTokens: null } })
-      await page.evaluate(({ id, item }) => {
-        ;(window as any).__PW_CHAT_SOCKET_RESUMES__ = { [id]: { session_id: id, messages: [], isWorking: false, events: [], managed_agent_protocol: 1,
-          agent_instance_id: item.id, agent_instance_revision: item.revision, agent_mode: item.mode, model: item.config.model || '', workspace: item.config.cwd, agentInteractions: [] } }
-      }, { id, item })
-      if (failChat) { failChat = false; return route.fulfill({ status: 503, json: { error: { message: 'Temporary response failure' } } }) }
-      return route.fulfill({ json: { data: { sessionId: id, instanceId: item.id, profileId: 'research', configurationRevision: body.revision, createdAt: 1 } } })
-    }
-    if (url.pathname.endsWith('/resources')) return route.fulfill({ json: { data: { instanceId: 'managed', configRevision: instances[0]?.revision, snapshot: 'snapshot', skills: [], configs: [], files: [] } } })
-    if (url.pathname.endsWith('/setup')) {
-      checks.push(request.postDataJSON())
-      return route.fulfill({ json: { data: { cli: { state: 'available', version }, installation: installationDocs
-        ? { kind: 'manual', url: installationDocs } : { command: 'npm', args: ['install', '--global', nativeAgents[agent].package] },
-        authentication: instances[0]?.mode === 'scoped' ? { kind: 'studio' } : { kind: 'native', command: nativeCommand, args: nativeAgents[agent].loginArgs, ...(agent !== 'qwen' ? {} : { input: '/auth' }) } } } })
-    }
-    if (url.pathname.endsWith('/inspect')) return route.fulfill({ json: { data: { native: { name }, authentication: { state: 'unknown', methods: [] }, models: { status: 'unsupported', items: [] } } } })
-    if (request.method() === 'GET') return route.fulfill({ json: { data: instances } })
-    const body = request.postDataJSON()
-    if (conflict) return route.fulfill({ status: 409, json: { error: { message: 'Instance changed; reload before saving' } } })
-    writes.push(body)
-    if (request.method() === 'POST') instances = [{ ...body, id: 'managed', revision: 1 }]
-    else { expect(body.revision).toBe(instances[0].revision); instances = [{ ...instances[0], ...body, revision: body.revision + 1 }] }
-    return route.fulfill({ json: { data: instances[0] } })
-  })
-  return { ...api, writes, enables, checks, chatCreations, instances: () => instances, conflict: () => { conflict = true }, failChat: () => { failChat = true } }
+  const checks: string[] = []
+  page.on('request', request => { if (/\/api\/studio\/(?:agent-instances|bundled-agent-plugins|agent-types)/.test(new URL(request.url()).pathname)) checks.push(request.url()) })
+  return { ...api, checks }
 }
 
-for (const brightness of ['light', 'dark']) for (const wallpaper of [false, true]) test(`creates and updates an instance with themed forms (${brightness}, wallpaper ${wallpaper})`, async ({ page }, info) => {
-  if (wallpaper) await page.setViewportSize({ width: 390, height: 844 })
+for (const brightness of ['light', 'dark']) for (const wallpaper of [false, true]) test(`all plugins use the existing CLI cards without instance setup (${brightness}, wallpaper ${wallpaper})`, async ({ page }, info) => {
+  await page.setViewportSize(wallpaper ? { width: 390, height: 844 } : { width: 1440, height: 1000 })
   const api = await setup(page, brightness, wallpaper)
-  await page.goto('/#/studio/agents/qwen/settings')
-  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
-  const modal = page.locator('.instance-manager-modal:visible')
-  await expect(modal.getByLabel('cwd', { exact: true })).toBeVisible()
-  expect((await modal.boundingBox())!.width).toBeLessThanOrEqual(720)
-  await modal.getByLabel('cwd', { exact: true }).fill('/workspace with spaces')
-  await modal.getByLabel('env', { exact: true }).fill('invalid-json')
-  await modal.getByRole('button', { name: 'Create', exact: true }).click()
-  await expect(modal.getByText('Invalid or missing value: env', { exact: true })).toBeVisible()
-  expect(api.writes).toEqual([])
-  await modal.getByLabel('env', { exact: true }).fill('{"QWEN_HOME":"/native-home"}')
-  await modal.getByLabel('args', { exact: true }).fill('["literal argument"]')
-  await modal.getByLabel('studioMcp', { exact: true }).fill('{"enabled":true,"browser":false}')
-  await modal.getByRole('button', { name: 'Create', exact: true }).click()
-  await expect(page).toHaveURL(/instance=managed/)
-  expect(api.writes[0]).toEqual({ agentTypeId: 'qwen', mode: 'scoped', config: { cwd: '/workspace with spaces', env: { QWEN_HOME: '/native-home' }, args: ['literal argument'], studioMcp: { enabled: true, browser: false } } })
-  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
-  await expect(modal.getByLabel('studioMcp', { exact: true })).toHaveValue(/"enabled": true/)
-  await modal.getByLabel('studioMcp', { exact: true }).scrollIntoViewIfNeeded()
-  await page.screenshot({ path: info.outputPath('native-mcp-config.png') })
-  await modal.getByRole('button', { name: 'Check installation and login', exact: true }).click()
-  await expect(modal.getByText('CLI available', { exact: false })).toBeVisible()
-  await expect(modal.getByText('Native login', { exact: true })).toHaveCount(0)
-  await modal.getByLabel('Mode', { exact: true }).click()
-  await page.getByText('Native account', { exact: true }).click()
-  await modal.getByLabel('model', { exact: true }).fill('new-native-model')
-  await expect(modal.getByRole('button', { name: 'Check installation and login', exact: true })).toBeDisabled()
-  await page.screenshot({ path: info.outputPath('instance-form.png') })
-  await modal.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(modal).toBeHidden()
-  expect(api.writes[1]).toMatchObject({ revision: 1, mode: 'global', config: { model: 'new-native-model', env: { QWEN_HOME: '/native-home' } } })
-  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
-  await modal.getByRole('button', { name: 'Check installation and login', exact: true }).click()
-  await expect(modal.getByText('Native login', { exact: true })).toBeVisible()
-  await expect(modal.getByText('Verified authentication state: Unknown', { exact: true })).toBeVisible()
-  await expect(modal.locator('.native-setup')).toContainText('/auth')
-  await modal.locator('.native-setup').scrollIntoViewIfNeeded()
-  await page.screenshot({ path: info.outputPath('native-setup.png') })
-  expect(api.checks).toEqual([{ revision: 1 }, { revision: 2 }])
-  expect(api.unexpectedRequests).toEqual([])
-})
-
-test('explicitly enables an implemented bundled plugin before creating instances', async ({ page }) => {
-  const api = await setup(page, 'light', false, false)
+  const tools = agents.map(id => ({ id, installed: id === 'codex', version: id === 'codex' ? '1.0.0' : '', source: id === 'codex' ? 'user-cli' : 'not-installed', path: id === 'codex' ? '/native/codex' : '' }))
+  await page.route('**/api/agents/status', route => route.fulfill({ json: { revision: 1, agents: tools } }))
+  await page.route('**/api/coding-agents', route => route.fulfill({ json: { tools } }))
+  const installs: string[] = []
+  await page.route('**/api/coding-agents/*/install', route => {
+    const id = new URL(route.request().url()).pathname.split('/').at(-2)!
+    expect(route.request().method()).toBe('POST')
+    installs.push(id)
+    const tool = tools.find(item => item.id === id)!
+    tool.installed = true; tool.version = id === 'codex' ? '1.0.1' : '1.0.0'
+    return route.fulfill({ json: { success: true, tools } })
+  })
+  await page.route('**/api/coding-agents/codex/check-update', route => route.fulfill({ json: { success: true, updateAvailable: true, latestVersion: '1.0.1', tool: tools.find(item => item.id === 'codex') } }))
   await page.goto('/#/studio/agents')
-  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
-  const modal = page.locator('.instance-manager-modal:visible')
-  await expect(modal.getByText('agents.register, processes.spawn', { exact: true })).toBeVisible()
-  await modal.getByRole('button', { name: 'Authorize and enable', exact: true }).click()
-  await expect(modal.getByLabel('cwd', { exact: true })).toBeVisible()
-  await modal.getByLabel('cwd', { exact: true }).fill('/workspace')
-  await modal.getByRole('button', { name: 'Create', exact: true }).click()
-  await expect(page).toHaveURL(/\/studio\/agents\/qwen\/settings\?instance=managed/)
-  expect(api.enables).toEqual([{ revision: 0, grants: ['agents.register', 'processes.spawn'] }])
+  await expect(page.locator('.page-loading-overlay:visible')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Manage instances', exact: true })).toHaveCount(0)
+  await expect(page.locator('.instance-manager-modal')).toHaveCount(0)
+  for (const id of agents) {
+    const card = page.getByTestId(`agent-card-${id}`)
+    await expect(card).toBeAttached()
+    if (id === 'codex') await expect(card.getByRole('button', { name: 'Check for update', exact: true })).toBeAttached()
+    else await expect(card.getByRole('button', { name: /Install/ })).toBeAttached()
+  }
+  expect(installs).toEqual([])
+  await page.screenshot({ path: info.outputPath('agent-cli-cards.png') })
+  const qwen = page.getByTestId('agent-card-qwen')
+  await qwen.getByRole('button', { name: /Install/ }).click()
+  await expect(qwen.getByText('Installed', { exact: true })).toBeVisible()
+  expect(installs).toEqual(['qwen'])
+  const codex = page.getByTestId('agent-card-codex')
+  await codex.getByRole('button', { name: 'Check for update', exact: true }).click()
+  await codex.getByRole('button', { name: 'Update to v1.0.1', exact: true }).click()
+  await expect(codex.locator('.agent-version')).toHaveText('v1.0.1')
+  expect(installs).toEqual(['qwen', 'codex'])
+  await codex.getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(page).toHaveURL(/\/studio\/agents\/codex\/settings$/)
+  await expect(page.locator('.settings-editor-panel textarea')).toHaveCount(2)
+  await expect(page.getByRole('button', { name: 'Manage instances', exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Agent instance', { exact: true })).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  expect(api.checks).toEqual([])
   expect(api.unexpectedRequests).toEqual([])
 })
 
-for (const agent of ['kimi', 'qoder', 'codebuddy', 'copilot', 'opencode', 'pi', 'dsh', 'claude-code', 'antigravity', 'cursor', 'grok', 'zcode'] as const) test(`enables ${agent} and manages its native login setup on mobile`, async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
-  const api = await setup(page, 'dark', true, false, agent)
-  await page.goto('/#/studio/agents')
-  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
-  const modal = page.locator('.instance-manager-modal:visible')
-  await expect(modal).toContainText(nativeAgents[agent].name)
-  await modal.getByRole('button', { name: 'Authorize and enable', exact: true }).click()
-  await modal.getByLabel('cwd', { exact: true }).fill('/kimi workspace')
-  if (!['qoder', 'cursor'].includes(agent)) {
-    await modal.getByLabel('Mode', { exact: true }).click()
-    await page.getByText('Native account', { exact: true }).click()
-  } else await expect(modal.getByLabel('Mode', { exact: true })).toContainText('Native account')
-  await modal.getByRole('button', { name: 'Create', exact: true }).click()
-  await expect(page).toHaveURL(new RegExp(`/studio/agents/${agent}/settings\\?instance=managed`))
-  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
-  await modal.getByRole('button', { name: 'Check installation and login', exact: true }).click()
-  await expect(modal.locator('.native-setup')).toContainText(nativeAgents[agent].version)
-  const descriptor = nativeAgents[agent]
-  await expect(modal.locator('.native-setup')).toContainText(`${'command' in descriptor ? descriptor.command : agent} ${JSON.stringify(descriptor.loginArgs)}`)
-  if ('installationDocs' in descriptor) await expect(modal.getByRole('link', { name: descriptor.installationDocs, exact: true })).toHaveAttribute('href', descriptor.installationDocs)
-  await expect(modal.getByText('Verified authentication state: Unknown', { exact: true })).toBeVisible()
-  expect(api.writes).toEqual([{ agentTypeId: agent, mode: 'global', config: { cwd: '/kimi workspace' } }])
-  expect(api.checks).toEqual([{ revision: 1 }])
-  expect(api.unexpectedRequests).toEqual([])
-})
-
-test('shows manual CLI installation documentation on mobile without inventing an install command', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
-  const url = 'https://example.test/cli/install/documentation-with-a-long-path-for-mobile-layout'
-  await setup(page, 'dark', true, true, 'pi', url)
-  await page.goto('/#/studio/agents/pi/settings')
-  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
-  const modal = page.locator('.instance-manager-modal:visible')
-  await modal.getByLabel('cwd', { exact: true }).fill('/manual-cli-workspace')
-  await modal.getByRole('button', { name: 'Create', exact: true }).click()
-  await expect(modal).toBeHidden()
-  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
-  await modal.getByRole('button', { name: 'Check installation and login', exact: true }).click()
-  const link = modal.getByRole('link', { name: url, exact: true })
-  await expect(link).toHaveAttribute('href', url)
-  await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
-  await expect(modal.locator('.native-setup')).not.toContainText('npm')
-  expect(await modal.locator('.native-setup').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
-})
-
-test('keeps the configuration draft when a concurrent revision prevents saving', async ({ page }) => {
-  const api = await setup(page)
-  await page.goto('/#/studio/agents/qwen/settings')
-  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
-  const modal = page.locator('.instance-manager-modal:visible')
-  await modal.getByLabel('cwd', { exact: true }).fill('/workspace')
-  await modal.getByRole('button', { name: 'Create', exact: true }).click()
-  await expect(page).toHaveURL(/instance=managed/)
-  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
-  await modal.getByLabel('systemPrompt', { exact: true }).fill('Keep this draft')
-  api.conflict()
-  await modal.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(modal.getByRole('alert').filter({ hasText: 'Instance changed; reload before saving' })).toBeVisible()
-  await expect(modal.getByLabel('systemPrompt', { exact: true })).toHaveValue('Keep this draft')
-  expect(api.instances()[0].revision).toBe(1)
-})
-
-for (const mobile of [false, true]) test(`opens an instance chat with images, restored approvals and an idempotent retry (${mobile ? 'mobile dark' : 'desktop light'})`, async ({ page }, info) => {
-  if (mobile) await page.addInitScript(() => Object.defineProperty(globalThis.crypto, 'randomUUID', { value: undefined }))
+for (const mobile of [false, true]) for (const mode of ['scoped', 'global'] as const) test(`new chat retains Agent and ${mode} selection without an instance (${mobile ? 'mobile' : 'desktop'})`, async ({ page }) => {
   await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 })
   const api = await setup(page, mobile ? 'dark' : 'light', mobile)
   await mockChatSocket(page)
-  await page.goto('/#/studio/agents/qwen/settings')
-  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
-  const modal = page.locator('.instance-manager-modal:visible')
-  await modal.getByLabel('cwd', { exact: true }).fill('/owned workspace')
-  await modal.getByLabel('model', { exact: true }).fill('instance-model')
-  await modal.getByRole('button', { name: 'Create', exact: true }).click()
-  await expect(page).toHaveURL(/instance=managed/)
-  await page.getByRole('button', { name: 'Manage instances', exact: true }).click()
-  api.failChat()
-  await modal.getByRole('button', { name: 'New Chat', exact: true }).click()
-  await expect(modal.getByRole('alert').filter({ hasText: 'Temporary response failure' })).toBeVisible()
-  await modal.getByRole('button', { name: 'New Chat', exact: true }).click()
-  await expect(page).toHaveURL(/\/hermes\/session\/managed-chat\?profile=research/)
-  expect(api.chatCreations).toEqual([{ revision: 1, idempotencyKey: expect.any(String) }, { revision: 1, idempotencyKey: api.chatCreations[0].idempotencyKey }])
+  await page.goto('/#/hermes/chat')
+  if (mobile) await page.getByRole('button', { name: 'Menu', exact: true }).click()
+  await page.getByRole('button', { name: 'New Chat', exact: true }).click()
+  await selectNewChatAgent(page, 'Codex')
+  await selectNewChatLaunchMode(page, mode)
+  const draft = page.locator('.new-chat-page')
+  await expect(draft.locator('.input-model-button')).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Manage instances', exact: true })).toHaveCount(0)
+  await sendNewChatMessage(page, 'Use the selected launch mode')
+  await expect(page).toHaveURL(/\/hermes\/session\//)
+  await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.emitted.find((item: any) => item.event === 'run')?.payload))
+    .toMatchObject({ coding_agent_id: 'codex', mode, input: 'Use the selected launch mode', ...(mode === 'scoped' ? { model: 'test-model' } : {}) })
+  expect(api.checks).toEqual([])
+  expect(api.unexpectedRequests).toEqual([])
+})
+
+for (const mobile of [false, true]) test(`restores plugin chat images and approvals without an instance management button (${mobile ? 'mobile dark' : 'desktop light'})`, async ({ page }, info) => {
+  if (mobile) await page.addInitScript(() => Object.defineProperty(globalThis.crypto, 'randomUUID', { value: undefined }))
+  await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 })
+  const api = await setup(page, mobile ? 'dark' : 'light', mobile, [{ id: 'managed-chat', profile: 'research', source: 'coding_agent', agent: 'qwen', agent_mode: 'scoped',
+    agent_instance_id: 'managed', agent_instance_revision: 1, model: 'instance-model', workspace: '/owned workspace', title: 'Managed chat', started_at: 100, last_active: 100, message_count: 0,
+    agent_usage: { inputTokens: null, outputTokens: null } }])
+  await page.addInitScript(() => {
+    ;(window as any).__PW_CHAT_SOCKET_RESUMES__ = { 'managed-chat': { session_id: 'managed-chat', messages: [], isWorking: false, events: [], managed_agent_protocol: 1,
+      agent_instance_id: 'managed', agent_instance_revision: 1, agent_mode: 'scoped', model: 'instance-model', workspace: '/owned workspace', agentInteractions: [] } }
+  })
+  await mockChatSocket(page)
+  await page.goto('/#/hermes/session/managed-chat?profile=research')
   await expect(page.locator('.chat-input-area .input-model-button')).toHaveText('instance-model')
-  await expect(page.locator('.chat-input-area .input-model-button')).toBeDisabled()
-  await expect(page.locator('.reasoning-effort-button')).toBeDisabled()
-  await expect(page.getByRole('button', { name: 'Set Workspace', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Manage instances', exact: true })).toHaveCount(0)
   const input = page.locator('.chat-input-area textarea')
   await input.fill('/status')
   await expect(page.locator('.slash-command-dropdown:visible')).toHaveCount(0)

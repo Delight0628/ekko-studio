@@ -29,6 +29,8 @@ export function useAgentResourceEditor(instanceId: Ref<string>, section: Ref<str
     ++fileVersion
     loading.value = true; reading.value = false; error.value = ''; discoveryError.value = ''; catalog.value = null; instance.value = null; file.value = null; draft.value = ''; selectedFile.value = ''
     try {
+      instances.value = []
+      if (!instanceId.value) return
       if (!profiles.activeProfileName) await profiles.fetchProfiles()
       if (current !== version) return
       const profile = profiles.activeProfileName
@@ -36,7 +38,6 @@ export function useAgentResourceEditor(instanceId: Ref<string>, section: Ref<str
       const list = await fetchResourceInstances(profile)
       if (current !== version) return
       instances.value = list
-      if (!instanceId.value) return
       const selected = list.find(item => item.id === instanceId.value)
       if (!selected) throw new Error(t('codingAgents.resourcesUnavailable'))
       instance.value = selected

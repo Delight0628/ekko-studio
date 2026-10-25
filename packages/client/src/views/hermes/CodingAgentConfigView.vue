@@ -2,7 +2,7 @@
 import PageLoading from '@/components/common/PageLoading.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import { computed, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { NButton, NInput, NTag, NSelect, NEmpty, NAlert, useMessage } from 'naive-ui'
 import {
@@ -16,25 +16,16 @@ import CodingAgentMcpPanel from '@/components/coding-agents/CodingAgentMcpPanel.
 import CodingAgentSkillsPanel from '@/components/coding-agents/CodingAgentSkillsPanel.vue'
 import DshAgentPresetsPanel from '@/components/coding-agents/dsh/DshAgentPresetsPanel.vue'
 import DshPluginsPanel from '@/components/coding-agents/dsh/DshPluginsPanel.vue'
-import AgentInstanceManager from '@/components/coding-agents/AgentInstanceManager.vue'
 
 import { useAgentResourceEditor } from '@/composables/useAgentResourceEditor'
 const { t } = useI18n()
 const message = useMessage()
-const route = useRoute(), router = useRouter()
+const route = useRoute()
 const resourceInstanceId = computed(() => typeof route.query.instance === 'string' ? route.query.instance : '')
 const section = computed(() => String(route.params.section || 'settings'))
 const resources = useAgentResourceEditor(resourceInstanceId, section)
-const { instances, catalog, loading: resourcesLoading, error: resourcesError, discoveryError, file: resourceFile,
+const { catalog, loading: resourcesLoading, error: resourcesError, file: resourceFile,
   draft: resourceDraft, saving: resourceSaving, reading: resourceReading, selectedFile, fileOptions, skills: resourceSkills, dirty: resourceDirty } = resources
-const instanceOptions = computed(() => [
-  { value: '', label: t('codingAgents.defaultConfiguration') },
-  ...instances.value.map(item => ({ value: item.id, label: `${item.agentTypeId} · ${item.mode} · ${item.id.slice(0, 8)}` })),
-])
-function selectInstance(id: string) {
-  void router.replace({ name: 'codingAgent.config', params: { ...route.params, section: ['settings', 'skills'].includes(section.value) ? section.value : 'settings' }, query: { ...route.query, instance: id || undefined } })
-}
-function instanceSaved(id: string) { selectInstance(id); void resources.refresh() }
 async function saveResourceFile() {
   try { await resources.save(); message.success(t('files.saveFile')) }
   catch (err: any) { message.error(err.message || String(err)) }
@@ -172,13 +163,10 @@ watch([agentId, section, resourceInstanceId], loadSettingsFiles, { immediate: tr
     </header>
     </PageHeader>
 
-    <AgentInstanceManager v-if="section === 'settings'" :instance-id="resourceInstanceId" :agent-type-id="agentId" @saved="instanceSaved" />
-
-    <div v-if="instances.length || resourceInstanceId || discoveryError" class="resource-toolbar">
-      <NSelect :value="resourceInstanceId" :options="instanceOptions" :disabled="resourceSaving || resourcesLoading" :placeholder="t('codingAgents.resourceInstance')" :aria-label="t('codingAgents.resourceInstance')" @update:value="selectInstance" />
+    <div v-if="resourceInstanceId" class="resource-toolbar">
       <NButton :disabled="resourceSaving || resourcesLoading" @click="resources.refresh">{{ t('codingAgents.refresh') }}</NButton>
     </div>
-    <NAlert v-if="resourcesError || discoveryError" type="error" :bordered="false">{{ resourcesError || discoveryError }}</NAlert>
+    <NAlert v-if="resourcesError" type="error" :bordered="false">{{ resourcesError }}</NAlert>
 
     <template v-if="resourceInstanceId">
       <div v-if="section === 'skills' && resourceSkills" class="coding-agent-skills-content" :inert="!!resourcesError || undefined">

@@ -54,7 +54,6 @@ import FolderPicker from "./FolderPicker.vue";
 import StarIcon from "@/components/common/StarIcon.vue";
 import SessionTaskIcon from '@/components/common/SessionTaskIcon.vue';
 import ChatInput from "./ChatInput.vue";
-import AgentInstanceManager from '@/components/coding-agents/AgentInstanceManager.vue';
 import NewChatAgentCards from "./NewChatAgentCards.vue";
 import { prepareAgentDeployment, type AgentDeploymentController } from "./agentDeployment.mjs";
 import RealtimeVoiceStage from "./RealtimeVoiceStage.vue";
@@ -3086,9 +3085,6 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
               </svg>
             </template>
           </NButton>
-          <AgentInstanceManager v-if="!showNewChatPage && chatStore.activeSession?.agentInstanceId"
-            :instance-id="chatStore.activeSession.agentInstanceId" :agent-type-id="chatStore.activeSession.agent || ''"
-            @saved="chatStore.refreshActiveSession()" />
           <!-- chat/live mode toggle hidden -->
           <template v-if="currentMode === 'chat' && !showNewChatPage">
             <NTooltip v-if="isSuperAdmin" trigger="hover">

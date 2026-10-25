@@ -59,12 +59,6 @@ vi.mock('@/components/layout/VersionManagementModal.vue', () => ({
   }),
 }))
 
-// Instance forms and their API/router graph have browser coverage. These page
-// tests isolate the legacy engine cards and verify the new navigation boundary.
-vi.mock('@/components/coding-agents/AgentInstanceManager.vue', () => ({
-  default: defineComponent({ name: 'AgentInstanceManager', emits: ['saved'], template: '<button>Manage instances</button>' }),
-}))
-
 vi.mock('vue-router', () => ({
   useRoute: () => route,
   useRouter: () => ({ push: pushRoute, replace: replaceRoute }),
@@ -201,11 +195,14 @@ function agentStatusSnapshot() {
 }
 
 describe('Agent Manager page', () => {
-  it('opens a saved dynamic instance in its own configuration page', async () => {
+  it('lists all Coding Agents in the existing cards without an instance management step', async () => {
     const wrapper = mountPage()
     await flushPromises()
-    wrapper.findComponent({ name: 'AgentInstanceManager' }).vm.$emit('saved', 'owned-instance', 'acme.custom/agent')
-    expect(pushRoute).toHaveBeenCalledWith({ name: 'codingAgent.config', params: { agentId: 'acme.custom/agent', section: 'settings' }, query: { instance: 'owned-instance' } })
+    for (const id of ['claude-code', 'codex', 'pi', 'grok', 'opencode', 'dsh', 'cursor', 'antigravity', 'qwen', 'kimi', 'codebuddy', 'qoder', 'copilot', 'zcode']) {
+      expect(wrapper.find(`[data-testid="agent-card-${id}"]`).exists()).toBe(true)
+    }
+    expect(wrapper.findComponent({ name: 'AgentInstanceManager' }).exists()).toBe(false)
+    expect(pushRoute).not.toHaveBeenCalled()
   })
 
   beforeEach(() => {

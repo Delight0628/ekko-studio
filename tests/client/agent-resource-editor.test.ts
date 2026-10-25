@@ -17,12 +17,24 @@ beforeEach(() => {
   vi.resetAllMocks(); profiles.activeProfileName = 'one'
   api.list.mockResolvedValue([instance, { ...instance, id: 'second' }]); api.catalog.mockResolvedValue(catalog); api.read.mockResolvedValue(file)
 })
-function setup() {
-  const id = ref('first'), section = ref('settings')
+function setup(instanceId = 'first') {
+  const id = ref(instanceId), section = ref('settings')
   let editor!: ReturnType<typeof useAgentResourceEditor>
   const wrapper = mount(defineComponent({ setup() { editor = useAgentResourceEditor(id, section); return () => null } }))
   return { wrapper, id, editor: () => editor }
 }
+it('keeps the default configuration independent of instance discovery', async () => {
+  const f = setup(''); await flushPromises()
+  expect(api.list).not.toHaveBeenCalled()
+  expect(api.catalog).not.toHaveBeenCalled()
+  expect(f.editor().loading.value).toBe(false)
+  f.id.value = 'first'; await flushPromises()
+  expect(api.catalog).toHaveBeenCalledWith(instance, 'one')
+  f.id.value = ''; await flushPromises()
+  expect(f.editor().instance.value).toBeNull()
+  expect(f.editor().catalog.value).toBeNull()
+  f.wrapper.unmount()
+})
 it('does not apply a delayed file read to a different instance or profile', async () => {
   let release!: (value: typeof file) => void
   api.read.mockImplementationOnce(() => new Promise(resolve => { release = resolve }))
