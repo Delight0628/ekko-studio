@@ -61,5 +61,5 @@ progress { width: 100%; height: 4px; accent-color: var(--primary-color); }
 .compact { gap: 12px; padding: 16px 0; }
 .compact .file-icon { width: 24px; flex-basis: 24px; height: 28px; }
 .compact .download-name { font-size: 13px; }
-@media (max-width: 600px) { .download-record:not(.compact) { flex-wrap: wrap; padding: 16px; gap: 12px; } .download-record:not(.compact) .download-details { flex-basis: calc(100% - 50px); } .download-record:not(.compact) .record-actions { margin-left: auto; } }
+@media (max-width: 600px) { .download-record:not(.compact) { flex-wrap: wrap; padding: 16px; gap: 12px; } .download-record:not(.compact) .download-details { flex-basis: calc(100% - 50px); } .download-record:not(.compact) .record-actions { margin-inline-start: auto; } }
 </style>
