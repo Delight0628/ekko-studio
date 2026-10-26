@@ -20,6 +20,7 @@ server/dist
 packages/server/dist
 *.local
 ROADMAP.md
+!/packages/mcu/m5stack-stackchan/docs/ROADMAP.md
 pnpm-lock.yaml
 pnpm-workspace.yaml
 # Server data

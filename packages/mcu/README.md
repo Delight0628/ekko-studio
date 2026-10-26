@@ -4,6 +4,7 @@
 | --- | --- |
 | ESP32-C3 | Independent [v1](esp32-c3/v1/README.md) and [v2](esp32-c3/v2/README.md) PlatformIO projects; checked-in firmware under `esp32-c3/release/v1` and `esp32-c3/release/v2`. |
 | ESP32-S3 | [Board-specific firmware](esp32-s3/README.md), currently M5Stack Cardputer-Adv. |
+| M5Stack StackChan | [Planning workspace](m5stack-stackchan/README.md) and [product and development roadmap](m5stack-stackchan/docs/ROADMAP.md); firmware implementation is not included in this documentation change. |
 
 ## C3 upgrades
 
