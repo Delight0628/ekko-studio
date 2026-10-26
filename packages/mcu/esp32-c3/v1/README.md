@@ -16,14 +16,14 @@ remaining physical flash is reserved for future storage or partition changes.
 ## Commands
 
 ```bash
-cd packages/esp32-c3/v1
+cd packages/mcu/esp32-c3/v1
 pio run
 pio run -t upload
 pio device monitor
 ```
 
 After `pio run`, run `npm run build` from the repository root to sync the
-firmware into `packages/esp32-c3/release/v1/firmware.bin` and package it into
+firmware into `packages/mcu/esp32-c3/release/v1/firmware.bin` and package it into
 `dist/mcu/v1/firmware.bin`. GitHub release builds reuse the checked-in release
 firmware and do not build ESP32 firmware in CI.
 

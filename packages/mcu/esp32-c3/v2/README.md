@@ -25,7 +25,7 @@ OTA layout is explicitly required.
 ## Commands
 
 ```bash
-cd packages/esp32-c3/v2
+cd packages/mcu/esp32-c3/v2
 pio run
 pio run -t upload
 pio device monitor
@@ -38,7 +38,7 @@ npm run mcu:v2:flash:clean
 ```
 
 After `pio run`, `npm run build` copies the firmware into
-`packages/esp32-c3/release/v2/firmware.bin` and `dist/mcu/v2/firmware.bin`.
+`packages/mcu/esp32-c3/release/v2/firmware.bin` and `dist/mcu/v2/firmware.bin`.
 Firmware v2 checks only the version-isolated v2 OTA manifest and cannot consume
 v1 updates.
 
