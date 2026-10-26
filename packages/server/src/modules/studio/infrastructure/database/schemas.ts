@@ -93,16 +93,23 @@ export const TASK_PLANS_TABLE = 'task_plans'
 export const SESSION_TASKS_TABLE = 'session_tasks'
 export const SESSION_TASKS_SCHEMA: Record<string, string> = {
   id: 'TEXT PRIMARY KEY',
-  session_id: 'TEXT NOT NULL',
+  session_id: 'TEXT',
   title: 'TEXT NOT NULL',
   summary: "TEXT NOT NULL DEFAULT ''",
   status: "TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'completed', 'closed'))",
-  source_message_id: 'INTEGER NOT NULL',
+  source_message_id: 'INTEGER',
   evidence_message_id: 'INTEGER',
   completion_evidence: "TEXT NOT NULL DEFAULT ''",
   created_at: 'INTEGER NOT NULL',
   updated_at: 'INTEGER NOT NULL',
   completed_at: 'INTEGER',
+  owner_user_id: 'INTEGER',
+  bot_id: 'TEXT',
+  revision: 'INTEGER NOT NULL DEFAULT 0',
+  requirements_revision: 'INTEGER NOT NULL DEFAULT 0',
+  requirements_json: "TEXT NOT NULL DEFAULT '{}'",
+  selection_json: "TEXT NOT NULL DEFAULT '{}'",
+  workspace: "TEXT NOT NULL DEFAULT ''",
 }
 export const TASK_PLANS_SCHEMA: Record<string, string> = {
   session_id: 'TEXT NOT NULL',
@@ -1225,6 +1232,7 @@ export const GC_SESSION_PROFILES_SCHEMA: Record<string, string> = {
 // ============================================================================
 
 import { getDb, getStoragePath } from './index'
+import { initPersonTables } from './person-schema'
 import { BUILTIN_EKKO_AGENT_IDS, BUILTIN_HISTORY_SOURCES } from '../../contracts/history-source'
 
 function quoteIdentifier(identifier: string): string {
@@ -1737,6 +1745,7 @@ export function initAllHermesTables(): void {
       indexes: { idx_session_tasks_session: 'CREATE INDEX IF NOT EXISTS idx_session_tasks_session ON session_tasks(session_id, created_at, id)' },
     })
     migrateSessionTaskClosedStatus(db)
+    initPersonTables(db)
     syncTable(SESSIONS_TABLE, SESSIONS_SCHEMA, {
       indexes: SESSIONS_INDEXES,
     })

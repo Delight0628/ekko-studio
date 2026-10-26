@@ -1,3 +1,7 @@
+import { onPersonUpdated, personUpdated } from '../repositories/person-updates'
+import { personChatInteraction, answerPersonChatInteraction } from '../services/person/chat-interactions'
+import { isPersonSession, isPrivatePersonSession, ownsPersonSession, personSessionId } from '../contracts/person-session'
+import { ensurePersonSession } from '../services/person/chat-agent'
 import { isNativeCodingAgent } from '../contracts/agents/native-coding-agents'
 import { withRunUsage, onRunUsageUpdated } from '../repositories/run-usage-store'
 import { agentFamilyForRuntime, isAgentRuntime } from '../contracts/agents/runtime'
@@ -448,9 +452,12 @@ export class ChatRunSocket {
   private backgroundActivityGraceUntil = 0
   private closing = false
   private stopUsageUpdates: () => void
+  private stopPersonUpdates: () => void
+  private personQuestions = new Map<number, ReturnType<typeof personChatInteraction>>()
 
   constructor(io: Server) {
     this.nsp = io.of('/chat-run')
+    this.stopPersonUpdates = onPersonUpdated(userId => this.syncPersonInteraction(userId))
     this.stopUsageUpdates = onRunUsageUpdated((sessionId, summary) => {
       const session = getSession(sessionId)
       const isCoding = session && session.agent !== 'ekko-agent' && (session.source === 'coding_agent'
@@ -468,6 +475,22 @@ export class ChatRunSocket {
       })
     })
   }
+
+  private syncPersonInteraction(userId: number) {
+    const sid = personSessionId(userId)
+    if (this.closing || !getSession(sid) || this.isSessionRunning(sid)) return
+    const before = this.personQuestions.get(userId)
+    const next = personChatInteraction(userId)
+    if (JSON.stringify(before) === JSON.stringify(next)) return
+    if (before) {
+      const event = before.event.replace('.requested', '.resolved')
+      this.emitExternalEvent(sid, event, { ...before.data, event, resolved: true, reason: 'response' })
+    }
+    this.personQuestions.set(userId, next)
+    if (next) this.emitExternalEvent(sid, next.event, next.data)
+  }
+
+  isSessionRunning(sessionId: string) { return !!this.sessionMap.get(sessionId)?.isWorking }
 
   getLiveActivityPlans() {
     return this.taskPlanRuns.activeSnapshots().filter(entry => {
@@ -804,7 +827,7 @@ export class ChatRunSocket {
       bindAppEventSubscription(socket, (_user, profile) => {
         const result: BusinessEvent[] = []
         for (const [sessionId, state] of this.sessionMap) {
-          if (!state.isWorking || (state.profile || getSession(sessionId)?.profile || 'default') !== profile) continue
+          if (isPrivatePersonSession(sessionId) || !state.isWorking || (state.profile || getSession(sessionId)?.profile || 'default') !== profile) continue
           const source = state.source || getSession(sessionId)?.source
           if (source === 'group_chat') continue
           // Task cards belong to a turn; coding-agent runId can span many turns.
@@ -852,7 +875,7 @@ export class ChatRunSocket {
       event: 'session.activity.snapshot',
       profile: currentProfile(),
       sessions: Array.from(this.sessionMap.entries()).flatMap(([sessionId, state]) => {
-        if (!state.isWorking || (shared && sessionId !== shared.share.session_id)) return []
+        if (isPrivatePersonSession(sessionId) || !state.isWorking || (shared && sessionId !== shared.share.session_id)) return []
         const profile = state.profile || getSession(sessionId)?.profile || 'default'
         return profile === currentProfile() ? [{ session_id: sessionId, status: 'running' }] : []
       }),
@@ -863,6 +886,12 @@ export class ChatRunSocket {
       return listProfileNamesFromDisk().includes(profile)
     }
     const resolveRunProfile = (sessionId?: string, requested?: string) => {
+      if (isPersonSession(sessionId)) {
+        const session = getSession(sessionId!)
+        if (shared || !ownsPersonSession(socketUser?.id, session)) throw new Error('Session not found')
+        return session!.profile || 'default'
+      }
+      if (sessionId?.startsWith('person-task-')) throw new Error('Session not found')
       const requestedProfile = typeof requested === 'string' ? requested.trim() : ''
       if (requestedProfile) {
         if (!profileExists(requestedProfile)) throw new Error(`Profile "${requestedProfile}" does not exist`)
@@ -886,6 +915,12 @@ export class ChatRunSocket {
       return profile
     }
     const requireSocketSessionAccess = (sessionId: string, authorizedProfile = currentProfile()) => {
+      if (isPersonSession(sessionId)) {
+        const session = getSession(sessionId!)
+        if (shared || !ownsPersonSession(socketUser?.id, session)) throw new Error('Session not found')
+        return session!.profile || 'default'
+      }
+      if (sessionId.startsWith('person-task-')) throw new Error('Session not found')
       const session = getSession(sessionId)
       if (!session) throw new Error('Session not found')
       const sessionProfile = String(session.profile || 'default').trim() || 'default'
@@ -906,6 +941,12 @@ export class ChatRunSocket {
     // the conversation permanently blank. Mutating operations keep the stricter
     // connection-scoped check above; attachment runs pass their separately authorized run profile.
     const requireSocketSessionReadAccess = (sessionId: string) => {
+      if (isPersonSession(sessionId)) {
+        const session = getSession(sessionId!)
+        if (shared || !ownsPersonSession(socketUser?.id, session)) throw new Error('Session not found')
+        return session!.profile || 'default'
+      }
+      if (sessionId.startsWith('person-task-')) throw new Error('Session not found')
       const session = getSession(sessionId)
       if (!session) throw new Error('Session not found')
       const sessionProfile = String(session.profile || 'default').trim() || 'default'
@@ -969,6 +1010,16 @@ export class ChatRunSocket {
       let runProfile: string
       try {
         runProfile = resolveRunProfile(data.session_id, data.profile)
+        if (isPersonSession(data.session_id)) {
+          const { session, settings } = await ensurePersonSession(socketUser!.id)
+          if (!settings.model) throw new Error('No available Person model')
+          // Only input/queue identity comes from the client. Agent policy and resources are server-owned.
+          data = { session_id: session.id, input: data.input, queue_id: data.queue_id,
+            profile: settings.model.profile, model: settings.model.model, provider: settings.model.provider,
+            apiMode: settings.model.apiMode, reasoning_effort: settings.reasoningEffort,
+            source: 'builtin_agent', coding_agent_id: 'ekko-agent', mode: 'scoped' }
+          runProfile = settings.model.profile
+        }
         normalizeEkkoRunData(data, data.session_id ? getSession(data.session_id) : undefined)
         if (!shared && data.session_id && Array.isArray(data.input)) {
           // New chats carry a client-generated id; the runtime persists them on the first run.
@@ -995,7 +1046,7 @@ export class ChatRunSocket {
         const ekkoExecution = isEkkoAgentExecution(data)
         if (ekkoExecution) {
           data.agent_id = 'ekko-agent'
-          const ekkoCommand = parseEkkoRunCommand(data, storedSession?.source)
+          const ekkoCommand = isPersonSession(data.session_id) ? null : parseEkkoRunCommand(data, storedSession?.source)
           if (ekkoCommand) {
             await handleEkkoSessionCommand(this.nsp, socket, data, ekkoCommand, runProfile, this.sessionMap, this.dequeueNextQueuedRun.bind(this))
             return
@@ -1269,6 +1320,15 @@ export class ChatRunSocket {
         })
         return
       }
+      if (isPersonSession(data.session_id) && data.approval_id.startsWith('person-interaction:')) {
+        try {
+          await answerPersonChatInteraction(socketUser!.id, data.approval_id, data.choice || '', true)
+          this.syncPersonInteraction(socketUser!.id)
+        } catch (error) {
+          socket.emit('approval.resolved', { event: 'approval.resolved', session_id: data.session_id, approval_id: data.approval_id, resolved: false, error: String(error) })
+        }
+        return
+      }
       const ekkoResult = respondToEkkoToolApproval(
         data.session_id,
         data.approval_id,
@@ -1338,6 +1398,15 @@ export class ChatRunSocket {
           resolved: false,
           error: err instanceof Error ? err.message : String(err),
         })
+        return
+      }
+      if (isPersonSession(data.session_id) && data.clarify_id.startsWith('person-interaction:')) {
+        try {
+          await answerPersonChatInteraction(socketUser!.id, data.clarify_id, data.response || '', false)
+          this.syncPersonInteraction(socketUser!.id)
+        } catch (error) {
+          socket.emit('clarify.resolved', { event: 'clarify.resolved', session_id: data.session_id, clarify_id: data.clarify_id, resolved: false, error: String(error) })
+        }
         return
       }
       const mcpResult = this.clarificationRuns.respond(data.session_id, data.clarify_id, data.response)
@@ -1550,6 +1619,33 @@ export class ChatRunSocket {
     return codingAgentRunManager.resolveClarification(sessionId, clarifyId, response).resolved
   }
 
+  /** Internal Person broker: callers authenticate the durable task/interaction before delivery. */
+  async respondPersonInteraction(sessionId: string, id: string, response: string, approval: boolean): Promise<boolean> {
+    const state = this.sessionMap.get(sessionId)
+    const eventName = approval ? 'approval.requested' : 'clarify.requested'
+    if (!state?.events.some(entry => entry.event === eventName && (entry.data?.approval_id === id || entry.data?.clarify_id === id))) return false
+    let resolved = false
+    if (approval) {
+      if (!['once', 'session', 'deny'].includes(response)) return false
+      const ekko = respondToEkkoToolApproval(sessionId, id, response)
+      const coding = ekko.handled ? ekko : codingAgentRunManager.resolveApproval(sessionId, id, response)
+      resolved = coding.handled ? coding.resolved : Boolean((await this.bridge.approvalRespond(id, response) as any)?.resolved)
+    } else {
+      const mcp = this.clarificationRuns.respond(sessionId, id, response)
+      if (mcp.handled) return mcp.resolved // Registry also removes its replay state.
+      const ekko = respondToEkkoClarification(sessionId, id, response)
+      const coding = ekko.handled ? ekko : codingAgentRunManager.resolveClarification(sessionId, id, response)
+      resolved = coding.handled ? coding.resolved : Boolean((await this.bridge.clarifyRespond(id, response) as any)?.resolved)
+    }
+    if (resolved) {
+      state.events = state.events.filter(entry => !(entry.event === eventName && (entry.data?.approval_id === id || entry.data?.clarify_id === id)))
+      this.emitExternalEvent(sessionId, approval ? 'approval.resolved' : 'clarify.resolved', {
+        ...(approval ? { approval_id: id, choice: response } : { clarify_id: id }), resolved: true,
+      })
+    }
+    return resolved
+  }
+
   // --- Run dispatcher ---
 
   private async handleRun(
@@ -1609,6 +1705,16 @@ export class ChatRunSocket {
     backgroundContinuationContext?: BackgroundContinuationContext,
     pushTargetId?: string,
   ) {
+    if (isPersonSession(data.session_id)) {
+      const userId = socket.data?.user?.id
+      if (!ownsPersonSession(userId, getSession(data.session_id!))) throw new Error('Session not found')
+      const { settings } = await ensurePersonSession(userId)
+      if (!settings.model) throw new Error('No available Person model')
+      data = { session_id: data.session_id, input: data.input, queue_id: data.queue_id, onEvent: data.onEvent,
+        model: settings.model.model, provider: settings.model.provider, apiMode: settings.model.apiMode,
+        reasoning_effort: settings.reasoningEffort, source: 'builtin_agent', coding_agent_id: 'ekko-agent', mode: 'scoped' }
+      profile = settings.model.profile
+    }
     normalizeEkkoRunData(data, data.session_id ? getSession(data.session_id) : undefined)
     const source = resolveRunSource(data.source, data.session_id)
     const surface = data.session_source || source
@@ -1619,7 +1725,7 @@ export class ChatRunSocket {
         this.mobileRunTargets.set(data.session_id, { ...target })
       } else this.mobileRunTargets.delete(data.session_id)
     }
-    const ekkoMcpServers = isEkkoAgentExecution(data)
+    const ekkoMcpServers = isPersonSession(data.session_id) ? {} : isEkkoAgentExecution(data)
       ? resolveChatEkkoMcpServers(profile, data.mcpServers || data.mcp_servers) || {}
       : undefined
     const mcpCapabilities = ekkoMcpServers
@@ -1780,6 +1886,10 @@ export class ChatRunSocket {
         })
         data.onEvent?.(event, payload)
         this.emitPendingInteraction(profile, event, payload)
+        if (isPersonSession(data.session_id) && ['run.completed','run.failed','abort.completed'].includes(event)) {
+          this.personQuestions.delete(Number(socket.data.user?.id))
+          personUpdated(Number(socket.data.user?.id))
+        }
       }
       await handleEkkoAgentRun(
         this.nsp,
@@ -2127,6 +2237,11 @@ export class ChatRunSocket {
     const resumeEvents = state.isWorking
       ? state.events
       : (state.events || []).filter(evt => evt?.event === 'run.reattach_failed')
+    if (isPersonSession(sid) && !state.isWorking) {
+      const question = personChatInteraction(Number(socket.data.user.id))
+      this.personQuestions.set(Number(socket.data.user.id), question)
+      if (question && !resumeEvents.some(entry => entry.data?.approval_id === question.data.approval_id && entry.data?.clarify_id === question.data.clarify_id)) resumeEvents.push(question)
+    }
     const sessionDetail = getSessionMetadata(sid)
     const messagePage = buildResumeMessagePage(state.messages, {
       limit: state.messagePageLimit,
@@ -2441,7 +2556,7 @@ export class ChatRunSocket {
       }
 
       const result = control.runtime === 'ekko'
-        ? getGlobalEkkoAgent(state.profile || 'default').requestBoundaryInterrupt({
+        ? state.ekkoBoundaryInterrupt?.(control.runId) ?? getGlobalEkkoAgent(state.profile || 'default').requestBoundaryInterrupt({
             sessionId,
             expectedRunId: control.runId,
           })
@@ -2895,7 +3010,7 @@ export class ChatRunSocket {
       workflowId: state?.webhookWorkflowId,
       workflowNodeId: state?.webhookWorkflowNodeId,
     })
-    this.observePetEvent(profile, event, tagged)
+    if (!isPrivatePersonSession(sessionId)) this.observePetEvent(profile, event, tagged)
     this.emitPendingInteraction(profile, event, tagged)
     if (state?.isWorking) {
       state.events.push({ event, data: tagged })
@@ -3009,7 +3124,7 @@ export class ChatRunSocket {
       state.profile = undefined
       this.sessionMap.delete(sessionId)
     }
-    this.nsp.to(['studio-account', `session:${sessionId}`]).emit('session.command', {
+    this.nsp.to(isPrivatePersonSession(sessionId) ? `session:${sessionId}` : ['studio-account', `session:${sessionId}`]).emit('session.command', {
       event: 'session.command',
       session_id: sessionId,
       command: 'clear',
@@ -3020,7 +3135,7 @@ export class ChatRunSocket {
       deleted,
       memory_cleared: hadMemoryState,
     })
-    this.nsp.to(['studio-account', `session:${sessionId}`]).emit('resumed', {
+    this.nsp.to(isPrivatePersonSession(sessionId) ? `session:${sessionId}` : ['studio-account', `session:${sessionId}`]).emit('resumed', {
       session_id: sessionId,
       messages: [],
       messageTotal: 0,
@@ -3039,7 +3154,7 @@ export class ChatRunSocket {
       queueMessages: [],
       queueInsertion: null,
     })
-    this.nsp.to(['studio-account', `session:${sessionId}`]).emit('run.queued', {
+    this.nsp.to(isPrivatePersonSession(sessionId) ? `session:${sessionId}` : ['studio-account', `session:${sessionId}`]).emit('run.queued', {
       event: 'run.queued',
       session_id: sessionId,
       queue_length: 0,
@@ -3216,7 +3331,7 @@ export class ChatRunSocket {
       workflowId: state?.webhookWorkflowId,
       workflowNodeId: state?.webhookWorkflowNodeId,
     })
-    this.observePetEvent(profile, event, tagged)
+    if (!isPrivatePersonSession(sessionId)) this.observePetEvent(profile, event, tagged)
     this.emitPendingInteraction(profile, event, tagged)
     this.nsp.to(`session:${sessionId}`).emit(event, tagged)
     if (!this.nsp.adapter.rooms.get(`session:${sessionId}`)?.size && socket.connected) {
@@ -3225,6 +3340,7 @@ export class ChatRunSocket {
   }
 
   private emitPendingInteraction(profile: string, event: string, payload: any) {
+    if (isPrivatePersonSession(payload?.session_id)) return
     this.emitSessionActivity(profile, event, payload)
     if (event !== 'approval.requested' && event !== 'approval.resolved'
       && event !== 'clarify.requested' && event !== 'clarify.resolved'
@@ -3261,12 +3377,12 @@ export class ChatRunSocket {
     const state = this.sessionMap.get(sessionId)
     const source = state?.source || getSession(sessionId)?.source
     const runId = state?.activeRunMarker || state?.responseRun?.runMarker || payload.run_marker || state?.runId || payload.run_id
-    if (source !== 'group_chat' && source !== 'workflow') publishAppState(stateEvent('chat.run.updated', profile,
+    if (!isPrivatePersonSession(sessionId) && source !== 'group_chat' && source !== 'workflow') publishAppState(stateEvent('chat.run.updated', profile,
       { session_id: sessionId, run_id: runId },
       { state: { session_id: sessionId, status, timestamp: Date.now(), started_at: state?.runStartedAt,
         reset_progress: event === 'run.started' } }))
 
-    this.nsp.to([`pending-interactions:${profile}`, `session:${sessionId}`]).emit('session.activity', {
+    this.nsp.to(isPrivatePersonSession(sessionId) ? `session:${sessionId}` : [`pending-interactions:${profile}`, `session:${sessionId}`]).emit('session.activity', {
       event: 'session.activity',
       session_id: sessionId,
       status,
@@ -3293,6 +3409,7 @@ export class ChatRunSocket {
     if (this.closing) return
     this.closing = true
     this.stopUsageUpdates()
+    this.stopPersonUpdates()
     for (const sessionId of this.sessionMap.keys()) this.finishTaskPlanRun(sessionId, 'abort.completed')
     if (this.backgroundPollTimer) {
       clearInterval(this.backgroundPollTimer)

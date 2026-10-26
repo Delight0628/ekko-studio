@@ -12,6 +12,7 @@ describe('user auth tables and middleware', () => {
     vi.doMock('../../packages/server/src/modules/studio/infrastructure/database/index', () => ({
       getDb: () => db,
       getStoragePath: () => ':memory:',
+      isSqliteAvailable: () => true,
     }))
     vi.doMock('../../packages/server/src/modules/studio/public/profile-config', () => ({
       listProfileNamesFromDisk: () => ['default'],
@@ -365,6 +366,27 @@ describe('user auth tables and middleware', () => {
       exp: 3601,
     })
     expect(auth.verifyUserJwt(token, 'secret', 1000 + 60 * 60 * 1000)).toBeNull()
+  })
+
+  it('protects account Person sessions in HTTP independently of shared Profile or admin role', async () => {
+    const { users, auth } = await initUsers()
+    const owner = users.bootstrapDefaultSuperAdmin('admin', '123456')!
+    db.prepare("INSERT INTO users(username,password_hash,role,status,created_at,updated_at) VALUES ('other','unused','super_admin','active',1,1)").run()
+    const other = users.findUserByUsername('other')!
+    const { createSession } = await import('../../packages/server/src/modules/studio/repositories/session-store')
+    createSession({ id: `person-main-${owner.id}`, user_id: owner.id, studio_user_id: owner.id, source: 'builtin_agent', profile: 'resource-profile' })
+    for (const user of [owner, other]) {
+      const ctx = { path: `/api/studio/sessions/person-main-${owner.id}`, query: {}, request: { body: {} },
+        headers: { authorization: `Bearer ${auth.signUserJwt(user, 'test-secret')}` }, state: {}, status: 200, body: null,
+        get: (name: string) => name === 'x-hermes-profile' ? 'unrelated-profile' : '' } as any
+      const next = vi.fn()
+      await auth.requireUserJwt(ctx, next)
+      if (user.id === owner.id) {
+        expect(next).toHaveBeenCalledOnce()
+        await auth.resolveUserProfile(ctx, vi.fn())
+        expect(ctx.state.profile.name).toBe('resource-profile')
+      } else { expect(ctx.status).toBe(404); expect(next).not.toHaveBeenCalled() }
+    }
   })
 
   it('authenticates JWTs passed as query tokens for download and websocket URLs', async () => {

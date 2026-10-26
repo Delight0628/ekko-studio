@@ -169,6 +169,8 @@ export interface SessionState {
   contextTokens?: number
   /** Ekko's system/tool context, kept separately from conversation history. */
   ekkoContext?: { fixedContextTokens: number }
+  /** Bound to the actual agent for this turn, including account agents such as Person. */
+  ekkoBoundaryInterrupt?: (expectedRunId: string) => { status: string; phase?: string; reason?: string }
   bridgeContext?: BridgeContextState
   isAborting?: boolean
   queue: QueuedRun[]

@@ -147,7 +147,7 @@ provide(mobileNavigationKey, {
   target: computed(() => !isWideViewport.value && hasNavigationRail.value ? mobileSidebarHost.value : null),
 });
 const hasMobileContextSidebar = computed(() =>
-  !['hermes.connections', 'hermes.agentManager', 'hermes.models', 'hermes.usage', 'hermes.apiRelay'].includes(String(route.name)),
+  !['hermes.person', 'hermes.connections', 'hermes.agentManager', 'hermes.models', 'hermes.usage', 'hermes.apiRelay'].includes(String(route.name)),
 );
 watch([hasNavigationRail, isWideViewport], () => { mobileNavigationOpen.value = false; });
 watch(sessionSearchOpen, (open) => { if (open) mobileNavigationOpen.value = false; });
@@ -161,6 +161,7 @@ function handleWideViewportChange(event: MediaQueryListEvent) {
 }
 const usesPageSidebar = computed(() =>
   [
+    "hermes.person",
     "hermes.chat",
     "hermes.session",
     "hermes.connections",

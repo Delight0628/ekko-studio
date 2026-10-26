@@ -1,11 +1,12 @@
 import { deploymentUrl } from './deployment-url'
 
 export interface ChatAgentAvatar {
-  label: 'Hermes' | 'Ekko' | 'Claude' | 'Codex' | 'Pi' | 'Grok' | 'OpenCode' | 'DeepSeek Harness' | 'Cursor' | 'Antigravity' | 'Qwen Code' | 'Kimi Code' | 'CodeBuddy' | 'Qoder' | 'GitHub Copilot' | 'ZCode'
+  label: 'Person' | 'Hermes' | 'Ekko' | 'Claude' | 'Codex' | 'Pi' | 'Grok' | 'OpenCode' | 'DeepSeek Harness' | 'Cursor' | 'Antigravity' | 'Qwen Code' | 'Kimi Code' | 'CodeBuddy' | 'Qoder' | 'GitHub Copilot' | 'ZCode'
   src: string
 }
 
 interface ChatAgentSessionIdentity {
+  id?: string
   source?: string
   agent?: string
   codingAgentId?: string
@@ -32,6 +33,7 @@ const AGENT_AVATARS = {
 
 export function chatSessionAgentAvatar(session?: ChatAgentSessionIdentity | null): ChatAgentAvatar {
   if (!session) return AGENT_AVATARS['ekko-agent']
+  if (session.id?.startsWith('person-main-')) return { ...AGENT_AVATARS['ekko-agent'], label: 'Person' }
   const runtime = String(session?.codingAgentId || session?.agent || '').trim().toLowerCase()
   if (runtime === 'ekko-agent' || runtime === 'ekko_agent' || runtime === 'ekko') return AGENT_AVATARS['ekko-agent']
   if (runtime === 'claude' || runtime === 'claude-code') return AGENT_AVATARS['claude-code']

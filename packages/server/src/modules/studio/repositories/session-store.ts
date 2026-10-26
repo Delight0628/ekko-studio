@@ -672,7 +672,8 @@ function sessionFilterSql(
   profile: string | null | undefined,
   options: SessionListOptions,
 ): { sql: string; params: string[] } | null {
-  const clauses: string[] = []
+  // Person execution sessions are private implementation details, exposed by the account-owned Person API.
+  const clauses: string[] = ["s.id NOT LIKE 'person-task-%' AND s.id NOT LIKE 'person-main-%'"]
   const params: string[] = []
   const profileFilter = profile?.trim()
   if (profileFilter) {

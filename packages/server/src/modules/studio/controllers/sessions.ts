@@ -1,3 +1,4 @@
+import { isPersonSession, isPrivatePersonSession, ownsPersonSession } from '../contracts/person-session'
 import { isNativeCodingAgent } from '../contracts/agents/native-coding-agents'
 import { withRunUsage } from '../public/usage'
 import { businessEvents } from '../services/webhooks/business-events'
@@ -89,6 +90,7 @@ function getPendingDeletedSessionIds(): Set<string> {
 
 function filterPendingDeletedSessions<T extends { id: string }>(items: T[]): T[] {
   const pendingIds = getPendingDeletedSessionIds()
+  items = items.filter(item => !isPrivatePersonSession(item.id))
   if (pendingIds.size === 0) return items
   return items.filter(item => !pendingIds.has(item.id))
 }
@@ -153,6 +155,8 @@ function filterByAllowedProfiles<T>(ctx: any, items: T[]): T[] {
 }
 
 function denySessionAccess(ctx: any, session: any | null | undefined): boolean {
+  if (isPersonSession(session?.id) && ownsPersonSession(ctx.state?.user?.id, session)) return false
+  if (isPrivatePersonSession(session?.id)) { ctx.status = 404; ctx.body = { error: 'Session not found' }; return true }
   if (!session || canAccessProfile(ctx, session.profile)) return false
   ctx.status = 403
   ctx.body = { error: `Profile "${session.profile || 'default'}" is not available for this user` }

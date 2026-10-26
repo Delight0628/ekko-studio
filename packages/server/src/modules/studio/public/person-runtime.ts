@@ -1,0 +1,45 @@
+import type { AgentRuntimeRunInput, AgentRuntimeRunResult, AgentRuntimeContextEstimate, AgentRuntimeBoundaryInterruptRequest, AgentRuntimeBoundaryInterruptResult } from '../../../../../ekko-agent/src/runtime/types'
+import type { AgentMessage, AgentToolDefinition, ModelRequest, ModelResponse } from '../../../../../ekko-agent/src/model/types'
+import type { PersonSelection } from '../contracts/person'
+import type { AuthenticatedUser } from '../middleware/auth'
+
+export interface PersonModelCall {
+  selection: PersonSelection
+  messages: AgentMessage[]
+  systemPrompt: string
+  tools: Array<AgentToolDefinition & { execute(input: Record<string, unknown>): Promise<unknown> }>
+  maxSteps: number
+  contextTokens: number
+  reasoningEffort?: ModelRequest['reasoningEffort']
+  signal: AbortSignal
+  beforeRequest?: () => void
+  onEvent?: (event: unknown) => void
+  onUsage?: (response: ModelResponse) => void
+  prepare?: (request: ModelRequest, summarize: (text: string) => Promise<string>) => Promise<ModelRequest>
+}
+export interface PersonChatAgentOptions extends Pick<PersonModelCall, 'selection' | 'tools' | 'systemPrompt' | 'maxSteps' | 'contextTokens' | 'beforeRequest'> {
+  workspace: string
+}
+export interface PersonRuntimePort {
+  chatAgent?(input: PersonChatAgentOptions): {
+    sessionWorkspaceDirectory(sessionId: string): string
+    requestBoundaryInterrupt(request: AgentRuntimeBoundaryInterruptRequest): AgentRuntimeBoundaryInterruptResult
+    estimateContext(input: AgentRuntimeRunInput): Promise<AgentRuntimeContextEstimate>
+    run(input: AgentRuntimeRunInput): Promise<AgentRuntimeRunResult>
+  }
+  modelConfig(profile: string): Promise<{ default: string; default_provider: string; groups: Array<{
+    provider: string; label?: string; models: string[]; api_mode?: string; api_mode_by_model?: Record<string, string | null>
+    model_meta?: Record<string, { alias?: string; disabled?: boolean; reasoning?: boolean; reasoning_efforts?: string[] }>
+  }> }>
+  model(input: PersonModelCall): Promise<string>
+  nativeModels(runtime: string): Promise<{ status: string; models: Array<{ id: string; name: string }> }>
+  execute(input: { user: AuthenticatedUser; selection: PersonSelection; sessionId: string; workspace: string; prompt: string; signal: AbortSignal; onEvent(event: string, payload: Record<string, unknown>): void }): Promise<{ ok: boolean; output?: string; error?: string }>
+  answer(sessionId: string, id: string, response: string, approval: boolean): Promise<boolean>
+  stop(sessionId: string): Promise<void>
+}
+let port: PersonRuntimePort | undefined
+export function configurePersonRuntime(value: PersonRuntimePort) { port = value }
+export function personRuntime(): PersonRuntimePort {
+  if (!port) throw Object.assign(new Error('Person runtime is unavailable'), { status: 503 })
+  return port
+}

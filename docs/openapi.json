@@ -13,6 +13,10 @@
   ],
   "tags": [
     {
+      "name": "Person",
+      "description": "Account-owned assistant, independent memory, task execution, decisions and durable schedules"
+    },
+    {
       "name": "Desktop Browser",
       "description": "Authenticated remote Desktop browser relay with explicit Desktop consent"
     },
@@ -19117,6 +19121,665 @@
             "description": "Not found"
           }
         }
+      }
+    },
+    "/api/studio/person": {
+      "get": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Get person",
+        "description": "GET /api/studio/person",
+        "operationId": "snapshot",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/studio/person/capabilities": {
+      "get": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Get capabilities",
+        "description": "GET /api/studio/person/capabilities",
+        "operationId": "capabilities",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/studio/person/executions/{id}/events": {
+      "get": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Get events",
+        "description": "GET /api/studio/person/executions/:id/events",
+        "operationId": "events",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/studio/person/interactions/{id}/answer": {
+      "post": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Create answer",
+        "description": "Studio user login required. Account isolation is enforced by the server. Mutations use current revisions; task and schedule operations require an idempotency key. Worker question answers are delivered through their original interactive runtime.",
+        "operationId": "answer",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "answer": {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "answer",
+                  "expected_revision"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/person/memory": {
+      "post": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Create memory",
+        "description": "Studio user login required. Account isolation is enforced by the server. Mutations use current revisions; task and schedule operations require an idempotency key. Worker question answers are delivered through their original interactive runtime.",
+        "operationId": "memory",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "forget": {
+                    "type": "boolean"
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": []
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/person/models": {
+      "get": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Get models",
+        "description": "GET /api/studio/person/models",
+        "operationId": "modelCatalog",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/studio/person/models/search": {
+      "post": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Create search",
+        "description": "Studio user login required. Account isolation is enforced by the server. Mutations use current revisions; task and schedule operations require an idempotency key. Worker question answers are delivered through their original interactive runtime.",
+        "operationId": "models",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "runtime": {
+                    "type": "string"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "scoped",
+                      "global"
+                    ]
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "provider": {
+                    "type": "string"
+                  },
+                  "cursor": {
+                    "type": "string"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                  }
+                },
+                "required": []
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/person/schedules/apply": {
+      "post": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Create apply",
+        "description": "Studio user login required. Account isolation is enforced by the server. Mutations use current revisions; task and schedule operations require an idempotency key. Worker question answers are delivered through their original interactive runtime.",
+        "operationId": "schedules",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "create",
+                      "update",
+                      "pause",
+                      "resume",
+                      "cancel"
+                    ]
+                  },
+                  "idempotency_key": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "task_id": {
+                    "type": "string"
+                  },
+                  "schedule_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "once",
+                      "cron"
+                    ]
+                  },
+                  "expression": {
+                    "type": "string",
+                    "description": "ISO date with offset or five-field cron"
+                  },
+                  "timezone": {
+                    "type": "string"
+                  },
+                  "misfire": {
+                    "type": "string",
+                    "enum": [
+                      "skip",
+                      "run_latest"
+                    ]
+                  }
+                },
+                "required": [
+                  "action",
+                  "idempotency_key"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/person/settings": {
+      "put": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Update settings",
+        "description": "Studio user login required. Account isolation is enforced by the server. Mutations use current revisions; task and schedule operations require an idempotency key. Worker question answers are delivered through their original interactive runtime.",
+        "operationId": "settings",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "use_global_default": {
+                    "type": "boolean"
+                  },
+                  "model": {
+                    "type": "object",
+                    "properties": {
+                      "profile": {
+                        "type": "string"
+                      },
+                      "provider": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "profile",
+                      "provider",
+                      "model"
+                    ]
+                  },
+                  "reasoning_effort": {
+                    "type": "string",
+                    "enum": [
+                      "",
+                      "none",
+                      "minimal",
+                      "low",
+                      "medium",
+                      "high",
+                      "xhigh",
+                      "max"
+                    ]
+                  },
+                  "selection_ref": {
+                    "type": "string"
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "timezone": {
+                    "type": "string"
+                  },
+                  "maxSteps": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 30
+                  },
+                  "contextTokens": {
+                    "type": "integer",
+                    "minimum": 8000,
+                    "maximum": 64000
+                  },
+                  "maxReviewRounds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5
+                  },
+                  "maxConcurrentTasks": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4
+                  }
+                },
+                "required": [
+                  "expected_revision"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/person/tasks/apply": {
+      "post": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Create apply",
+        "description": "Studio user login required. Account isolation is enforced by the server. Mutations use current revisions; task and schedule operations require an idempotency key. Worker question answers are delivered through their original interactive runtime.",
+        "operationId": "taskApply",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "create",
+                      "adopt",
+                      "update",
+                      "steer",
+                      "start",
+                      "pause",
+                      "resume",
+                      "cancel",
+                      "close",
+                      "reopen"
+                    ]
+                  },
+                  "idempotency_key": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "task_id": {
+                    "type": "string"
+                  },
+                  "schedule_id": {
+                    "type": "string"
+                  },
+                  "selection_ref": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "goal": {
+                    "type": "string",
+                    "maxLength": 8000
+                  },
+                  "acceptance": {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  "workspace": {
+                    "type": "string",
+                    "description": "Absolute working directory; omitted means an isolated account workspace"
+                  },
+                  "start": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                },
+                "required": [
+                  "action",
+                  "idempotency_key"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/person/tasks/query": {
+      "post": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Create query",
+        "description": "Studio user login required. Account isolation is enforced by the server. Mutations use current revisions; task and schedule operations require an idempotency key. Worker question answers are delivered through their original interactive runtime.",
+        "operationId": "tasks",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "search": {
+                    "type": "string"
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": []
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/person/tasks/{id}/executions": {
+      "get": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Get executions",
+        "description": "GET /api/studio/person/tasks/:id/executions",
+        "operationId": "executions",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
     "/api/studio/petdex/asset": {

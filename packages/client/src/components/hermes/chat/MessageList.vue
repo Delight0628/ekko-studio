@@ -35,6 +35,7 @@ import type { MessageSelectionRow } from './message-selection';
 import { desktopBridge } from '@/utils/desktop-bridge';
 
 const props = withDefaults(defineProps<{
+  userLabel?: string
   approvalPortalToBody?: boolean
   scrollScope?: string
   selectionActionsTarget?: HTMLElement | null
@@ -196,9 +197,9 @@ const activeSessionProfile = computed(() => (
   profilesStore.profiles.find(profile => profile.name === activeSessionProfileName.value) || null
 ));
 const userProfileName = computed(() => (
-  activeSessionProfile.value?.alias?.trim() || activeSessionProfileName.value
+  props.userLabel || activeSessionProfile.value?.alias?.trim() || activeSessionProfileName.value
 ));
-const userProfileAvatar = computed(() => activeSessionProfile.value?.avatar || null);
+const userProfileAvatar = computed(() => props.userLabel ? null : activeSessionProfile.value?.avatar || null);
 
 const emptyState = computed(() => {
   const agent = assistantAgent.value;

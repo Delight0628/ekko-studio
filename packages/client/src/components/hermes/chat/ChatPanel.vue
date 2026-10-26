@@ -698,7 +698,7 @@ function sortSessionsForSidebar(items: Session[]): Session[] {
 }
 
 const recentSessionPartition = computed(() => partitionRecentSessions(
-  chatStore.sessions.filter((session) => !session.isPinned),
+  chatStore.sessions.filter((session) => !session.id.startsWith('person-main-') && !session.isPinned),
   sessionBrowserPrefsStore.recentCount,
   t("chat.recent"),
 ));
@@ -724,7 +724,7 @@ function toggleRecentGroup() {
 
 const pinnedSessions = computed(() =>
   sortSessionsForSidebar(
-    chatStore.sessions.filter((session) =>
+    chatStore.sessions.filter((session) => !session.id.startsWith('person-main-') &&
       session.isPinned,
     ),
   ),

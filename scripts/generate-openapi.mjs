@@ -43,6 +43,7 @@ const openapi = {
 
 // Tag mappings based on route directories
 const tagMappings = {
+  'modules/studio/routes/person.ts': { name: 'Person', description: 'Account-owned assistant, independent memory, task execution, decisions and durable schedules' },
   'modules/studio/routes/desktop-browser.ts': { name: 'Desktop Browser', description: 'Authenticated remote Desktop browser relay with explicit Desktop consent' },
   'modules/hermes/routes/profiles.ts': { name: 'Profiles', description: 'Hermes profile management' },
   'modules/hermes/routes/models.ts': { name: 'Models', description: 'Model configuration' },
@@ -1957,6 +1958,29 @@ for (const action of ['list', 'update']) {
     '503': { description: 'Chat run service unavailable.' },
   }
   delete operation.responses['404']
+}
+
+// Person uses account identity from the login token; profile/model refs are resources, never ownership.
+const personFields = {
+  action: { type: 'string' }, idempotency_key: { type: 'string', maxLength: 200 }, expected_revision: { type: 'integer', minimum: 0 },
+  task_id: { type: 'string' }, schedule_id: { type: 'string' }, selection_ref: { type: 'string' },
+  title: { type: 'string', maxLength: 200 }, goal: { type: 'string', maxLength: 8000 }, acceptance: { type: 'string', maxLength: 4000 },
+  workspace: { type: 'string', description: 'Absolute working directory; omitted means an isolated account workspace' }, start: { type: 'boolean', default: true },
+}
+const personBodies = {
+  '/settings': { fields: { use_global_default: {type:'boolean'}, model: {type:'object',properties:{profile:{type:'string'},provider:{type:'string'},model:{type:'string'}},required:['profile','provider','model']}, reasoning_effort: {type:'string',enum:['','none','minimal','low','medium','high','xhigh','max']}, selection_ref: personFields.selection_ref, expected_revision: personFields.expected_revision, timezone: { type:'string' }, maxSteps:{type:'integer',minimum:2,maximum:30}, contextTokens:{type:'integer',minimum:8000,maximum:64000},maxReviewRounds:{type:'integer',minimum:0,maximum:5},maxConcurrentTasks:{type:'integer',minimum:1,maximum:4} }, required:['expected_revision'], method:'put' },
+  '/models/search': { fields:{runtime:{type:'string'},mode:{type:'string',enum:['scoped','global']},query:{type:'string'},provider:{type:'string'},cursor:{type:'string'},limit:{type:'integer',minimum:1,maximum:10}} },
+  '/tasks/query': {fields:{search:{type:'string'},offset:{type:'integer',minimum:0}}},
+  '/tasks/apply': {fields:{...personFields,action:{type:'string',enum:['create','adopt','update','steer','start','pause','resume','cancel','close','reopen']}},required:['action','idempotency_key']},
+  '/schedules/apply': {fields:{action:{type:'string',enum:['create','update','pause','resume','cancel']},idempotency_key:personFields.idempotency_key,expected_revision:personFields.expected_revision,task_id:personFields.task_id,schedule_id:personFields.schedule_id,kind:{type:'string',enum:['once','cron']},expression:{type:'string',description:'ISO date with offset or five-field cron'},timezone:{type:'string'},misfire:{type:'string',enum:['skip','run_latest']}},required:['action','idempotency_key']},
+  '/interactions/{id}/answer': {fields:{answer:{type:'string',maxLength:4000},expected_revision:personFields.expected_revision},required:['answer','expected_revision']},
+  '/memory': {fields:{id:{type:'string'},content:{type:'string',maxLength:2000},forget:{type:'boolean'},expected_revision:personFields.expected_revision}},
+}
+for (const [suffix, schema] of Object.entries(personBodies)) {
+  const operation = openapi.paths['/api/studio/person'+suffix]?.[schema.method || 'post']
+  if (!operation) throw new Error('Missing Person API: '+suffix)
+  operation.requestBody={required:true,content:{'application/json':{schema:{type:'object',properties:schema.fields,required:schema.required || []}}}}
+  operation.description='Studio user login required. Account isolation is enforced by the server. Mutations use current revisions; task and schedule operations require an idempotency key. Worker question answers are delivered through their original interactive runtime.'
 }
 
 // Write output

@@ -152,7 +152,7 @@ function pendingSoundActionKeys(): string[] {
 function pendingActions(suppressVisibleSources = true): GlobalPendingAction[] {
   const actions: GlobalPendingAction[] = []
   const profile = profilesStore.activeProfileName || 'default'
-  const visibleChatSessionId = suppressVisibleSources && ['hermes.chat', 'hermes.session', 'hermes.globalAgent', 'hermes.globalAgentSession'].includes(String(route.name || ''))
+  const visibleChatSessionId = suppressVisibleSources && ['hermes.person', 'hermes.chat', 'hermes.session', 'hermes.globalAgent', 'hermes.globalAgentSession'].includes(String(route.name || ''))
     ? chatStore.activeSessionId
     : null
   const visibleGroupRoomId = suppressVisibleSources && route.name === 'hermes.groupChatRoom' ? groupChatStore.currentRoomId : null
@@ -305,6 +305,7 @@ async function submitWorkflowApproval(action: Extract<GlobalPendingAction, { kin
 function openPendingSource(action: GlobalPendingAction) {
   if (action.kind === 'chat-approval' || action.kind === 'chat-clarify') {
     const sessionId = action.pending.sessionId
+    if (sessionId.startsWith('person-main-')) { void router.push('/person'); return }
     const session = chatStore.sessions.find(item => item.id === sessionId)
     void router.push({
       name: session?.source === 'global_agent' ? 'hermes.globalAgentSession' : 'hermes.session',
@@ -333,6 +334,7 @@ function systemNotificationCopy(action: GlobalPendingAction): { title: string; b
 function pendingSourceClickUrl(action: GlobalPendingAction): string {
   const profileQuery = `?profile=${encodeURIComponent(action.profile)}`
   if (action.kind === 'chat-approval' || action.kind === 'chat-clarify') {
+    if (action.pending.sessionId.startsWith('person-main-')) return '/person'
     const sessionId = encodeURIComponent(action.pending.sessionId)
     const session = chatStore.sessions.find(item => item.id === action.pending.sessionId)
     return session?.source === 'global_agent'

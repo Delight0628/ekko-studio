@@ -43,8 +43,10 @@ const props = withDefaults(defineProps<{
   persistDraft?: boolean
   draft?: boolean
   draftConfig?: Pick<Session, 'profile' | 'provider' | 'model' | 'codingAgentMode' | 'agent'>
+  managedReasoningEffort?: boolean
   reasoningEffort?: string
   reasoningEffortDisabled?: boolean
+  scopedReasoningEfforts?: string[]
   nativeReasoningEfforts?: string[]
   nativeEffortChoices?: NativeEffortChoice[]
   sendDisabled?: boolean
@@ -84,14 +86,14 @@ const reasoningEffortOptions = computed(() => agentReasoningEffortOptions(isGlob
   ? props.nativeEffortChoices.map(choice => ({ value: choice.effort,
     label: choice.effort ? effortLabel(choice.effort) : defaultReasoningEffortLabel.value })) : [
   { label: defaultReasoningEffortLabel.value, value: '' },
-  ...(isGlobalCodingAgentSession.value ? props.nativeReasoningEfforts || [] : modelReasoningEfforts(
+  ...(isGlobalCodingAgentSession.value ? props.nativeReasoningEfforts || [] : props.scopedReasoningEfforts ?? modelReasoningEfforts(
     appStore.profileModelGroups?.find(entry => entry.profile === (reasoningSession.value?.profile || profilesStore.activeProfileName))?.groups || appStore.modelGroups || [],
     reasoningSession.value?.provider || appStore.selectedProvider || '',
     reasoningSession.value?.model || appStore.selectedModel || '',
   )).map(value => ({ label: effortLabel(value), value })),
 ], isHermesSession(reasoningSession.value)))
 const currentReasoningEffort = computed<string>(() =>
-  (props.draft ? props.reasoningEffort : composerSession.value?.reasoningEffort
+  ((props.draft || props.managedReasoningEffort) ? props.reasoningEffort : composerSession.value?.reasoningEffort
     || props.nativeEffortChoices?.find(choice => choice.model === composerSession.value?.model)?.effort) || ''
 )
 const reasoningEffortSliderValue = computed(() => {
@@ -126,7 +128,7 @@ const reasoningEffortLabel = computed<string>(() => {
 })
 function onReasoningEffortChange(value: string | null | undefined) {
   if (!canEditReasoningEffort.value) return
-  if (props.draft) {
+  if (props.draft || props.managedReasoningEffort) {
     emit('update:reasoningEffort', value || '')
     return
   }
@@ -310,7 +312,7 @@ const skillPickerItems = computed(() => {
 })
 const filteredBridgeCommands = computed(() => {
   const query = slashQuery.value.trim().toLowerCase()
-  const commands = isEkkoSession.value
+  const commands = composerSession.value?.id.startsWith('person-main-') ? [] : isEkkoSession.value
     ? EKKO_SESSION_COMMAND_DEFINITIONS.map(command => ({ ...command, args: command.args || '', description: t(command.descriptionKey) }))
     : isBridgeSession.value
     ? bridgeCommands.value

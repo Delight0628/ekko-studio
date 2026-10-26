@@ -137,7 +137,7 @@ describe('Hermes schema initialization', () => {
     db.exec("CREATE INDEX custom_task_title ON session_tasks(title)")
     db.exec("CREATE TABLE task_audit (task_id TEXT, status TEXT)")
     db.exec('CREATE TRIGGER task_status_audit AFTER UPDATE OF status ON session_tasks BEGIN INSERT INTO task_audit VALUES (new.id, new.status); END')
-    db.exec("INSERT INTO session_tasks VALUES ('task', 'chat', 'Keep task', 'Keep summary', 'completed', 5, 7, 'Verified', 100, 200, 200, 'custom')")
+    db.exec("INSERT INTO session_tasks (id,session_id,title,summary,status,source_message_id,evidence_message_id,completion_evidence,created_at,updated_at,completed_at,extra_tag) VALUES ('task', 'chat', 'Keep task', 'Keep summary', 'completed', 5, 7, 'Verified', 100, 200, 200, 'custom')")
     const before = db.prepare('SELECT * FROM session_tasks').all()
     initAllHermesTables()
     expect(db.prepare('SELECT * FROM session_tasks').all()).toEqual(before)

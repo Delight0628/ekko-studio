@@ -1,9 +1,11 @@
+import { personMessages } from '../person-messages'
 import { remoteDeviceMessages } from '../remote-device-messages'
 import { themePresetMessages } from '../theme-preset-locales'
 import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesPt } from '../social-messages-locales'
 
 export default {
+  person: personMessages['pt'],
   sessionTasks: {
       "title": "Tarefas",
       "task": "Tarefa",

@@ -3404,7 +3404,7 @@ export const useChatStore = defineStore('chat', () => {
       allowPermanent: Boolean((evt as any).allow_permanent),
       isMemoryWrite,
       requestedAt: Date.now(),
-      countdownDeadline: pendingInteractionDeadline(
+      countdownDeadline: (evt as any).durable === true ? Infinity : pendingInteractionDeadline(
         (evt as any).remaining_timeout_ms,
         (evt as any).timeout_ms,
       ),
@@ -3451,7 +3451,7 @@ export const useChatStore = defineStore('chat', () => {
       responseMode: String((evt as any).response_mode || ''),
       timeoutMs: Number((evt as any).timeout_ms) || 300000,
       requestedAt: Date.now(),
-      countdownDeadline: pendingInteractionDeadline(
+      countdownDeadline: (evt as any).durable === true ? Infinity : pendingInteractionDeadline(
         (evt as any).remaining_timeout_ms,
         (evt as any).timeout_ms,
       ),

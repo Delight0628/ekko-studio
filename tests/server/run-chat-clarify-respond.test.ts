@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const personInteractionMock = vi.hoisted(() => vi.fn(() => undefined as any))
+vi.mock('../../packages/server/src/modules/studio/services/person/chat-interactions', () => ({ personChatInteraction: personInteractionMock, answerPersonChatInteraction: vi.fn() }))
 const bridgeMock = vi.hoisted(() => ({
   clarifyRespond: vi.fn(),
   statusIfLoaded: vi.fn(),
@@ -94,6 +96,7 @@ function createSocketHarness() {
 describe('ChatRunSocket clarify responses', { timeout: 15_000 }, () => {
   beforeEach(() => {
     vi.resetModules()
+    personInteractionMock.mockReset()
     sessionStoreMock.getSession.mockReset()
     sessionStoreMock.getSession.mockReturnValue({ id: 'session-1', profile: 'default' })
     bridgeMock.clarifyRespond.mockReset()
@@ -125,6 +128,24 @@ describe('ChatRunSocket clarify responses', { timeout: 15_000 }, () => {
     expect(bridgeMock.clarifyRespond).not.toHaveBeenCalled()
   })
 
+  it('routes Person answers through the live question and hides pending prompts from profile subscribers', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io, namespace } = createSocketHarness()
+    const server = new ChatRunSocket(io as any)
+    const id = 'person-task-private'
+    const state = { isWorking: true, activeRunMarker: 'person-turn', events: [], profile: 'default' }
+    ;(server as any).sessionMap.set(id, state)
+    ;(server as any).clarificationRuns.begin('person-context', id, 'default', () => state)
+    const events: any[] = []
+    ;(server as any).runWaiters.set(id, new Set([(event: string, payload: any) => events.push({event,payload})]))
+    const result = server.requestClarification('person-context', 'default', { question: 'Which result?' })
+    const question = events.find(e => e.event === 'clarify.requested').payload
+    expect(namespace.to.mock.calls.flat()).not.toContain('pending-interactions:default')
+    expect(await server.respondPersonInteraction(id, question.clarify_id, '42', false)).toBe(true)
+    await expect(result).resolves.toMatchObject({ response:'42',reason:'response' })
+    expect(await server.respondPersonInteraction(id, question.clarify_id, '43', false)).toBe(false)
+  })
+
   it('settles MCP questions when a coding run stops and rejects expired contexts', async () => {
     const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
     const { io } = createSocketHarness()
@@ -136,6 +157,54 @@ describe('ChatRunSocket clarify responses', { timeout: 15_000 }, () => {
     server.emitExternalEvent('session-1', 'abort.completed', {})
     await expect(result).resolves.toMatchObject({ reason: 'cancelled' })
     expect(() => server.requestClarification('mcp-context', 'default', { question: 'Old Q' })).toThrow('expired')
+  })
+
+  it('defers background Person decisions during the foreground turn and publishes only to the owner session', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io, namespace, namespaceEmit } = createSocketHarness()
+    const sid = 'person-main-1'
+    sessionStoreMock.getSession.mockReturnValue({ id: sid, studio_user_id: '1', profile: 'default' } as any)
+    const pending = { event: 'clarify.requested', data: { event: 'clarify.requested', session_id: sid, clarify_id: 'person-interaction:q:0', question: 'Which report?', choices: [], durable: true } }
+    personInteractionMock.mockReturnValue(pending)
+    const server = new ChatRunSocket(io as any)
+    ;(server as any).sessionMap.set(sid, { isWorking: true, events: [] })
+    ;(server as any).syncPersonInteraction(1)
+    expect(namespaceEmit).not.toHaveBeenCalled()
+    ;(server as any).sessionMap.get(sid).isWorking = false
+    ;(server as any).syncPersonInteraction(1)
+    expect(namespaceEmit).toHaveBeenCalledWith('clarify.requested', expect.objectContaining({ session_id: sid, durable: true }))
+    expect(namespace.to.mock.calls.every(call => call[0] === `session:${sid}`)).toBe(true)
+    personInteractionMock.mockReturnValue(undefined)
+    ;(server as any).syncPersonInteraction(1)
+    expect(namespaceEmit).toHaveBeenCalledWith('clarify.resolved', expect.objectContaining({ clarify_id: 'person-interaction:q:0', resolved: true }))
+  })
+
+  it('rejects another account reading, running or answering a hidden Person session even on the same Profile', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { handlers, io, socket } = createSocketHarness()
+    ;(socket as any).data.user = { id: 2, role: 'super_admin', username: 'other' }
+    sessionStoreMock.getSession.mockReturnValue({ id: 'person-main-1', profile: 'default', studio_user_id: '1' } as any)
+    const server = new ChatRunSocket(io as any)
+    ;(server as any).onConnection(socket)
+    await handlers.get('run')!({ session_id: 'person-main-1', input: 'Read private context', coding_agent_id: 'ekko-agent' })
+    expect(socket.emit).toHaveBeenCalledWith('run.failed', expect.objectContaining({ error: 'Session not found' }))
+    await handlers.get('resume')!({ session_id: 'person-main-1' })
+    expect(socket.join).not.toHaveBeenCalledWith('session:person-main-1')
+    await handlers.get('clarify.respond')!({ session_id: 'person-main-1', clarify_id: 'q', response: 'Yes' })
+    expect(socket.emit).toHaveBeenCalledWith('clarify.resolved', expect.objectContaining({ resolved: false, error: 'Session not found' }))
+    expect(respondToEkkoClarificationMock).not.toHaveBeenCalled()
+  })
+
+  it('allows the owner to answer Person on a different current Profile through the standard responder', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { handlers, io, socket } = createSocketHarness()
+    ;(socket as any).data.user = { id: 1, role: 'admin', username: 'owner' }
+    sessionStoreMock.getSession.mockReturnValue({ id: 'person-main-1', profile: 'model-resource', studio_user_id: '1' } as any)
+    respondToEkkoClarificationMock.mockReturnValueOnce({ handled: true, resolved: true })
+    const server = new ChatRunSocket(io as any)
+    ;(server as any).onConnection(socket)
+    await handlers.get('clarify.respond')!({ session_id: 'person-main-1', clarify_id: 'q', response: 'Weekly' })
+    expect(respondToEkkoClarificationMock).toHaveBeenCalledWith('person-main-1', 'q', 'Weekly')
   })
 
   it('routes Ekko clarification responses without calling the Hermes bridge', async () => {

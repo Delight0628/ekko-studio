@@ -12,6 +12,7 @@ export function listSessionTaskItems(query: SessionTaskListQuery): SessionTaskLi
   const db = getDb()
   if (!db || !query.profiles.length) return empty
   const where = [
+    "s.id NOT LIKE 'person-task-%' AND s.id NOT LIKE 'person-main-%'",
     `s.profile IN (${query.profiles.map(() => '?').join(',')})`,
     `s.source IN ('api_server', 'cli', 'desktop', 'builtin_agent', 'coding_agent')`,
   ]

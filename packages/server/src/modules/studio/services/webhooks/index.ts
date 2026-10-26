@@ -1,3 +1,4 @@
+import { isPrivatePersonSession } from '../../contracts/person-session'
 import { randomUUID } from 'crypto'
 import { businessEvents } from './business-events'
 import { ensureBusinessConsumers } from './business-consumers'
@@ -92,6 +93,7 @@ function occurredAt(value: unknown): string {
 }
 
 export function observeChatRunWebhookEvent(input: ObserveChatRunWebhookEventInput): boolean {
+  if (isPrivatePersonSession(input.sessionId)) return false
   const payload = input.payload || {}
   const sessionId = stringValue(input.sessionId)
   const plan = input.event === 'plan.updated' ? taskPlanWebhookSnapshot(payload, sessionId) : null

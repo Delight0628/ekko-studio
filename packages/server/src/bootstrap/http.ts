@@ -611,6 +611,9 @@ export async function bootstrap() {
   const { getWorkflowScheduleService } = await import('../modules/studio/services/workflow/schedule')
   const workflowScheduleService = getWorkflowScheduleService()
   workflowScheduleService.start()
+  const { startPersonWork, stopPersonWork } = await import('../modules/studio/services/person/runner')
+  startPersonWork()
+  additionalShutdownSteps.push({ name: 'Person task runtime', close: stopPersonWork })
   additionalShutdownSteps.push({
     name: 'Workflow scheduler',
     close: () => workflowScheduleService.stop(),

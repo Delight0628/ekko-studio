@@ -1,9 +1,11 @@
+import { personMessages } from '../person-messages'
 import { remoteDeviceMessages } from '../remote-device-messages'
 import { themePresetMessages } from '../theme-preset-locales'
 import { themeAppearanceMessages } from '../theme-appearance-locales'
 import { socialMessagesZh } from '../social-messages'
 
 export default {
+  person: personMessages['zh'],
   sessionTasks: {
       "title": "任务",
       "task": "任务",

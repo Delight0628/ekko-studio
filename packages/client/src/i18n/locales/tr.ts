@@ -1,3 +1,4 @@
+import { personMessages } from '../person-messages'
 import { remoteDeviceMessages } from '../remote-device-messages'
 import { themePresetMessages } from '../theme-preset-locales'
 import { themeAppearanceMessages } from '../theme-appearance-locales'
@@ -30,6 +31,7 @@ const writeApprovalMessages = {
 }
 
 export default {
+  person: personMessages['tr'],
   sessionTasks: {
       "title": "Görevler",
       "task": "Görev",

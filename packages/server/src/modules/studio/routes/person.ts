@@ -1,0 +1,15 @@
+import Router from '@koa/router'
+import * as ctrl from '../controllers/person'
+export const personRoutes = new Router()
+personRoutes.get('/api/studio/person', ctrl.snapshot)
+personRoutes.put('/api/studio/person/settings', ctrl.settings)
+personRoutes.get('/api/studio/person/capabilities', ctrl.capabilities)
+personRoutes.post('/api/studio/person/models/search', ctrl.models)
+personRoutes.get('/api/studio/person/models', ctrl.modelCatalog)
+personRoutes.post('/api/studio/person/tasks/query', ctrl.tasks)
+personRoutes.post('/api/studio/person/tasks/apply', ctrl.taskApply)
+personRoutes.get('/api/studio/person/tasks/:id/executions', ctrl.executions)
+personRoutes.get('/api/studio/person/executions/:id/events', ctrl.events)
+personRoutes.post('/api/studio/person/schedules/apply', ctrl.schedules)
+personRoutes.post('/api/studio/person/interactions/:id/answer', ctrl.answer)
+personRoutes.post('/api/studio/person/memory', ctrl.memory)

@@ -6,6 +6,8 @@ import { respondToEkkoToolApproval } from '../../packages/server/src/modules/ekk
 import { respondToEkkoClarification } from '../../packages/server/src/modules/ekko/services/clarifications'
 import * as runUsageStore from '../../packages/server/src/modules/studio/repositories/run-usage-store'
 
+const createPersonChatAgentMock = vi.hoisted(() => vi.fn())
+vi.mock('../../packages/server/src/modules/studio/services/person/chat-agent', () => ({ createPersonChatAgent: createPersonChatAgentMock }))
 const saveTaskPlanMock = vi.hoisted(() => vi.fn())
 const getSessionTasksMock = vi.hoisted(() => vi.fn((sessionId: string) => ({ session_id: sessionId, revision: 0, updated_at: 0, tasks: [] })))
 const updateSessionTasksMock = vi.hoisted(() => vi.fn((sessionId: string) => ({ session_id: sessionId, revision: 1, updated_at: 1, tasks: [] })))
@@ -179,6 +181,42 @@ function continuationContext(subagentId = 'child-background') {
 }
 
 describe('ekko-agent context usage events', () => {
+  it('runs Person through single-chat persistence, reasoning events and real clarification/approval callbacks', async () => {
+    const { handleEkkoAgentRun } = await import('../../packages/server/src/modules/studio/services/chat-run/handle-ekko-agent-run')
+    const { nsp, socket, sessionMap, events } = makeHarness()
+    ;(socket as any).data = { user: { id: 7 } }
+    getSessionMock.mockReturnValue({ id: 'person-main-7', studio_user_id: '7', profile: 'default', source: 'builtin_agent', agent: 'ekko-agent', workspace: '/tmp/person-workspace' })
+    const boundary = vi.fn(() => ({ status: 'accepted', phase: 'model' }))
+    createPersonChatAgentMock.mockResolvedValue({ requestBoundaryInterrupt: boundary, run: agentRunMock, estimateContext: agentEstimateContextMock, sessionWorkspaceDirectory: () => '/tmp/person-workspace' })
+    agentRunMock.mockImplementationOnce(async (input: any) => {
+      expect(sessionMap.get('person-main-7').ekkoBoundaryInterrupt('person-run')).toMatchObject({ status: 'accepted' })
+      expect(boundary).toHaveBeenCalledWith({ sessionId: 'person-main-7', expectedRunId: 'person-run' })
+      expect(input.memoryEnabled).toBe(false)
+      expect(input.toolContext.listSessionTasks).toBeUndefined()
+      expect(input.toolContext.mcpServers).toEqual({})
+      input.onEvent({ type: 'run.started', runId: 'person-run', maxSteps: 4 })
+      const clarify = input.toolContext.requestUserClarification({ clarifyId: 'person-q', question: 'Which report?', choices: ['Weekly'], timeoutMs: 300000 })
+      expect(events.some(e => e.event === 'clarify.requested' && e.payload.question === 'Which report?')).toBe(true)
+      expect(respondToEkkoClarification('person-main-7', 'person-q', 'Weekly').resolved).toBe(true)
+      expect(await clarify).toBe('Weekly')
+      const approval = input.toolContext.requestToolApproval({ approvalId: 'person-a', toolName: 'publish', command: 'Publish report', description: 'Publish?', key: 'publish', choices: ['once','deny'], timeoutMs: 300000 })
+      expect(events.some(e => e.event === 'approval.requested')).toBe(true)
+      respondToEkkoToolApproval('person-main-7', 'person-a', 'once')
+      await approval
+      return { runId: 'person-run', output: { role: 'assistant', content: 'Done' }, steps: [], messages: [], events: [] }
+    })
+    await handleEkkoAgentRun(nsp as any, socket as any, { session_id: 'person-main-7', input: 'Prepare report', coding_agent_id: 'ekko-agent', resolved_mcp_servers: {},
+      onEvent: (event, payload) => events.push({ event, payload }) }, 'default', sessionMap, vi.fn(() => false))
+    expect(sessionMap.get('person-main-7').ekkoBoundaryInterrupt).toBeUndefined()
+    expect(createPersonChatAgentMock).toHaveBeenCalledWith(7, 'person-main-7')
+    expect(getGlobalEkkoAgentMock).not.toHaveBeenCalled()
+    expect(buildCompressedHistoryMock).toHaveBeenCalled()
+    expect(addMessageMock).toHaveBeenCalledWith(expect.objectContaining({ session_id: 'person-main-7', role: 'user', content: 'Prepare report' }))
+    expect(addMessageMock).toHaveBeenCalledWith(expect.objectContaining({ session_id: 'person-main-7', role: 'assistant', content: 'Done' }))
+    expect(events.map(e => e.event)).toContain('run.completed')
+    expect(events.map(e => e.event)).not.toContain('run.failed')
+  })
+
   it('binds native goal reads/writes to this live turn and rejects changed profile/history or finished runs', async () => {
     const { handleEkkoAgentRun } = await import('../../packages/server/src/modules/studio/services/chat-run/handle-ekko-agent-run')
     const { nsp, socket, sessionMap, events } = makeHarness()

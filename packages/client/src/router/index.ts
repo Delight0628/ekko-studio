@@ -7,6 +7,7 @@ import { captureProviderImport } from '@/utils/provider-import'
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
+    { path: '/person', name: 'hermes.person', component: () => import('@/views/hermes/PersonView.vue') },
     {
       path: '/hermes/tasks',
       name: 'hermes.tasks',
