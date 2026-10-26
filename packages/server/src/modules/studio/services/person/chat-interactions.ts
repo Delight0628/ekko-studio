@@ -8,7 +8,7 @@ export function personChatInteraction(userId: number): { event: string; data: { 
   const question = personDb().prepare(`SELECT i.* FROM person_interactions i
     JOIN person_executions e ON e.id=i.execution_id
     WHERE i.owner_user_id=? AND i.state='pending' AND
-      (e.state IN ('waiting_user','waiting_approval') OR (e.state='paused' AND i.native_id LIKE 'review:%'))
+      e.state IN ('waiting_user','waiting_approval')
     ORDER BY i.created_at LIMIT 1`).get(userId) as PersonInteraction | undefined
   if (!question) return undefined
   const approval = question.kind === 'approval'
@@ -27,4 +27,12 @@ export async function answerPersonChatInteraction(userId: number, id: string, re
   if (!current || (approval ? current.data.approval_id : current.data.clarify_id) !== id) throw new Error('Question expired or changed')
   await replyPersonQuestion(userId, match[1], Number(match[2]), response)
   return true
+}
+
+export async function answerPersonTaskInteraction(userId: number, sessionId: string, nativeId: string, response: string, approval: boolean) {
+  const question = personDb().prepare(`SELECT i.* FROM person_interactions i JOIN person_executions e ON e.id=i.execution_id
+    WHERE i.owner_user_id=? AND e.session_id=? AND i.native_id=? AND i.kind=? AND i.state='pending'
+      AND e.state IN ('waiting_user','waiting_approval')`).get(userId, sessionId, nativeId, approval ? 'approval' : 'question') as PersonInteraction | undefined
+  if (!question) throw new Error('Question expired or is being handled by Person')
+  await replyPersonQuestion(userId, question.id, question.revision, response)
 }

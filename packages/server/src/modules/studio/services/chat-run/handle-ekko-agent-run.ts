@@ -1,3 +1,4 @@
+import { personBackgroundPendingCount } from '../../repositories/person-store'
 import { isPersonSession, isPrivatePersonSession } from '../../contracts/person-session'
 import { createPersonChatAgent } from '../person/chat-agent'
 import { studioSessionAccount } from '../../contracts/runs/usage'
@@ -145,10 +146,10 @@ function parseJsonRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>
 }
 
-function ekkoBackgroundPendingCount(state: SessionState): number {
+function ekkoBackgroundPendingCount(state: SessionState, sessionId: string, delegationId?: string): number {
   return Object.values(state.backgroundTasks || {}).filter(task =>
     task.runtime === 'ekko' && task.status === 'running',
-  ).length
+  ).length + personBackgroundPendingCount(sessionId, delegationId?.startsWith('person-result:') ? delegationId.slice('person-result:'.length) : '')
 }
 
 function parseToolArguments(raw: unknown): { arguments: Record<string, unknown>; rawArguments?: string } {
@@ -1602,7 +1603,7 @@ export async function handleEkkoAgentRun(
         run_id: runId || result.runId,
         error,
         queue_remaining: state.queue.length,
-        background_pending: ekkoBackgroundPendingCount(state),
+        background_pending: ekkoBackgroundPendingCount(state, sessionId, data.background_delegation_id),
         queue_id: data.queue_id,
         autonomous: data.autonomous === true,
         delegation_id: data.background_delegation_id,
@@ -1677,7 +1678,7 @@ export async function handleEkkoAgentRun(
         total_tokens: usageInput + usageOutput,
       },
       queue_remaining: state.queue.length,
-      background_pending: ekkoBackgroundPendingCount(state),
+      background_pending: ekkoBackgroundPendingCount(state, sessionId, data.background_delegation_id),
       queue_id: data.queue_id,
       autonomous: data.autonomous === true,
       delegation_id: data.background_delegation_id,
@@ -1709,7 +1710,7 @@ export async function handleEkkoAgentRun(
       run_id: runId,
       error,
       queue_remaining: state.queue.length,
-      background_pending: ekkoBackgroundPendingCount(state),
+      background_pending: ekkoBackgroundPendingCount(state, sessionId, data.background_delegation_id),
       queue_id: data.queue_id,
       autonomous: data.autonomous === true,
       delegation_id: data.background_delegation_id,

@@ -1,6 +1,7 @@
 import { isPersonSession, isPrivatePersonSession, ownsPersonSession } from '../contracts/person-session'
 import { isNativeCodingAgent } from '../contracts/agents/native-coding-agents'
 import { withRunUsage } from '../public/usage'
+import { withPersonTaskReturns } from '../services/person/service'
 import { businessEvents } from '../services/webhooks/business-events'
 import { publishSessionRemoval } from '../services/notifications/session-removal'
 import { getUsagePricing, saveUsagePricing, validateUsagePricing } from '../services/usage/usage-pricing'
@@ -155,6 +156,7 @@ function filterByAllowedProfiles<T>(ctx: any, items: T[]): T[] {
 }
 
 function denySessionAccess(ctx: any, session: any | null | undefined): boolean {
+  if (ctx.method === 'GET' && ctx.state?.personTaskRead === session?.id) return false
   if (isPersonSession(session?.id) && ownsPersonSession(ctx.state?.user?.id, session)) return false
   if (isPrivatePersonSession(session?.id)) { ctx.status = 404; ctx.body = { error: 'Session not found' }; return true }
   if (!session || canAccessProfile(ctx, session.profile)) return false
@@ -2320,7 +2322,7 @@ export async function getConversationMessagesPaginated(ctx: any) {
       input_tokens: session.input_tokens,
       output_tokens: session.output_tokens,
     },
-    messages: withRunUsage(ctx.params.id, result.messages),
+    messages: withPersonTaskReturns(ctx.params.id, withRunUsage(ctx.params.id, result.messages)),
     taskPlans: getSessionTaskPlans(ctx.params.id, result.messages, offset === 0),
     workspaceRunChanges: listWorkspaceRunChangesForAssistantMessages(ctx.params.id, assistantMessageIds),
     total: result.total,

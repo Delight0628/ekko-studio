@@ -389,6 +389,27 @@ describe('user auth tables and middleware', () => {
     }
   })
 
+  it('only allows owner-authenticated reads of hidden task sessions, never generic mutations', async () => {
+    const { users, auth } = await initUsers()
+    const owner = users.bootstrapDefaultSuperAdmin('admin', '123456')!
+    db.prepare("INSERT INTO users(username,password_hash,role,status,created_at,updated_at) VALUES ('other','unused','super_admin','active',1,1)").run()
+    const other = users.findUserByUsername('other')!
+    const { createPersonTask } = await import('../../packages/server/src/modules/studio/repositories/person-store')
+    const { createSession } = await import('../../packages/server/src/modules/studio/repositories/session-store')
+    const task = createPersonTask(owner.id, 'Owned task', 'Run privately', { runtime: 'ekko', mode: 'scoped', profile: 'default', provider: 'p', model: 'm' }, '/tmp')
+    const id = `person-task-${task.id}`
+    createSession({ id, user_id: owner.id, studio_user_id: owner.id, source: 'builtin_agent', profile: 'default' })
+    for (const [user, method, suffix, allowed] of [[owner,'GET','',true], [owner,'GET','/context',true], [other,'GET','',false], [owner,'DELETE','',false], [owner,'POST','/messages/batch-delete',false], [owner,'GET','/share-models',false]] as const) {
+      const ctx = { path: `/api/studio/sessions/${id}${suffix}`, method, query: {}, request: { body: {} },
+        headers: { authorization: `Bearer ${auth.signUserJwt(user, 'test-secret')}` }, state: {}, status: 200, body: null,
+        get: () => '' } as any
+      const next = vi.fn()
+      await auth.requireUserJwt(ctx, next)
+      if (allowed) { expect(next).toHaveBeenCalledOnce(); expect(ctx.state.personTaskRead).toBe(id) }
+      else { expect(ctx.status).toBe(404); expect(next).not.toHaveBeenCalled() }
+    }
+  })
+
   it('authenticates JWTs passed as query tokens for download and websocket URLs', async () => {
     const { users, auth } = await initUsers()
     const user = users.bootstrapDefaultSuperAdmin('admin', '123456')!

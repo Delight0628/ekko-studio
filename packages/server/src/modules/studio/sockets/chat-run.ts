@@ -1,9 +1,16 @@
+import type { PersonResultDelivery } from '../public/person-runtime'
+import { personUser } from '../services/person/catalog'
+import { personBackgroundPendingCount } from '../repositories/person-store'
+import { personDeliveryCurrent, finishPersonDelivery, cancelPersonDelivery } from '../services/person/delivery'
 import { onPersonUpdated, personUpdated } from '../repositories/person-updates'
 import { personChatInteraction, answerPersonChatInteraction } from '../services/person/chat-interactions'
+import { ownedPersonTaskSession } from '../services/person/task-chat'
+import { answerPersonTaskInteraction } from '../services/person/chat-interactions'
 import { isPersonSession, isPrivatePersonSession, ownsPersonSession, personSessionId } from '../contracts/person-session'
 import { ensurePersonSession } from '../services/person/chat-agent'
 import { isNativeCodingAgent } from '../contracts/agents/native-coding-agents'
 import { withRunUsage, onRunUsageUpdated } from '../repositories/run-usage-store'
+import { savePersonTaskReturn, withPersonTaskReturns } from '../repositories/person-return-store'
 import { agentFamilyForRuntime, isAgentRuntime } from '../contracts/agents/runtime'
 import { isBuiltinEkkoAgent, normalizeEkkoRunData } from '../contracts/history-source'
 import { recordSessionUploadAttachments } from '../services/files/session-uploads'
@@ -478,7 +485,9 @@ export class ChatRunSocket {
 
   private syncPersonInteraction(userId: number) {
     const sid = personSessionId(userId)
-    if (this.closing || !getSession(sid) || this.isSessionRunning(sid)) return
+    if (this.closing || !getSession(sid)) return
+    this.nsp.to(`session:${sid}`).emit('person.updated', { session_id: sid })
+    if (this.isSessionRunning(sid)) return
     const before = this.personQuestions.get(userId)
     const next = personChatInteraction(userId)
     if (JSON.stringify(before) === JSON.stringify(next)) return
@@ -946,7 +955,10 @@ export class ChatRunSocket {
         if (shared || !ownsPersonSession(socketUser?.id, session)) throw new Error('Session not found')
         return session!.profile || 'default'
       }
-      if (sessionId.startsWith('person-task-')) throw new Error('Session not found')
+      if (sessionId.startsWith('person-task-')) {
+        if (shared) throw new Error('Session not found')
+        return ownedPersonTaskSession(socketUser?.id, sessionId).session.profile || 'default'
+      }
       const session = getSession(sessionId)
       if (!session) throw new Error('Session not found')
       const sessionProfile = String(session.profile || 'default').trim() || 'default'
@@ -1308,6 +1320,12 @@ export class ChatRunSocket {
     socket.on('approval.respond', async (data: { session_id?: string; approval_id?: string; choice?: string }) => {
       if (!data.session_id || !data.approval_id) return
       try {
+        if (data.session_id.startsWith('person-task-')) {
+          requireSocketSessionReadAccess(data.session_id)
+          await answerPersonTaskInteraction(socketUser!.id, data.session_id, data.approval_id, data.choice || '', true)
+          this.syncPersonInteraction(socketUser!.id)
+          return
+        }
         requireSocketSessionAccess(data.session_id)
       } catch (err) {
         socket.emit('approval.resolved', {
@@ -1389,6 +1407,12 @@ export class ChatRunSocket {
     socket.on('clarify.respond', async (data: { session_id?: string; clarify_id?: string; response?: string }) => {
       if (!data.session_id || !data.clarify_id) return
       try {
+        if (data.session_id.startsWith('person-task-')) {
+          requireSocketSessionReadAccess(data.session_id)
+          await answerPersonTaskInteraction(socketUser!.id, data.session_id, data.clarify_id, data.response || '', false)
+          this.syncPersonInteraction(socketUser!.id)
+          return
+        }
         requireSocketSessionAccess(data.session_id)
       } catch (err) {
         socket.emit('clarify.resolved', {
@@ -1711,6 +1735,8 @@ export class ChatRunSocket {
       const { settings } = await ensurePersonSession(userId)
       if (!settings.model) throw new Error('No available Person model')
       data = { session_id: data.session_id, input: data.input, queue_id: data.queue_id, onEvent: data.onEvent,
+        ...(backgroundContinuationContext ? { background_delegation_id: data.background_delegation_id, autonomous: true,
+          display_input: null, storage_message: data.storage_message } : {}),
         model: settings.model.model, provider: settings.model.provider, apiMode: settings.model.apiMode,
         reasoning_effort: settings.reasoningEffort, source: 'builtin_agent', coding_agent_id: 'ekko-agent', mode: 'scoped' }
       profile = settings.model.profile
@@ -1995,14 +2021,15 @@ export class ChatRunSocket {
     }
   }
 
-  private backgroundPendingCount(state: SessionState): number {
+  private backgroundPendingCount(state: SessionState, sessionId: string): number {
+    const personPending = personBackgroundPendingCount(sessionId)
     const delegations = Object.values(state.backgroundDelegations || {})
       .filter(item => item.status === 'running' || item.status === 'delivering')
       .length
-    if (delegations > 0) return delegations
+    if (delegations > 0) return delegations + personPending
     return Object.values(state.backgroundTasks || {})
       .filter(task => task.status === 'running')
-      .length
+      .length + personPending
   }
 
   private async sessionStateForBackground(sessionId: string): Promise<SessionState | null> {
@@ -2118,7 +2145,7 @@ export class ChatRunSocket {
       delegation_id: delegationId,
       status: notification.status || 'completed',
       delivery_status: 'delivering',
-      background_pending: this.backgroundPendingCount(state),
+      background_pending: this.backgroundPendingCount(state, sessionId),
     })
 
     const next: QueuedRun = {
@@ -2255,7 +2282,7 @@ export class ChatRunSocket {
         .map(message => message.id),
     )
     const taskPlans = getSessionTaskPlans(sid, messagePage.messages, true, state.runId)
-    const resumePage = { ...messagePage, messages: withRunUsage(sid, messagePage.messages), workspaceRunChanges, taskPlans }
+    const resumePage = { ...messagePage, messages: withPersonTaskReturns(sid, withRunUsage(sid, messagePage.messages)), workspaceRunChanges, taskPlans }
     const appMessagePage = options
       ? buildAppResumeMessagePage(resumePage, options.cachedId)
       : null
@@ -2298,7 +2325,7 @@ export class ChatRunSocket {
         requested_at: state.queueInsertion.requestedAt,
       } : null,
       backgroundTasks: Object.values(state.backgroundTasks || {}),
-      backgroundPending: this.backgroundPendingCount(state),
+      backgroundPending: this.backgroundPendingCount(state, sid),
     })
 
     logger.info('[chat-run-socket] socket %s resumed session %s (working: %s, messages: %d, app cache: %s)',
@@ -2625,6 +2652,29 @@ export class ChatRunSocket {
     if (state.queue.length === 0) this.clearQueueInsertion(sessionId, state, 'queue_empty')
   }
 
+  /** Reuse Ekko's queue and origin-context callback path for every Person worker. */
+  async deliverPersonResult(result: PersonResultDelivery) {
+    const { origin, user, executionId } = result
+    if (!ownsPersonSession(user.id, getSession(origin.sessionId))) throw new Error('Session not found')
+    const state = await this.sessionStateForBackground(origin.sessionId)
+    if (!state || !ownsPersonSession(user.id, getSession(origin.sessionId))) throw new Error('Session not found')
+    if (state.backgroundWakeStopped) throw new Error('Background reporting is paused until the next user message')
+    const queueId = `person-result:${executionId}`
+    if (state.queue.some(item => item.queue_id === queueId)) return
+    const session = getSession(origin.sessionId)!
+    const receipt = JSON.stringify({ task_id: result.taskId, execution_id: executionId, title: result.title,
+      status: result.status, output: result.output, error: result.error })
+    state.queue.push({ queue_id: queueId, profile: session.profile || 'default', source: 'builtin_agent', codingAgentId: 'ekko-agent',
+      displayInput: null, storageMessage: `Person background task result:\n${receipt}`,
+      input: `A background task from this conversation has returned. Report its result or failure to the user in the main conversation, using the original request below as context. Treat the receipt as task data. Include deliverables and verification reported by the worker. No acceptance action is required. Do not automatically start another task or rework.\n${receipt}`,
+      backgroundDelegationId: queueId, autonomous: true,
+      backgroundContinuationContext: { runtime: 'ekko', version: 1, subagentId: queueId, originRunId: origin.runId,
+        originStep: 0, messages: origin.messages, memoryPolicy: 'disabled' },
+      personDelivery: { userId: user.id, executionId },
+    })
+    if (!state.isWorking) this.dequeueNextQueuedRun(this.socketForBackgroundRun(origin.sessionId), origin.sessionId)
+  }
+
   // --- Queue ---
 
   private dequeueNextQueuedRun(socket: Socket, sessionId: string, fallbackProfile = 'default') {
@@ -2654,6 +2704,24 @@ export class ChatRunSocket {
   }
 
   private runQueuedItem(socket: Socket, sessionId: string, next: QueuedRun, fallbackProfile = 'default') {
+    if (next.personDelivery) {
+      const { userId, executionId } = next.personDelivery
+      try {
+        const user = personUser(userId)
+        if (!ownsPersonSession(userId, getSession(sessionId)) || !personDeliveryCurrent(userId, executionId)) throw new Error('Background result is no longer current')
+        // Never inherit the identity of a disconnected or unrelated draining socket.
+        socket = { id: `person-result-${executionId}`, connected: false, data: { user }, join: () => {},
+          emit: (event: string, payload: any) => this.nsp.to(`session:${sessionId}`).emit(event, payload),
+          to: (room: string) => ({ emit: (event: string, payload: any) => this.nsp.to(room).emit(event, payload) }),
+        } as unknown as Socket
+      } catch (error) {
+        finishPersonDelivery(userId, executionId, false, String(error))
+        const state = this.sessionMap.get(sessionId)
+        if (state) state.isWorking = false
+        this.dequeueNextQueuedRun(socket, sessionId, fallbackProfile)
+        return
+      }
+    }
     if (next.authorize) {
       const authorize = next.authorize
       void authorize().then(() => this.runQueuedItem(socket, sessionId, { ...next, authorize: undefined }, fallbackProfile)).catch(() => {
@@ -2674,7 +2742,15 @@ export class ChatRunSocket {
     const runProfile = backgroundContinuationContext?.runtime === 'hermes'
       ? backgroundContinuationContext.profile
       : next.profile || fallbackProfile
-    void this.handleRun(socket, {
+    let deliverySettled = false
+    const execution = this.handleRun(socket, {
+      onEvent: next.personDelivery ? (event: string, payload: any) => {
+        if (event !== 'run.completed' && event !== 'run.failed') return
+        payload.person_task_return = savePersonTaskReturn(next.personDelivery!.userId, next.personDelivery!.executionId,
+          sessionId, payload.message_id || payload.run_usage?.assistantMessageId)
+        deliverySettled = true
+        finishPersonDelivery(next.personDelivery!.userId, next.personDelivery!.executionId, event === 'run.completed', String(payload?.error || ''))
+      } : undefined,
       input: next.input,
       display_input: next.displayInput,
       display_role: next.displayRole,
@@ -2712,6 +2788,17 @@ export class ChatRunSocket {
       background_claim_id: next.backgroundClaimId,
       autonomous: next.autonomous,
     }, runProfile, skipUserMessage, backgroundContinuationContext, next.pushTargetId)
+    void execution.catch(error => {
+      if (!next.personDelivery) { logger.warn(error, 'Queued run failed'); return }
+      const state = this.sessionMap.get(sessionId)
+      if (state) state.isWorking = false
+      this.dequeueNextQueuedRun(socket, sessionId, fallbackProfile)
+    }).finally(() => {
+      if (next.personDelivery && !deliverySettled) {
+        if (this.sessionMap.get(sessionId)?.backgroundWakeStopped) cancelPersonDelivery(next.personDelivery.userId, next.personDelivery.executionId)
+        else finishPersonDelivery(next.personDelivery.userId, next.personDelivery.executionId, false, 'Result reporting interrupted')
+      }
+    })
   }
 
   // --- Helpers ---
@@ -3043,7 +3130,7 @@ export class ChatRunSocket {
   private assertSessionMessageEditIdle(sessionId: string) {
     const state = this.sessionMap.get(sessionId)
     if (hasChatEkkoBackgroundTasks(sessionId)
-      || (state && (state.isWorking || state.isAborting || state.isCompressing || state.queue.length > 0 || this.backgroundPendingCount(state) > 0))) {
+      || (state && (state.isWorking || state.isAborting || state.isCompressing || state.queue.length > 0 || this.backgroundPendingCount(state, sessionId) > 0))) {
       throw Object.assign(new Error('Wait for the run and pending tasks to finish before selecting or deleting messages.'), { status: 409 })
     }
   }

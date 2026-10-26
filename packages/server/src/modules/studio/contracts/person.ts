@@ -1,5 +1,7 @@
-export type PersonRole = 'main' | 'coordinator' | 'reviewer'
-export type PersonRunState = 'queued' | 'starting' | 'stopping' | 'running' | 'waiting_person' | 'waiting_user' | 'waiting_approval' | 'reviewing' | 'paused' | 'cancelled' | 'finished' | 'failed' | 'interrupted'
+import type { AgentMessage } from '../../../../../ekko-agent/src/model/types'
+
+export type PersonRole = 'main' | 'coordinator'
+export type PersonRunState = 'queued' | 'starting' | 'stopping' | 'running' | 'waiting_person' | 'waiting_user' | 'waiting_approval' | 'finished' | 'failed' | 'interrupted'
 export interface PersonSelection {
   runtime: string
   mode: 'scoped' | 'global'
@@ -7,6 +9,18 @@ export interface PersonSelection {
   provider: string
   model: string
   apiMode?: string
+  reasoningEffort?: string
+}
+export interface PersonAgentPreset {
+  id: string
+  name: string
+  description: string
+  selection: PersonSelection
+}
+export interface PersonTaskOrigin {
+  sessionId: string
+  runId: string
+  messages: AgentMessage[]
 }
 export interface PersonSettings {
   model: PersonSelection | null
@@ -14,7 +28,7 @@ export interface PersonSettings {
   timezone: string
   maxSteps: number
   contextTokens: number
-  maxReviewRounds: number
+  agents: PersonAgentPreset[]
   maxConcurrentTasks: number
 }
 export interface PersonTask {
@@ -32,13 +46,14 @@ export interface PersonTask {
   completion_evidence: string
   created_at: number
   updated_at: number
+  running?: boolean | number
   execution_state?: PersonRunState | 'idle'
 }
 export interface PersonExecution {
   id: string; task_id: string; owner_user_id: number; requirements_revision: number
-  state: PersonRunState; session_id: string; selection_json: string; output: string
-  error: string; review_json: string; review_round: number; generation: number
-  stop_action: string; lease_until: number; created_at: number; updated_at: number; occurrence_id: string | null
+  state: PersonRunState; input_json: string; session_id: string; selection_json: string; output: string
+  error: string; generation: number
+  lease_until: number; created_at: number; updated_at: number; occurrence_id: string | null
 }
 export interface PersonInteraction {
   id: string; owner_user_id: number; task_id: string; execution_id: string
@@ -53,7 +68,7 @@ export interface PersonSchedule {
 }
 export const PERSON_DEFAULTS: PersonSettings = {
   model: null, reasoningEffort: '', timezone: 'Asia/Shanghai', maxSteps: 12, contextTokens: 16000,
-  maxReviewRounds: 2, maxConcurrentTasks: 2,
+  agents: [], maxConcurrentTasks: 2,
 }
 export function personError(message: string, status = 400): Error & { status: number } {
   return Object.assign(new Error(message), { status })

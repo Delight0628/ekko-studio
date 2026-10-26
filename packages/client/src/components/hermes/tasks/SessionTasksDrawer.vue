@@ -5,16 +5,20 @@ import { useI18n } from 'vue-i18n'
 import { NButton, NDrawer, NDrawerContent, NDropdown, NEmpty, NInput, NPagination, NSpin, useMessage } from 'naive-ui'
 import SessionTaskIcon from '@/components/common/SessionTaskIcon.vue'
 import { fetchSessionTasks, updateSessionTaskStatus, type SessionTaskListItem, type SessionTaskStatus } from '@/api/studio/session-tasks'
+import { personRequest, type PersonTask } from '@/api/person'
+import { onPersonUpdated } from '@/api/studio/chat'
+import { useTaskDrawerLayout } from './useTaskDrawerLayout'
 import { chatSessionAgentAvatar } from '@/utils/chat-agent-avatar'
 
-const props = defineProps<{ show: boolean }>()
-const emit = defineEmits<{ 'update:show': [show: boolean] }>()
+const props = defineProps<{ show: boolean; person?: boolean }>()
+const emit = defineEmits<{ 'update:show': [show: boolean]; 'open-person-task': [task: PersonTask] }>()
 const route = useRoute()
 const router = useRouter()
 const { t, locale } = useI18n()
 const message = useMessage()
 const savingIds = ref(new Set<string>())
-const tasks = ref<SessionTaskListItem[]>([])
+type TaskRow = SessionTaskListItem & { personTask?: PersonTask }
+const tasks = ref<TaskRow[]>([])
 const total = ref(0)
 const loading = ref(true)
 const error = ref(false)
@@ -28,9 +32,7 @@ const page = computed(() => {
   const value = Number(route.query.taskPage)
   return Number.isSafeInteger(value) && value > 0 ? value : 1
 })
-const mobileQuery = window.matchMedia('(max-width: 768px)')
-const isMobile = ref(mobileQuery.matches)
-const drawerWidth = computed(() => isMobile.value ? '100vw' : 'min(1200px, calc(100vw - 64px))')
+const { isMobile, drawerWidth } = useTaskDrawerLayout()
 const statusLabel = computed(() => t(status.value ? `sessionTasks.${status.value}` : 'sessionTasks.status'))
 const taskStatusOptions = computed(() => [
   { key: 'open', label: t('sessionTasks.open') },
@@ -52,12 +54,13 @@ async function load(silent = false) {
   if (!silent) loading.value = true
   error.value = false
   try {
-    const result = await fetchSessionTasks({ search: typeof route.query.taskSearch === 'string' ? route.query.taskSearch : '',
-      status: status.value, order: order.value, page: page.value })
+    const query = { search: typeof route.query.taskSearch === 'string' ? route.query.taskSearch : '',
+      status: status.value, order: order.value, page: page.value }
+    const result = props.person ? await loadPersonTasks(query) : await fetchSessionTasks(query)
     if (disposed || sequence !== requestSequence || !props.show) return
     tasks.value = result.tasks
     total.value = result.total
-    if (page.value > 1 && !result.tasks.length && result.total > 0) {
+    if (!props.person && page.value > 1 && !result.tasks.length && result.total > 0) {
       await updateQuery({ taskPage: String(Math.ceil(result.total / 50)) })
     }
   } catch {
@@ -70,12 +73,13 @@ async function load(silent = false) {
 function refresh() {
   if (props.show && !savingIds.value.size && document.visibilityState === 'visible') void load(true)
 }
-async function changeStatus(task: SessionTaskListItem, value: string | number) {
-  if (savingIds.value.has(task.id) || value === task.status || !['open', 'completed', 'closed'].includes(String(value))) return
+async function changeStatus(task: TaskRow, value: string | number) {
+  if (task.personTask?.running || savingIds.value.has(task.id) || value === task.status || !['open', 'completed', 'closed'].includes(String(value))) return
   savingIds.value = new Set([...savingIds.value, task.id])
   requestSequence++
   try {
-    await updateSessionTaskStatus(task, value as SessionTaskStatus)
+    if (task.personTask) await personRequest('/tasks/apply', { task_id: task.id, action: value === 'closed' ? 'close' : 'reopen', expected_revision: task.personTask.revision, idempotency_key: crypto.randomUUID() })
+    else await updateSessionTaskStatus(task, value as SessionTaskStatus)
     requestSequence++
     if (!disposed && props.show) await load(true)
   } catch {
@@ -98,14 +102,35 @@ function handleKeydown(event: KeyboardEvent) {
     void openSearch()
   }
 }
-function handleMobileChange(event: MediaQueryListEvent) { isMobile.value = event.matches }
-function taskHref(task: SessionTaskListItem) {
+function taskHref(task: TaskRow) {
+  if (task.personTask) return undefined
   return router.resolve({ name: 'hermes.session', params: { sessionId: task.session_id },
     query: { profile: task.profile, ...(task.message_id ? { message: String(task.message_id) } : {}) } }).href
 }
 function taskAvatar(task: SessionTaskListItem) {
   return chatSessionAgentAvatar({ source: task.source, agent: task.agent || (task.source === 'builtin_agent' ? 'ekko-agent' : 'hermes') })
 }
+function rowStatusOptions(task: TaskRow) {
+  return task.personTask ? taskStatusOptions.value.filter(option => option.key !== 'completed').map(option => ({ ...option, disabled: option.key === task.status })) : taskStatusOptions.value
+}
+function rowStatus(task: TaskRow) {
+  const person = task.personTask
+  if (!person) return t(`sessionTasks.${task.status}`)
+  const state = person.running ? ['queued','starting','waiting_person','waiting_user','waiting_approval'].includes(person.execution_state) ? person.execution_state : 'running' : person.status
+  return t(`person.states.${state}`)
+}
+function openTask(task: TaskRow) { if (task.personTask) emit('open-person-task', task.personTask) }
+async function loadPersonTasks(query: { search: string; status: string; order: string }) {
+  const result = await personRequest<{ tasks: PersonTask[] }>('/tasks/query', { ...query, limit: 100 })
+  return { total: result.tasks.length, tasks: result.tasks.map(task => {
+    const selection = JSON.parse(task.selection_json || '{}')
+    return { id: task.id, title: task.title, summary: task.summary, status: task.status as SessionTaskStatus,
+      updated_at: task.updated_at || Date.now(), message_id: null, session_id: '', session_title: 'Person',
+      profile: selection.profile || 'default', source: selection.runtime === 'ekko' ? 'builtin_agent' : 'coding_agent',
+      agent: selection.runtime === 'ekko' ? 'ekko-agent' : selection.runtime || 'ekko-agent', personTask: task }
+  }) }
+}
+const stopPersonUpdates = onPersonUpdated(() => { if (props.person) refresh() })
 function formatTime(timestamp: number, compact = false) {
   const sameDay = new Date(timestamp).toDateString() === new Date().toDateString()
   const options: Intl.DateTimeFormatOptions = compact
@@ -128,10 +153,10 @@ onMounted(() => {
   window.addEventListener('keydown', handleKeydown, true)
   window.addEventListener('focus', refresh)
   document.addEventListener('visibilitychange', refresh)
-  mobileQuery.addEventListener('change', handleMobileChange)
   refreshTimer = setInterval(refresh, 30_000)
 })
 onUnmounted(() => {
+  stopPersonUpdates()
   disposed = true
   requestSequence++
   clearTimeout(searchTimer)
@@ -139,7 +164,6 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown, true)
   window.removeEventListener('focus', refresh)
   document.removeEventListener('visibilitychange', refresh)
-  mobileQuery.removeEventListener('change', handleMobileChange)
 })
 </script>
 
@@ -175,15 +199,15 @@ onUnmounted(() => {
             </td></tr></tbody>
             <tbody v-else><tr v-for="task in tasks" :key="task.id" class="task-row" :class="{ 'task-row--completed': task.status === 'completed', 'task-row--closed': task.status === 'closed' }">
               <td class="task-cell">
-                <a class="task-title" :href="taskHref(task)" :aria-label="t('sessionTasks.openTask', { title: task.title })">{{ task.title }}</a>
+                <a class="task-title" :role="task.personTask ? 'button' : undefined" :tabindex="task.personTask ? 0 : undefined" @click="openTask(task)" @keydown.enter="openTask(task)" @keydown.space.prevent="openTask(task)" :href="taskHref(task)" :aria-label="t('sessionTasks.openTask', { title: task.title })">{{ task.title }}</a>
                 <details class="task-description"><summary><span class="description-text">{{ task.summary }}</span><SessionTaskIcon name="chevron-down" :size="13" /></summary></details>
                 <div class="mobile-source">
                   <img :src="taskAvatar(task).src" alt="" />
                   <div class="mobile-source-info">
                     <span class="mobile-session-name">{{ task.session_title || t('sessionTasks.untitled') }}</span>
                     <div class="mobile-meta">
-                      <NDropdown trigger="click" :options="taskStatusOptions" :menu-props="() => ({ role: 'menu' })" :node-props="option => ({ role: 'menuitem', 'aria-label': String(option.label) })" @select="value => changeStatus(task, value)">
-                        <button type="button" class="task-status task-status-button" :disabled="savingIds.has(task.id)" :aria-busy="savingIds.has(task.id)" :aria-label="t('sessionTasks.changeStatus', { title: task.title })" aria-haspopup="menu"><SessionTaskIcon :name="task.status === 'open' ? 'circle' : task.status" :size="13" />{{ t(`sessionTasks.${task.status}`) }}<SessionTaskIcon name="chevron-down" :size="11" /></button>
+                      <NDropdown trigger="click" :options="rowStatusOptions(task)" :disabled="!!task.personTask?.running" :menu-props="() => ({ role: 'menu' })" :node-props="option => ({ role: 'menuitem', 'aria-label': String(option.label) })" @select="value => changeStatus(task, value)">
+                        <button type="button" class="task-status task-status-button" :disabled="savingIds.has(task.id) || !!task.personTask?.running" :aria-busy="savingIds.has(task.id)" :aria-label="t('sessionTasks.changeStatus', { title: task.title })" aria-haspopup="menu"><SessionTaskIcon :name="task.status === 'open' ? 'circle' : task.status" :size="13" /><span role="status">{{ rowStatus(task) }}</span><SessionTaskIcon name="chevron-down" :size="11" /></button>
                       </NDropdown>
                       <time class="mobile-time" :datetime="new Date(task.updated_at).toISOString()">{{ formatTime(task.updated_at) }}</time>
                     </div>
@@ -192,23 +216,25 @@ onUnmounted(() => {
               </td>
               <td class="source-column"><div class="source-session"><img :src="taskAvatar(task).src" alt="" /><div><span>{{ task.session_title || t('sessionTasks.untitled') }}</span><small>{{ taskAvatar(task).label }}<span class="source-divider" aria-hidden="true" />{{ task.profile }}</small></div></div></td>
               <td class="status-cell">
-                <NDropdown trigger="click" :options="taskStatusOptions" :menu-props="() => ({ role: 'menu' })" :node-props="option => ({ role: 'menuitem', 'aria-label': String(option.label) })" @select="value => changeStatus(task, value)">
-                  <button type="button" class="task-status task-status-button" :disabled="savingIds.has(task.id)" :aria-busy="savingIds.has(task.id)" :aria-label="t('sessionTasks.changeStatus', { title: task.title })" aria-haspopup="menu"><SessionTaskIcon :name="task.status === 'open' ? 'circle' : task.status" :size="13" />{{ t(`sessionTasks.${task.status}`) }}<SessionTaskIcon name="chevron-down" :size="11" /></button>
+                <NDropdown trigger="click" :options="rowStatusOptions(task)" :disabled="!!task.personTask?.running" :menu-props="() => ({ role: 'menu' })" :node-props="option => ({ role: 'menuitem', 'aria-label': String(option.label) })" @select="value => changeStatus(task, value)">
+                  <button type="button" class="task-status task-status-button" :disabled="savingIds.has(task.id) || !!task.personTask?.running" :aria-busy="savingIds.has(task.id)" :aria-label="t('sessionTasks.changeStatus', { title: task.title })" aria-haspopup="menu"><SessionTaskIcon :name="task.status === 'open' ? 'circle' : task.status" :size="13" /><span role="status">{{ rowStatus(task) }}</span><SessionTaskIcon name="chevron-down" :size="11" /></button>
                 </NDropdown>
               </td>
               <td class="time-column"><time :datetime="new Date(task.updated_at).toISOString()">{{ formatTime(task.updated_at) }}</time></td>
-              <td class="action-cell"><a class="task-open" :href="taskHref(task)" :aria-label="t('sessionTasks.openChat')"><SessionTaskIcon name="open" :size="17" /></a></td>
+              <td class="action-cell"><a class="task-open" :role="task.personTask ? 'button' : undefined" :tabindex="task.personTask ? 0 : undefined" @click="openTask(task)" @keydown.enter="openTask(task)" @keydown.space.prevent="openTask(task)" :href="taskHref(task)" :aria-label="t('sessionTasks.openChat')"><SessionTaskIcon name="open" :size="17" /></a></td>
             </tr></tbody>
           </table>
         </div>
-        <div v-if="total > 50 && !error" class="task-pagination"><NPagination :page="page" :page-size="50" :item-count="total" :page-slot="isMobile ? 3 : 5" :disabled="loading" @update:page="value => updateQuery({ taskPage: String(value) })" /></div>
+        <div v-if="!person && total > 50 && !error" class="task-pagination"><NPagination :page="page" :page-size="50" :item-count="total" :page-slot="isMobile ? 3 : 5" :disabled="loading" @update:page="value => updateQuery({ taskPage: String(value) })" /></div>
       </section>
     </NDrawerContent>
   </NDrawer>
 </template>
 
 <style scoped lang="scss">
+
 @use '@/styles/variables' as *;
+@use './task-status' as task-status;
 
 .drawer-title { display: flex; align-items: center; gap: 10px; color: $text-primary; font-size: calc(var(--font-size-base, 14px) * 16 / 14); font-weight: 600; }
 .drawer-title svg { color: $text-secondary; }
@@ -232,6 +258,7 @@ th:last-child, td:last-child { padding-inline: 4px 20px; }
 .task-row { vertical-align: top; }
 .task-row:hover, .task-row:focus-within { background: rgba(var(--accent-primary-rgb), 0.025); }
 .task-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: $text-primary; text-decoration: none; font-size: calc(var(--font-size-base, 14px) * 15 / 14); font-weight: 550; line-height: 1.6; }
+.task-title[role="button"], .task-open[role="button"] { cursor: pointer; }
 .task-title:hover { text-decoration: underline; text-underline-offset: 4px; }
 .task-description { margin-top: 5px; color: $text-secondary; font-size: calc(var(--font-size-base, 14px) * 13 / 14); line-height: 1.65; }
 summary { display: flex; align-items: flex-start; gap: 8px; min-width: 0; list-style: none; cursor: pointer; }
@@ -248,14 +275,13 @@ details[open] summary svg { display: block; margin: 2px 0 0 auto; transform: rot
 .source-session div > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.6; }
 .source-session small { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: $text-muted; font-size: calc(var(--font-size-base, 14px) * 11 / 14); }
 .source-divider { width: 2px; height: 2px; border-radius: 50%; background: currentColor; }
-.task-status { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: var(--border-width, 1px) solid $border-light; border-radius: var(--radius-component, 6px); color: $text-secondary; font-size: calc(var(--font-size-base, 14px) * 11 / 14); line-height: 1.5; white-space: nowrap; }
-.task-status svg { flex-shrink: 0; }
+.task-status { @include task-status.badge; }
 .task-status-button { font-family: inherit; background: transparent; cursor: pointer; }
 .task-status-button:hover { border-color: $accent-primary; }
 .task-status-button:focus-visible { outline: 2px solid $accent-primary; outline-offset: 2px; }
 .task-status-button:disabled { cursor: wait; opacity: 0.6; }
-.task-row--completed .task-status { color: $success; background: rgba(var(--success-rgb), 0.06); border-color: transparent; }
-.task-row--closed .task-status { color: $text-muted; }
+.task-row--completed .task-status { @include task-status.completed; }
+.task-row--closed .task-status { @include task-status.closed; }
 time { display: block; padding-top: 7px; color: $text-muted; font-size: calc(var(--font-size-base, 14px) * 11 / 14); white-space: nowrap; }
 .task-open { display: grid; place-items: center; width: 30px; height: 30px; color: $text-muted; border-radius: var(--radius-component, 5px); }
 .task-open:hover { background: rgba(var(--accent-primary-rgb), 0.05); color: $text-primary; }
@@ -295,8 +321,9 @@ time { display: block; padding-top: 7px; color: $text-muted; font-size: calc(var
   .mobile-session-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: $text-secondary; font-size: calc(var(--font-size-base, 14px) * 12 / 14); }
   .mobile-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
   .mobile-time { display: block; padding-top: 0; font-size: calc(var(--font-size-base, 14px) * 10 / 14); }
-  .task-status { padding: 1px 5px; gap: 4px; font-size: calc(var(--font-size-base, 14px) * 10 / 14); }
+  .task-status { @include task-status.mobile; }
   .task-open { width: 24px; height: 28px; }
 }
 @media (prefers-reduced-motion: reduce) { summary svg { transition: none; } }
+
 </style>

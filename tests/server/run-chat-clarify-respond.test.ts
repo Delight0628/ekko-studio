@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const personDeliveryCurrentMock = vi.hoisted(() => vi.fn(() => true))
+const finishPersonDeliveryMock = vi.hoisted(() => vi.fn())
+vi.mock('../../packages/server/src/modules/studio/services/person/delivery', () => ({ personDeliveryCurrent: personDeliveryCurrentMock, finishPersonDelivery: finishPersonDeliveryMock, cancelPersonDelivery: vi.fn() }))
 const personInteractionMock = vi.hoisted(() => vi.fn(() => undefined as any))
-vi.mock('../../packages/server/src/modules/studio/services/person/chat-interactions', () => ({ personChatInteraction: personInteractionMock, answerPersonChatInteraction: vi.fn() }))
+vi.mock('../../packages/server/src/modules/studio/services/person/chat-interactions', () => ({ personChatInteraction: personInteractionMock, answerPersonChatInteraction: vi.fn(), answerPersonTaskInteraction: vi.fn() }))
+const ownedTaskSessionMock = vi.hoisted(() => vi.fn())
+vi.mock('../../packages/server/src/modules/studio/services/person/task-chat', () => ({ ownedPersonTaskSession: ownedTaskSessionMock }))
 const bridgeMock = vi.hoisted(() => ({
   clarifyRespond: vi.fn(),
   statusIfLoaded: vi.fn(),
@@ -65,6 +70,8 @@ vi.mock('../../packages/server/src/modules/studio/public/auth', () => ({
 
 vi.mock('../../packages/server/src/modules/studio/repositories/users-store', () => ({
   userCanAccessProfile: vi.fn(() => true),
+  findUserById: vi.fn((id: number) => ({ id, username: `user${id}`, role: 'admin', status: 'active' })),
+  listUserProfiles: vi.fn(() => [{ profile_name: 'default' }]),
 }))
 
 function createSocketHarness() {
@@ -104,6 +111,37 @@ describe('ChatRunSocket clarify responses', { timeout: 15_000 }, () => {
     respondToEkkoClarificationMock.mockReset()
     respondToEkkoClarificationMock.mockReturnValue({ handled: false, resolved: false })
     bridgeMock.statusIfLoaded.mockResolvedValue({ ok: true, exists: false, running: false, loaded: false })
+  })
+
+  it.each([true, false])('returns a Person background result through the original chat queue (busy=%s)', async busy => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io, socket } = createSocketHarness()
+    const server = new ChatRunSocket(io as any)
+    const sid = 'person-main-1'
+    sessionStoreMock.getSession.mockReturnValue({ id: sid, profile: 'default', agent_preset: 'person', studio_user_id: '1' } as any)
+    const state = { isWorking: busy, queue: [], events: [], messages: [{ role: 'user', content: 'Unrelated later turn' }] }
+    ;(server as any).sessionMap.set(sid, state)
+    personDeliveryCurrentMock.mockReturnValue(true)
+    finishPersonDeliveryMock.mockClear()
+    const handle = vi.spyOn(server as any, 'handleRun').mockImplementation(async (_socket: any, data: any) => { data.onEvent('run.completed', { output: 'Your report is ready' }) })
+    const result = { user: { id: 1, username: 'user1', role: 'admin', profiles: ['default'] }, executionId: 'exec1', taskId: 'task1', title: 'Report', status: 'finished', output: '/tmp/report.txt', error: '',
+      origin: { sessionId: sid, runId: 'original-run', messages: [{ role: 'user', content: 'Prepare report' }] } }
+    await server.deliverPersonResult(result as any)
+    if (busy) {
+      expect(handle).not.toHaveBeenCalled()
+      await server.deliverPersonResult(result as any)
+      expect(state.queue).toHaveLength(1)
+      socket.data = { user: { id: 2 } } as any
+      ;(server as any).dequeueNextQueuedRun(socket, sid)
+    }
+    await vi.waitFor(() => expect(handle).toHaveBeenCalledTimes(1))
+    const [ownerSocket, data, _profile, skip, context] = handle.mock.calls[0] as any[]
+    expect(ownerSocket.data.user.id).toBe(1)
+    expect(data).toMatchObject({ session_id: sid, display_input: null, background_delegation_id: 'person-result:exec1', autonomous: true })
+    expect(data.input).toContain('/tmp/report.txt')
+    expect(skip).toBe(true)
+    expect(context).toMatchObject({ originRunId: 'original-run', messages: [{ role: 'user', content: 'Prepare report' }], memoryPolicy: 'disabled' })
+    expect(finishPersonDeliveryMock).toHaveBeenCalledWith(1, 'exec1', true, '')
   })
 
   it.each(['socket', 'group'])('round-trips MCP questions through the %s reply path and removes replay state', async surface => {
@@ -169,7 +207,7 @@ describe('ChatRunSocket clarify responses', { timeout: 15_000 }, () => {
     const server = new ChatRunSocket(io as any)
     ;(server as any).sessionMap.set(sid, { isWorking: true, events: [] })
     ;(server as any).syncPersonInteraction(1)
-    expect(namespaceEmit).not.toHaveBeenCalled()
+    expect(namespaceEmit.mock.calls.map(call => call[0])).toEqual(['person.updated'])
     ;(server as any).sessionMap.get(sid).isWorking = false
     ;(server as any).syncPersonInteraction(1)
     expect(namespaceEmit).toHaveBeenCalledWith('clarify.requested', expect.objectContaining({ session_id: sid, durable: true }))
@@ -193,6 +231,26 @@ describe('ChatRunSocket clarify responses', { timeout: 15_000 }, () => {
     await handlers.get('clarify.respond')!({ session_id: 'person-main-1', clarify_id: 'q', response: 'Yes' })
     expect(socket.emit).toHaveBeenCalledWith('clarify.resolved', expect.objectContaining({ resolved: false, error: 'Session not found' }))
     expect(respondToEkkoClarificationMock).not.toHaveBeenCalled()
+  })
+
+  it('resumes owned task history but rejects direct run and unowned resume', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { handlers, io, socket } = createSocketHarness()
+    ;(socket as any).data.user = { id: 1, role: 'admin', username: 'owner' }
+    ownedTaskSessionMock.mockImplementation((userId, id) => {
+      if (userId !== 1 || id !== 'person-task-owned') throw new Error('Session not found')
+      return { session: { id, profile: 'default' } }
+    })
+    const server = new ChatRunSocket(io as any)
+    const resume = vi.spyOn(server as any, 'resumeSession').mockResolvedValue(undefined)
+    ;(server as any).onConnection(socket)
+    await handlers.get('resume')!({ session_id: 'person-task-owned' })
+    expect(socket.join).toHaveBeenCalledWith('session:person-task-owned')
+    expect(resume).toHaveBeenCalledWith(socket, 'person-task-owned')
+    await handlers.get('run')!({ session_id: 'person-task-owned', input: 'Bypass task scheduler', coding_agent_id: 'ekko-agent' })
+    expect(socket.emit).toHaveBeenCalledWith('run.failed', expect.objectContaining({ error: 'Session not found' }))
+    await handlers.get('resume')!({ session_id: 'person-task-other' })
+    expect(socket.join).not.toHaveBeenCalledWith('session:person-task-other')
   })
 
   it('allows the owner to answer Person on a different current Profile through the standard responder', async () => {

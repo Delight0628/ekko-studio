@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch, provide } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { NButton, NInput, NSelect, NAlert, NTabs, NTabPane, NSpin, NDrawer, NDrawerContent, NTooltip } from 'naive-ui'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import ChatInput from '@/components/hermes/chat/ChatInput.vue'
 import MessageList from '@/components/hermes/chat/MessageList.vue'
+import SessionTasksDrawer from '@/components/hermes/tasks/SessionTasksDrawer.vue'
+import PersonTaskChat from '@/components/hermes/person/PersonTaskChat.vue'
+import { personTaskNavigation } from '@/components/hermes/person/task-navigation'
+import PersonAgentSettings from '@/components/hermes/person/PersonAgentSettings.vue'
+import { onPersonUpdated } from '@/api/studio/chat'
 import ModelCascader from '@/components/hermes/models/ModelCascader.vue'
 import SessionTaskIcon from '@/components/common/SessionTaskIcon.vue'
 import { useChatStore } from '@/stores/hermes/chat'
@@ -18,8 +23,12 @@ const chatStore = useChatStore()
 const data = ref<PersonSnapshot | null>(null)
 const error = ref('')
 const pending = ref(false)
-const tab = ref('tasks')
+const tab = ref('settings')
+const showTasks = ref(false)
 const showPanel = ref(false)
+const chatTaskId = ref<string | null>(null)
+function openTask(task: PersonTask) { showTasks.value = false; chatTaskId.value = task.id }
+provide(personTaskNavigation, taskId => { showTasks.value = false; chatTaskId.value = taskId })
 const showModelPicker = ref(false)
 const modelsLoading = ref(false)
 const modelTrigger = ref<HTMLElement | null>(null)
@@ -28,10 +37,10 @@ const settingsWrites = ref(0)
 let settingsChain = Promise.resolve()
 const optimisticEffort = ref<string | null>(null)
 const memoryText = ref(''); const editingMemory = ref<PersonMemory | null>(null)
-const taskQuery = ref(''); const taskOffset = ref(0); const detail = ref(''); const selectedTask = ref<string | null>(null)
 const scheduleTask = ref<string | null>(null); const scheduleKind = ref('once'); const expression = ref(''); const timezone = ref(Intl.DateTimeFormat().resolvedOptions().timeZone)
 const scheduleEdit = ref<PersonSchedule | null>(null)
 let refreshing = false
+let refreshAgain = false
 let disposed = false
 let snapshotSequence = 0
 const lifetime = new AbortController()
@@ -51,19 +60,20 @@ const modelLabel = computed(() => currentModel.value ? displayModel(currentModel
 const reasoningEffort = computed(() => optimisticEffort.value ?? data.value?.settings.reasoningEffort ?? '')
 const taskOptions = computed(() => (data.value?.tasks || []).filter(task => task.status === 'open').map(task => ({ label: task.title, value: task.id })))
 function stateLabel(state: string) { return t(`person.states.${state}`) }
-function openPanel(name: string) { tab.value = name; showPanel.value = true; void refresh() }
+function openPanel(name: string) { if (name === 'tasks') { showTasks.value = true; return }; tab.value = name; showPanel.value = true; void refresh() }
 async function refresh() {
-  if (refreshing || disposed) return
+  if (disposed) return
+  if (refreshing) { refreshAgain = true; return }
   refreshing = true
   const sequence = snapshotSequence
   try {
     const next = await personRequest<PersonSnapshot>('', undefined, 'GET', lifetime.signal)
-    if (taskQuery.value || taskOffset.value) next.tasks = (await personRequest<{tasks: PersonTask[]}>('/tasks/query', { search: taskQuery.value, offset: taskOffset.value }, 'POST', lifetime.signal)).tasks
     if (!data.value) timezone.value = next.settings.timezone
-    if (disposed || sequence !== snapshotSequence) return
+    if (disposed) return
+    if (sequence !== snapshotSequence) { refreshAgain = true; return }
     data.value = next
     syncSession(next)
-  } catch (e) { if (!disposed) error.value = String(e) } finally { refreshing = false }
+  } catch (e) { if (!disposed) error.value = String(e) } finally { refreshing = false; if (refreshAgain && !disposed) { refreshAgain = false; void refresh() } }
 }
 async function act(work: () => Promise<unknown>) {
   if (pending.value) return
@@ -108,12 +118,6 @@ function selectModel(selection: { provider: string; model: string }) {
 }
 function selectEffort(value: string) { optimisticEffort.value = value; void saveSettings({ reasoning_effort: value }) }
 function inheritModel() { void saveSettings({ use_global_default: true }); showModelPicker.value = false }
-function taskAction(task: PersonTask, action: string) { return act(() => personRequest('/tasks/apply', { task_id: task.id, action, expected_revision: task.revision, idempotency_key: crypto.randomUUID() })) }
-function showTask(task: PersonTask) { return act(async () => {
-  selectedTask.value = task.id
-  const result = await personRequest<{ executions: Array<{ output: string; error: string; review_json: string; state: string }> }>(`/tasks/${task.id}/executions`)
-  detail.value = result.executions.map(run => `${stateLabel(run.state)}\n${run.error || ''}\n${run.output}\n${run.review_json || ''}`).join('\n\n') || task.summary
-}) }
 function memorySave() { return act(async () => { await personRequest('/memory', { content: memoryText.value, ...(editingMemory.value ? { id: editingMemory.value.id, expected_revision: editingMemory.value.revision } : {}) }); memoryText.value = ''; editingMemory.value = null }) }
 function memoryForget(memory: PersonMemory) { return act(() => personRequest('/memory', { id: memory.id, expected_revision: memory.revision, forget: true })) }
 function scheduleAction(schedule: PersonSchedule, action: string) { return act(() => personRequest('/schedules/apply', { schedule_id: schedule.id, action, expected_revision: schedule.revision, idempotency_key: crypto.randomUUID() })) }
@@ -121,13 +125,16 @@ function scheduleSave() { return act(async () => { await personRequest('/schedul
 function editSchedule(schedule: PersonSchedule) { scheduleEdit.value = schedule; scheduleTask.value = schedule.task_id; expression.value = schedule.expression; timezone.value = schedule.timezone; scheduleKind.value = /\s/.test(schedule.expression) ? 'cron' : 'once' }
 
 watch(busy, (running, wasRunning) => { if (wasRunning && !running) void refresh() })
+const stopPersonUpdates = onPersonUpdated(event => { if (event.session_id === data.value?.session.id) void refresh() })
 onMounted(async () => {
   chatStore.setRuntimeMode('default')
   void settingsStore.fetchSettings()
   await refresh()
-  if (!disposed && data.value) await chatStore.switchSession(data.value.session.id)
+  if (!disposed && data.value) {
+    await chatStore.switchSession(data.value.session.id)
+  }
 })
-onBeforeUnmount(() => { disposed = true; lifetime.abort() })
+onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() })
 </script>
 
 <template>
@@ -137,7 +144,7 @@ onBeforeUnmount(() => { disposed = true; lifetime.abort() })
         <span class="person-title">Person</span>
         <div class="person-header-actions">
           <NTooltip trigger="hover">
-            <template #trigger><NButton quaternary circle size="small" :aria-label="t('person.tasks')" :aria-expanded="showPanel && tab === 'tasks'" @click="openPanel('tasks')"><SessionTaskIcon :size="17" /></NButton></template>
+            <template #trigger><NButton quaternary circle size="small" :aria-label="t('person.tasks')" :aria-expanded="showTasks" @click="openPanel('tasks')"><SessionTaskIcon :size="17" /></NButton></template>
             {{ t('person.tasks') }}
           </NTooltip>
           <NTooltip trigger="hover">
@@ -148,6 +155,7 @@ onBeforeUnmount(() => { disposed = true; lifetime.abort() })
             <template #trigger><NButton quaternary circle size="small" :aria-label="t('person.memory')" :aria-expanded="showPanel && tab === 'memory'" @click="openPanel('memory')"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 5c-3-2-6-2-10-1v15c4-1 7-1 10 1 3-2 6-2 10-1V4c-4-1-7-1-10 1Z"/><path d="M12 5v15"/></svg></NButton></template>
             {{ t('person.memory') }}
           </NTooltip>
+          <NButton quaternary size="small" :aria-expanded="showPanel && tab === 'settings'" @click="openPanel('settings')">{{ t('person.settings') }}</NButton>
         </div>
       </header>
     </PageHeader>
@@ -170,37 +178,8 @@ onBeforeUnmount(() => { disposed = true; lifetime.abort() })
         </template>
       </ModelCascader>
       <NDrawer v-model:show="showPanel" :width="460" placement="right" :close-on-esc="true" :style="{ maxWidth: '100vw' }">
-        <NDrawerContent :title="t(tab === 'memory' ? 'person.memory' : tab === 'schedules' ? 'person.schedules' : 'person.tasks')" closable>
+        <NDrawerContent :title="t(`person.${tab}`)" closable>
           <NTabs v-model:value="tab" type="line" animated>
-        <NTabPane name="tasks" :tab-props="{ role: 'tab', 'aria-selected': tab === 'tasks' }" :tab="t('person.tasks')">
-          <form class="person-row" @submit.prevent="taskOffset = 0; refresh()">
-          <NInput v-model:value="taskQuery" :input-props="{ 'aria-label': t('person.search') }" />
-          <NButton attr-type="submit">{{ t('person.search') }}</NButton>
-          </form>
-          <p v-if="!data.tasks.length">{{ t('person.empty') }}</p>
-          <article v-for="task in data.tasks" :key="task.id" class="person-card" data-theme-surface="card">
-          <div class="person-row">
-          <h3>{{ task.title }}</h3>
-          <span role="status">{{ stateLabel(task.execution_state) }} · {{ stateLabel(task.status) }}</span>
-          </div>
-          <p>{{ task.summary }}</p>
-          <p v-if="task.completion_evidence">{{ task.completion_evidence }}</p>
-          <div class="person-row person-wrap">
-          <NButton @click="showTask(task)">{{ t('person.details') }}</NButton>
-          <NButton v-if="task.status !== 'open'" :disabled="pending" @click="taskAction(task, 'reopen')">{{ t('person.reopen') }}</NButton>
-          <template v-if="task.status === 'open'">
-          <NButton v-if="['running','starting','queued','waiting_person','waiting_user','waiting_approval','reviewing'].includes(task.execution_state)" :disabled="pending" @click="taskAction(task, 'pause')">{{ t('person.pause') }}</NButton>
-          <NButton v-if="['idle','paused','failed','interrupted','cancelled','finished'].includes(task.execution_state)" :disabled="pending" @click="taskAction(task, 'resume')">{{ t('person.resume') }}</NButton>
-          <NButton :disabled="pending || task.execution_state === 'stopping'" @click="taskAction(task, 'cancel')">{{ t('person.cancel') }}</NButton>
-          <NButton :disabled="pending" @click="taskAction(task, 'close')">{{ t('person.close') }}</NButton>
-          </template>
-          </div>
-          </article>
-          <div class="person-row">
-          <NButton :disabled="taskOffset === 0" @click="taskOffset = Math.max(0, taskOffset - 20); refresh()">{{ t('person.previous') }}</NButton>
-          <NButton :disabled="data.tasks.length < 20" @click="taskOffset += 20; refresh()">{{ t('person.more') }}</NButton>
-          </div>
-          </NTabPane>
         <NTabPane name="schedules" :tab-props="{ role: 'tab', 'aria-selected': tab === 'schedules' }" :tab="t('person.schedules')">
           <section class="person-card" data-theme-surface="card">
           <h3>{{ t('person.scheduleEdit') }}</h3>
@@ -241,13 +220,15 @@ onBeforeUnmount(() => { disposed = true; lifetime.abort() })
           </article>
           </NTabPane>
 
+          <NTabPane name="settings" :tab-props="{ role: 'tab', 'aria-selected': tab === 'settings' }" :tab="t('person.settings')">
+            <PersonAgentSettings :agents="data.settings.agents" :save-error="error" :saving="settingsWrites > 0" @save="saveSettings({ agents: JSON.parse(JSON.stringify($event)) })" />
+          </NTabPane>
           </NTabs>
-          <section v-if="detail" class="person-card" data-theme-surface="card">
-            <div class="person-row"><h3>{{ t('person.details') }}</h3><NButton @click="detail = ''; selectedTask = null">{{ t('common.close') }}</NButton></div>
-            <pre>{{ detail }}</pre>
-          </section>
+
         </NDrawerContent>
       </NDrawer>
+      <SessionTasksDrawer v-model:show="showTasks" person @open-person-task="openTask" />
+      <PersonTaskChat v-if="chatTaskId" :task-id="chatTaskId" :main-session-id="data.session.id" @close="chatTaskId = null; refresh()" />
     </template>
   </section>
 </template>
@@ -269,7 +250,6 @@ onBeforeUnmount(() => { disposed = true; lifetime.abort() })
 .person-wrap { flex-wrap: wrap; }
 .person-card p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .person-form { display: grid; gap: 12px; margin-top: 12px; }
-.person-card pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; max-height: 480px; overflow-y: auto; }
 @media (max-width: 768px) {
   .person-header { padding: calc(16px + env(safe-area-inset-top, 0px)) 12px 16px 52px; }
   .person-title { font-size: 14px; }

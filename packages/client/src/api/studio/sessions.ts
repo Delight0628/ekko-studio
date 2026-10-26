@@ -139,6 +139,7 @@ export interface HermesSessionPage {
 }
 
 export interface HermesMessage {
+  person_task_return?: import('../person').PersonTaskReturn
   run_usage?: import('@/utils/run-usage').RunUsageSummary
   id: number
   session_id: string

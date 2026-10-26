@@ -36,7 +36,7 @@ configurePersonRuntime({
   async nativeModels(runtime) {
     const result = await getCodingAgentModels({ agent: runtime })
     const catalog = result.agents[0]
-    return { status: catalog?.status || 'unsupported', models: catalog?.models.filter(m => !m.hidden).map(m => ({ id: m.id, name: m.name })) || [] }
+    return { status: catalog?.status || 'unsupported', models: catalog?.models.filter(m => !m.hidden).map(m => ({ id: m.id, name: m.name, isDefault: m.isDefault, reasoningEffort: m.reasoningEffort, reasoningEfforts: m.reasoningEfforts })) || [] }
   },
   async execute(input) {
     const server = getChatRunServer()
@@ -46,14 +46,19 @@ configurePersonRuntime({
     try {
       if (input.signal.aborted) throw new Error('Cancelled')
       const s = input.selection
-      return await server.runAndWait({ session_id: input.sessionId, input: input.prompt, profile: s.profile, workspace: input.workspace || undefined,
-        provider: s.provider || undefined, model: s.model, apiMode: s.apiMode, mode: s.mode,
+      return await server.runAndWait({ session_id: input.sessionId, input: input.prompt, display_input: input.displayInput, profile: s.profile, workspace: input.workspace || undefined,
+        provider: s.provider || undefined, model: s.model, apiMode: s.apiMode, mode: s.mode, reasoning_effort: s.reasoningEffort,
         source: s.runtime === 'hermes' ? 'api_server' : s.runtime === 'ekko' ? 'builtin_agent' : 'coding_agent',
         ...(s.runtime !== 'hermes' ? { coding_agent_id: (s.runtime === 'ekko' ? 'ekko-agent' : s.runtime) as any } : {}),
         memory_write_policy: 'explicit-only', memory_recall_scopes: [], memory_write_scopes: [],
         instructions: 'This is a task delegated by Person. Ask clarifying questions normally: Person coordinates answers. Work only on the supplied goal and scope. Persist the deliverable or report and verification evidence as files in the supplied workspace and report their paths. Do not claim completion without checking results.',
       }, { profile: s.profile, user: input.user, timeoutMs: 60 * 60_000, onEvent: input.onEvent })
     } finally { input.signal.removeEventListener('abort', abort) }
+  },
+  async deliver(input) {
+    const server = getChatRunServer()
+    if (!server) throw new Error('Chat runtime unavailable')
+    await server.deliverPersonResult(input)
   },
   async answer(sessionId, id, response, approval) {
     return await getChatRunServer()?.respondPersonInteraction(sessionId, id, response, approval) || false

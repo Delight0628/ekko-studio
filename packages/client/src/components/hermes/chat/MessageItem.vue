@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import RunUsageCard from "./RunUsageCard.vue";
+import PersonTaskReturnCard from '../person/PersonTaskReturnCard.vue';
 import {
   formatReferencedContentForDisplay,
   parseMessageReference,
@@ -1226,6 +1227,7 @@ onBeforeUnmount(() => {
               :heading-id-prefix="effectiveHeadingIdPrefix"
             />
 
+            <PersonTaskReturnCard v-if="message.personTaskReturn && !message.isStreaming" :result="message.personTaskReturn" />
             <RunUsageCard v-if="message.runUsage && !message.isStreaming" :usage="message.runUsage" />
 
             <ToolChangeCard

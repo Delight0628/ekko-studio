@@ -15,6 +15,7 @@ vi.mock('@/api/studio/sessions', () => ({
   fetchWorkspaceRunChangeFile: vi.fn(),
 }))
 vi.mock('@/api/studio/chat', () => ({
+  onUnobservedRunStarted: vi.fn(() => vi.fn()),
   resumeSession: api.resumeSession,
   startRunViaSocket: vi.fn(), registerSessionHandlers: vi.fn(), unregisterSessionHandlers: vi.fn(),
   getChatRunSocket: vi.fn(() => ({ emit: vi.fn() })),

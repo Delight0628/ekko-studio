@@ -1,11 +1,13 @@
 import type { Context } from 'koa'
 import { personError, personRevision, personText } from '../contracts/person'
 import { personSnapshot, configurePerson } from '../services/person/service'
-import { personCapabilities, personModelCatalog, searchPersonModels } from '../services/person/catalog'
+import { personUser, personCapabilities, personModelCatalog } from '../services/person/catalog'
+import { personTaskChat, continuePersonTask } from '../services/person/task-chat'
 import { applyPersonTask } from '../services/person/tasks'
 import { applyPersonSchedule } from '../services/person/schedules'
 import { replyPersonQuestion } from '../services/person/runner'
 import { changePersonMemory, listPersonTasks, taskPersonExecutions, personEvents } from '../services/person/service'
+import { personExecutionModelCatalog } from '../services/person/agents'
 
 async function handle(ctx: Context, work: (id: number, body: Record<string, unknown>) => unknown) {
   ctx.set('Cache-Control', 'no-store')
@@ -21,11 +23,13 @@ async function handle(ctx: Context, work: (id: number, body: Record<string, unkn
 }
 export const snapshot = (ctx: Context) => handle(ctx, id => personSnapshot(id))
 export const settings = (ctx: Context) => handle(ctx, (id, body) => configurePerson(id, body))
-export const capabilities = (ctx: Context) => handle(ctx, id => ({ agents: personCapabilities(id) }))
-export const models = (ctx: Context) => handle(ctx, (id, body) => searchPersonModels(id, body))
+export const capabilities = (ctx: Context) => handle(ctx, id => ({ agents: personCapabilities(id), native_allowed: personUser(id).role === 'super_admin' }))
 export const modelCatalog = (ctx: Context) => handle(ctx, id => personModelCatalog(id))
-export const tasks = (ctx: Context) => handle(ctx, (id, body) => ({ tasks: listPersonTasks(id, String(body.search || '').slice(0,200), Math.max(0, Number(body.offset) || 0)) }))
+export const executionModelCatalog = (ctx: Context) => handle(ctx, id => personExecutionModelCatalog(id))
+export const tasks = (ctx: Context) => handle(ctx, (id, body) => ({ tasks: listPersonTasks(id, String(body.search || '').slice(0,200), Math.max(0, Number(body.offset) || 0), { status: ['open','completed','closed'].includes(String(body.status)) ? String(body.status) : '', order: String(body.order || ''), limit: Number(body.limit) }) }))
 export const taskApply = (ctx: Context) => handle(ctx, (id, body) => applyPersonTask(id, body))
+export const taskChat = (ctx: Context) => handle(ctx, id => personTaskChat(id, ctx.params.id))
+export const taskContinue = (ctx: Context) => handle(ctx, (id, body) => continuePersonTask(id, ctx.params.id, body))
 export const executions = (ctx: Context) => handle(ctx, id => ({ executions: taskPersonExecutions(id, ctx.params.id) }))
 export const events = (ctx: Context) => handle(ctx, id => ({ events: personEvents(id, ctx.params.id, Math.max(0, Number(ctx.query.after) || 0)) }))
 export const schedules = (ctx: Context) => handle(ctx, (id, body) => applyPersonSchedule(id, body))

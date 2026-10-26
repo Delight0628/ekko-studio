@@ -49,6 +49,7 @@ const props = withDefaults(defineProps<{
   scopedReasoningEfforts?: string[]
   nativeReasoningEfforts?: string[]
   nativeEffortChoices?: NativeEffortChoice[]
+  stopDisabled?: boolean
   sendDisabled?: boolean
   submit?: (text: string, attachments?: Attachment[]) => Promise<boolean>
 }>(), {
@@ -312,7 +313,7 @@ const skillPickerItems = computed(() => {
 })
 const filteredBridgeCommands = computed(() => {
   const query = slashQuery.value.trim().toLowerCase()
-  const commands = composerSession.value?.id.startsWith('person-main-') ? [] : isEkkoSession.value
+  const commands = /^person-(main|task)-/.test(composerSession.value?.id || '') ? [] : isEkkoSession.value
     ? EKKO_SESSION_COMMAND_DEFINITIONS.map(command => ({ ...command, args: command.args || '', description: t(command.descriptionKey) }))
     : isBridgeSession.value
     ? bridgeCommands.value
@@ -1458,7 +1459,7 @@ function openAttachmentPreview(attachment: Attachment) {
             circle
             class="send-button"
             :class="{ 'send-button--stop': sendButtonIsStop }"
-            :disabled="sendButtonIsStop ? chatStore.isAborting : !canSend || sendDisabled || submitting"
+            :disabled="sendButtonIsStop ? (stopDisabled || chatStore.isAborting) : !canSend || sendDisabled || submitting"
             :aria-label="sendButtonIsStop ? 'Stop' : 'Send'"
             @click="sendButtonIsStop ? chatStore.stopStreaming() : handleSend()"
           >

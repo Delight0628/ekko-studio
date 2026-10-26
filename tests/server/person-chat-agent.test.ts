@@ -3,6 +3,22 @@ import { createPersonAgent } from '../../packages/server/src/bootstrap/person-ch
 import type { ModelClient, ModelRequest, ModelEvent } from '../../packages/ekko-agent/src/model/types'
 
 describe('Person agent in the shared chat runtime', () => {
+  it('captures the initiating turn before task creation and forwards the runtime origin', async () => {
+    const execute = vi.fn(async () => ({ execution: { state: 'queued' } }))
+    let step = 0
+    const client: ModelClient = {
+      provider: 'test', capabilities: { streaming: true, tools: true, vision: false, jsonMode: false, systemPrompt: true },
+      create: vi.fn(async () => ({ content: '' })),
+      async *stream() {
+        if (step++ === 0) yield { type: 'tool-call' as const, toolCall: { id: 'dispatch', name: 'bot_task_apply', arguments: { action: 'create' } } }
+        yield { type: 'done' as const, response: { content: 'Task queued' } }
+      },
+    }
+    const agent = createPersonAgent({ workspace: '/tmp/person-test', selection: { runtime: 'ekko', mode: 'scoped', profile: 'default', provider: 'test', model: 'm' }, contextTokens: 8000, maxSteps: 3, systemPrompt: 'You are Person',
+      tools: [{ name: 'bot_task_apply', description: 'Start background work', parameters: { type: 'object', properties: {} }, execute }] })
+    await agent.run({ messages: [{ role: 'user', content: 'Original request' }], modelClient: client, toolContext: { sessionId: 'person-main-1' } })
+    expect(execute).toHaveBeenCalledWith({ action: 'create' }, { sessionId: 'person-main-1', runId: expect.any(String), messages: [{ role: 'user', content: 'Original request' }] })
+  })
   it('streams reasoning and tools, waits for the single-chat clarification, and keeps its tool and memory scope', async () => {
     const requests: ModelRequest[] = []
     const events: any[] = []

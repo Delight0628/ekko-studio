@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { findUserById, listUserProfiles, userCanAccessProfile } from '../../repositories/users-store'
 import { getActiveProfileName, listProfileNamesFromDisk } from '../../public/profile-config'
 import { getAgentAvailabilitySnapshot } from '../../public/agent-status-registry'
@@ -9,7 +8,7 @@ import { resolveProviderCatalogApiMode } from '../../contracts/providers'
 import { isAgentRuntime } from '../../contracts/agents/runtime'
 import { personError } from '../../contracts/person'
 import type { PersonSelection, PersonSettings } from '../../contracts/person'
-import { personSettings, savePersonSelection } from '../../repositories/person-store'
+import { personSettings } from '../../repositories/person-store'
 
 export const PERSON_REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 
@@ -90,8 +89,12 @@ export async function validatePersonSelection(userId: number, selection: PersonS
   if (!available?.installed) throw personError('Agent is not installed', 409)
   if (selection.mode === 'global') {
     if (user.role !== 'super_admin' || ['ekko', 'hermes'].includes(selection.runtime)) throw personError('Native machine credentials are not assigned to this account', 403)
+    if (!selection.model && !selection.reasoningEffort) return // Delegate native defaults to the installed runtime.
     const result = await personRuntime().nativeModels(selection.runtime)
-    if (result.status !== 'ready' || !result.models.some(m => m.id === selection.model)) throw personError(`Native model unavailable: ${result.status}`, 409)
+    const model = result.models.find(m => selection.model ? m.id === selection.model : m.isDefault)
+    if (result.status !== 'ready' || !model) throw personError(`Native model unavailable: ${result.status}`, 409)
+    if (selection.reasoningEffort && (model.reasoningEffort ? model.reasoningEffort !== selection.reasoningEffort
+      : !model.reasoningEfforts?.includes(selection.reasoningEffort))) throw personError('Native model does not support this reasoning effort')
     return
   }
   if (!['ekko','hermes'].includes(selection.runtime) && isScopedCodingAgentAuthProvider(selection.provider)) throw personError('Use native mode for subscription providers', 409)
@@ -99,44 +102,4 @@ export async function validatePersonSelection(userId: number, selection: PersonS
   const group = groups.find(g => g.provider === selection.provider && g.models?.includes(selection.model))
   if (selection.runtime !== 'hermes' && ['bedrock_converse','codex_app_server'].includes(selection.apiMode || '')) throw personError('Runtime does not support this model protocol', 409)
   if (!group || group.model_meta?.[selection.model]?.disabled || apiMode(group, selection.model) !== selection.apiMode) throw personError('Model unavailable or changed', 409)
-}
-export async function searchPersonModels(userId: number, input: Record<string, unknown>) {
-  const runtime = String(input.runtime || 'ekko')
-  if (!isAgentRuntime(runtime)) throw personError('Unknown runtime')
-  if (!personCapabilities(userId).find(a => a.runtime === runtime)?.installed) return { candidates: [], reason: 'agent_not_installed', cursor: null }
-  const mode = input.mode === 'global' ? 'global' : 'scoped'
-  const query = String(input.query || '').trim().toLowerCase().slice(0, 200)
-  const profiles = personProfiles(userId)
-  const rows: Array<PersonSelection & { label: string }> = []
-  if (mode === 'global') {
-    if (personUser(userId).role !== 'super_admin' || ['ekko', 'hermes'].includes(runtime)) throw personError('Native machine credentials are unavailable', 403)
-    const catalog = await personRuntime().nativeModels(runtime)
-    if (catalog.status !== 'ready') return { candidates: [], reason: catalog.status, cursor: null }
-    for (const model of catalog.models) rows.push({ runtime, mode, profile: profiles[0] || '', model: model.id, provider: '', label: model.name })
-  } else {
-    for (const profile of profiles) {
-      for (const group of await getSessionAvailableModelGroups(profile)) {
-        if (input.provider && input.provider !== group.provider) continue
-        if (group.provider === 'moa' || (!['ekko','hermes'].includes(runtime) && isScopedCodingAgentAuthProvider(group.provider))) continue
-        for (const model of group.models || []) {
-          if (group.model_meta?.[model]?.disabled) continue
-          const protocol = apiMode(group, model)
-          if (runtime !== 'hermes' && ['bedrock_converse', 'codex_app_server'].includes(protocol || '')) continue
-          rows.push({ runtime, mode, profile, provider: group.provider, model, apiMode: protocol, label: model })
-        }
-      }
-    }
-  }
-  const filtered = rows.filter(r => !query || `${r.provider} ${r.model} ${r.label}`.toLowerCase().includes(query))
-    .sort((a, b) => Number(b.model.toLowerCase() === query) - Number(a.model.toLowerCase() === query) || `${a.provider}/${a.model}/${a.profile}`.localeCompare(`${b.provider}/${b.model}/${b.profile}`))
-  const signature = createHash('sha256').update(JSON.stringify([userId, runtime, mode, query, input.provider || '', rows])).digest('hex').slice(0,16)
-  let offset = 0
-  if (input.cursor) {
-    try { const cursor = JSON.parse(Buffer.from(String(input.cursor), 'base64url').toString()); if (cursor.signature !== signature || !Number.isSafeInteger(cursor.offset) || cursor.offset < 0) throw new Error(); offset = cursor.offset }
-    catch { throw personError('Model search cursor expired', 409) }
-  }
-  const limit = Math.max(1, Math.min(10, Number(input.limit) || 3))
-  const candidates = filtered.slice(offset, offset + limit).map(({ label, ...selection }) => ({ ...selection, label,
-    selection_ref: savePersonSelection(userId, selection), availability: 'configuration_found' }))
-  return { candidates, cursor: offset + limit < filtered.length ? Buffer.from(JSON.stringify({ signature, offset: offset + limit })).toString('base64url') : null }
 }

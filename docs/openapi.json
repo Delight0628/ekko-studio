@@ -19149,6 +19149,32 @@
         }
       }
     },
+    "/api/studio/person/agent-models": {
+      "get": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Get agent-models",
+        "description": "GET /api/studio/person/agent-models",
+        "operationId": "executionModelCatalog",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
     "/api/studio/person/capabilities": {
       "get": {
         "tags": [
@@ -19350,69 +19376,6 @@
         }
       }
     },
-    "/api/studio/person/models/search": {
-      "post": {
-        "tags": [
-          "Person"
-        ],
-        "summary": "Create search",
-        "description": "Studio user login required. Account isolation is enforced by the server. Mutations use current revisions; task and schedule operations require an idempotency key. Worker question answers are delivered through their original interactive runtime.",
-        "operationId": "models",
-        "security": [
-          {
-            "BearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "runtime": {
-                    "type": "string"
-                  },
-                  "mode": {
-                    "type": "string",
-                    "enum": [
-                      "scoped",
-                      "global"
-                    ]
-                  },
-                  "query": {
-                    "type": "string"
-                  },
-                  "provider": {
-                    "type": "string"
-                  },
-                  "cursor": {
-                    "type": "string"
-                  },
-                  "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 10
-                  }
-                },
-                "required": []
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/studio/person/schedules/apply": {
       "post": {
         "tags": [
@@ -19531,6 +19494,64 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "agents": {
+                    "type": "array",
+                    "maxItems": 20,
+                    "description": "Execution presets; an empty list inherits Person provider/model through Ekko Agent",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "name",
+                        "description",
+                        "selection"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "selection": {
+                          "type": "object",
+                          "required": [
+                            "runtime",
+                            "mode",
+                            "profile",
+                            "model"
+                          ],
+                          "properties": {
+                            "runtime": {
+                              "type": "string"
+                            },
+                            "mode": {
+                              "type": "string",
+                              "enum": [
+                                "scoped",
+                                "global"
+                              ]
+                            },
+                            "profile": {
+                              "type": "string"
+                            },
+                            "provider": {
+                              "type": "string"
+                            },
+                            "model": {
+                              "type": "string"
+                            },
+                            "reasoningEffort": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
                   "use_global_default": {
                     "type": "boolean"
                   },
@@ -19566,9 +19587,6 @@
                       "max"
                     ]
                   },
-                  "selection_ref": {
-                    "type": "string"
-                  },
                   "expected_revision": {
                     "type": "integer",
                     "minimum": 0
@@ -19585,11 +19603,6 @@
                     "type": "integer",
                     "minimum": 8000,
                     "maximum": 64000
-                  },
-                  "maxReviewRounds": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 5
                   },
                   "maxConcurrentTasks": {
                     "type": "integer",
@@ -19643,11 +19656,7 @@
                       "create",
                       "adopt",
                       "update",
-                      "steer",
                       "start",
-                      "pause",
-                      "resume",
-                      "cancel",
                       "close",
                       "reopen"
                     ]
@@ -19666,8 +19675,9 @@
                   "schedule_id": {
                     "type": "string"
                   },
-                  "selection_ref": {
-                    "type": "string"
+                  "agent_id": {
+                    "type": "string",
+                    "description": "Configured execution agent ID; omitted selects the sole preset or default Ekko Agent"
                   },
                   "title": {
                     "type": "string",
@@ -19676,10 +19686,6 @@
                   "goal": {
                     "type": "string",
                     "maxLength": 8000
-                  },
-                  "acceptance": {
-                    "type": "string",
-                    "maxLength": 4000
                   },
                   "workspace": {
                     "type": "string",
@@ -19737,9 +19743,185 @@
                   "offset": {
                     "type": "integer",
                     "minimum": 0
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "",
+                      "open",
+                      "completed",
+                      "closed"
+                    ]
+                  },
+                  "order": {
+                    "type": "string",
+                    "enum": [
+                      "newest",
+                      "oldest"
+                    ]
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
                   }
                 },
                 "required": []
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/person/tasks/{id}/chat": {
+      "get": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Get chat",
+        "description": "Open the account-owned hidden task conversation. Returns task and session metadata for standard socket resume. It stays excluded from ordinary session lists. Read-only history is permitted to its owner; direct run, abort and other session mutations remain forbidden.",
+        "operationId": "taskChat",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Create chat",
+        "description": "Continue an idle, non-closed task in the same hidden worker session through the durable background runner. Completed tasks reopen automatically on new input. Running tasks, pending result delivery and stale revisions return 409. Completion wakes the original Person main session again.",
+        "operationId": "taskContinue",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 50,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "required": [
+                            "type",
+                            "text"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "text"
+                              ]
+                            },
+                            "text": {
+                              "type": "string",
+                              "maxLength": 32000
+                            }
+                          }
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "type",
+                            "name",
+                            "path"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "file",
+                                "image"
+                              ]
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "path": {
+                              "type": "string"
+                            },
+                            "media_type": {
+                              "type": "string"
+                            },
+                            "context": {
+                              "type": "string"
+                            },
+                            "video_frame": {
+                              "type": "boolean"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "idempotency_key": {
+                    "type": "string",
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "input",
+                  "expected_revision",
+                  "idempotency_key"
+                ]
               }
             }
           }

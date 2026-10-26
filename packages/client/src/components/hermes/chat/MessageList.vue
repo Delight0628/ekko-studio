@@ -375,7 +375,7 @@ watch([
 const canForkActiveSession = computed(() => {
   const session = chatStore.activeSession;
   const hasConversation = displayMessages.value.some((message) => message.role === "user" || message.role === "assistant");
-  return !!session && session.source !== "coding_agent" && session.source !== "builtin_agent" && !chatStore.isStreaming && !chatStore.isForkPending && hasConversation;
+  return !!session && !session.id.startsWith("person-task-") && session.source !== "coding_agent" && session.source !== "builtin_agent" && !chatStore.isStreaming && !chatStore.isForkPending && hasConversation;
 });
 
 const lastForkActionMessageId = computed(() => {
