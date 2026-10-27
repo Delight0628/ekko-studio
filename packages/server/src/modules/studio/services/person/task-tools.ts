@@ -5,7 +5,7 @@ import { getPersonTask, listAssignablePersonGoals, listPersonTasks, taskPersonEx
 import { applyPersonTask } from './tasks'
 import type { PersonTool } from './model'
 
-type Field = { type: 'string' | 'boolean' | 'integer'; maxLength?: number; minLength?: number; minimum?: number; enum?: string[]; description?: string }
+type Field = { type: 'string' | 'boolean' | 'integer' | ['string', 'null']; maxLength?: number; minLength?: number; minimum?: number; enum?: string[]; description?: string }
 type Action = 'adopt' | 'update' | 'start' | 'stop' | 'close' | 'reopen'
 type Snapshot = Pick<PersonTask, 'id' | 'title' | 'summary' | 'status' | 'revision' | 'execution_id' | 'execution_state' | 'running'>
 type Reference = { task: Snapshot; assignable: boolean; expiresAt: number }
@@ -15,6 +15,7 @@ const actionFields: Record<Action, string[]> = {
 }
 const actionRequired: Partial<Record<Action, string[]>> = { adopt: ['goal'], update: ['goal'] }
 const queryAgain = 'Call bot_tasks_query again and reconsider the action using its current task_ref and allowed_actions.'
+const listAgain = 'List tasks with bot_tasks_query {"search":"","offset":0}, or put keywords in search. Omit task_id; never guess all/recent/0. For details, copy an exact id from the list.'
 
 /** These flat tool contracts drive both the advertised schema and runtime validation. */
 function validate(input: Record<string, unknown>, fields: Record<string, Field>, required: string[]) {
@@ -22,9 +23,11 @@ function validate(input: Record<string, unknown>, fields: Record<string, Field>,
   for (const [key, value] of Object.entries(input)) {
     const field = fields[key]
     if (!Object.hasOwn(fields, key)) throw personError(`Unknown field: ${key}`)
-    if (field.type === 'string' && (typeof value !== 'string' || value.trim().length < (field.minLength ?? 1) || value.length > field.maxLength!)) throw personError(`Invalid ${key}`)
-    if (field.type === 'boolean' && typeof value !== 'boolean') throw personError(`Invalid ${key}`)
-    if (field.type === 'integer' && (!Number.isSafeInteger(value) || Number(value) < (field.minimum || 0))) throw personError(`Invalid ${key}`)
+    const types: string[] = Array.isArray(field.type) ? field.type : [field.type]
+    if (value === null && types.includes('null')) continue
+    if (types.includes('string') && (typeof value !== 'string' || value.trim().length < (field.minLength ?? 1) || value.length > field.maxLength!)) throw personError(`Invalid ${key}`)
+    if (types.includes('boolean') && typeof value !== 'boolean') throw personError(`Invalid ${key}`)
+    if (types.includes('integer') && (!Number.isSafeInteger(value) || Number(value) < (field.minimum || 0))) throw personError(`Invalid ${key}`)
     if (field.enum && !field.enum.includes(String(value))) throw personError(`Unsupported ${key}`)
   }
 }
@@ -79,19 +82,20 @@ export function personTaskTools(userId: number): PersonTool[] {
         const status = (error as { status?: number }).status
         const message = error instanceof Error ? error.message : 'Task operation failed'
         const taskId = references.get(String(args.task_ref))?.task.id
-        if (status === 409 || status === 404) return failure(status === 404 ? 'TASK_UNAVAILABLE' : 'STALE_TASK', message, queryAgain, taskId)
+        if (status === 409 || status === 404) return failure(status === 404 ? 'TASK_UNAVAILABLE' : 'STALE_TASK', message, name === 'bot_tasks_query' ? listAgain : queryAgain, taskId)
         if (status === 400) return failure('INVALID_ARGUMENT', message, 'Correct the arguments using this tool schema; do not supply host-managed fields.')
         if (status === 403) return failure('ACCESS_DENIED', message, 'This operation is not authorized; do not retry with another task reference.')
         throw error
       }
     },
   })
-  const query = define('bot_tasks_query', 'Read current tasks. Use task_ref and allowed_actions from this turn to control a task; old conversation references expire. Set assignable=true only to discover account-owned goals available for explicit adoption. Details require task_id.', {
-    task_id: text(100), search: { ...text(200), minLength: 0 }, offset: { type: 'integer', minimum: 0 }, assignable: { type: 'boolean' },
+  const query = define('bot_tasks_query', 'List/search current tasks; omit task_id or use null/empty unless reading an exact id returned here. Never invent IDs such as all/recent/0. Use current task_ref and allowed_actions for control. assignable=true discovers account-owned goals for explicit adoption.', {
+    task_id: { ...text(100), type: ['string', 'null'], minLength: 0 }, search: { ...text(200), minLength: 0 }, offset: { type: 'integer', minimum: 0 }, assignable: { type: 'boolean' },
   }, [], async args => {
     if (args.assignable) return { tasks: (listAssignablePersonGoals(userId, String(args.search || '')) as Snapshot[]).map(task => expose(task, true)) }
-    if (args.task_id) {
-      const task = getPersonTask(userId, String(args.task_id))
+    const taskId = String(args.task_id || '').trim()
+    if (taskId) {
+      const task = getPersonTask(userId, taskId)
       return { task: { ...expose(task), goal: JSON.parse(task.requirements_json).goal }, executions: taskPersonExecutions(userId, task.id).slice(0, 5).map(run => ({ id: run.id, state: run.state, output_preview: run.output.slice(0, 500) })) }
     }
     const offset = Number(args.offset) || 0

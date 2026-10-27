@@ -16,9 +16,13 @@ let nativeTaskRun: ReturnType<typeof vi.fn>
 const selection = { runtime: 'ekko', mode: 'scoped' as const, profile: 'default', provider: 'test', model: 'm', apiMode: 'chat_completions' }
 let catalog: Array<any>
 let activeAccount = true
+let modelContextLength = 16000
+let globalCompression: Record<string, unknown> = {}
 
 beforeEach(async () => {
   vi.resetModules(); db = new DatabaseSync(':memory:'); dir = mkdtempSync(join(tmpdir(), 'person-test-')); activeAccount = true
+  modelContextLength = 16000; globalCompression = {}
+  vi.doMock('../../packages/server/src/modules/studio/public/provider-runtime', () => ({ getModelContextLength: ({ model }: { model: string }) => model === 'm2' ? 128000 : modelContextLength }))
   nativeTaskRun = vi.fn()
   vi.doMock('../../packages/server/src/modules/studio/public/chat-run', () => ({ getChatRunServer: () => ({ isSessionRunning: () => false, runAndWait: nativeTaskRun }) }))
   vi.doMock('../../packages/server/src/modules/studio/infrastructure/database/index', () => ({ getDb: () => db, isSqliteAvailable: () => true }))
@@ -27,7 +31,7 @@ beforeEach(async () => {
     findUserById: (id: number) => ({ id, status: activeAccount ? 'active' : 'disabled', role: id === 1 ? 'super_admin' : 'admin', username: `user${id}` }),
     listUserProfiles: () => [{ profile_name: 'default' }], userCanAccessProfile: (_id: number, p: string) => p === 'default',
   }))
-  vi.doMock('../../packages/server/src/modules/studio/public/profile-config', () => ({ listProfileNamesFromDisk: () => ['default'], getActiveProfileName: () => 'default' }))
+  vi.doMock('../../packages/server/src/modules/studio/public/profile-config', () => ({ listProfileNamesFromDisk: () => ['default'], getActiveProfileName: () => 'default', readConfigYamlForProfile: async () => ({ compression: globalCompression }) }))
   vi.doMock('../../packages/server/src/modules/studio/public/agent-status-registry', () => ({ getAgentAvailabilitySnapshot: () => ({ agents: [{ id: 'hermes', installed: true }, { id: 'ekko-agent', installed: true }, { id: 'codex', installed: true }, { id: 'pi', installed: false }] }) }))
   catalog = [{ provider: 'test', models: ['m'], api_mode: 'chat_completions' }]
   vi.doMock('../../packages/server/src/modules/studio/public/session-agent-runtime', () => ({ getSessionAvailableModelGroups: async () => catalog, validateCodingAgentModelEffort: vi.fn(async () => {}) }))
@@ -48,7 +52,7 @@ beforeEach(async () => {
   }
   const { configurePersonRuntime } = await import('../../packages/server/src/modules/studio/public/person-runtime')
   configurePersonRuntime(runtime)
-  store.savePersonSettings(1, { ...store.personSettings(1).settings, model: selection }, 0)
+  store.savePersonSettings(1, { ...store.personSettings(1).settings, model: selection, agents: [{ id: 'worker', name: 'Worker', description: 'Execute tasks', selection: { ...selection, reasoningEffort: '' } }] }, 0)
 })
 afterEach(async () => {
   await runner?.stopPersonWork()
@@ -134,7 +138,7 @@ describe('Person account-owned tasks and runtime', () => {
     const { personSnapshot } = await import('../../packages/server/src/modules/studio/services/person/service')
     expect(await personSnapshot(1)).toMatchObject({ inherits_global_model: true, settings: { model: selection } })
     expect(store.personSettings(1).settings.model).toBeNull()
-    expect(await personSnapshot(1)).toMatchObject({ session: { id: 'person-main-1', model: 'm', reasoning_effort: '', studio_user_id: '1' } })
+    expect(await personSnapshot(1)).toMatchObject({ session: { id: 'person-main-1', model: 'm', reasoning_effort: 'low', studio_user_id: '1' } })
     catalog[0].models.push('m2')
     vi.mocked(runtime.modelConfig).mockResolvedValue({ default: 'm2', default_provider: 'test', groups: catalog })
     expect(await personSnapshot(1)).toMatchObject({ session: { id: 'person-main-1', model: 'm2' } })
@@ -156,6 +160,63 @@ describe('Person account-owned tasks and runtime', () => {
     expect(store.personSettings(1).settings.model).toBeNull()
   })
 
+  it('preserves xhigh independently for the main coordinator and saved execution preset', async () => {
+    const { configurePerson, personSnapshot } = await import('../../packages/server/src/modules/studio/services/person/service')
+    const { runPersonModel } = await import('../../packages/server/src/modules/studio/services/person/model')
+    catalog[0].model_meta = { m: { reasoning_efforts: ['low', 'medium', 'high', 'xhigh', 'max'] } }
+    const agent = { id: 'worker', name: 'Worker', description: 'Execute tasks', selection: { ...selection, reasoningEffort: 'xhigh' } }
+    await configurePerson(1, { agents: [agent], expected_revision: 1 })
+    await runPersonModel(1, 'main', [{ role: 'user', content: 'Hello' }], [], new AbortController().signal)
+    expect(vi.mocked(runtime.model).mock.calls.at(-1)![0].reasoningEffort).toBe('low')
+    await configurePerson(1, { reasoning_effort: 'xhigh', expected_revision: 2 })
+    expect(await personSnapshot(1)).toMatchObject({ settings: { reasoningEffort: 'xhigh', agents: [agent] }, session: { reasoning_effort: 'xhigh' } })
+    await runPersonModel(1, 'main', [{ role: 'user', content: 'Think carefully' }], [], new AbortController().signal)
+    expect(vi.mocked(runtime.model).mock.calls.at(-1)![0].reasoningEffort).toBe('xhigh')
+    expect(JSON.parse((await create({ start: false })).task.selection_json).reasoningEffort).toBe('xhigh')
+    await expect(configurePerson(1, { reasoning_effort: 'none', expected_revision: 3 })).rejects.toThrow('does not support')
+  })
+
+  it('saves general settings independently and follows the interaction model window and global threshold', async () => {
+    const { configurePerson, personSnapshot } = await import('../../packages/server/src/modules/studio/services/person/service')
+    const { createPersonChatAgent, ensurePersonSession } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
+    const { createPersonAgent } = await import('../../packages/server/src/bootstrap/person-chat-agent')
+    const { runPersonModel } = await import('../../packages/server/src/modules/studio/services/person/model')
+    modelContextLength = 200000
+    const original = store.personSettings(1)
+    db.prepare('UPDATE person_accounts SET settings_json=? WHERE user_id=1').run(JSON.stringify({ ...original.settings, contextTokens: 16000 }))
+    expect(await personSnapshot(1)).toMatchObject({ contextTokens: 200000, compression: { enabled: true, threshold: 0.5, globalThreshold: 0.5 } })
+    expect(store.personSettings(1).settings).not.toHaveProperty('contextTokens')
+    globalCompression = { threshold: 0.7 }
+    expect((await personSnapshot(1)).compression.threshold).toBe(0.7)
+    const patch = { compressionThreshold: 0.6, maxSteps: 20, maxConcurrentTasks: 3, timezone: 'Europe/London' }
+    await configurePerson(1, { ...patch, expected_revision: 1 })
+    const snapshot = await personSnapshot(1)
+    expect(snapshot).toMatchObject({ contextTokens: 200000, compression: { threshold: 0.6, globalThreshold: 0.7 }, settings: { ...patch, agents: original.settings.agents, model: selection } })
+    expect(store.personSettings(2).settings.timezone).toBe('Asia/Shanghai')
+    await expect(configurePerson(1, { compressionThreshold: 0.4, expected_revision: 1 })).rejects.toThrow('changed')
+    runtime.chatAgent = vi.fn(createPersonAgent)
+    await ensurePersonSession(1)
+    await createPersonChatAgent(1, 'person-main-1')
+    expect(runtime.chatAgent).toHaveBeenLastCalledWith(expect.objectContaining({ contextTokens: 200000, maxSteps: 20, compression: expect.objectContaining({ threshold: 0.6 }), systemPrompt: expect.stringContaining('Account timezone: Europe/London') }))
+    catalog[0].models.push('m2')
+    await configurePerson(1, { model: { ...selection, model: 'm2' }, expected_revision: 2 })
+    expect((await personSnapshot(1)).contextTokens).toBe(128000)
+    await createPersonChatAgent(1, 'person-main-1')
+    expect(runtime.chatAgent).toHaveBeenLastCalledWith(expect.objectContaining({ contextTokens: 128000, compression: expect.objectContaining({ threshold: 0.6 }) }))
+    await runPersonModel(1, 'main', [{ role: 'user', content: 'Hello' }], [], new AbortController().signal)
+    expect(runtime.model).toHaveBeenLastCalledWith(expect.objectContaining({ contextTokens: 128000, compression: expect.objectContaining({ threshold: 0.6 }) }))
+    globalCompression.enabled = false
+    await configurePerson(1, { compressionThreshold: null, expected_revision: 3 })
+    expect(await personSnapshot(1)).toMatchObject({ compression: { enabled: false, threshold: 0.7 }, settings: { compressionThreshold: null } })
+  })
+
+  it.each([{ compressionThreshold: 0.01 }, { compressionThreshold: 0.96 }, { compressionThreshold: '50' }, { contextTokens: 16000 }, { maxSteps: 31 }, { maxConcurrentTasks: 5 }])('rejects invalid general settings without saving: %j', async patch => {
+    const { configurePerson } = await import('../../packages/server/src/modules/studio/services/person/service')
+    const original = store.personSettings(1)
+    await expect(configurePerson(1, { ...patch, expected_revision: original.revision })).rejects.toMatchObject({ status: 400 })
+    expect(store.personSettings(1)).toEqual(original)
+  })
+
   it('keeps model catalogs in the UI, strips credentials and rejects unavailable choices', async () => {
     catalog[0] = { ...catalog[0], api_key: 'private-key', base_url: 'https://private.example', models: ['m','hidden','unsupported'],
       model_meta: { hidden: { disabled: true } }, api_mode_by_model: { unsupported: 'bedrock_converse' } }
@@ -171,7 +232,9 @@ describe('Person account-owned tasks and runtime', () => {
   })
 
   it('does not send a request if the global default is missing or disabled', async () => {
+    const agents = store.personSettings(1).settings.agents
     db.prepare('DELETE FROM person_accounts WHERE user_id=1').run()
+    store.savePersonSettings(1, { ...store.personSettings(1).settings, agents }, 0)
     catalog[0].model_meta = { m: { disabled: true } }
     const { personSnapshot } = await import('../../packages/server/src/modules/studio/services/person/service')
     expect(await personSnapshot(1)).toMatchObject({ inherits_global_model: true, settings: { model: null } })
@@ -179,6 +242,28 @@ describe('Person account-owned tasks and runtime', () => {
     await expect(createPersonChatAgent(1, 'person-main-1')).rejects.toThrow('global default model')
     expect(runtime.model).not.toHaveBeenCalled()
     expect(db.prepare("SELECT COUNT(*) AS n FROM messages WHERE session_id='person-main-1'").get()).toMatchObject({ n: 0 })
+  })
+
+  it('requires a saved preset before chat or task creation and relocks after the last preset is removed', async () => {
+    const { configurePerson, personSnapshot } = await import('../../packages/server/src/modules/studio/services/person/service')
+    const { createPersonChatAgent } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
+    const { personExecutionAgents } = await import('../../packages/server/src/modules/studio/services/person/agents')
+    const agents = store.personSettings(1).settings.agents
+    db.prepare('DELETE FROM person_accounts WHERE user_id=1').run()
+    runtime.chatAgent = vi.fn(async () => ({} as any))
+    expect(await personSnapshot(1)).toMatchObject({ session: { id: 'person-main-1' }, settings: { agents: [], model: selection } })
+    expect(await personExecutionAgents(1)).toEqual([])
+    await expect(createPersonChatAgent(1, 'person-main-1')).rejects.toMatchObject({ status: 409 })
+    await expect(create()).rejects.toThrow('Configure at least one Agent preset')
+    expect(runtime.chatAgent).not.toHaveBeenCalled()
+    expect(store.listPersonTasks(1)).toEqual([])
+    await configurePerson(1, { agents, expected_revision: 0 })
+    await expect(createPersonChatAgent(1, 'person-main-1')).resolves.toEqual({})
+    expect(runtime.chatAgent).toHaveBeenCalledTimes(1)
+    await configurePerson(1, { agents: [], expected_revision: 1 })
+    await expect(createPersonChatAgent(1, 'person-main-1')).rejects.toThrow('Configure at least one Agent preset')
+    expect(await personExecutionAgents(1)).toEqual([])
+    expect(runtime.chatAgent).toHaveBeenCalledTimes(1)
   })
 
   it('reuses a hidden owned session and preserves ordinary history', async () => {
@@ -308,8 +393,8 @@ describe('Person account-owned tasks and runtime', () => {
     const { configurePerson } = await import('../../packages/server/src/modules/studio/services/person/service')
     const { personExecutionAgents } = await import('../../packages/server/src/modules/studio/services/person/agents')
     await configurePerson(1, { reasoning_effort: 'high', expected_revision: 1 })
-    const inherited = await create({ start: false })
-    expect(JSON.parse(inherited.task.selection_json)).toMatchObject({ ...selection, reasoningEffort: 'high' })
+    const configured = await create({ start: false })
+    expect(JSON.parse(configured.task.selection_json)).toMatchObject({ ...selection, reasoningEffort: '' })
     const preset = { id: 'coder', name: 'Coder', description: 'Implement code changes', selection: { ...selection, runtime: 'codex', reasoningEffort: 'low' } }
     await configurePerson(1, { agents: [preset], expected_revision: 2 })
     expect(await personExecutionAgents(1)).toEqual([preset])
@@ -321,7 +406,8 @@ describe('Person account-owned tasks and runtime', () => {
     await expect(configurePerson(1, { agents: [preset, preset], expected_revision: 3 })).rejects.toThrow('Duplicate')
     await expect(configurePerson(2, { agents: [{ ...preset, selection: { ...selection, runtime: 'codex', mode: 'global', model: 'native/model-latest' } }], expected_revision: 0 })).rejects.toThrow('credentials')
     await configurePerson(1, { agents: [], expected_revision: 3 })
-    expect((await personExecutionAgents(1))[0]).toMatchObject({ id: 'default', selection: { runtime: 'ekko', reasoningEffort: 'high' } })
+    expect(await personExecutionAgents(1)).toEqual([])
+    await expect(create()).rejects.toThrow('Configure at least one Agent preset')
   })
   it('supports native defaults and validates native effort lists and encoded variants', async () => {
     const { configurePerson } = await import('../../packages/server/src/modules/studio/services/person/service')
@@ -572,6 +658,33 @@ describe('Person account-owned tasks and runtime', () => {
     expect(store.getPersonTask(1, task.id)).toEqual(before)
     expect(store.taskPersonExecutions(1, task.id)).toHaveLength(0)
   })
+  it.each([undefined, '', ' ', null])('lists tasks with an empty optional task ID (%s) and gives actionable recovery for guessed IDs', async taskId => {
+    const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
+    const { task } = await create({ start: false })
+    store.createPersonTask(2, 'Private task', 'Private requirements', selection, dir)
+    const query = personTools(1, 'main').find(tool => tool.name === 'bot_tasks_query')!
+    const result: any = await query.execute({ ...(taskId !== undefined ? { task_id: taskId } : {}), search: '', offset: 0, assignable: false })
+    expect(result.tasks.map((item: any) => item.id)).toEqual([task.id])
+    expect(result.tasks[0].allowed_actions).toContain('start')
+    const missing: any = await query.execute({ task_id: 'all', search: '' })
+    expect(missing).toMatchObject({ ok: false, error: { code: 'TASK_UNAVAILABLE' } })
+    expect(missing.error.recovery).toContain('{"search":"","offset":0}')
+    expect(store.taskPersonExecutions(1, task.id)).toHaveLength(0)
+  })
+  it.each([undefined, 0, null])('searches historical evidence without treating empty message ID %s as an exact read', async messageId => {
+    const { ensurePersonSession } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
+    const { addMessage } = await import('../../packages/server/src/modules/studio/repositories/session-store')
+    const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
+    await ensurePersonSession(1); await ensurePersonSession(2)
+    const own = addMessage({ session_id: 'person-main-1', role: 'user', content: '仓库调研 report' })
+    const foreign = addMessage({ session_id: 'person-main-2', role: 'user', content: 'Private report' })
+    const search = personTools(1, 'main').find(tool => tool.name === 'bot_context_search')!
+    expect(await search.execute({ query: 'report', ...(messageId !== undefined ? { message_id: messageId } : {}), offset: 0 }))
+      .toMatchObject({ evidence: [{ id: own, content: '仓库调研 report' }] })
+    expect(await search.execute({ query: '', message_id: own, offset: 0 })).toMatchObject({ evidence: [{ id: own }] })
+    await expect(search.execute({ query: 'report', message_id: foreign, offset: 0 })).rejects.toThrow('not found')
+    await expect(search.execute({ query: 'report', message_id: -1, offset: 0 })).rejects.toThrow()
+  })
   it('rejects cross-account, previous-turn, expired and evicted references', async () => {
     const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
     const tools = personTools(1, 'main')
@@ -812,8 +925,7 @@ it('uses the complete native memory toolset within the minimum Person budget', a
   const { personMemory } = await import('../../packages/server/src/modules/studio/services/person/memory')
   const { countTextTokens } = await import('../../packages/ekko-agent/src/model/tokens')
   runtime.chatAgent = createPersonAgent
-  const settings = store.personSettings(1)
-  store.savePersonSettings(1, { ...settings.settings, contextTokens: 8000 }, settings.revision)
+  modelContextLength = 8000
   await ensurePersonSession(1)
   const account = personMemory(1)
   await account.service.write({operation:'create',kind:'profile_name',identity:account.identity,reason:'User name',node:{title:'Name',content:'用户的名字是 ekko',valueJson:'ekko'}})
@@ -829,6 +941,100 @@ it('uses the complete native memory toolset within the minimum Person budget', a
   expect(Math.ceil(countTextTokens(JSON.stringify({ messages: requests[0].messages, tools: requests[0].tools })) * 1.15) + 2048 + 1024).toBeLessThanOrEqual(8000)
 })
 
+it('resumes a saved task through Responses list, history search and control without exhausting steps', async () => {
+  const { createPersonAgent } = await import('../../packages/server/src/bootstrap/person-chat-agent')
+  const { createPersonChatAgent, ensurePersonSession } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
+  const { OpenAIResponsesModelClient } = await import('../../packages/ekko-agent/src/model/providers/openai-responses')
+  const { addMessage } = await import('../../packages/server/src/modules/studio/repositories/session-store')
+  runtime.chatAgent = createPersonAgent
+  await ensurePersonSession(1)
+  const evidenceId = addMessage({ session_id: 'person-main-1', role: 'user', content: '调研这个仓库，并给我一份报告。' })
+  const { task } = await create({ title: '仓库调研', goal: '调研仓库并提供报告', start: false })
+  const bodies: any[] = [], events: any[] = []
+  let taskRef = ''
+  const modelClient = new OpenAIResponsesModelClient({ id: 'test', type: 'openai', defaultModel: 'm', baseUrl: 'https://model.example.test/v1' }, {
+    fetch: async (_url, init) => {
+      const body = JSON.parse(String(init?.body)); bodies.push(body)
+      expect(body.tools.every((tool: any) => tool.strict === false)).toBe(true)
+      const resultOf = (id: string) => JSON.parse(body.input.find((item: any) => item.type === 'function_call_output' && item.call_id === id).output)
+      let call: { name: string; arguments: Record<string, unknown> } | undefined
+      if (bodies.length === 1) {
+        expect(body.tools.find((tool: any) => tool.name === 'bot_tasks_query').parameters.required).not.toContain('task_id')
+        call = { name: 'bot_tasks_query', arguments: { task_id: null, search: '', offset: 0, assignable: false } }
+      } else if (bodies.length === 2) {
+        const listed = resultOf('step-1')
+        expect(listed.tasks).toHaveLength(1)
+        expect(listed.tasks[0]).toMatchObject({ id: task.id, allowed_actions: expect.arrayContaining(['start']) })
+        taskRef = listed.tasks[0].task_ref
+        call = { name: 'bot_context_search', arguments: { query: '仓库', message_id: 0, offset: 0 } }
+      } else if (bodies.length === 3) {
+        expect(resultOf('step-2').evidence).toContainEqual(expect.objectContaining({ id: evidenceId }))
+        call = { name: 'bot_task_control', arguments: { task_ref: taskRef, action: 'start' } }
+      } else {
+        expect(bodies).toHaveLength(4)
+        expect(resultOf('step-3')).toMatchObject({ ok: true, execution: { state: 'queued' } })
+      }
+      const response = { id: `response-${bodies.length}`, status: 'completed', output: call
+        ? [{ type: 'function_call', call_id: `step-${bodies.length}`, name: call.name, arguments: JSON.stringify(call.arguments) }]
+        : [{ type: 'message', content: [{ type: 'output_text', text: '已安排继续仓库调研。' }] }],
+      }
+      return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response })}\n\n`, { headers: { 'content-type': 'text/event-stream' } })
+    },
+  })
+  const agent = await createPersonChatAgent(1, 'person-main-1')
+  const result = await agent.run({ messages: [{ role: 'user', content: '继续' }], modelClient, onEvent: event => events.push(event) })
+  expect(result.output.content).toBe('已安排继续仓库调研。')
+  expect(result.output.finishReason).not.toBe('max_steps')
+  expect(events.filter(event => ['tool.failed', 'run.max_steps'].includes(event.type))).toEqual([])
+  expect(store.taskPersonExecutions(1, task.id)).toMatchObject([{ state: 'queued' }])
+  expect(bodies).toHaveLength(4)
+})
+
+it.each([false, true])('continues after small tool errors with Responses metadata and encrypted reasoning within 16k (streaming=%s)', async streaming => {
+  const { createPersonAgent } = await import('../../packages/server/src/bootstrap/person-chat-agent')
+  const { createPersonChatAgent, ensurePersonSession } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
+  const { OpenAIResponsesModelClient } = await import('../../packages/ekko-agent/src/model/providers/openai-responses')
+  const { addMessage } = await import('../../packages/server/src/modules/studio/repositories/session-store')
+  const { createHash } = await import('node:crypto')
+  runtime.chatAgent = createPersonAgent
+  await ensurePersonSession(1)
+  for (let i = 0; i < 4; i++) addMessage({ session_id: 'person-main-1', role: 'assistant', content: `Earlier task ${i}. ` + 'The task is pending; verify the current task record before acting. '.repeat(100) })
+  const encrypted = Array.from({ length: 80 }, (_, i) => createHash('sha256').update(String(i)).digest('base64')).join('').slice(0, 3340)
+  const requests: any[] = [], events: any[] = [], summaries: any[] = []
+  const modelClient = new OpenAIResponsesModelClient({ id: 'test', type: 'openai', defaultModel: 'm', baseUrl: 'https://model.example.test/v1', capabilities: { streaming, maxInputTokens: 16000 } }, {
+    fetch: async (_url, init) => {
+      const body = JSON.parse(String(init?.body))
+      if (!body.tools?.length) {
+        summaries.push(body)
+        return new Response(JSON.stringify({ output_text: 'Earlier tool query failed with TASK_UNAVAILABLE; no action was authorized. '.repeat(8), status: 'completed' }))
+      }
+      requests.push(body)
+      const output = requests.length <= 2 ? [
+        ...(requests.length === 2 ? [{ type: 'reasoning', id: 'rs_test', encrypted_content: encrypted, summary: [], content: [] }] : []),
+        { type: 'function_call', call_id: `query-${requests.length}`, name: 'bot_tasks_query', arguments: JSON.stringify({ task_id: 'missing-task', search: '', offset: 0, assignable: false }) },
+      ] : [{ type: 'message', content: [{ type: 'output_text', text: 'The query failed; I will correct its arguments.' }] }]
+      const response = { id: `response-${requests.length}`, model: 'm', status: 'completed',
+        instructions: body.instructions, tools: body.tools, output, usage: { input_tokens: 4700, output_tokens: 174, output_tokens_details: { reasoning_tokens: 138 } },
+      }
+      return body.stream
+        ? new Response(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response })}\n\n`, { headers: { 'content-type': 'text/event-stream' } })
+        : new Response(JSON.stringify(response))
+    },
+  })
+  const agent = await createPersonChatAgent(1, 'person-main-1')
+  const result = await agent.run({ messages: [{ role: 'user', content: '继续' }], modelClient, reasoningEffort: 'xhigh', onEvent: event => events.push(event) })
+  expect(result.output.content).toBe('The query failed; I will correct its arguments.')
+  expect(requests).toHaveLength(3)
+  expect(events.filter(event => event.type === 'tool.failed')).toHaveLength(2)
+  expect(summaries).toEqual([])
+  expect(requests.every(request => request.reasoning.effort === 'xhigh')).toBe(true)
+  expect(requests[2].input).toContainEqual(expect.objectContaining({ type: 'reasoning', encrypted_content: encrypted }))
+  expect(requests[2].input.filter((item: any) => item.type === 'function_call_output')).toHaveLength(2)
+  const estimates = events.filter(event => event.type === 'context.estimated').map(event => event.estimate.contextTokens)
+  expect(estimates).toHaveLength(3)
+  expect(estimates.every(tokens => tokens + 2048 + 1024 <= 16000)).toBe(true)
+})
+
 it('delivers a completed screenshot through the real artifact tool and accepts an uploaded image within 16k', async () => {
   const { createPersonAgent } = await import('../../packages/server/src/bootstrap/person-chat-agent')
   const { createPersonChatAgent, ensurePersonSession } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
@@ -837,8 +1043,7 @@ it('delivers a completed screenshot through the real artifact tool and accepts a
   const { randomBytes } = await import('node:crypto')
   const { realpathSync } = await import('node:fs')
   runtime.chatAgent = createPersonAgent
-  const settings = store.personSettings(1)
-  store.savePersonSettings(1, { ...settings.settings, contextTokens: 16000 }, settings.revision)
+  modelContextLength = 16000
   await ensurePersonSession(1)
   const png = await sharp(randomBytes(800 * 800 * 3), { raw: { width: 800, height: 800, channels: 3 } }).png().toBuffer()
   runtime.execute = vi.fn(async input => {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { DEFAULT_REASONING_EFFORTS, agentReasoningEffortOptions, modelReasoningEfforts } from '@/utils/model-reasoning-effort'
+import { DEFAULT_REASONING_EFFORTS, agentReasoningEffortOptions, agentReasoningEffortValue, modelReasoningEfforts } from '@/utils/model-reasoning-effort'
 import type { NativeEffortChoice } from '@/utils/native-model-families'
-import { isBuiltinEkkoSession, isExternalCodingAgentSession, isHermesSession } from '@/utils/hermes/session-agent'
+import { isBuiltinEkkoSession, isExternalCodingAgentSession } from '@/utils/hermes/session-agent'
 import { EKKO_SESSION_COMMAND_DEFINITIONS } from '@/utils/hermes/bridge-session-commands'
 import type { Attachment, Session } from '@/stores/hermes/chat'
 import { useChatStore } from '@/stores/hermes/chat'
@@ -46,6 +46,7 @@ const props = withDefaults(defineProps<{
   draftConfig?: Pick<Session, 'profile' | 'provider' | 'model' | 'codingAgentMode' | 'agent'>
   managedReasoningEffort?: boolean
   reasoningEffort?: string
+  defaultEffortLabel?: string
   reasoningEffortDisabled?: boolean
   scopedReasoningEfforts?: string[]
   nativeReasoningEfforts?: string[]
@@ -78,8 +79,7 @@ const emit = defineEmits<{
 }>()
 
 const reasoningSession = computed(() => props.draft ? props.draftConfig : composerSession.value)
-const defaultReasoningEffortLabel = computed(() => t(isHermesSession(reasoningSession.value)
-  ? 'chat.reasoningEffort.options.default' : 'chat.reasoningEffort.options.none'))
+const defaultReasoningEffortLabel = computed(() => t('chat.reasoningEffort.options.none'))
 const isMoaSession = computed(() => reasoningSession.value?.provider === 'moa')
 const isGlobalCodingAgentSession = computed(() => reasoningSession.value?.codingAgentMode === 'global')
 const isReadOnlyCodingAgentEffort = computed(() => !props.draft && isGlobalCodingAgentSession.value && isExternalCodingAgentSession(composerSession.value))
@@ -96,11 +96,12 @@ const reasoningEffortOptions = computed(() => agentReasoningEffortOptions(isGlob
     reasoningSession.value?.provider || appStore.selectedProvider || '',
     reasoningSession.value?.model || appStore.selectedModel || '',
   )).map(value => ({ label: effortLabel(value), value })),
-], isHermesSession(reasoningSession.value)))
-const currentReasoningEffort = computed<string>(() =>
+]))
+const requestedReasoningEffort = computed<string>(() =>
   ((props.draft || props.managedReasoningEffort) ? props.reasoningEffort : composerSession.value?.reasoningEffort
     || props.nativeEffortChoices?.find(choice => choice.model === composerSession.value?.model)?.effort) || ''
 )
+const currentReasoningEffort = computed(() => agentReasoningEffortValue(requestedReasoningEffort.value, reasoningEffortOptions.value))
 const reasoningEffortSliderValue = computed(() => {
   const index = reasoningEffortOptions.value.findIndex(option => option.value === currentReasoningEffort.value)
   return index >= 0 ? index : 0
@@ -143,13 +144,14 @@ function onReasoningEffortChange(value: string | null | undefined) {
   if (variant) void chatStore.setSessionReasoningEffort(sid, variant.effort, variant.model)
   else void chatStore.setSessionReasoningEffort(sid, value || '')
 }
-watch([reasoningEffortOptions, currentReasoningEffort, canEditReasoningEffort], ([options]) => {
+watch([reasoningEffortOptions, requestedReasoningEffort, canEditReasoningEffort], ([options, requested]) => {
   if (isMoaSession.value || !canEditReasoningEffort.value) {
     showReasoningEffort.value = false
     return
   }
-  if (!isGlobalCodingAgentSession.value && currentReasoningEffort.value && !options.some(option => option.value === currentReasoningEffort.value)) {
-    onReasoningEffortChange('')
+  const fallback = agentReasoningEffortValue('', options)
+  if ((!requested && fallback) || (!isGlobalCodingAgentSession.value && requested && !options.some(option => option.value === requested))) {
+    onReasoningEffortChange(fallback)
   }
 }, { immediate: true })
 function reasoningEffortSliderLabel(value: number) {

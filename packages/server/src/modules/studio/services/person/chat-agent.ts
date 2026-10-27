@@ -12,6 +12,7 @@ import { effectivePersonSettings, personUser, validatePersonSelection } from './
 import { PERSON_SYSTEM_PROMPT } from './model'
 import { personTools } from './tools'
 import { createPersonContext } from './context'
+import { requirePersonAgents } from './agents'
 import { recordSessionUsage } from '../usage/usage-recorder'
 
 export function personChatBusy(userId: number): boolean {
@@ -40,18 +41,19 @@ export async function ensurePersonSession(userId: number) {
 /** Called only after account ownership has been checked at the transport boundary. */
 export async function createPersonChatAgent(userId: number, sessionId: string) {
   if (!ownsPersonSession(userId, getSession(sessionId))) throw personError('Session not found', 404)
-  const { settings } = await effectivePersonSettings(userId)
+  requirePersonAgents(userId)
+  const { settings, compression, contextTokens } = await effectivePersonSettings(userId)
   if (!settings.model) throw personError('No available global default model; choose a Person model', 409)
   const selection = settings.model
   await validatePersonSelection(userId, selection)
   const factory = personRuntime().chatAgent
   if (!factory) throw personError('Person chat runtime unavailable', 503)
-  const context = createPersonContext(userId, sessionId, settings.contextTokens)
+  const context = createPersonContext(userId, sessionId, contextTokens)
   const summaryRunId = randomUUID()
   let summaryCall = 0, requestedAt = Date.now()
   return factory({ selection, tools: personTools(userId, 'main'),
     systemPrompt: `${PERSON_SYSTEM_PROMPT}\nRole: main. Current time: ${new Date().toISOString()}. Account timezone: ${settings.timezone}. Query task records on demand.`,
-    maxSteps: settings.maxSteps, contextTokens: settings.contextTokens,
+    maxSteps: settings.maxSteps, contextTokens, compression,
     workspace: getSession(sessionId)!.workspace!,
     memory: personMemory(userId), loadHistory: context.loadHistory, summaryCache: context.summaryCache,
     onSummaryUsage: response => recordSessionUsage({ sessionId, runId: `person:context:${summaryRunId}:${++summaryCall}`,

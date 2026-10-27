@@ -12,6 +12,7 @@ export interface PersonModelCall {
   tools: Array<AgentToolDefinition & { execute(input: Record<string, unknown>, origin?: PersonTaskOrigin): Promise<unknown> }>
   maxSteps: number
   contextTokens: number
+  compression?: { enabled: boolean; threshold: number }
   reasoningEffort?: ModelRequest['reasoningEffort']
   signal: AbortSignal
   beforeRequest?: () => void
@@ -21,7 +22,7 @@ export interface PersonModelCall {
   summaryCache?: { get(key: string): string | undefined; set(key: string, summary: string): void }
   onPrepared?: (request: ModelRequest) => void
 }
-export interface PersonChatAgentOptions extends Pick<PersonModelCall, 'selection' | 'tools' | 'systemPrompt' | 'maxSteps' | 'contextTokens' | 'beforeRequest' | 'summaryCache' | 'onSummaryUsage'> {
+export interface PersonChatAgentOptions extends Pick<PersonModelCall, 'selection' | 'tools' | 'systemPrompt' | 'maxSteps' | 'contextTokens' | 'compression' | 'beforeRequest' | 'summaryCache' | 'onSummaryUsage'> {
   workspace: string
   memory?: { service: MemoryService; identity: MemoryRuntimeIdentity }
   loadHistory?: (query: string) => AgentMessage[]

@@ -530,6 +530,29 @@ describe('ChatRunSocket queued bridge runs', () => {
     }))
   })
 
+  it.each(['socket', 'internal'])('rejects an unconfigured Person Agent before dispatch through the %s entry', async entry => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const sessions = await import('../../packages/server/src/modules/studio/repositories/session-store')
+    const personStore = await import('../../packages/server/src/modules/studio/repositories/person-store')
+    const settings = vi.spyOn(personStore, 'personSettings').mockReturnValue({ settings: { agents: [] } } as any)
+    const { handlers, io, socket } = makeServerHarness()
+    const server = new ChatRunSocket(io as any)
+    socket.data = { user: { id: 1, role: 'super_admin' } }
+    ;(server as any).onConnection(socket)
+    vi.mocked(sessions.getSession).mockReturnValueOnce({ id: 'person-main-1', studio_user_id: '1', profile: 'default' } as any)
+    const input = { session_id: 'person-main-1', input: 'Start a conversation', profile: 'default' }
+    try {
+      if (entry === 'socket') {
+        await handlers.get('run')!(input)
+        expect(socket.emit).toHaveBeenCalledWith('run.failed', expect.objectContaining({ error: expect.stringContaining('Configure at least one Agent preset') }))
+      } else {
+        await expect((server as any).handleRun(socket, input, 'default')).rejects.toThrow('Configure at least one Agent preset')
+      }
+      expect(handleBridgeRunMock).not.toHaveBeenCalled()
+      expect(handleCodingAgentRunMock).not.toHaveBeenCalled()
+    } finally { settings.mockRestore() }
+  })
+
   it('dispatches unknown slash bridge input through the normal bridge run path', async () => {
     const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
     const { handlers, io, socket } = makeServerHarness()

@@ -1,3 +1,4 @@
+import { studioModelReasoningEffort } from '../../public/model-reasoning-effort'
 import { personBackgroundPendingCount } from '../../repositories/person-store'
 import { isPersonSession, isPrivatePersonSession } from '../../contracts/person-session'
 import { createPersonChatAgent } from '../person/chat-agent'
@@ -135,10 +136,6 @@ function normalizeReasoningEffort(value: unknown): ModelReasoningEffort | undefi
   return ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(effort)
     ? effort as ModelReasoningEffort
     : undefined
-}
-
-function resolveReasoningEffort(value: unknown): ModelReasoningEffort {
-  return normalizeReasoningEffort(value) ?? 'none'
 }
 
 function parseJsonRecord(value: unknown): Record<string, unknown> | null {
@@ -499,7 +496,9 @@ export async function handleEkkoAgentRun(
   const apiMode = runtimeConfig.apiMode
   const apiKey = runtimeConfig.apiKey
   const persistedReasoningEffort = normalizeReasoningEffort(data.reasoning_effort ?? storedSession?.reasoning_effort)
-  const reasoningEffort = resolveReasoningEffort(persistedReasoningEffort)
+  const reasoningEffort = studioModelReasoningEffort({ ...modelConfig, baseUrl, reasoningEffort: persistedReasoningEffort,
+    metadata: data.model_groups?.find(group => group.provider === modelConfig.provider)?.model_meta?.[modelConfig.model],
+  }) as ModelReasoningEffort | undefined
   const agent = isPersonSession(sessionId) ? await createPersonChatAgent(Number(authenticatedUserId), sessionId) : getGlobalEkkoAgent(profile)
   state.ekkoBoundaryInterrupt = agent.requestBoundaryInterrupt
     ? (expectedRunId: string) => agent.requestBoundaryInterrupt({ sessionId, expectedRunId }) : undefined

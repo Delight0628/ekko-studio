@@ -8,6 +8,7 @@ import { ownedPersonTaskSession } from '../services/person/task-chat'
 import { answerPersonTaskInteraction } from '../services/person/chat-interactions'
 import { isPersonSession, isPrivatePersonSession, ownsPersonSession, personSessionId } from '../contracts/person-session'
 import { ensurePersonSession } from '../services/person/chat-agent'
+import { requirePersonAgents } from '../services/person/agents'
 import { isNativeCodingAgent } from '../contracts/agents/native-coding-agents'
 import { withRunUsage, onRunUsageUpdated } from '../repositories/run-usage-store'
 import { savePersonTaskReturn, withPersonTaskReturns } from '../repositories/person-return-store'
@@ -1025,6 +1026,7 @@ export class ChatRunSocket {
       try {
         runProfile = resolveRunProfile(data.session_id, data.profile)
         if (isPersonSession(data.session_id)) {
+          requirePersonAgents(socketUser!.id)
           const { session, settings } = await ensurePersonSession(socketUser!.id)
           if (!settings.model) throw new Error('No available Person model')
           // Only input/queue identity comes from the client. Agent policy and resources are server-owned.
@@ -1734,6 +1736,7 @@ export class ChatRunSocket {
     if (isPersonSession(data.session_id)) {
       const userId = socket.data?.user?.id
       if (!ownsPersonSession(userId, getSession(data.session_id!))) throw new Error('Session not found')
+      requirePersonAgents(userId)
       const { settings } = await ensurePersonSession(userId)
       if (!settings.model) throw new Error('No available Person model')
       data = { session_id: data.session_id, input: data.input, queue_id: data.queue_id, onEvent: data.onEvent,

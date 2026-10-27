@@ -27,7 +27,7 @@ export interface PersonSettings {
   reasoningEffort: string
   timezone: string
   maxSteps: number
-  contextTokens: number
+  compressionThreshold: number | null
   agents: PersonAgentPreset[]
   maxConcurrentTasks: number
 }
@@ -68,8 +68,8 @@ export interface PersonSchedule {
   revision: number; misfire: 'skip' | 'run_latest'; created_at: number
 }
 export const PERSON_DEFAULTS: PersonSettings = {
-  model: null, reasoningEffort: '', timezone: 'Asia/Shanghai', maxSteps: 12, contextTokens: 16000,
-  agents: [], maxConcurrentTasks: 2,
+  model: null, reasoningEffort: '', timezone: 'Asia/Shanghai', maxSteps: 12,
+  agents: [], maxConcurrentTasks: 2, compressionThreshold: null,
 }
 export function personError(message: string, status = 400): Error & { status: number } {
   return Object.assign(new Error(message), { status })

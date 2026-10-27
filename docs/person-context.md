@@ -13,6 +13,27 @@ The runtime default and ordinary Ekko chats retain their existing instructions.
 
 ## Storage and retrieval
 
+The settings drawer separates General settings from Agents, Schedules and Memory.
+General settings shows the current interaction model's context capacity, resolved
+through the same model metadata/configuration lookup as ordinary chat. Historical
+fixed Person budgets are ignored. Switching models updates both the displayed
+capacity and the next run's compression trigger.
+
+The compression threshold is a fraction of that model window (5–95%). By default
+it inherits the selected model resource's global compression threshold (50% when
+unset); an account override is optional. Global automatic-compression enablement
+is respected. Output reservations remain a hard limit even when automatic
+compression is disabled. A provider's smaller input limit also constrains requests.
+This does not enlarge automatic history retrieval or prefill the whole window.
+Within a run, checkpoints replace matching completed source blocks on subsequent
+requests; only new original evidence is summarized, never an earlier summary.
+The current user input and latest complete tool interaction stay intact.
+
+General settings also exposes the main-reply step limit (2–30), concurrent
+background tasks (1–4), and timezone. Settings use revision-checked partial updates
+and apply to subsequent replies and task dispatch. Existing schedules retain their
+own timezone.
+
 `person_context_progress`, `person_context_chunks`, `person_context_search` and
 `person_context_summaries` contain derived data. FTS maintenance triggers attach
 only to the new chunk table. Original chat messages remain authoritative and
@@ -26,7 +47,7 @@ revisions discard derived data and rebuild it. Search hits are checked against
 live originals before being returned, including after an out-of-band edit.
 
 The loader interleaves recent dialogue and lexical search hits within 30% of
-the configured context budget, capped at 3,000 estimated tokens. Evidence carries
+the interaction model's context window, capped at 3,000 estimated tokens. Evidence carries
 its original role, message ID, timestamp, character offset and pagination cursor.
 Chinese bigrams support text without spaces. Search pages contain at most six
 chunks and recent reads at most eight messages. Explicit IDs and offsets allow

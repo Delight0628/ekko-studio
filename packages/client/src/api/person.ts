@@ -9,10 +9,13 @@ export interface PersonSchedule { id: string; task_id: string; expression: strin
 export interface PersonMemory { id: string; content: string; revision: number }
 export interface PersonQuestion { id: string; task_id: string | null; question: string; kind: string; choices_json: string; revision: number }
 export interface PersonTaskReturn { taskId: string; executionId: string; assistantMessageId: string; title: string; summary: string; agent: string; state: 'finished' | 'failed' }
+export interface PersonGeneralSettings { compressionThreshold: number | null; maxSteps: number; maxConcurrentTasks: number; timezone: string }
 export interface PersonSnapshot {
   session: SessionSummary
-  settings: { model: PersonModel | null; reasoningEffort: string; timezone: string; agents: PersonAgentPreset[] }; revision: number; busy: boolean
+  settings: PersonGeneralSettings & { model: PersonModel | null; reasoningEffort: string; agents: PersonAgentPreset[] }; revision: number; busy: boolean
   inherits_global_model: boolean; reasoning_efforts: string[]
+  compression: { enabled: boolean; threshold: number; globalThreshold: number }
+  contextTokens: number
   tasks: PersonTask[]; schedules: PersonSchedule[]; memories: PersonMemory[]; interactions: PersonQuestion[]
 }
 export function personRequest<T>(path = '', body?: unknown, method = 'POST', signal?: AbortSignal) {

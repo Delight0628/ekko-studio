@@ -62,7 +62,7 @@ it.skipIf(process.env.PERSON_TASK_TOOLS_LIVE !== '1')('compares task intents and
         return result as any
       })
       const tools = personTools(1, 'main').map(tool => ['bot_tasks_query', 'bot_task_create', 'bot_task_control', 'bot_task_apply'].includes(tool.name) ? tool : ({ ...tool, async execute() {
-        if (tool.name === 'bot_agents_list') return { agents: [{ id: 'default', name: 'Ekko Agent', selection }], next_offset: null }
+        if (tool.name === 'bot_agents_list') return { agents: [{ id: 'worker', name: 'Configured worker', selection }], next_offset: null }
         if (tool.name === 'bot_schedules_query' || tool.name === 'bot_execution_events') return []
         if (tool.name === 'bot_artifact_read') return { content: '', next_offset: null }
         if (tool.name === 'bot_context_search') return { evidence: [], coverage: { complete: true } }

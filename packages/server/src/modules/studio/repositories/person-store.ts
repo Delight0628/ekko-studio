@@ -38,7 +38,9 @@ export function personOperation<T>(userId: number, key: string, input: unknown, 
 }
 export function personSettings(userId: number): { settings: PersonSettings; revision: number } {
   const row = personDb().prepare('SELECT * FROM person_accounts WHERE user_id=?').get(userId) as { settings_json: string; revision: number } | undefined
-  return { settings: row ? { ...PERSON_DEFAULTS, ...JSON.parse(row.settings_json) } : { ...PERSON_DEFAULTS }, revision: row?.revision || 0 }
+  // Historical fixed budgets must not cap the selected model's context window.
+  const { contextTokens: _legacyBudget, ...saved } = row ? JSON.parse(row.settings_json) : {}
+  return { settings: { ...PERSON_DEFAULTS, ...saved }, revision: row?.revision || 0 }
 }
 export function savePersonSettings(userId: number, settings: PersonSettings, revision: number) {
   return personTransaction(() => {
