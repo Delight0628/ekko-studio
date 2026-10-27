@@ -39,6 +39,7 @@ const props = withDefaults(defineProps<{
   modelLabel?: string
   modelDisabled?: boolean
   modelExpanded?: boolean
+  hideSettings?: boolean
   initialText?: string
   persistDraft?: boolean
   draft?: boolean
@@ -58,6 +59,7 @@ const props = withDefaults(defineProps<{
   modelLabel: '',
   modelDisabled: false,
   modelExpanded: false,
+  hideSettings: false,
   initialText: '',
   persistDraft: true,
   draft: false,
@@ -1323,6 +1325,7 @@ function openAttachmentPreview(attachment: Attachment) {
           <ScreenshotButton :key="chatStore.activeSessionId || 'new'" :mobile="isMobileViewport" @capture="file => addFiles([file])" />
 
           <NDropdown
+            v-if="!hideSettings"
             trigger="click"
             :options="inputSettingsOptions"
             :show-arrow="true"

@@ -1036,7 +1036,7 @@ onBeforeUnmount(() => {
           <div v-if="message.role === 'assistant'" class="message-author assistant-message-author">
             <img
               class="msg-avatar"
-              :class="{ 'msg-avatar--person': assistantAgent.label === 'Person' }"
+              :class="{ 'msg-avatar--person': assistantAgent.label === 'zhezhe' }"
               :src="assistantAgent.src"
               :alt="assistantAgent.label"
               draggable="false"

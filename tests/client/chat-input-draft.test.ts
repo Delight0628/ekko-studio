@@ -144,6 +144,21 @@ describe('ChatInput draft persistence', () => {
     expect(JSON.parse(localStorage.getItem('hermes_chat_input_drafts_v1')!)).toEqual({ existing: 'Keep this draft' })
   })
 
+  it('hides settings only for the requesting host while keeping the draft and model control', async () => {
+    const wrapper = mountForSession('assistant', {}, {}, { modelLabel: 'Test model' })
+    await wrapper.get('textarea').setValue('Keep my draft')
+    expect(wrapper.find('.input-settings-button').exists()).toBe(true)
+
+    await wrapper.setProps({ hideSettings: true })
+    expect(wrapper.find('.input-settings-button').exists()).toBe(false)
+    expect(wrapper.find('.input-model-button').exists()).toBe(true)
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('Keep my draft')
+
+    await wrapper.setProps({ hideSettings: false })
+    expect(wrapper.find('.input-settings-button').exists()).toBe(true)
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('Keep my draft')
+  })
+
   it('keeps the first message when creation fails and prevents duplicate submissions', async () => {
     let finish!: (value: boolean) => void
     const submit = vi.fn(() => new Promise<boolean>(resolve => { finish = resolve }))

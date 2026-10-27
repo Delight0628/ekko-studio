@@ -83,8 +83,8 @@ onBeforeUnmount(() => { lifetime.abort(); stopUpdates() })
       <NAlert v-if="error" type="error" class="task-chat-alert">{{ error }}</NAlert>
       <div v-if="!ready" class="task-chat-loading"><NSpin /></div>
       <template v-else>
-        <MessageList />
-        <ChatInput :submit="send" :send-disabled="disabled" :stop-control="stopControl" :model-label="session?.model || ''" model-disabled reasoning-effort-disabled />
+        <MessageList hide-tool-calls />
+        <ChatInput hide-settings :submit="send" :send-disabled="disabled" :stop-control="stopControl" :model-label="session?.model || ''" model-disabled reasoning-effort-disabled />
       </template>
     </NDrawerContent>
   </NDrawer>

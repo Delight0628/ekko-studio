@@ -16,7 +16,7 @@ const props = withDefaults(defineProps<{
   agent: () => ({ label: 'Hermes', src: deploymentUrl('/coding-agents/hermes.png') }),
 })
 const isEkko = computed(() => props.agent.label === 'Ekko')
-const isPerson = computed(() => props.agent.label === 'Person')
+const isPerson = computed(() => props.agent.label === 'zhezhe')
 const avatarSrc = computed(() => isPerson.value ? PERSON_ANIMATIONS.thinking : isEkko.value ? thinkingImage : props.agent.src)
 
 const { t } = useI18n()

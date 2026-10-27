@@ -139,7 +139,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
   <section class="person-view">
     <PageHeader>
       <header class="person-header">
-        <span class="person-title">Person</span>
+        <span class="person-title">{{ t('person.title') }}</span>
         <div class="person-header-actions">
           <NTooltip trigger="hover">
             <template #trigger><NButton quaternary circle size="small" :aria-label="t('person.tasks')" :aria-expanded="showTasks" @click="openPanel('tasks')"><SessionTaskIcon :size="17" /></NButton></template>
@@ -160,10 +160,10 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
     <NAlert v-if="error" class="person-alert" type="error" closable @close="error = ''">{{ error }}</NAlert>
     <div v-if="!data" class="person-loading"><NSpin /></div>
     <template v-else>
-      <MessageList :user-label="t('person.you')" />
+      <MessageList :user-label="t('person.you')" hide-tool-calls />
       <div class="person-compose">
         <button v-if="!currentModel" type="button" class="person-model-hint" @click="openModels">{{ t('person.defaultUnavailable') }}</button>
-        <ChatInput managed-reasoning-effort :send-disabled="!currentModel || settingsWrites > 0"
+        <ChatInput hide-settings managed-reasoning-effort :send-disabled="!currentModel || settingsWrites > 0"
           :model-label="modelLabel" :model-disabled="busy || settingsWrites > 0" :model-expanded="showModelPicker"
           :reasoning-effort="reasoningEffort" :reasoning-effort-disabled="busy || !currentModel"
           :scoped-reasoning-efforts="data.reasoning_efforts" @update:reasoning-effort="selectEffort" @model-click="openModels" />
@@ -229,8 +229,8 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
 @use '@/styles/variables' as *;
 .person-view { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; color: $text-primary; background: var(--card-container-bg, var(--bg-main-surface)); }
 .person-header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding: calc(21px * var(--spacing-scale, 1)) calc(20px * var(--spacing-scale, 1)); border-bottom: var(--border-width, 1px) solid $border-color; }
-.person-title { font-size: calc(var(--font-size-base, 14px) * 16 / 14); font-weight: 600; }
-.person-header-actions { display: flex; align-items: center; gap: 4px; }
+.person-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(var(--font-size-base, 14px) * 16 / 14); font-weight: 600; }
+.person-header-actions { display: flex; flex-shrink: 0; align-items: center; gap: 4px; }
 .person-alert { margin: 12px; width: auto; }
 .person-loading { flex: 1; display: grid; place-items: center; }
 .person-compose { flex-shrink: 0; min-width: 0; }

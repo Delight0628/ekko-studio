@@ -1,7 +1,7 @@
 import { deploymentUrl } from './deployment-url'
 
 export interface ChatAgentAvatar {
-  label: 'Person' | 'Hermes' | 'Ekko' | 'Claude' | 'Codex' | 'Pi' | 'Grok' | 'OpenCode' | 'DeepSeek Harness' | 'Cursor' | 'Antigravity' | 'Qwen Code' | 'Kimi Code' | 'CodeBuddy' | 'Qoder' | 'GitHub Copilot' | 'ZCode'
+  label: 'zhezhe' | 'Hermes' | 'Ekko' | 'Claude' | 'Codex' | 'Pi' | 'Grok' | 'OpenCode' | 'DeepSeek Harness' | 'Cursor' | 'Antigravity' | 'Qwen Code' | 'Kimi Code' | 'CodeBuddy' | 'Qoder' | 'GitHub Copilot' | 'ZCode'
   src: string
 }
 
@@ -12,7 +12,7 @@ interface ChatAgentSessionIdentity {
   codingAgentId?: string
 }
 
-export const PERSON_AVATAR = { label: 'Person', src: deploymentUrl('/coding-agents/person.jpg') } as const satisfies ChatAgentAvatar
+export const PERSON_AVATAR = { label: 'zhezhe', src: deploymentUrl('/coding-agents/person.jpg') } as const satisfies ChatAgentAvatar
 export const PERSON_ANIMATIONS = {
   idle: deploymentUrl('/person/idle.gif'),
   thinking: deploymentUrl('/person/thinking.gif'),

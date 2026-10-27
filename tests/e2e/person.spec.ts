@@ -45,11 +45,37 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true) {
   return { state, operations }
 }
 
+for (const { locale, title, width } of [
+  { locale: 'zh', title: '个人助理', width: 1280 },
+  { locale: 'zh', title: '个人助理', width: 390 },
+  { locale: 'ja', title: 'パーソナルアシスタント', width: 390 },
+  { locale: 'ar', title: 'المساعد الشخصي', width: 390 },
+]) {
+  test(`localizes the assistant title and keeps zhezhe's identity in ${locale} at ${width}px`, async ({ page }) => {
+    await setup(page, 'light', false)
+    await page.addInitScript(value => localStorage.setItem('hermes_locale', value), locale)
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto('/#/person')
+    await expect(page.locator('.person-title')).toHaveText(title)
+    await expect(page.locator('.empty-logo--person')).toHaveAttribute('alt', 'zhezhe')
+    await expect(page.locator('.input-settings-button')).toHaveCount(0)
+    await expect(page.locator('.person-header-actions')).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    expect(await page.locator('.person-header-actions').evaluate(el => {
+      const bounds = el.getBoundingClientRect()
+      return bounds.left >= 0 && bounds.right <= innerWidth
+    })).toBe(true)
+    await page.screenshot({ path: `/tmp/person-interface-${locale}-${width}.png`, animations: 'disabled' })
+  })
+}
+
 for (const mode of ['light', 'dark'] as const) {
   test(`Person reuses single chat controls, inherits defaults and switches models in ${mode}`, async ({ page }) => {
     const { state, operations } = await setup(page, mode)
     await page.goto('/#/person')
     const input = page.getByPlaceholder('Type a message... (Enter to send, Shift+Enter for new line)')
+    await expect(page.locator('.person-title')).toHaveText('Personal assistant')
+    await expect(page.locator('.input-settings-button')).toHaveCount(0)
     await expect(page.locator('.input-model-button')).toHaveAttribute('aria-label', 'global-model')
     await expect(page.getByRole('heading', { name: 'Choose a model' })).toHaveCount(0)
     await expect(input).toBeVisible()
@@ -74,12 +100,15 @@ for (const mode of ['light', 'dark'] as const) {
     await page.locator('.thinking-avatar').scrollIntoViewIfNeeded()
     await page.screenshot({ path: `/tmp/person-animation-thinking-${mode}.png`, animations: 'disabled' })
     await emit(page, 'tool.started', { tool_call_id: 'tasks-query', tool: 'bot_tasks_query', arguments: {} })
-    await expect(page.locator('.tool-call-name').filter({ hasText: 'bot_tasks_query' })).toBeVisible()
+    await expect(page.locator('.tool-call-name')).toHaveCount(0)
     await emit(page, 'tool.completed', { tool_call_id: 'tasks-query', tool: 'bot_tasks_query', output: '{"tasks":[]}' })
     await emit(page, 'message.delta', { delta: 'I will follow up on your task.' })
     await emit(page, 'run.completed', { run_id: 'person-run', output: 'I will follow up on your task.' })
     await expect(page.locator('.streaming-indicator .thinking-status')).toHaveCount(0)
     await expect(page.getByText('I will follow up on your task.')).toBeVisible()
+    await expect(page.locator('.tool-run-card')).toHaveCount(0)
+    await expect(page.getByText('bot_tasks_query', { exact: true })).toHaveCount(0)
+    await expect(page.locator('.assistant-message-author .message-author-name')).toHaveText('zhezhe')
     expect(operations.some(op => op.path.endsWith('/chat'))).toBe(false)
     expect(operations.filter(op => op.path.endsWith('/settings')).at(-1).body.reasoning_effort).toBe('high')
     await page.mouse.move(600, 30)
@@ -109,7 +138,7 @@ for (const mode of ['light', 'dark'] as const) {
     state.memories = [{ id: 'saved-memory', revision: 2, content: 'Keep responses short' }]
     await page.getByRole('button', { name: 'Memory', exact: true }).click()
     await expect(page.getByText('Keep responses short', { exact: true })).toBeVisible()
-    await expect(page.getByText('Tell Person what to remember or correct', { exact: false })).toBeVisible()
+    await expect(page.getByText('Tell zhezhe what to remember or correct', { exact: false })).toBeVisible()
     await expect(page.getByRole('textbox', { name: 'Memory', exact: true })).toHaveCount(0)
     await page.evaluate(async () => {
       await Promise.all(document.getAnimations().filter(animation => animation.effect?.getTiming().iterations !== Infinity)
@@ -375,6 +404,7 @@ test('opens a hidden task in a right drawer, continues it and restores the Perso
   await page.addInitScript(() => {
     (window as any).__PW_CHAT_SOCKET_RESUMES__['person-task-task1'] = { session_id: 'person-task-task1', messages: [
       { id: 'previous-user', role: 'user', content: 'Remember report code LIME-42', timestamp: 1 },
+      { id: 'previous-tool', role: 'tool', content: 'Stored the code', tool_name: 'write_file', tool_call_id: 'save-report', timestamp: 1.5 },
       { id: 'previous-answer', role: 'assistant', content: 'Saved report code LIME-42.', timestamp: 2 },
     ], isWorking: false, events: [] }
     ;(window as any).__PW_CHAT_SOCKET_RESUMES__['person-main-1'].messages = [{ id: 'main-answer', role: 'assistant', content: 'The report task has finished.', timestamp: 1 }]
@@ -388,6 +418,9 @@ test('opens a hidden task in a right drawer, continues it and restores the Perso
   await page.getByRole('button', { name: 'View in conversation: Check report', exact: true }).click()
   const dialog = page.locator('.person-task-chat')
   await expect(dialog.getByText('Saved report code LIME-42.', { exact: true })).toBeVisible()
+  await expect(dialog.locator('.input-settings-button')).toHaveCount(0)
+  await expect(dialog.locator('.message.tool, .tool-run-card')).toHaveCount(0)
+  await expect(dialog.locator('.assistant-message-author .message-author-name')).toHaveText('Ekko')
   await expect(page.locator('.n-modal')).toHaveCount(0)
   const bounds = await dialog.boundingBox()
   expect(bounds?.y).toBeLessThanOrEqual(48)
@@ -403,6 +436,9 @@ test('opens a hidden task in a right drawer, continues it and restores the Perso
   expect(operations.find(op => op.path.endsWith('/tasks/task1/chat') && op.body).body).toMatchObject({ input: [{ type: 'text', text: 'What code did I give you?' }], expected_revision: 0 })
   expect(await emitted(page, 'run')).toEqual([])
   await emit(page, 'run.started', { session_id: 'person-task-task1', run_id: 'task-followup' })
+  await emit(page, 'tool.started', { session_id: 'person-task-task1', run_id: 'task-followup', tool_call_id: 'read-report', tool: 'read_file', arguments: {} })
+  await expect(dialog.locator('.tool-call-name')).toHaveCount(0)
+  await emit(page, 'tool.completed', { session_id: 'person-task-task1', run_id: 'task-followup', tool_call_id: 'read-report', tool: 'read_file', output: 'LIME-42' })
   await emit(page, 'message.delta', { session_id: 'person-task-task1', run_id: 'task-followup', delta: 'Your code was LIME-42.' })
   await expect(dialog.getByText('Your code was LIME-42.', { exact: true })).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled()
