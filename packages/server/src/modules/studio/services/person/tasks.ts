@@ -1,13 +1,12 @@
-import { mkdir } from 'node:fs/promises'
-import { resolve, isAbsolute } from 'node:path'
-import { config } from '../../public/config'
-import { randomUUID, createHash } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { personError, personRevision, personText } from '../../contracts/person'
 import type { PersonExecution, PersonTask, PersonTaskOrigin } from '../../contracts/person'
 import { personDb, personTransaction, getPersonExecution, replayPersonOperation, adoptPersonGoal, personOperation, getPersonTask, personTaskRunning, createPersonTask, updatePersonTask, enqueuePersonExecution } from '../../repositories/person-store'
 import { personRuntime } from '../../public/person-runtime'
 import { personUpdated } from '../../repositories/person-updates'
 import { logger } from '../../public/logging'
+import { personWorkspace } from './workspace'
+import { ensureDirectory } from '../workspace/directory'
 import { validatePersonSelection } from './catalog'
 import { selectPersonExecutionAgent } from './agents'
 import { savePersonTaskOrigin } from './delivery'
@@ -66,10 +65,9 @@ export async function applyPersonTask(userId: number, input: Record<string, unkn
   const selection = ['create','adopt'].includes(action) ? await selectPersonExecutionAgent(userId, input.agent_id) : null
   if (selection) await validatePersonSelection(userId, selection)
   if (action === 'start') await validatePersonSelection(userId, JSON.parse(getPersonTask(userId, String(input.task_id)).selection_json))
-  const workspace = String(input.workspace || '')
-  if (workspace && !isAbsolute(workspace)) throw personError('Workspace must be an absolute path')
-  const taskWorkspace = workspace || resolve(config.appHome, 'person', String(userId), 'workspaces', createHash('sha256').update(key).digest('hex').slice(0,24))
-  if (['create','adopt'].includes(action)) await mkdir(taskWorkspace, { recursive: true })
+  const taskWorkspace = personWorkspace(userId)
+  if (input.workspace && input.workspace !== taskWorkspace) throw personError('Task workspace is managed by Person settings')
+  if (['create','adopt'].includes(action)) await ensureDirectory(taskWorkspace)
   const result = personOperation(userId, `task:${key}`, input, () => {
     if (action === 'adopt') {
       const task = adoptPersonGoal(userId, personText(input.task_id,'task_id',100),personRevision(input.expected_revision),selection!,taskWorkspace,personText(input.goal,'goal',8000))

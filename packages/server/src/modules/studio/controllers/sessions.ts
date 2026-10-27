@@ -1512,6 +1512,11 @@ export async function batchRemove(ctx: any) {
   for (const target of targets) {
     const { id } = target
     const existing = localGetSession(id)
+    if (isPrivatePersonSession(id) && !ownsPersonSession(ctx.state?.user?.id, existing)) {
+      results.failed++
+      results.errors.push({ id, error: 'Session not found' })
+      continue
+    }
     const targetProfile = target.profile || existing?.profile
     if (targetProfile && !canAccessProfile(ctx, targetProfile)) {
       results.failed++

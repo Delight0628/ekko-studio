@@ -410,6 +410,39 @@ describe('user auth tables and middleware', () => {
     }
   })
 
+  it('protects Person sessions in structured batch deletes at both the middleware and controller', async () => {
+    const { users, auth } = await initUsers()
+    const owner = users.bootstrapDefaultSuperAdmin('admin', '123456')!
+    db.prepare("INSERT INTO users(username,password_hash,role,status,created_at,updated_at) VALUES ('other','unused','admin','active',1,1)").run()
+    const other = users.findUserByUsername('other')!
+    users.replaceUserProfiles(other.id, ['default'], 'default')
+    const sessions = await import('../../packages/server/src/modules/studio/repositories/session-store')
+    const sid = `person-main-${owner.id}`
+    sessions.createSession({ id: sid, user_id: owner.id, studio_user_id: owner.id, source: 'builtin_agent', agent: 'ekko-agent', profile: 'default' })
+    sessions.addMessage({session_id:sid,role:'user',content:'Private conversation'})
+    const runtime = await import('../../packages/server/src/modules/studio/public/session-agent-runtime')
+    runtime.configureSessionAgentRuntime({stopCodingAgentSessionRun:vi.fn()} as any)
+    const { batchRemove } = await import('../../packages/server/src/modules/studio/controllers/sessions')
+    const ctx = { path: '/api/studio/sessions/batch-delete', method:'POST', query: {}, request: { body: { sessions: [{id:sid,profile:'default'}] } },
+      headers: { authorization: `Bearer ${auth.signUserJwt(other, 'test-secret')}` }, state: {}, status: 200, body: null,
+      get: () => '' } as any
+    await auth.requireUserJwt(ctx, async () => { await auth.resolveUserProfile(ctx, async () => { await batchRemove(ctx) }) })
+    expect(ctx.status).toBe(404)
+    expect(sessions.getSession(sid)).not.toBeNull()
+    // The controller also enforces ownership if reached through another transport.
+    ctx.state = { user: { id: other.id, role: other.role } }
+    await batchRemove(ctx)
+    expect(ctx.body).toMatchObject({ deleted: 0, failed: 1 })
+    expect(sessions.getSessionDetail(sid)?.messages).toHaveLength(1)
+    const worker = 'person-task-private'
+    sessions.createSession({ id: worker, user_id: owner.id, studio_user_id: owner.id, source: 'builtin_agent', profile: 'default' })
+    ctx.state.user = { id: owner.id, role: owner.role }
+    ctx.request.body = { sessions: [{ id: worker, profile: 'default' }] }
+    await batchRemove(ctx)
+    expect(ctx.body).toMatchObject({ deleted: 0, failed: 1 })
+    expect(sessions.getSession(worker)).not.toBeNull()
+  })
+
   it('authenticates JWTs passed as query tokens for download and websocket URLs', async () => {
     const { users, auth } = await initUsers()
     const user = users.bootstrapDefaultSuperAdmin('admin', '123456')!

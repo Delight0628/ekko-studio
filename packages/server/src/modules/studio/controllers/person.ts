@@ -9,6 +9,7 @@ import { applyPersonSchedule } from '../services/person/schedules'
 import { replyPersonQuestion } from '../services/person/runner'
 import { listPersonTasks, taskPersonExecutions, personEvents } from '../services/person/service'
 import { personExecutionModelCatalog } from '../services/person/agents'
+import { clearPerson } from '../services/person/history'
 
 async function handle(ctx: Context, work: (id: number, body: Record<string, unknown>) => unknown) {
   ctx.set('Cache-Control', 'no-store')
@@ -23,6 +24,7 @@ async function handle(ctx: Context, work: (id: number, body: Record<string, unkn
   }
 }
 export const snapshot = (ctx: Context) => handle(ctx, id => personSnapshot(id))
+export const clear = (ctx: Context) => handle(ctx, (id, body) => clearPerson(id, body))
 export const settings = (ctx: Context) => handle(ctx, (id, body) => configurePerson(id, body))
 export const capabilities = (ctx: Context) => handle(ctx, id => ({ agents: personCapabilities(id), native_allowed: personUser(id).role === 'super_admin' }))
 export const modelCatalog = (ctx: Context) => handle(ctx, id => personModelCatalog(id))

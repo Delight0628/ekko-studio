@@ -1,6 +1,7 @@
 import type { PersonRuntimePort } from '../modules/studio/public/person-runtime'
 import { getChatRunServer } from '../modules/studio/public/chat-run'
 import { logger } from '../modules/studio/public/logging'
+import { codingAgentRunManager } from '../modules/coding-agents/services/runtime/run-manager'
 
 const starting = new Map<string, Promise<void>>()
 const stopping = new Map<string, Promise<void>>()
@@ -32,6 +33,8 @@ export const executePersonTask: PersonRuntimePort['execute'] = async input => {
   input.signal.addEventListener('abort', abort, { once: true })
   try {
     const s = input.selection
+    const existing = codingAgentRunManager.getRunInfo(input.sessionId)
+    if (existing && existing.workspaceDir !== input.workspace) codingAgentRunManager.stop(input.sessionId, { reportClosed: false })
     return await server.runAndWait({ session_id: input.sessionId, input: input.prompt, display_input: input.displayInput, profile: s.profile, workspace: input.workspace || undefined,
       provider: s.provider || undefined, model: s.model, apiMode: s.apiMode, mode: s.mode, reasoning_effort: s.reasoningEffort,
       source: s.runtime === 'hermes' ? 'api_server' : s.runtime === 'ekko' ? 'builtin_agent' : 'coding_agent',

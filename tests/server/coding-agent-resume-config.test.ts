@@ -9,6 +9,13 @@ const readConfigYamlForProfileMock = vi.fn()
 const safeReadFileMock = vi.fn()
 const startRunMock = vi.fn()
 
+// Global defaults must follow fixture capabilities, independent of installed CLIs.
+vi.mock('../../packages/server/src/modules/coding-agents/services/models', () => ({
+  createCodingAgentModelDiscovery: () => async ({ agent }: { agent?: string } = {}) => ({
+    agents: agent === 'codex' ? [{ id: 'codex', status: 'available', models: [{ id: 'native-model', isDefault: true, reasoningEfforts: ['low', 'medium', 'high'] }] }] : [],
+  }),
+}))
+
 vi.doMock('../../packages/server/src/modules/studio/repositories/session-store', () => ({
   getSession: getSessionMock,
   updateSession: updateSessionMock,

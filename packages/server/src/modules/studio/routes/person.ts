@@ -2,6 +2,7 @@ import Router from '@koa/router'
 import * as ctrl from '../controllers/person'
 export const personRoutes = new Router()
 personRoutes.get('/api/studio/person', ctrl.snapshot)
+personRoutes.post('/api/studio/person/clear', ctrl.clear)
 personRoutes.put('/api/studio/person/settings', ctrl.settings)
 personRoutes.get('/api/studio/person/capabilities', ctrl.capabilities)
 personRoutes.get('/api/studio/person/models', ctrl.modelCatalog)

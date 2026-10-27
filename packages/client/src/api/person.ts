@@ -12,7 +12,8 @@ export interface PersonTaskReturn { taskId: string; executionId: string; assista
 export interface PersonGeneralSettings { compressionThreshold: number | null; maxSteps: number; maxConcurrentTasks: number; timezone: string }
 export interface PersonSnapshot {
   session: SessionSummary
-  settings: PersonGeneralSettings & { model: PersonModel | null; reasoningEffort: string; agents: PersonAgentPreset[] }; revision: number; busy: boolean
+  settings: PersonGeneralSettings & { model: PersonModel | null; reasoningEffort: string; agents: PersonAgentPreset[]; workspace: string }; revision: number; busy: boolean
+  history_revision: number; can_clear: boolean
   inherits_global_model: boolean; reasoning_efforts: string[]
   compression: { enabled: boolean; threshold: number; globalThreshold: number }
   contextTokens: number

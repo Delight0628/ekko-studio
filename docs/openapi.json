@@ -19201,6 +19201,54 @@
         }
       }
     },
+    "/api/studio/person/clear": {
+      "post": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Clear Person chat history and tasks",
+        "description": "Clear only the authenticated account Person chat history, tasks, hidden task conversations, related execution records and schedules atomically. Running replies/tasks and pending deliveries return 409; expected_history_revision must match the Person snapshot. Preserves memories, settings, usage ledger and workspace files. Broadcasts cleared conversation state to connected views.",
+        "operationId": "clear",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "description": "Person is busy, has pending results, or the history revision changed"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_history_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "expected_history_revision"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/studio/person/executions/{id}/events": {
       "get": {
         "tags": [
@@ -19497,6 +19545,11 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "workspace": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "description": "Shared absolute working directory for all Person background tasks; empty restores the account private workspace. Requires all tasks and deliveries to be idle. Existing tasks use it on their next execution."
+                  },
                   "agents": {
                     "type": "array",
                     "maxItems": 20,
@@ -19696,10 +19749,6 @@
                   "goal": {
                     "type": "string",
                     "maxLength": 8000
-                  },
-                  "workspace": {
-                    "type": "string",
-                    "description": "Absolute working directory; omitted means an isolated account workspace"
                   },
                   "start": {
                     "type": "boolean",

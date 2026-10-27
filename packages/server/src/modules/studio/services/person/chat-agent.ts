@@ -1,11 +1,10 @@
 import { personMemory } from './memory'
-import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { personSessionId, ownsPersonSession } from '../../contracts/person-session'
 import { personError } from '../../contracts/person'
 import { createSession, getSession, updateSession } from '../../repositories/session-store'
 import { personDb } from '../../repositories/person-store'
-import { getWebUiHome } from '../../public/config'
+import { personWorkspace } from './workspace'
 import { getChatRunServer } from '../../public/chat-run'
 import { personRuntime } from '../../public/person-runtime'
 import { effectivePersonSettings, personUser, validatePersonSelection } from './catalog'
@@ -23,17 +22,18 @@ export function personChatBusy(userId: number): boolean {
 export async function ensurePersonSession(userId: number) {
   const effective = await effectivePersonSettings(userId)
   const id = personSessionId(userId)
+  const workspace = personWorkspace(userId)
   let session = getSession(id)
   if (!session) session = createSession({ id, user_id: userId, studio_user_id: userId, source: 'builtin_agent',
       agent: 'ekko-agent', agent_preset: 'person', agent_mode: 'scoped', title: 'Person',
       profile: effective.settings.model?.profile || 'default', push_enabled: false,
-      workspace: join(getWebUiHome(), 'person', String(userId), 'workspace') })
+      workspace })
   if (!ownsPersonSession(userId, session)) throw personError('Session not found', 404)
   if (!personChatBusy(userId)) {
     const model = effective.settings.model
     // This Profile is a model resource, never the owner of the conversation.
     if (model) personDb().prepare('UPDATE sessions SET profile=? WHERE id=?').run(model.profile, id)
-    updateSession(id, { model: model?.model || '', provider: model?.provider || '', api_mode: model?.apiMode || '', reasoning_effort: effective.settings.reasoningEffort })
+    updateSession(id, { workspace, model: model?.model || '', provider: model?.provider || '', api_mode: model?.apiMode || '', reasoning_effort: effective.settings.reasoningEffort })
   }
   return { ...effective, session: getSession(id)! }
 }
@@ -52,7 +52,7 @@ export async function createPersonChatAgent(userId: number, sessionId: string) {
   const summaryRunId = randomUUID()
   let summaryCall = 0, requestedAt = Date.now()
   return factory({ selection, tools: personTools(userId, 'main'),
-    systemPrompt: `${PERSON_SYSTEM_PROMPT}\nRole: main. Current time: ${new Date().toISOString()}. Account timezone: ${settings.timezone}. Query task records on demand.`,
+    systemPrompt: `${PERSON_SYSTEM_PROMPT}\nRole: main. Current time: ${new Date().toISOString()}. Account timezone: ${settings.timezone}. Query task records on demand. All background tasks use the Person workspace selected by the user; individual tasks cannot override it.`,
     maxSteps: settings.maxSteps, contextTokens, compression,
     workspace: getSession(sessionId)!.workspace!,
     memory: personMemory(userId), loadHistory: context.loadHistory, summaryCache: context.summaryCache,

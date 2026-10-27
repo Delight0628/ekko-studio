@@ -23,6 +23,7 @@ export interface PersonTaskOrigin {
   messages: AgentMessage[]
 }
 export interface PersonSettings {
+  workspace: string
   model: PersonSelection | null
   reasoningEffort: string
   timezone: string
@@ -69,7 +70,7 @@ export interface PersonSchedule {
 }
 export const PERSON_DEFAULTS: PersonSettings = {
   model: null, reasoningEffort: '', timezone: 'Asia/Shanghai', maxSteps: 12,
-  agents: [], maxConcurrentTasks: 2, compressionThreshold: null,
+  agents: [], maxConcurrentTasks: 2, compressionThreshold: null, workspace: '',
 }
 export function personError(message: string, status = 400): Error & { status: number } {
   return Object.assign(new Error(message), { status })

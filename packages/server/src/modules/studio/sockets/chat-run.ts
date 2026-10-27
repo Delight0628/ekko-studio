@@ -3193,9 +3193,9 @@ export class ChatRunSocket {
     return result
   }
 
-  clearSessionHistory(sessionId: string): { deleted: number; hadMemoryState: boolean } {
+  clearSessionHistory(sessionId: string, options: { historyAlreadyCleared?: boolean } = {}): { deleted: number; hadMemoryState: boolean } {
     this.finishTaskPlanRun(sessionId, 'abort.completed')
-    const deleted = clearSessionMessages(sessionId)
+    const deleted = options.historyAlreadyCleared ? 0 : clearSessionMessages(sessionId)
     const state = this.sessionMap.get(sessionId)
     const hadMemoryState = Boolean(state)
     const messagePageLimit = state?.messagePageLimit

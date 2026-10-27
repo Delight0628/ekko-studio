@@ -11,7 +11,7 @@ type Snapshot = Pick<PersonTask, 'id' | 'title' | 'summary' | 'status' | 'revisi
 type Reference = { task: Snapshot; assignable: boolean; expiresAt: number }
 const text = (maxLength: number): Field => ({ type: 'string', minLength: 1, maxLength })
 const actionFields: Record<Action, string[]> = {
-  adopt: ['goal', 'agent_id', 'workspace', 'start'], update: ['goal'], start: [], stop: [], close: [], reopen: [],
+  adopt: ['goal', 'agent_id', 'start'], update: ['goal'], start: [], stop: [], close: [], reopen: [],
 }
 const actionRequired: Partial<Record<Action, string[]>> = { adopt: ['goal'], update: ['goal'] }
 const queryAgain = 'Call bot_tasks_query again and reconsider the action using its current task_ref and allowed_actions.'
@@ -103,10 +103,10 @@ export function personTaskTools(userId: number): PersonTool[] {
     return { tasks: tasks.slice(0, 10).map(task => expose(task)), next_offset: tasks.length > 10 ? offset + 10 : null }
   })
   const create = define('bot_task_create', 'Create new background work. Supply all requirements in goal; choose agent_id from bot_agents_list. Starts immediately unless start=false. Identical requests within this turn are deduplicated by the host. Use bot_task_control to operate existing work.', {
-    title: text(200), goal: text(8000), agent_id: text(100), workspace: text(4000), start: { type: 'boolean' },
+    title: text(200), goal: text(8000), agent_id: text(100), start: { type: 'boolean' },
   }, ['title', 'goal'], (args, origin) => execute({ action: 'create', ...args }, origin))
-  const control = define('bot_task_control', 'Control an existing task using a task_ref from bot_tasks_query in this turn and one of its allowed_actions. The host binds the queried version, execution and retry identity. adopt/update require goal; adopt may also select agent_id, workspace and start. Adopt only on an explicit user request. Stop leaves future schedules unchanged; stopping means requested, so query before claiming stopped. Reopen completed/closed work before starting it. After a stale-reference error, query and reconsider; never guess internal IDs or versions.', {
-    task_ref: text(100), action: { ...text(30), enum: Object.keys(actionFields), description: 'start resumes the saved requirements unchanged; update changes requirements only when the user requests a change. reopen changes status without starting work.' }, goal: { ...text(8000), description: 'Required for adopt/update only. Do not rewrite the saved goal merely to resume work.' }, agent_id: text(100), workspace: text(4000), start: { type: 'boolean' },
+  const control = define('bot_task_control', 'Control an existing task using a task_ref from bot_tasks_query in this turn and one of its allowed_actions. The host binds the queried version, execution and retry identity. adopt/update require goal; adopt may also select agent_id and start. All tasks use the selected Person workspace. Adopt only on an explicit user request. Stop leaves future schedules unchanged; stopping means requested, so query before claiming stopped. Reopen completed/closed work before starting it. After a stale-reference error, query and reconsider; never guess internal IDs or versions.', {
+    task_ref: text(100), action: { ...text(30), enum: Object.keys(actionFields), description: 'start resumes the saved requirements unchanged; update changes requirements only when the user requests a change. reopen changes status without starting work.' }, goal: { ...text(8000), description: 'Required for adopt/update only. Do not rewrite the saved goal merely to resume work.' }, agent_id: text(100), start: { type: 'boolean' },
   }, ['task_ref', 'action'], async (args, origin) => {
     const action = args.action as Action
     if (Object.keys(args).some(key => !['task_ref', 'action', ...actionFields[action]].includes(key))) throw personError(`Unsupported fields for ${action}`)
