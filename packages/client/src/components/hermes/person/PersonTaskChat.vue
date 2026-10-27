@@ -24,6 +24,7 @@ const error = ref('')
 const lifetime = new AbortController()
 let sequence = 0
 const disabled = computed(() => !ready.value || closing.value || sending.value || stopping.value || !!task.value?.running || task.value?.status === 'closed' || store.isRunActive)
+const stopControl = computed(() => ({ active: personTaskCanStop(task.value), pending: stopping.value || task.value?.execution_state === 'stopping', request: stopTask }))
 async function refresh() {
   const request = ++sequence
   try {
@@ -83,7 +84,7 @@ onBeforeUnmount(() => { lifetime.abort(); stopUpdates() })
       <div v-if="!ready" class="task-chat-loading"><NSpin /></div>
       <template v-else>
         <MessageList />
-        <ChatInput :submit="send" :send-disabled="disabled" stop-disabled :model-label="session?.model || ''" model-disabled reasoning-effort-disabled />
+        <ChatInput :submit="send" :send-disabled="disabled" :stop-control="stopControl" :model-label="session?.model || ''" model-disabled reasoning-effort-disabled />
       </template>
     </NDrawerContent>
   </NDrawer>

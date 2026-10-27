@@ -50,6 +50,8 @@ const props = withDefaults(defineProps<{
   nativeReasoningEfforts?: string[]
   nativeEffortChoices?: NativeEffortChoice[]
   stopDisabled?: boolean
+  /** Task hosts can supply their own lifecycle and cancellation transport. */
+  stopControl?: { active: boolean; pending: boolean; request: () => Promise<void> | void }
   sendDisabled?: boolean
   submit?: (text: string, attachments?: Attachment[]) => Promise<boolean>
 }>(), {
@@ -620,7 +622,8 @@ watch(
 )
 
 const canSend = computed(() => inputText.value.trim().length > 0 || attachments.value.length > 0)
-const sendButtonIsStop = computed(() => !props.draft && chatStore.isStreaming && !canSend.value)
+const sendButtonIsStop = computed(() => props.stopControl ? props.stopControl.active : !props.draft && chatStore.isStreaming && !canSend.value)
+const stopPending = computed(() => props.stopControl ? props.stopControl.pending : chatStore.isAborting)
 
 function scrollCommandIntoView() {
   nextTick(() => {
@@ -1013,6 +1016,12 @@ function focusComposer() {
 defineExpose({ addFiles, focusComposer })
 
 // --- Send ---
+
+function handleStop() {
+  if (!sendButtonIsStop.value || props.stopDisabled || stopPending.value) return
+  if (props.stopControl) void props.stopControl.request()
+  else chatStore.stopStreaming()
+}
 
 async function handleSend() {
   if (props.sendDisabled || submitting.value) return
@@ -1459,9 +1468,10 @@ function openAttachmentPreview(attachment: Attachment) {
             circle
             class="send-button"
             :class="{ 'send-button--stop': sendButtonIsStop }"
-            :disabled="sendButtonIsStop ? (stopDisabled || chatStore.isAborting) : !canSend || sendDisabled || submitting"
+            :disabled="sendButtonIsStop ? (stopDisabled || stopPending) : !canSend || sendDisabled || submitting"
+            :aria-busy="sendButtonIsStop && stopPending"
             :aria-label="sendButtonIsStop ? 'Stop' : 'Send'"
-            @click="sendButtonIsStop ? chatStore.stopStreaming() : handleSend()"
+            @click="sendButtonIsStop ? handleStop() : handleSend()"
           >
             <template #icon>
               <svg

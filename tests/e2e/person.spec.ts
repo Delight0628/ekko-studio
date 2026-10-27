@@ -372,7 +372,7 @@ test('opens a hidden task in a right drawer, continues it and restores the Perso
   await emit(page, 'run.started', { session_id: 'person-task-task1', run_id: 'task-followup' })
   await emit(page, 'message.delta', { session_id: 'person-task-task1', run_id: 'task-followup', delta: 'Your code was LIME-42.' })
   await expect(dialog.getByText('Your code was LIME-42.', { exact: true })).toBeVisible()
-  await expect(dialog.getByRole('button', { name: 'Stop', exact: true })).toBeDisabled()
+  await expect(dialog.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled()
   await page.screenshot({ path: '/tmp/person-task-chat-desktop.png', animations: 'disabled' })
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
@@ -446,7 +446,7 @@ test('stops a waiting task inside its conversation, then continues it without st
   const drawer = page.locator('.person-task-chat')
   await drawer.getByRole('button', { name: 'Stop task', exact: true }).click()
   await expect(drawer.getByRole('button', { name: 'Stopping', exact: true })).toBeDisabled()
-  await expect(drawer.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
+  await expect(drawer.getByRole('button', { name: 'Stop', exact: true })).toBeDisabled()
   await page.setViewportSize({ width: 390, height: 844 })
   await page.evaluate(async () => { await Promise.all(document.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {}))) })
   await page.screenshot({ path: '/tmp/person-stop-chat-mobile.png' })
@@ -478,3 +478,46 @@ test('refreshes a stale stop without automatically cancelling a newer execution'
   await expect(page.getByRole('button', { name: 'Stopping', exact: true })).toBeDisabled()
   expect(operations.filter(op => op.path.endsWith('/tasks/apply')).at(-1).body).toMatchObject({ execution_id: 'execution2', expected_revision: 2 })
 })
+
+for (const executionState of ['running', 'queued', 'waiting_user'] as const) {
+  test(`stops ${executionState} Person work from the composer with a saved draft`, async ({ page }) => {
+    const { state, operations } = await setup(page, executionState === 'queued' ? 'dark' : 'light', false)
+    state.tasks[0].execution_state = executionState
+    if (executionState !== 'running') await page.setViewportSize({ width: 390, height: 844 })
+    await page.addInitScript(({ streaming }) => {
+      (window as any).__PW_CHAT_SOCKET_RESUMES__['person-task-task1'] = { session_id: 'person-task-task1', messages: [], isWorking: streaming, events: [] }
+    }, { streaming: executionState === 'running' })
+    await page.goto('/#/person')
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+    await page.getByRole('button', { name: 'View in conversation: Check report', exact: true }).click()
+    const drawer = page.locator('.person-task-chat')
+    const composer = drawer.locator('.input-textarea')
+    await composer.fill('Keep this follow-up draft')
+    const stop = drawer.locator('.input-actions').getByRole('button', { name: 'Stop', exact: true })
+    await expect(stop).toBeEnabled()
+    await composer.press('Enter')
+    expect(operations.filter(op => op.path.endsWith('/tasks/task1/chat') && op.body)).toHaveLength(0)
+    await page.evaluate(async () => { await Promise.all(document.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {}))) })
+    await page.screenshot({ path: `/tmp/person-composer-stop-${executionState}.png` })
+    await stop.click()
+    await expect(stop).toBeDisabled()
+    await expect(stop).toHaveAttribute('aria-busy', 'true')
+    await expect(drawer.getByRole('button', { name: 'Stopping', exact: true })).toBeDisabled()
+    await expect(composer).toHaveValue('Keep this follow-up draft')
+    expect(operations.filter(op => op.path.endsWith('/tasks/apply')).map(op => op.body)).toEqual([
+      { action: 'stop', task_id: 'task1', execution_id: 'execution1', expected_revision: 0, idempotency_key: expect.any(String) },
+    ])
+    expect(await emitted(page, 'abort')).toEqual([])
+    await emit(page, 'run.failed', { session_id: 'person-task-task1', error: 'Person task stopped' })
+    // The socket ending alone cannot restore Send before the durable stop acknowledgement.
+    await expect(stop).toBeDisabled()
+    Object.assign(state.tasks[0], { running: false, execution_state: 'interrupted' })
+    await emit(page, 'person.updated', {})
+    const send = drawer.locator('.input-actions').getByRole('button', { name: 'Send', exact: true })
+    await expect(send).toBeEnabled()
+    await expect(composer).toHaveValue('Keep this follow-up draft')
+    await send.click()
+    await expect.poll(() => operations.filter(op => op.path.endsWith('/tasks/task1/chat') && op.body).length).toBe(1)
+    expect(operations.find(op => op.path.endsWith('/tasks/task1/chat') && op.body).body).toMatchObject({ expected_revision: 1, input: [{ type: 'text', text: 'Keep this follow-up draft' }] })
+  })
+}

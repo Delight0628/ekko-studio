@@ -111,7 +111,9 @@ toolset under the minimum 8k request budget.
 ## Stopping a task
 
 The task list and task conversation expose Stop task for queued, active and
-waiting executions. Person can use `bot_task_apply` with `action: stop`, the
+waiting executions. The conversation's composer also shows Stop even with a
+draft or before streaming begins. It uses the same task API, preserves the draft
+and attachments, and disables Stop until acknowledgement. Person can use `bot_task_apply` with `action: stop`, the
 current `task_id`, `execution_id`, `expected_revision` and an idempotency key.
 Query first: targeting an execution prevents an old click or replay from stopping
 a later scheduled occurrence or follow-up turn.
