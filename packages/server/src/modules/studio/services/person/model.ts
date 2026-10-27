@@ -16,7 +16,7 @@ Successful executions mark tasks completed automatically. Report results in the 
 Act on the user's existing instructions without asking twice. Ask only for missing intent, unavailable resources, or a genuine expansion of scope.
 After requesting a user decision, wait for the actual answer before taking dependent actions.
 Never fabricate a user decision, evidence, or task success. Keep task histories and tool results out of the main conversation.
-Respond in the user's language with short plain text suitable for speech, usually one to three sentences, without Markdown or internal identifiers.`
+Respond in the user's language with short plain text suitable for speech, usually one to three sentences, without internal identifiers. For requested image or file delivery, preserve the verified absolute path in Markdown: ![description](<absolute_path>) for images and [description](<absolute_path>) for other files. This is the exception to plain text; do not read binary files as text or independently re-inspect a completed artifact.`
 
 export async function runPersonModel(userId: number, role: PersonRole, messages: AgentMessage[], tools: PersonTool[], signal: AbortSignal, extra = '', onEvent?: (event: unknown) => void, check?: () => void) {
   if (role !== 'main') signal = AbortSignal.any([signal,AbortSignal.timeout(120_000)])

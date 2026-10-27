@@ -198,6 +198,35 @@ async function emitted(page: Page, event: string) {
   return page.evaluate(event => (window as any).__PW_CHAT_SOCKET__.emitted.filter((e: any) => e.event === event).map((e: any) => e.payload), event)
 }
 
+test('Person displays a delivered screenshot while keeping the artifact tool hidden', async ({ page }) => {
+  await setup(page, 'light', false)
+  const path = '/Users/tester/person/workspace/桌面 screenshot.png'
+  const png = await sharp({ create: { width: 320, height: 180, channels: 3, background: '#f9ad42' } }).png().toBuffer()
+  let downloadedPath = ''
+  await page.route('**/api/studio/files/download?*', route => {
+    downloadedPath = new URL(route.request().url()).searchParams.get('path') || ''
+    return route.fulfill({ contentType: 'image/png', body: png })
+  })
+  await page.goto('/#/person')
+  const input = page.getByPlaceholder('Type a message... (Enter to send, Shift+Enter for new line)')
+  await input.fill('你桌面截个图发我')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect.poll(() => emitted(page, 'run')).toHaveLength(1)
+  await emit(page, 'run.started', {})
+  await emit(page, 'tool.started', { tool_call_id: 'screenshot', tool: 'bot_artifact_read', arguments: { path } })
+  await emit(page, 'tool.completed', { tool_call_id: 'screenshot', tool: 'bot_artifact_read', output: JSON.stringify({ absolute_path: path, kind: 'image', size: png.length }) })
+  const output = `![桌面截图](<${path}>)`
+  await emit(page, 'message.delta', { delta: output })
+  await emit(page, 'run.completed', { output })
+  const image = page.getByRole('img', { name: '桌面截图', exact: true })
+  await expect(image).toBeVisible()
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(320)
+  expect(downloadedPath).toBe(path)
+  await expect(page.locator('.tool-run-card')).toHaveCount(0)
+  await expect(page.getByText('bot_artifact_read', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible()
+})
+
 for (const mode of ['light', 'dark'] as const) {
   test(`Person navigation follows account presence on desktop and mobile in ${mode}`, async ({ page }) => {
     await setup(page, mode, mode === 'dark')

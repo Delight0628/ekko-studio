@@ -50,6 +50,23 @@ continuations are disabled for Person so hidden history cannot bypass assembly.
 Runtime context events report the prepared provider request, not the discarded
 history. Estimates remain estimates, not exact provider token counts.
 
+Image parts reserve 4,096 tokens each before the usual 15% estimation margin;
+Base64 transport bytes are never counted as prose. The original image parts
+are forwarded unchanged, including during checkpoint summarization. This is
+a conservative local reservation, not a provider-specific vision billing
+formula. Multiple images still consume the configured budget, and an oversized
+required interaction is still rejected. Prepared context events use the same
+estimator as the request guard.
+
+`bot_artifact_read` returns metadata and a verified absolute path for images and
+binary files, never UTF-8-decoded file bytes. Known media need not be loaded to
+return a reference, and are not subject to the 2 MB text limit. Unknown binary
+files are detected before text pagination; valid text and empty-path execution
+output retain their paginated read behavior. Owner and real workspace checks
+apply equally to references and text. Person may use Markdown image/file links
+when delivering requested artifacts; a file reference does not prove visual
+contents and does not trigger independent review of completed work.
+
 When a long current turn needs compression, completed earlier tool groups are
 summarized without splitting calls from results. The current user message and
 latest complete tool group remain intact. A source hash, selected model and

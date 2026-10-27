@@ -11,6 +11,42 @@ function client() {
   } as unknown as ModelClient }
 }
 describe('Person provider request budget', () => {
+  it('reserves image context without counting Base64 as text or changing the provider payload', async () => {
+    const c = client(); c.port.capabilities.maxInputTokens = 16000
+    const wrapped = personBudgetedClient(c.port, { ...input(), contextTokens: 16000 })
+    const image = { type: 'image' as const, mimeType: 'image/jpeg', data: Buffer.alloc(400_000, 0xab).toString('base64') }
+    const messages: ModelRequest['messages'] = [{ role: 'user', content: '这是一张什么图片', contentParts: [image] }]
+    await wrapped.create({ messages })
+    for await (const _ of wrapped.stream({ messages })) { /* consume */ }
+    expect(c.sent.map(r => r.messages)).toEqual([messages, messages])
+    await expect(wrapped.create({ messages: [{ ...messages[0], contentParts: Array(8).fill(image) }] })).rejects.toThrow('budget')
+    expect(c.sent).toHaveLength(2)
+  })
+
+  it('summarizes older images as image parts, caches their exact sources and keeps the current request', async () => {
+    const c = client(), cache = new Map<string, string>()
+    const call = { ...input(), summaryCache: { get: (key: string) => cache.get(key), set: (key: string, value: string) => { cache.set(key, value) } } }
+    const image = { type: 'image' as const, mimeType: 'image/png', data: Buffer.alloc(100_000, 0xab).toString('base64') }
+    const messages: ModelRequest['messages'] = [
+      { role: 'user', content: 'Earlier image', contentParts: [image] },
+      { role: 'assistant', content: 'Earlier observations. '.repeat(80) },
+      { role: 'user', content: 'Current request; do not send anything.' },
+      { role: 'assistant', content: '', toolCalls: [{ id: 'lookup', name: 'lookup', arguments: {} }] },
+      { role: 'tool', toolCallId: 'lookup', content: 'Evidence detail '.repeat(80) },
+    ]
+    await personBudgetedClient(c.port, call).create({ messages })
+    const summary = c.sent.find(request => request.messages.some(message => message.contentParts?.length))!
+    expect(summary.messages[1].contentParts).toEqual([image])
+    expect(summary.messages[1].content).not.toContain(image.data)
+    expect(c.sent.at(-1)!.messages.slice(-3)).toEqual(messages.slice(-3))
+    const reused = client()
+    await personBudgetedClient(reused.port, call).create({ messages })
+    expect(reused.sent).toHaveLength(1)
+    const changed = client()
+    await personBudgetedClient(changed.port, call).create({ messages: [{ ...messages[0], contentParts: [{ ...image, data: Buffer.alloc(100_000, 0xcd).toString('base64') }] }, ...messages.slice(1)] })
+    expect(changed.sent.length).toBeGreaterThan(1)
+  })
+
   function longTurn(): ModelRequest {
     const messages: ModelRequest['messages']=[{role:'system',content:'Person instructions'},{role:'user',content:'Do not send anything; investigate only.'}]
     for(let i=0;i<12;i++) messages.push({role:'assistant',content:'',toolCalls:[{id:`t${i}`,name:'lookup',arguments:{}}]},

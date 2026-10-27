@@ -829,6 +829,55 @@ it('uses the complete native memory toolset within the minimum Person budget', a
   expect(Math.ceil(countTextTokens(JSON.stringify({ messages: requests[0].messages, tools: requests[0].tools })) * 1.15) + 2048 + 1024).toBeLessThanOrEqual(8000)
 })
 
+it('delivers a completed screenshot through the real artifact tool and accepts an uploaded image within 16k', async () => {
+  const { createPersonAgent } = await import('../../packages/server/src/bootstrap/person-chat-agent')
+  const { createPersonChatAgent, ensurePersonSession } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
+  const { estimatePersonContext } = await import('../../packages/server/src/modules/studio/services/person/context-estimate')
+  const { default: sharp } = await import('sharp')
+  const { randomBytes } = await import('node:crypto')
+  const { realpathSync } = await import('node:fs')
+  runtime.chatAgent = createPersonAgent
+  const settings = store.personSettings(1)
+  store.savePersonSettings(1, { ...settings.settings, contextTokens: 16000 }, settings.revision)
+  await ensurePersonSession(1)
+  const png = await sharp(randomBytes(800 * 800 * 3), { raw: { width: 800, height: 800, channels: 3 } }).png().toBuffer()
+  runtime.execute = vi.fn(async input => {
+    writeFileSync(join(input.workspace, 'desktop screenshot.png'), png)
+    return { ok: true, output: `![桌面截图](<${join(input.workspace, 'desktop screenshot.png')}>)` }
+  })
+  const { task, execution } = await create({ title: '桌面截图', goal: '你桌面截个图发我' })
+  await runner.tickPersonWork(); await wait(execution.id, 'finished')
+  const path = realpathSync(join(task.workspace!, 'desktop screenshot.png'))
+  const requests: any[] = [], events: any[] = []
+  const agent = await createPersonChatAgent(1, 'person-main-1')
+  const result = await agent.run({ messages: [{ role: 'user', content: '你桌面截个图发我' }],
+    onEvent: (event: any) => events.push(event),
+    modelClient: { provider: 'test', capabilities: { streaming: true, tools: true, vision: true, jsonMode: false, systemPrompt: true },
+      create: async () => ({ content: 'summary' }), async *stream(request) {
+        requests.push(request)
+        if (requests.length === 1) yield { type: 'tool-call', toolCall: { id: 'image', name: 'bot_artifact_read', arguments: { execution_id: execution.id, path } } }
+        yield { type: 'done', response: { content: requests.length === 1 ? '' : `![桌面截图](<${path}>)` } }
+      },
+    } })
+  expect(result.output.content).toBe(`![桌面截图](<${path}>)`)
+  expect(requests).toHaveLength(2)
+  expect(JSON.parse(requests[1].messages.find((message: any) => message.role === 'tool').content)).toMatchObject({ absolute_path: path, kind: 'image', size: png.length })
+  expect(events.filter(event => event.type === 'tool.failed')).toEqual([])
+  for (const request of requests) expect(estimatePersonContext(request).contextTokens + 2048 + 1024).toBeLessThanOrEqual(16000)
+  const uploaded = { type: 'image' as const, mimeType: 'image/png', data: png.toString('base64') }
+  const imageAgent = await createPersonChatAgent(1, 'person-main-1')
+  const imageResult = await imageAgent.run({ messages: [{ role: 'user', content: '这是一张什么图片', contentParts: [uploaded] }],
+    modelClient: { provider: 'test', capabilities: { streaming: true, tools: true, vision: true, jsonMode: false, systemPrompt: true },
+      create: async () => ({ content: 'summary' }), async *stream(request) {
+        expect(request.messages.at(-1)?.contentParts).toEqual([uploaded])
+        expect(estimatePersonContext(request).contextTokens + 2048 + 1024).toBeLessThanOrEqual(16000)
+        yield { type: 'done', response: { content: '图片已收到' } }
+      },
+    } })
+  expect(imageResult.contextEstimate!.contextTokens).toBeLessThan(16000 - 2048 - 1024)
+  expect(imageResult.output.content).toBe('图片已收到')
+})
+
 it('removes the legacy Person memory table without changing ordinary messages', async () => {
   const { createSession, addMessage } = await import('../../packages/server/src/modules/studio/repositories/session-store')
   createSession({ id: 'ordinary-memory-regression', title: 'Ordinary chat', profile: 'default', agent: 'ekko-agent' })

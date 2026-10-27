@@ -1,4 +1,5 @@
-import { realpath, readFile, stat } from 'node:fs/promises'
+import { open, realpath, stat } from 'node:fs/promises'
+import { isUtf8 } from 'node:buffer'
 import { resolve, relative, isAbsolute } from 'node:path'
 import type { PersonRole } from '../../contracts/person'
 import { personError, personRevision, personText } from '../../contracts/person'
@@ -10,6 +11,7 @@ import { listAssignablePersonGoals, listPersonTasks, getPersonTask, taskPersonEx
 import { openPersonContextStore } from '../../repositories/person-context-store'
 import { personMemoryReadTools } from './memory'
 import { personSessionId } from '../../contracts/person-session'
+import { getFilePreviewDescriptor } from '../files/file-preview'
 
 const string = { type: 'string' }
 const integer = { type: 'integer', minimum: 0 }
@@ -26,8 +28,29 @@ export async function readPersonArtifact(userId: number, executionId: string, pa
   const local = relative(root, target)
   if (isAbsolute(local) || local === '..' || local.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)) throw personError('Artifact is outside the task workspace', 403)
   const info = await stat(target)
-  if (!info.isFile() || info.size > 2_000_000) throw personError('Artifact must be a text file smaller than 2 MB')
-  const content = await readFile(target, 'utf8')
+  if (!info.isFile()) throw personError('Artifact must be a file')
+  const preview = getFilePreviewDescriptor(target)
+  const reference = () => ({ path: local, absolute_path: target.replaceAll('\\', '/'),
+    kind: preview?.kind || 'file', media_type: preview?.mime || 'application/octet-stream', size: info.size,
+    version: `${info.size}:${info.mtimeMs}`, next_offset: null,
+    instruction: 'File reference only; contents have not been inspected. Send images with ![description](<absolute_path>) and other files with [description](<absolute_path>). Do not read binary bytes as text.',
+  })
+  // A screenshot is an artifact to deliver, not a UTF-8 document. Known media
+  // can be returned without reading it, even when larger than the text limit.
+  if (preview && !['html', 'csv'].includes(preview.kind)) return reference()
+  const file = await open(target, 'r')
+  let bytes: Buffer
+  try {
+    const sample = Buffer.alloc(Math.min(info.size, 8192))
+    const { bytesRead } = await file.read(sample, 0, sample.length, 0)
+    if (sample.subarray(0, bytesRead).some(byte => byte < 32 && ![9, 10, 13].includes(byte))) return reference()
+    if (info.size > 2_000_000) throw personError('Text artifact must be smaller than 2 MB')
+    bytes = await file.readFile()
+  } finally { await file.close() }
+  // Check the complete buffer so a truncated multibyte character in the sample
+  // does not misclassify a valid Unicode text file.
+  if (!isUtf8(bytes) || bytes.some(byte => byte < 32 && ![9, 10, 13].includes(byte))) return reference()
+  const content = bytes.toString('utf8')
   return { path: local, content: content.slice(offset, offset + 6000), next_offset: offset + 6000 < content.length ? offset + 6000 : null,
     version: `${info.size}:${info.mtimeMs}` }
 }
@@ -40,7 +63,7 @@ export function personTools(userId: number, role: PersonRole, taskId?: string): 
       if (args.task_id || taskId) { const id = ensureTask(args.task_id || taskId); return { task: getPersonTask(userId, id), executions: taskPersonExecutions(userId, id).slice(0,5).map(({ output, ...run }) => ({ ...run, output_preview: output.slice(0,500) })) } }
       return { tasks: listPersonTasks(userId, String(args.search || '').slice(0,200), Math.min(10000, Number(args.offset) || 0)).map(task => ({ id: task.id, title: task.title, summary: task.summary.slice(0,250), status: task.status, revision: task.revision, execution_state: task.execution_state, execution_id: task.execution_id })) }
     }),
-    personTool('bot_artifact_read', 'Read a bounded slice of a task output or text file within its workspace. Empty path reads the output.', { execution_id: string, path: string, offset: integer }, ['execution_id'], async args => {
+    personTool('bot_artifact_read', 'Read a bounded slice of task output or a workspace text file. Images and binary files return metadata and an absolute path for delivery, never file bytes. Empty path reads the output.', { execution_id: string, path: string, offset: integer }, ['execution_id'], async args => {
       const execution = getPersonExecution(userId, personText(args.execution_id, 'execution_id', 100)); ensureTask(execution.task_id)
       return readPersonArtifact(userId, execution.id, String(args.path || ''), Math.max(0, Math.min(2_000_000, Number(args.offset) || 0)))
     }),
