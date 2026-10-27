@@ -12,6 +12,8 @@ interface ChatAgentSessionIdentity {
   codingAgentId?: string
 }
 
+export const PERSON_AVATAR = { label: 'Person', src: deploymentUrl('/coding-agents/person.jpg') } as const satisfies ChatAgentAvatar
+
 const AGENT_AVATARS = {
   hermes: { label: 'Hermes', src: deploymentUrl('/coding-agents/hermes.png') },
   'ekko-agent': { label: 'Ekko', src: deploymentUrl('/coding-agents/ekko-agent.png') },
@@ -33,7 +35,7 @@ const AGENT_AVATARS = {
 
 export function chatSessionAgentAvatar(session?: ChatAgentSessionIdentity | null): ChatAgentAvatar {
   if (!session) return AGENT_AVATARS['ekko-agent']
-  if (session.id?.startsWith('person-main-')) return { ...AGENT_AVATARS['ekko-agent'], label: 'Person' }
+  if (session.id?.startsWith('person-main-')) return PERSON_AVATAR
   const runtime = String(session?.codingAgentId || session?.agent || '').trim().toLowerCase()
   if (runtime === 'ekko-agent' || runtime === 'ekko_agent' || runtime === 'ekko') return AGENT_AVATARS['ekko-agent']
   if (runtime === 'claude' || runtime === 'claude-code') return AGENT_AVATARS['claude-code']
