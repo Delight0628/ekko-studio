@@ -159,6 +159,12 @@ acknowledgement changes the execution to `interrupted`. Failed acknowledgements
 remain durable and retry after a restart. Slow acknowledgements do not block
 other task dispatch. During native initialization the intent stays stopping until
 the worker can accept interruption; it is never prematurely reported as stopped.
+Person requests termination confirmation from the chat runtime. It observes
+native child/PTY exit before dispatching cancellation and also waits for the
+original run handler to unwind. A terminal chat event or a sent kill signal alone
+does not acknowledge the stop. Pending exit observers survive runtime
+unregistration and retries; elapsed time never turns an unconfirmed stop into
+success. Ordinary chat retains its existing immediate abort behavior.
 
 Stopping retains the goal, conversation and existing artifacts. The goal stays
 open, and a new message can continue it once interruption is acknowledged.

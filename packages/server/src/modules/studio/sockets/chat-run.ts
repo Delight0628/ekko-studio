@@ -447,6 +447,7 @@ export class ChatRunSocket {
   })
   private bridgeResumePolls = new Set<string>()
   private readonly runWaiters = new Map<string, Set<(event: string, payload: any) => void>>()
+  private readonly runHandlers = new Map<string, Set<Promise<void>>>()
   private readonly pendingMobileLocations = new Map<string, PendingMobileLocationRequest>()
   private readonly mobileRunTargets = new Map<string, MobileDeviceTarget>()
   private readonly pendingMobileCalendar = new Map<string, PendingMobileCalendarRequest>()
@@ -3000,7 +3001,9 @@ export class ChatRunSocket {
         emit: (event: string, payload: any) => onEvent(event, payload),
       } as unknown as Socket
 
-      this.handleRun(fakeSocket, { ...data, onEvent }, profile, false, undefined, pushTargetId)
+      const handlers = this.runHandlers.get(sessionId) || new Set<Promise<void>>()
+      this.runHandlers.set(sessionId, handlers)
+      const handler = this.handleRun(fakeSocket, { ...data, onEvent }, profile, false, undefined, pushTargetId)
         .catch(err => {
           const error = err instanceof Error ? err.message : String(err)
           const payload = { event: 'run.failed', session_id: sessionId, error }
@@ -3018,12 +3021,24 @@ export class ChatRunSocket {
           })
           finish({ ok: false, event: 'run.failed', error })
         })
+        .finally(() => {
+          handlers.delete(handler)
+          if (!handlers.size && this.runHandlers.get(sessionId) === handlers) this.runHandlers.delete(sessionId)
+        })
+      handlers.add(handler)
     })
   }
 
-  async abortSession(sessionId: string, reason = 'Run canceled'): Promise<void> {
+  async abortSession(sessionId: string, reason = 'Run canceled', options: { waitForTermination?: boolean } = {}): Promise<void> {
     const sid = String(sessionId || '').trim()
     if (!sid) return
+    // Capture native handles before handleAbort unregisters them and emits a
+    // terminal event. Those events release runAndWait before execution unwinds.
+    const termination = options.waitForTermination
+      ? Promise.all([codingAgentRunManager.waitForSessionExit(sid), ...(this.runHandlers.get(sid) || [])])
+      : undefined
+    // Retain the rejection until it can be propagated after abort dispatch.
+    void termination?.catch(() => {})
     this.mobileRunTargets.delete(sid)
     const fakeSocket = {
       id: `workflow-abort-${sid}`,
@@ -3046,6 +3061,7 @@ export class ChatRunSocket {
       event: 'run.failed',
       error: reason,
     })
+    await termination
   }
 
   async disposeSession(sessionId: string): Promise<void> {

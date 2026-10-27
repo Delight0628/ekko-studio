@@ -13,6 +13,8 @@ vi.mock('../../packages/server/src/modules/studio/services/chat-run/context-usag
 const ensureReadyMock = vi.hoisted(() => vi.fn())
 const ekkoBoundaryInterruptMock = vi.hoisted(() => vi.fn())
 const codingAgentRunManagerMock = vi.hoisted(() => ({
+  waitForSessionExit: vi.fn(async () => {}),
+  hasSession: vi.fn(() => false),
   interruptForQueueInsertion: vi.fn(),
   resolveApproval: vi.fn(() => ({ handled: false, resolved: false })),
   resolveClarification: vi.fn(() => ({ handled: false, resolved: false })),
@@ -639,6 +641,31 @@ describe('ChatRunSocket queued bridge runs', () => {
       output: 'answer',
       reasoning: 'thought',
     })
+  })
+
+  it('waits for the original handler and native process even after a terminal event releases runAndWait', async () => {
+    let unwind!: () => void, exit!: () => void
+    const handlerDone = new Promise<void>(resolve => { unwind = resolve })
+    const nativeDone = new Promise<void>(resolve => { exit = resolve })
+    handleBridgeRunMock.mockImplementationOnce(async (_nsp, _socket, data) => {
+      data.onEvent('run.failed', { error: 'Aborted' })
+      await handlerDone
+    })
+    codingAgentRunManagerMock.waitForSessionExit.mockReturnValueOnce(nativeDone)
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io } = makeServerHarness()
+    const server = new ChatRunSocket(io as any)
+    expect(await server.runAndWait({ session_id: 'session-1', input: 'Work', source: 'workflow' })).toMatchObject({ ok: false })
+    let stopped = false
+    const stop = server.abortSession('session-1', 'Stopped', { waitForTermination: true }).then(() => { stopped = true })
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(stopped).toBe(false)
+    unwind()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(stopped).toBe(false)
+    exit(); await stop
+    expect(stopped).toBe(true)
+    expect((server as any).runHandlers.size).toBe(0)
   })
 
   it('auto-responds once to approvals only when runAndWait enables it', async () => {

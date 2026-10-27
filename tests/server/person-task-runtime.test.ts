@@ -1,9 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import type { PersonRuntimePort } from '../../packages/server/src/modules/studio/public/person-runtime'
 
-const native = vi.hoisted(() => ({ runAndWait: vi.fn(), abortSession: vi.fn(), stop: vi.fn(), available: true }))
+const native = vi.hoisted(() => ({ runAndWait: vi.fn(), abortSession: vi.fn(), available: true }))
 vi.mock('../../packages/server/src/modules/studio/public/chat-run', () => ({ getChatRunServer: () => native.available ? native : undefined }))
-vi.mock('../../packages/server/src/modules/coding-agents/services/runtime/run-manager', () => ({ codingAgentRunManager: { stop: native.stop } }))
 import { executePersonTask, stopPersonTask } from '../../packages/server/src/bootstrap/person-task-runtime'
 
 function deferred<T = void>() {
@@ -31,18 +30,15 @@ it.each(['ekko','hermes','codex'])('waits for %s initialization, then shares the
   expect(native.abortSession).not.toHaveBeenCalled()
   expect(acknowledged).toBe(false)
   native.runAndWait.mock.calls[0][1].onEvent('run.started', { run_id: 'one' })
-  await vi.waitFor(() => expect(native.abortSession).toHaveBeenCalledExactlyOnceWith('person-task-1', 'Person task stopped'))
+  await vi.waitFor(() => expect(native.abortSession).toHaveBeenCalledExactlyOnceWith('person-task-1', 'Person task stopped', { waitForTermination: true }))
   expect(acknowledged).toBe(false)
-  expect(native.stop).not.toHaveBeenCalled()
   ack.resolve(); await first
-  expect(native.stop).toHaveBeenCalledExactlyOnceWith('person-task-1', { reportClosed: false })
   worker.resolve({ ok: false }); await execution
 })
 
 it('propagates native stop failures for durable retry, including an unavailable runtime', async () => {
   native.abortSession.mockRejectedValueOnce(new Error('Connection lost'))
   await expect(stopPersonTask('person-task-failed')).rejects.toThrow('Connection lost')
-  expect(native.stop).not.toHaveBeenCalled()
   await stopPersonTask('person-task-failed')
   expect(native.abortSession).toHaveBeenCalledTimes(2)
   native.available = false

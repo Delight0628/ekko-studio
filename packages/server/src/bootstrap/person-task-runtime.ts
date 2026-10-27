@@ -1,6 +1,5 @@
 import type { PersonRuntimePort } from '../modules/studio/public/person-runtime'
 import { getChatRunServer } from '../modules/studio/public/chat-run'
-import { codingAgentRunManager } from '../modules/coding-agents/services/runtime/run-manager'
 import { logger } from '../modules/studio/public/logging'
 
 const starting = new Map<string, Promise<void>>()
@@ -16,8 +15,7 @@ export function stopPersonTask(sessionId: string): Promise<void> {
     await ready
     const server = getChatRunServer()
     if (!server) throw new Error('Chat runtime unavailable')
-    await server.abortSession(sessionId, 'Person task stopped')
-    codingAgentRunManager.stop(sessionId, { reportClosed: false })
+    await server.abortSession(sessionId, 'Person task stopped', { waitForTermination: true })
   }).finally(() => stopping.delete(sessionId))
   stopping.set(sessionId, result)
   return result
