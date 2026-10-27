@@ -486,7 +486,7 @@ describe('Person account-owned tasks and runtime', () => {
   it('exposes only preset dispatch tools and no acceptance tool', async () => {
     const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
     const main = personTools(1, 'main').map(t => t.name)
-    expect(main).toEqual(expect.arrayContaining(['bot_task_apply','bot_agents_list','bot_schedule_apply','bot_decision_request']))
+    expect(main).toEqual(expect.arrayContaining(['bot_task_create','bot_task_control','bot_agents_list','bot_schedule_apply','bot_decision_request']))
     expect(main.some(t => /shell|terminal|browser|exec_command|file_write/.test(t))).toBe(false)
     expect(main).not.toContain('bot_review_submit')
     expect(main).not.toContain('bot_models_search')
@@ -494,30 +494,152 @@ describe('Person account-owned tasks and runtime', () => {
     const { personSnapshot } = await import('../../packages/server/src/modules/studio/services/person/service')
     await expect(personSnapshot(1)).rejects.toThrow('unavailable')
   })
-  it('requires the queried revision when resuming interrupted work and keeps failed attempts side-effect free', async () => {
+  it('binds revisions and deduplicates concurrent creates, stops and resumes without model plumbing', async () => {
     const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
     const tools = personTools(1, 'main')
-    const apply = tools.find(tool => tool.name === 'bot_task_apply')!
-    const query = tools.find(tool => tool.name === 'bot_tasks_query')!
-    const variants = apply.parameters!.anyOf as Array<{ properties: { action: { enum: string[] } }; required: string[] }>
-    for (const action of ['adopt', 'update', 'start', 'stop', 'close', 'reopen']) {
-      expect(variants.find(variant => variant.properties.action.enum.includes(action))!.required).toEqual(expect.arrayContaining(['task_id', 'expected_revision']))
-    }
-    const { task, execution } = await create()
-    await apply.execute({ action: 'stop', task_id: task.id, execution_id: execution.id, expected_revision: 0, idempotency_key: 'stop' })
+    const call = (name: string, args: Record<string, unknown>) => tools.find(t => t.name === name)!.execute(args) as Promise<any>
+    const input = { title: 'Task', goal: 'Compute a result' }
+    const [created, duplicate] = await Promise.all([call('bot_task_create', input), call('bot_task_create', { goal: input.goal, title: input.title })])
+    expect(created.ok).toBe(true)
+    expect(duplicate).toMatchObject({ task: { id: created.task.id }, replayed: true })
+    expect(store.listPersonTasks(1)).toHaveLength(1)
+    expect(store.taskPersonExecutions(1, created.task.id)).toHaveLength(1)
+    const stop = { task_ref: created.task.task_ref, action: 'stop' }
+    const stopped = await call('bot_task_control', stop)
+    expect(stopped).toMatchObject({ ok: true, execution: { state: 'interrupted' } })
+    const resume = { task_ref: stopped.task.task_ref, action: 'start' }
+    const [started, replayed] = await Promise.all([call('bot_task_control', resume), call('bot_task_control', resume)])
+    expect(started).toMatchObject({ ok: true, execution: { state: 'queued' } })
+    expect(replayed).toMatchObject({ replayed: true, execution: started.execution })
+    expect(store.taskPersonExecutions(1, created.task.id)).toHaveLength(2)
+    // A retry reports the original stop receipt; it must not stop the new run.
+    expect(await call('bot_task_control', stop)).toMatchObject({ replayed: true, execution: stopped.execution })
+    expect(store.getPersonExecution(1, started.execution.id).state).toBe('queued')
+    expect((await call('bot_tasks_query', { task_id: created.task.id })).task.allowed_actions).toEqual(['stop'])
+  })
+  it('rejects injected host fields, invalid actions and missing requirements before side effects', async () => {
+    const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
+    const tools = personTools(1, 'main')
+    const call = (name: string, args: Record<string, unknown>) => tools.find(t => t.name === name)!.execute(args) as Promise<any>
+    const { task } = await create({ start: false })
+    const { task: snapshot } = await call('bot_tasks_query', { task_id: task.id })
     const before = store.getPersonTask(1, task.id)
-    const resume = { action: 'start', task_id: task.id, idempotency_key: 'resume' }
-    await expect(apply.execute(resume)).rejects.toThrow('expected_revision is required')
+    for (const extra of [{ expected_revision: 0 }, { execution_id: 'invented' }, { task_id: task.id }, { idempotency_key: 'invented' }, { constructor: 'invented' }, { expected_execution_id: null }, { goal: 'ignored' }]) {
+      expect(await call('bot_task_control', { action: 'start', task_ref: snapshot.task_ref, ...extra })).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+    }
+    for (const args of [{ action: 'update', task_ref: snapshot.task_ref }, { action: 'invented', task_ref: snapshot.task_ref }]) {
+      expect(await call('bot_task_control', args)).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+    }
+    expect(await call('bot_task_create', { title: 'missing goal' })).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
+    expect(await call('bot_task_control', { action: 'stop', task_ref: snapshot.task_ref })).toMatchObject({ ok: false, error: { code: 'ACTION_NOT_ALLOWED' } })
     expect(store.getPersonTask(1, task.id)).toEqual(before)
+    expect(store.taskPersonExecutions(1, task.id)).toHaveLength(0)
+  })
+  it('rejects cross-account, previous-turn, expired and evicted references', async () => {
+    const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
+    const tools = personTools(1, 'main')
+    const query = tools.find(t => t.name === 'bot_tasks_query')!
+    const control = tools.find(t => t.name === 'bot_task_control')!
+    const { task } = await create({ start: false })
+    const snapshot: any = await query.execute({ task_id: task.id })
+    const request = { task_ref: snapshot.task.task_ref, action: 'start' }
+    for (const userId of [1, 2]) expect(await personTools(userId, 'main').find(t => t.name === 'bot_task_control')!.execute(request)).toMatchObject({ ok: false, error: { code: 'INVALID_TASK_REF' } })
+    expect(await personTools(2, 'main').find(t => t.name === 'bot_tasks_query')!.execute({ task_id: task.id })).toMatchObject({ ok: false, error: { code: 'TASK_UNAVAILABLE' } })
+    for (let n = 0; n < 129; n++) {
+      db.prepare('UPDATE session_tasks SET revision=revision+1 WHERE id=?').run(task.id)
+      await query.execute({ task_id: task.id })
+    }
+    expect(await control.execute(request)).toMatchObject({ ok: false, error: { code: 'INVALID_TASK_REF' } })
+    const latest: any = await query.execute({ task_id: task.id })
+    const now = Date.now()
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 600001)
+    try { expect(await control.execute({ action: 'start', task_ref: latest.task.task_ref })).toMatchObject({ ok: false, error: { code: 'INVALID_TASK_REF' } }) }
+    finally { clock.mockRestore() }
+    expect(store.taskPersonExecutions(1, task.id)).toHaveLength(0)
+  })
+  it('rejects stale revisions and scheduled replacement executions even when revision is unchanged', async () => {
+    const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
+    const tools = personTools(1, 'main')
+    const query = tools.find(t => t.name === 'bot_tasks_query')!
+    const control = tools.find(t => t.name === 'bot_task_control')!
+    const { task, execution } = await create()
+    const old: any = await query.execute({ task_id: task.id })
+    store.setPersonExecution(execution, 'interrupted')
+    const replacement = store.enqueuePersonExecution(store.getPersonTask(1, task.id))
+    expect(store.getPersonTask(1, task.id).revision).toBe(task.revision)
+    expect(await control.execute({ action: 'stop', task_ref: old.task.task_ref })).toMatchObject({ ok: false, error: { code: 'STALE_TASK' } })
+    expect(store.getPersonExecution(1, replacement.id).state).toBe('queued')
+    const current: any = await query.execute({ task_id: task.id })
+    db.prepare('UPDATE session_tasks SET revision=revision+1 WHERE id=?').run(task.id)
+    expect(await control.execute({ action: 'stop', task_ref: current.task.task_ref })).toMatchObject({ ok: false, error: { code: 'STALE_TASK' } })
+    expect(store.getPersonExecution(1, replacement.id).state).toBe('queued')
+    const fresh: any = await query.execute({ task_id: task.id })
+    expect(await control.execute({ action: 'stop', task_ref: fresh.task.task_ref })).toMatchObject({ ok: true, execution: { id: replacement.id, state: 'interrupted' } })
+  })
+  it('checks execution identity after asynchronous model validation, inside the mutation transaction', async () => {
+    const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
+    const tools = personTools(1, 'main')
+    const { task } = await create({ start: false })
+    const snapshot: any = await tools.find(t => t.name === 'bot_tasks_query')!.execute({ task_id: task.id })
+    let release!: () => void
+    const deferred = new Promise<void>(resolve => { release = resolve })
+    vi.mocked(runtime.modelConfig).mockImplementationOnce(async () => { await deferred; return { default: 'm', default_provider: 'test', groups: catalog } })
+    const pending = tools.find(t => t.name === 'bot_task_control')!.execute({ action: 'start', task_ref: snapshot.task.task_ref })
+    // Another scheduled run finishes while start is validating the selected model.
+    const unexpected = store.enqueuePersonExecution(store.getPersonTask(1, task.id))
+    store.setPersonExecution(unexpected, 'interrupted')
+    release()
+    expect(await pending).toMatchObject({ ok: false, error: { code: 'STALE_TASK' } })
     expect(store.taskPersonExecutions(1, task.id)).toHaveLength(1)
-    const snapshot = await query.execute({ task_id: task.id }) as { task: { revision: number } }
-    expect(snapshot.task.revision).toBe(1)
-    const input = { ...resume, expected_revision: snapshot.task.revision }
-    const started = await apply.execute(input)
-    expect(started).toMatchObject({ execution: { state: 'queued' }, task: { revision: 2 } })
-    expect(await apply.execute(input)).toEqual(started)
-    expect(store.taskPersonExecutions(1, task.id)).toHaveLength(2)
-    await expect(apply.execute({ ...resume, idempotency_key: 'stale', expected_revision: 0 })).rejects.toThrow('Task changed')
+  })
+  it('requires fresh references after updates and supports close, reopen, adoption and deleted tasks', async () => {
+    const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
+    const tools = personTools(1, 'main')
+    const call = (name: string, args: Record<string, unknown>) => tools.find(t => t.name === name)!.execute(args) as Promise<any>
+    const { task } = await create({ start: false })
+    const old = await call('bot_tasks_query', { task_id: task.id })
+    const updated = await call('bot_task_control', { action: 'update', task_ref: old.task.task_ref, goal: 'New goal' })
+    expect(updated.ok).toBe(true)
+    expect(await call('bot_task_control', { action: 'close', task_ref: old.task.task_ref })).toMatchObject({ ok: false, error: { code: 'STALE_TASK' } })
+    const closed = await call('bot_task_control', { action: 'close', task_ref: updated.task.task_ref })
+    expect(closed.task.allowed_actions).toEqual(['reopen'])
+    const reopened = await call('bot_task_control', { action: 'reopen', task_ref: closed.task.task_ref })
+    expect(reopened.task.status).toBe('open')
+    db.prepare('DELETE FROM session_tasks WHERE id=?').run(task.id)
+    expect(await call('bot_task_control', { action: 'start', task_ref: reopened.task.task_ref })).toMatchObject({ ok: false, error: { code: 'TASK_UNAVAILABLE' } })
+    const sessions = await import('../../packages/server/src/modules/studio/repositories/session-store')
+    sessions.createSession({ id: 'adoptable', studio_user_id: 1, profile: 'default' })
+    db.prepare("INSERT INTO session_tasks(id,session_id,title,summary,status,created_at,updated_at) VALUES ('goal','adoptable','Goal','Summary','open',1,1)").run()
+    const goals = await call('bot_tasks_query', { assignable: true })
+    const adopt = { action: 'adopt', task_ref: goals.tasks[0].task_ref, goal: 'Adopted goal', start: false }
+    expect(goals.tasks[0].allowed_actions).toEqual(['adopt'])
+    expect(await call('bot_task_control', adopt)).toMatchObject({ ok: true, task: { id: 'goal', status: 'open' } })
+    expect(await call('bot_task_control', adopt)).toMatchObject({ replayed: true })
+    expect(store.getPersonTask(1, 'goal').owner_user_id).toBe(1)
+  })
+  it('bounds task pages and recovers a committed result after a lost response without duplicate execution', async () => {
+    const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
+    for (let i = 0; i < 12; i++) await create({ start: false, title: '长'.repeat(200), goal: '详'.repeat(8000) })
+    const tools = personTools(1, 'main')
+    const query = tools.find(t => t.name === 'bot_tasks_query')!
+    const first: any = await query.execute({ search: '' })
+    expect(first.tasks).toHaveLength(10)
+    expect(first.next_offset).toBe(10)
+    expect(JSON.stringify(first).length).toBeLessThan(18000)
+    const second: any = await query.execute({ offset: first.next_offset })
+    expect(second.tasks).toHaveLength(2)
+    expect(second.next_offset).toBeNull()
+    expect(new Set([...first.tasks, ...second.tasks].map(t => t.id)).size).toBe(12)
+    const original = tasks.applyPersonTask
+    vi.spyOn(tasks, 'applyPersonTask').mockImplementationOnce(async (...args) => {
+      await original(...args)
+      throw new Error('Response lost after commit')
+    })
+    const control = tools.find(t => t.name === 'bot_task_control')!
+    const request = { action: 'start', task_ref: first.tasks[0].task_ref }
+    await expect(control.execute(request)).rejects.toThrow('Response lost')
+    expect(await control.execute(request)).toMatchObject({ ok: true, execution: { state: 'queued' } })
+    expect(store.taskPersonExecutions(1, first.tasks[0].id)).toHaveLength(1)
   })
   it('fences expired workers before acknowledging interruption, keeping the goal open', async () => {
     const { task,execution }=await create()

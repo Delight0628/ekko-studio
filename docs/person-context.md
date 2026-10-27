@@ -121,13 +121,36 @@ toolset under the minimum 8k request budget.
 The task list and task conversation expose Stop task for queued, active and
 waiting executions. The conversation's composer also shows Stop even with a
 draft or before streaming begins. It uses the same task API, preserves the draft
-and attachments, and disables Stop until acknowledgement. Person can use `bot_task_apply` with `action: stop`, the
-current `task_id`, `execution_id`, `expected_revision` and an idempotency key.
-Every existing-task action, including `start` to continue interrupted work, requires
-the queried `revision` as `expected_revision`. The tool schema declares each
-action's required fields, and stale or missing revisions remain rejected.
-Query first: targeting an execution prevents an old click or replay from stopping
-a later scheduled occurrence or follow-up turn.
+and attachments, and disables Stop until acknowledgement. Person uses
+`bot_task_create` for new work and `bot_task_control` for existing work. Queries
+and operation receipts return an opaque `task_ref` plus `allowed_actions`.
+The host binds each reference to the account, queried revision and execution ID;
+the model supplies only its action and business fields. It never supplies retry
+keys, revisions or target execution IDs for task mutations. Both the version and
+execution ID are checked inside the mutation transaction, including when a
+schedule enqueues a different execution without changing the task revision.
+
+References belong to one main-turn toolset, expire after ten minutes, and have a
+128-entry bound. They are not authorization grants. Ownership and resource access
+checks still apply; old conversation references, changed or deleted tasks and
+references from another account/turn are rejected. `INVALID_TASK_REF`,
+`STALE_TASK`, `TASK_UNAVAILABLE`, `ACTION_NOT_ALLOWED` and `INVALID_ARGUMENT`
+errors include recovery instructions and remain failed native tool events.
+A stale reference requires a new query and reconsideration, never automatic
+substitution of the latest version. Normal queued-to-running progress on the
+same execution does not change its identity.
+
+Identical normalized actions within a turn share a host-generated idempotency
+key and in-flight promise. Successful replay returns the original receipt marked
+`replayed`; query for current state rather than interpreting that receipt as a
+new observation. Re-querying the same snapshot does not bypass deduplication.
+This also means identical task creation requests in one turn create one task;
+distinct intended tasks need distinct titles or requirements. There is no
+cross-turn semantic deduplication or cross-restart continuation of references.
+Task query results are paginated and bounded; detailed output stays in artifact
+reads. The browser task API retains its explicit revision/execution protocol;
+ordinary chat and database schemas are unchanged. Schedule tools retain their
+existing interface.
 
 Queued work becomes interrupted without starting. Active work first persists
 `stopping` and fences its generation, expires pending questions and cancels its

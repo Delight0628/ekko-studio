@@ -21,7 +21,7 @@ export function createPersonAgent(options: PersonChatAgentOptions) {
       : await tool.execute(args, context.sessionId ? { sessionId: context.sessionId, runId: context.runId || '', messages: originMessages } : undefined)
     const content = JSON.stringify(value)
     if (content.length > 18000) throw new Error('Tool result too large; request a smaller page')
-    return { ok: true, content }
+    return { ok: !(value && typeof value === 'object' && 'ok' in value && value.ok === false), content }
   } })
   const runtime = new AgentRuntime({ tools: registry, systemPrompt: options.systemPrompt,
     memory: options.memory?.service, profileId: options.memory?.identity.profileId,

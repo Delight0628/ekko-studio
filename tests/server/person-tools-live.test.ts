@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,6 +12,8 @@ it.skipIf(process.env.PERSON_TOOLS_LIVE !== '1')('replays name, repository and r
   const { createPersonAgent } = await import('../../packages/server/src/bootstrap/person-chat-agent')
   const { PERSON_SYSTEM_PROMPT } = await import('../../packages/server/src/modules/studio/services/person/model')
   const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
+  const store = await import('../../packages/server/src/modules/studio/repositories/person-store')
+  const tasks = await import('../../packages/server/src/modules/studio/services/person/tasks')
   const selection = { runtime: 'ekko', mode: 'scoped' as const, profile: 'default', provider: 'deepseek', model: 'deepseek-flash' }
   const config = await resolveEkkoProviderRuntimeConfig(selection)
   const { providerConfig } = resolveModelProviderConfigs({ ...config, provider: selection.provider, model: selection.model })
@@ -24,16 +26,18 @@ it.skipIf(process.env.PERSON_TOOLS_LIVE !== '1')('replays name, repository and r
       const service = new MemoryService({ store: new SqliteMemoryStore(new EkkoDatabaseManager({ databasePath: join(dir, `memory-${round}.db`) })), automaticRecallTokenBudget: 1000 })
       const identity = { sessionId: `person-main-fixture-${round}`, profileId: `person:fixture:${round}`, recallScopes: [{ type: 'profile' as const }], writeScopes: [{ type: 'profile' as const }], defaultWriteScope: { type: 'profile' as const } }
       const actions: Record<string, unknown>[] = []
-      const task = { id: 'fixture-task', title: '了解 ekko-studio 仓库', summary: '调研仓库并提供报告', status: 'open', revision: 7, execution_state: 'interrupted', execution_id: 'fixture-interrupted' }
-      const tools = personTools(1, 'main').map(tool => ({ ...tool, async execute(args: Record<string, unknown>) {
-        if (tool.name === 'bot_tasks_query') return args.task_id ? { task, executions: [] } : { tasks: [task] }
+      const task = { id: 'fixture-task', title: '了解 ekko-studio 仓库', summary: '调研仓库并提供报告', status: 'open', revision: 7, execution_state: 'interrupted', execution_id: 'fixture-interrupted', requirements_json: '{"goal":"调研仓库并提供报告"}' } as any
+      vi.spyOn(store, 'getPersonTask').mockReturnValue(task)
+      vi.spyOn(store, 'listPersonTasks').mockReturnValue([task])
+      vi.spyOn(store, 'taskPersonExecutions').mockReturnValue([])
+      vi.spyOn(tasks, 'applyPersonTask').mockImplementation(async (_userId, args) => {
+        actions.push(args)
+        expect(args).toMatchObject({ action: 'start', task_id: task.id, expected_revision: 7, expected_execution_id: 'fixture-interrupted' })
+        expect(args.idempotency_key).toEqual(expect.any(String))
+        return { task: { ...task, revision: 8, execution_state: 'queued', execution_id: 'fixture-new', running: true }, execution: { id: 'fixture-new', state: 'queued' } } as any
+      })
+      const tools = personTools(1, 'main').map(tool => ['bot_tasks_query', 'bot_task_create', 'bot_task_control'].includes(tool.name) ? tool : ({ ...tool, async execute() {
         if (tool.name === 'bot_agents_list') return { agents: [{ id: 'default', name: 'Ekko Agent', selection }], next_offset: null }
-        if (tool.name === 'bot_task_apply') {
-          actions.push(args)
-          expect(args).toMatchObject({ action: 'start', task_id: task.id, expected_revision: 7 })
-          expect(args.idempotency_key).toEqual(expect.any(String))
-          return { task: { ...task, revision: 8, execution_state: 'queued' }, execution: { id: 'fixture-new', state: 'queued' } }
-        }
         throw new Error(`Unexpected fixture tool: ${tool.name}`)
       } }))
       const scenarios = [
@@ -50,21 +54,21 @@ it.skipIf(process.env.PERSON_TOOLS_LIVE !== '1')('replays name, repository and r
           })
           const result = await agent.run({ modelClient: client, messages: [{ role: 'user', content: scenario.input }],
             memoryInput: { messages: [{ role: 'user', content: scenario.input }] }, reasoningEffort: 'high', signal: AbortSignal.timeout(90000),
-            onEvent: event => { if (event.type === 'tool.completed') events.push(event) } })
+            onEvent: event => { if (event.type === 'tool.completed' || event.type === 'tool.failed') events.push(event) } })
           await service.drain()
           const nodes = await service.list({ profileId: identity.profileId })
-          const failedTools = events.filter(event => event.type === 'tool.completed' && !event.result.ok)
+          const failedTools = events.filter(event => !event.result.ok)
           records.push({ round, scenario: scenario.kind, output: result.output.content, events, nodes, actions: [...actions] })
           if (failedTools.length) failures.push({ round, scenario: scenario.kind, failedTools })
           if (scenario.kind === 'name' && !nodes.some(node => node.key === 'profile.identity.name' && JSON.stringify(node.valueJson).toLowerCase().includes('ekko'))) failures.push({ round, scenario: 'name', reason: 'Name not saved' })
           if (scenario.kind === 'repo' && actions.length) failures.push({ round, scenario: 'repo', reason: 'Unrequested task creation' })
           if (scenario.kind === 'resume' && actions.length !== 1) failures.push({ round, scenario: 'resume', reason: 'Expected one resume action', actions })
         }
-      } finally { await service.drain(); service.close() }
+      } finally { await service.drain(); service.close(); vi.restoreAllMocks() }
     }
     expect(failures).toEqual([])
   } finally {
-    writeFileSync('/tmp/person-tools-live-result.json', JSON.stringify({ model: selection.model, records, failures }, null, 2))
+    writeFileSync('/tmp/person-task-refs-memory-live-result.json', JSON.stringify({ model: selection.model, records, failures }, null, 2))
     rmSync(dir, { recursive: true, force: true })
   }
 }, 360000)
