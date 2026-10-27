@@ -73,12 +73,14 @@ export async function applyPersonTask(userId: number, input: Record<string, unkn
     if (action === 'adopt') {
       const task = adoptPersonGoal(userId, personText(input.task_id,'task_id',100),personRevision(input.expected_revision),selection!,taskWorkspace,personText(input.goal,'goal',8000))
       savePersonTaskOrigin(userId, task.id, origin)
-      return { task, execution: input.start === false ? undefined : enqueuePersonExecution(task) }
+      const execution = input.start === false ? undefined : enqueuePersonExecution(task)
+      return { task: getPersonTask(userId, task.id), execution }
     }
     if (action === 'create') {
       const task = createPersonTask(userId, personText(input.title, 'title', 200), personText(input.goal, 'goal', 8000), selection!, taskWorkspace)
       savePersonTaskOrigin(userId, task.id, origin)
-      return { task, execution: input.start === false ? undefined : enqueuePersonExecution(task) }
+      const execution = input.start === false ? undefined : enqueuePersonExecution(task)
+      return { task: getPersonTask(userId, task.id), execution }
     }
     const task = getPersonTask(userId, personText(input.task_id, 'task_id', 100))
     if (task.revision !== personRevision(input.expected_revision)) throw personError('Task changed; query it again', 409)

@@ -364,6 +364,7 @@ describe('Person account-owned tasks and runtime', () => {
   })
   it('stops queued work without launching, expires questions, and cancels only its callback', async () => {
     const { task, execution } = await create()
+    expect(task).toMatchObject({ execution_id: execution.id, execution_state: 'queued', running: 1 })
     const other = await create()
     const question = store.addPersonInteraction(1, execution, 'queued-question', 'Continue?', [])
     const input = { action: 'stop', task_id: task.id, execution_id: execution.id, expected_revision: 0, idempotency_key: 'stop-queued' }
