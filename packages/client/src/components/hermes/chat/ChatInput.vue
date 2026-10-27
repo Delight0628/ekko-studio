@@ -146,6 +146,8 @@ function onReasoningEffortChange(value: string | null | undefined) {
   if (variant) void chatStore.setSessionReasoningEffort(sid, variant.effort, variant.model)
   else void chatStore.setSessionReasoningEffort(sid, value || '')
 }
+// A rejected automatic write must not retrigger itself when the store rolls back.
+let lastAutomaticEffortWrite = ''
 watch([reasoningEffortOptions, requestedReasoningEffort, canEditReasoningEffort], ([options, requested]) => {
   if (isMoaSession.value || !canEditReasoningEffort.value) {
     showReasoningEffort.value = false
@@ -153,6 +155,10 @@ watch([reasoningEffortOptions, requestedReasoningEffort, canEditReasoningEffort]
   }
   const fallback = agentReasoningEffortValue('', options)
   if ((!requested && fallback) || (!isGlobalCodingAgentSession.value && requested && !options.some(option => option.value === requested))) {
+    const key = JSON.stringify([chatStore.activeSessionId, props.draft, props.managedReasoningEffort,
+      reasoningSession.value?.profile, reasoningSession.value?.provider, reasoningSession.value?.model, requested, fallback])
+    if (lastAutomaticEffortWrite === key) return
+    lastAutomaticEffortWrite = key
     onReasoningEffortChange(fallback)
   }
 }, { immediate: true })

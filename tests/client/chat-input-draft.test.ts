@@ -10,6 +10,7 @@ import ChatInput from '@/components/hermes/chat/ChatInput.vue'
 
 enableAutoUnmount(afterEach)
 
+const persistReasoningEffortMock = vi.hoisted(() => vi.fn())
 const fetchSkillsMock = vi.hoisted(() => vi.fn())
 const fetchSkillBundlesMock = vi.hoisted(() => vi.fn())
 const deleteSkillBundleApiMock = vi.hoisted(() => vi.fn())
@@ -52,7 +53,7 @@ vi.mock('naive-ui', () => ({
 
 vi.mock('@/api/studio/sessions', () => ({
   fetchContextLength: vi.fn().mockResolvedValue(256000),
-  setSessionReasoningEffort: vi.fn().mockResolvedValue(true),
+  setSessionReasoningEffort: persistReasoningEffortMock,
 }))
 
 vi.mock('@/api/hermes/model-context', () => ({
@@ -110,6 +111,7 @@ function mountForSession(
 describe('ChatInput draft persistence', () => {
   beforeEach(() => {
     localStorage.clear()
+    persistReasoningEffortMock.mockReset().mockResolvedValue(true)
     window.innerWidth = 1024
     fetchSkillsMock.mockReset()
     fetchSkillsMock.mockResolvedValue({ categories: [], archived: [] })
@@ -665,6 +667,26 @@ describe('ChatInput draft persistence', () => {
     await nextTick()
 
     expect(wrapper.find('.n-popover-stub').exists()).toBe(false)
+  })
+
+  it('does not retry a rejected automatic effort write and still allows explicit changes', async () => {
+    persistReasoningEffortMock.mockResolvedValue(false)
+    const wrapper = mountForSession('failed-default-effort')
+    await flushPromises()
+    expect(persistReasoningEffortMock).toHaveBeenCalledTimes(1)
+    expect(persistReasoningEffortMock).toHaveBeenCalledWith('failed-default-effort', 'low')
+    expect(useChatStore().activeSession?.reasoningEffort).toBeUndefined()
+    useAppStore().modelGroups = []
+    await flushPromises()
+    expect(persistReasoningEffortMock).toHaveBeenCalledTimes(1)
+    await wrapper.get('.n-slider-stub').setValue('2')
+    await flushPromises()
+    expect(persistReasoningEffortMock).toHaveBeenCalledTimes(2)
+    expect(persistReasoningEffortMock).toHaveBeenLastCalledWith('failed-default-effort', 'high')
+    useChatStore().activeSession!.model = 'another-model'
+    await flushPromises()
+    expect(persistReasoningEffortMock).toHaveBeenCalledTimes(3)
+    expect(persistReasoningEffortMock).toHaveBeenLastCalledWith('failed-default-effort', 'low')
   })
 
   it('stores maximum reasoning effort for the active session', async () => {
