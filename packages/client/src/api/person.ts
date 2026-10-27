@@ -11,7 +11,8 @@ export interface PersonQuestion { id: string; task_id: string | null; question: 
 export interface PersonTaskReturn { taskId: string; executionId: string; assistantMessageId: string; title: string; summary: string; agent: string; state: 'finished' | 'failed' }
 export interface PersonSnapshot {
   session: SessionSummary
-  settings: { model: PersonModel | null; reasoningEffort: string; timezone: string; agents: PersonAgentPreset[] }; revision: number; busy: boolean
+  settings: { model: PersonModel | null; reasoningEffort: string; timezone: string; agents: PersonAgentPreset[]; workspace: string }; revision: number; busy: boolean
+  history_revision: number; can_clear: boolean
   inherits_global_model: boolean; reasoning_efforts: string[]
   tasks: PersonTask[]; schedules: PersonSchedule[]; memories: PersonMemory[]; interactions: PersonQuestion[]
 }

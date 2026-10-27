@@ -4,16 +4,30 @@ import { personSettings, savePersonSettings, personMemories,
   listPersonTasks, listPersonSchedules, personInteractions } from '../../repositories/person-store'
 import { effectivePersonSettings, personModelSelection, personUser, validatePersonSelection, PERSON_REASONING_EFFORTS } from './catalog'
 import { validatePersonAgents } from './agents'
+import { isAbsolute, join } from 'node:path'
+import { getWebUiHome } from '../../public/config'
+import { ensureDirectory, normalizeDirectoryTarget } from '../workspace/directory'
+import { personHasPendingWork } from '../../repositories/person-history-store'
 
 export async function personSnapshot(userId: number) {
   personUser(userId)
-  return { ...await ensurePersonSession(userId), tasks: listPersonTasks(userId), memories: personMemories(userId),
-    schedules: listPersonSchedules(userId), interactions: personInteractions(userId), busy: personChatBusy(userId) }
+  const session = await ensurePersonSession(userId)
+  const busy = personChatBusy(userId)
+  return { ...session, tasks: listPersonTasks(userId), memories: personMemories(userId),
+    schedules: listPersonSchedules(userId), interactions: personInteractions(userId), busy,
+    history_revision: session.session.history_revision, can_clear: !busy && !personHasPendingWork(userId) }
 }
 export async function configurePerson(userId: number, input: Record<string, unknown>) {
   if (personChatBusy(userId)) throw personError('Wait for the current reply before changing settings', 409)
   const old = personSettings(userId)
   const settings = { ...old.settings }
+  if (input.workspace !== undefined) {
+    if (personHasPendingWork(userId)) throw personError('Wait for Person tasks and result delivery before changing workspace', 409)
+    if (typeof input.workspace !== 'string' || input.workspace.length > 4000) throw personError('Invalid workspace')
+    settings.workspace = normalizeDirectoryTarget(input.workspace.trim())
+    if (settings.workspace && !isAbsolute(settings.workspace)) throw personError('Workspace must be an absolute path')
+    if (settings.workspace) await ensureDirectory(settings.workspace)
+  }
   if (input.model && typeof input.model === 'object' && !Array.isArray(input.model)) {
     settings.model = await personModelSelection(userId, input.model as Record<string, unknown>)
     await validatePersonSelection(userId, settings.model)
@@ -35,7 +49,10 @@ export async function configurePerson(userId: number, input: Record<string, unkn
       settings[key] = Number(value)
     }
   }
-  return effectivePersonSettings(userId, savePersonSettings(userId, settings, personRevision(input.expected_revision)))
+  if (personChatBusy(userId)) throw personError('Wait for the current reply before changing settings', 409)
+  if (input.workspace !== undefined && personHasPendingWork(userId)) throw personError('Wait for Person tasks and result delivery before changing workspace', 409)
+  const workspace = input.workspace !== undefined ? settings.workspace || join(getWebUiHome(), 'person', String(userId), 'workspace') : undefined
+  return effectivePersonSettings(userId, savePersonSettings(userId, settings, personRevision(input.expected_revision), workspace))
 }
 // Service facade for the thin HTTP controller.
 export { withPersonTaskReturns } from '../../repositories/person-return-store'

@@ -11,6 +11,8 @@ import { personRunSignal, releasePersonRun } from './tasks'
 import { tickPersonSchedules } from './schedules'
 import { deliverPersonResults, readyPersonDelivery } from './delivery'
 import { logger } from '../../public/logging'
+import { personWorkspace } from './workspace'
+import { ensureDirectory } from '../workspace/directory'
 
 const active = new Map<string, { run: PersonExecution; abort: AbortController }>()
 const busyTasks = new Set<string>()
@@ -96,10 +98,15 @@ async function execute(run: PersonExecution, abort: AbortController) {
     const selection = JSON.parse(run.selection_json)
     await validatePersonSelection(userId, selection)
     const task = getPersonTask(userId, run.task_id)
+    const workspace = personWorkspace(userId)
+    await ensureDirectory(workspace)
+    current(run)
+    personDb().prepare('UPDATE session_tasks SET workspace=? WHERE id=?').run(workspace, task.id)
+    personDb().prepare('UPDATE sessions SET workspace=? WHERE id=? AND CAST(studio_user_id AS TEXT)=?').run(workspace, run.session_id, String(userId))
     const decisions = personDb().prepare("SELECT question,answer,answered_by FROM person_interactions WHERE task_id=? AND state='answered' ORDER BY created_at DESC LIMIT 10").all(task.id)
     const prompt = run.input_json ? JSON.parse(run.input_json) : JSON.stringify({ title: task.title, requirements: JSON.parse(task.requirements_json), decisions })
     current(run)
-    const result = await personRuntime().execute({ user: personUser(userId), selection, sessionId: run.session_id, workspace: task.workspace, prompt, displayInput: run.input_json ? undefined : String(JSON.parse(task.requirements_json).goal || task.summary), signal: abort.signal,
+    const result = await personRuntime().execute({ user: personUser(userId), selection, sessionId: run.session_id, workspace, prompt, displayInput: run.input_json ? undefined : String(JSON.parse(task.requirements_json).goal || task.summary), signal: abort.signal,
       onEvent: (kind, payload) => {
         try {
           current(run)

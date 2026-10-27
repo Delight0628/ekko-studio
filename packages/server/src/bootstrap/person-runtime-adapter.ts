@@ -46,6 +46,8 @@ configurePersonRuntime({
     try {
       if (input.signal.aborted) throw new Error('Cancelled')
       const s = input.selection
+      const existing = codingAgentRunManager.getRunInfo(input.sessionId)
+      if (existing && existing.workspaceDir !== input.workspace) codingAgentRunManager.stop(input.sessionId, { reportClosed: false })
       return await server.runAndWait({ session_id: input.sessionId, input: input.prompt, display_input: input.displayInput, profile: s.profile, workspace: input.workspace || undefined,
         provider: s.provider || undefined, model: s.model, apiMode: s.apiMode, mode: s.mode, reasoning_effort: s.reasoningEffort,
         source: s.runtime === 'hermes' ? 'api_server' : s.runtime === 'ekko' ? 'builtin_agent' : 'coding_agent',

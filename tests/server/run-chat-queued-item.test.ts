@@ -1054,6 +1054,20 @@ describe('ChatRunSocket queued bridge runs', () => {
       queueLength: 0,
     }))
   })
+  it('clears cached Person history after its transaction without deleting it twice or notifying other accounts', async () => {
+    const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
+    const { io, namespace } = makeServerHarness()
+    const server = new ChatRunSocket(io as any)
+    const id = 'person-main-1'
+    ;(server as any).sessionMap.set(id, { messages: [{ id: 1, role: 'user', content: 'Old private message' }], isWorking: false, events: [], queue: [] })
+    const result = server.clearSessionHistory(id, { historyAlreadyCleared: true })
+    expect(result).toEqual({ deleted: 0, hadMemoryState: true })
+    expect(sessionStoreMocks.clearSessionMessages).not.toHaveBeenCalled()
+    expect((server as any).sessionMap.has(id)).toBe(false)
+    expect(namespace.to).not.toHaveBeenCalledWith(expect.arrayContaining(['studio-account']))
+    expect(namespace.to(`session:${id}`).emit).toHaveBeenCalledWith('resumed', expect.objectContaining({ session_id: id, messages: [], isWorking: false }))
+  })
+
   it('aborts the underlying runner when runAndWait reaches its timeout', async () => {
     vi.useFakeTimers()
     handleBridgeRunMock.mockImplementationOnce(async () => new Promise(() => {}))

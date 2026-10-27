@@ -73,7 +73,12 @@ export const personMessages = {
     "defaultEffort": "Model default",
     "addAgent": "Add agent",
     "agentsHint": "Preset the agents Person can use, their models, reasoning effort and purpose. Tasks run in the background and return to this conversation. Changes apply to new tasks.",
-    "defaultAgentHint": "With no presets, tasks use Ekko with the current Person provider, model and reasoning effort."
+    "defaultAgentHint": "With no presets, tasks use Ekko with the current Person provider, model and reasoning effort.",
+    "clearHistoryTasks": "Clear chat history and tasks",
+    "clearHistoryTasksConfirm": "Clear Person chat history, tasks and their schedules? Memories, settings and workspace files will be kept.",
+    "clearHistoryTasksBusy": "Wait for replies and tasks to finish before clearing.",
+    "cleared": "Chat history and tasks cleared.",
+    "workspaceHint": "All background tasks use this workspace. Workspace changes apply to subsequent runs of existing tasks too."
   },
   "zh": {
     "subtitle": "你的账号助理",
@@ -149,7 +154,12 @@ export const personMessages = {
     "defaultEffort": "模型默认",
     "addAgent": "添加 Agent",
     "agentsHint": "预设 Person 可调用的 Agent、模型、思考强度及用途。任务均在后台执行，结果回归当前对话。修改对新任务生效。",
-    "defaultAgentHint": "未添加预设时，使用 Ekko，并继承当前 Person 的 provider、model 和思考强度。"
+    "defaultAgentHint": "未添加预设时，使用 Ekko，并继承当前 Person 的 provider、model 和思考强度。",
+    "clearHistoryTasks": "清空聊天记录和任务",
+    "clearHistoryTasksConfirm": "清空 Person 的聊天记录、任务及关联定时计划？记忆、设置和工作区文件会保留。",
+    "clearHistoryTasksBusy": "请等待回复和任务结束后再清空。",
+    "cleared": "已清空聊天记录和任务。",
+    "workspaceHint": "所有后台子任务统一使用此工作区，已有任务再次执行时也使用此目录。"
   },
   "zh-TW": {
     "subtitle": "你的帳號助理",
@@ -225,7 +235,12 @@ export const personMessages = {
     "defaultEffort": "模型預設",
     "addAgent": "新增 Agent",
     "agentsHint": "預設 Person 可呼叫的 Agent、模型、思考強度及用途。任務皆在背景執行，結果回到目前對話。修改對新任務生效。",
-    "defaultAgentHint": "未新增預設時，使用 Ekko，並繼承目前 Person 的 provider、model 和思考強度。"
+    "defaultAgentHint": "未新增預設時，使用 Ekko，並繼承目前 Person 的 provider、model 和思考強度。",
+    "clearHistoryTasks": "清空聊天記錄和任務",
+    "clearHistoryTasksConfirm": "清空 Person 的聊天記錄、任務及相關排程？記憶、設定和工作區檔案會保留。",
+    "clearHistoryTasksBusy": "請等待回覆和任務結束後再清空。",
+    "cleared": "已清空聊天記錄和任務。",
+    "workspaceHint": "所有背景子任務統一使用此工作區，既有任務再次執行時也使用此目錄。"
   },
   "ja": {
     "subtitle": "アカウントのアシスタント",
@@ -301,7 +316,12 @@ export const personMessages = {
     "defaultEffort": "モデルの既定値",
     "addAgent": "エージェントを追加",
     "agentsHint": "Person が使うエージェント、モデル、推論強度、用途を設定します。タスクはバックグラウンドで実行され、結果はこの会話に戻ります。変更は新しいタスクに適用されます。",
-    "defaultAgentHint": "プリセットがない場合、Ekko が現在の Person のプロバイダー、モデル、推論強度を使用します。"
+    "defaultAgentHint": "プリセットがない場合、Ekko が現在の Person のプロバイダー、モデル、推論強度を使用します。",
+    "clearHistoryTasks": "チャット履歴とタスクを消去",
+    "clearHistoryTasksConfirm": "Person のチャット履歴、タスク、関連スケジュールを消去しますか？メモリ、設定、作業フォルダーのファイルは保持されます。",
+    "clearHistoryTasksBusy": "返信とタスクが完了してから消去してください。",
+    "cleared": "チャット履歴とタスクを消去しました。",
+    "workspaceHint": "すべてのバックグラウンドタスクはこの作業フォルダーを使います。既存のタスクも次回実行時にこのフォルダーを使います。"
   },
   "ko": {
     "subtitle": "계정 도우미",
@@ -377,7 +397,12 @@ export const personMessages = {
     "defaultEffort": "모델 기본값",
     "addAgent": "에이전트 추가",
     "agentsHint": "Person이 사용할 에이전트, 모델, 추론 강도와 용도를 설정하세요. 작업은 백그라운드에서 실행되고 결과는 이 대화로 돌아옵니다. 변경 사항은 새 작업에 적용됩니다.",
-    "defaultAgentHint": "프리셋이 없으면 Ekko가 현재 Person의 공급자, 모델 및 추론 강도를 사용합니다."
+    "defaultAgentHint": "프리셋이 없으면 Ekko가 현재 Person의 공급자, 모델 및 추론 강도를 사용합니다.",
+    "clearHistoryTasks": "채팅 기록 및 작업 지우기",
+    "clearHistoryTasksConfirm": "Person의 채팅 기록, 작업 및 관련 일정을 지울까요? 메모리, 설정 및 작업 공간 파일은 유지됩니다.",
+    "clearHistoryTasksBusy": "응답과 작업이 끝난 후 지워 주세요.",
+    "cleared": "채팅 기록과 작업을 지웠습니다.",
+    "workspaceHint": "모든 백그라운드 작업은 이 작업 공간을 사용합니다. 기존 작업도 다음 실행부터 이 폴더를 사용합니다."
   },
   "fr": {
     "subtitle": "Votre assistant de compte",
@@ -453,7 +478,12 @@ export const personMessages = {
     "defaultEffort": "Valeur du modèle",
     "addAgent": "Ajouter un agent",
     "agentsHint": "Configurez les agents, modèles, niveaux de raisonnement et usages de Person. Les tâches s’exécutent en arrière-plan et reviennent dans cette conversation. Les modifications concernent les nouvelles tâches.",
-    "defaultAgentHint": "Sans préréglage, Ekko utilise le fournisseur, le modèle et le niveau de raisonnement actuels de Person."
+    "defaultAgentHint": "Sans préréglage, Ekko utilise le fournisseur, le modèle et le niveau de raisonnement actuels de Person.",
+    "clearHistoryTasks": "Effacer la conversation et les tâches",
+    "clearHistoryTasksConfirm": "Effacer la conversation Person, les tâches et leurs planifications ? Les souvenirs, réglages et fichiers de travail seront conservés.",
+    "clearHistoryTasksBusy": "Attendez la fin des réponses et des tâches avant d’effacer.",
+    "cleared": "Conversation et tâches effacées.",
+    "workspaceHint": "Toutes les tâches en arrière-plan utilisent cet espace de travail, y compris les prochaines exécutions des tâches existantes."
   },
   "es": {
     "subtitle": "Tu asistente de cuenta",
@@ -529,7 +559,12 @@ export const personMessages = {
     "defaultEffort": "Valor del modelo",
     "addAgent": "Añadir agente",
     "agentsHint": "Configura los agentes, modelos, esfuerzo de razonamiento y propósito que Person puede usar. Las tareas se ejecutan en segundo plano y regresan a esta conversación. Los cambios se aplican a tareas nuevas.",
-    "defaultAgentHint": "Sin ajustes predefinidos, Ekko usa el proveedor, modelo y esfuerzo de razonamiento actuales de Person."
+    "defaultAgentHint": "Sin ajustes predefinidos, Ekko usa el proveedor, modelo y esfuerzo de razonamiento actuales de Person.",
+    "clearHistoryTasks": "Borrar historial y tareas",
+    "clearHistoryTasksConfirm": "¿Borrar el historial de Person, las tareas y sus programaciones? Se conservarán los recuerdos, ajustes y archivos del espacio de trabajo.",
+    "clearHistoryTasksBusy": "Espera a que terminen las respuestas y tareas antes de borrar.",
+    "cleared": "Historial y tareas borrados.",
+    "workspaceHint": "Todas las tareas en segundo plano usan este espacio de trabajo, incluidas las próximas ejecuciones de tareas existentes."
   },
   "de": {
     "subtitle": "Dein Kontoassistent",
@@ -605,7 +640,12 @@ export const personMessages = {
     "defaultEffort": "Modellstandard",
     "addAgent": "Agent hinzufügen",
     "agentsHint": "Lege Agents, Modelle, Denkintensität und Zweck für Person fest. Aufgaben laufen im Hintergrund und melden Ergebnisse in diesem Gespräch. Änderungen gelten für neue Aufgaben.",
-    "defaultAgentHint": "Ohne Voreinstellungen nutzt Ekko den aktuellen Anbieter, das Modell und die Denkintensität von Person."
+    "defaultAgentHint": "Ohne Voreinstellungen nutzt Ekko den aktuellen Anbieter, das Modell und die Denkintensität von Person.",
+    "clearHistoryTasks": "Chatverlauf und Aufgaben löschen",
+    "clearHistoryTasksConfirm": "Person-Chatverlauf, Aufgaben und zugehörige Zeitpläne löschen? Erinnerungen, Einstellungen und Arbeitsbereichsdateien bleiben erhalten.",
+    "clearHistoryTasksBusy": "Warten Sie, bis Antworten und Aufgaben abgeschlossen sind.",
+    "cleared": "Chatverlauf und Aufgaben gelöscht.",
+    "workspaceHint": "Alle Hintergrundaufgaben verwenden diesen Arbeitsbereich, auch bestehende Aufgaben bei ihrer nächsten Ausführung."
   },
   "pt": {
     "subtitle": "Seu assistente de conta",
@@ -681,7 +721,12 @@ export const personMessages = {
     "defaultEffort": "Padrão do modelo",
     "addAgent": "Adicionar agente",
     "agentsHint": "Configure os agentes, modelos, esforço de raciocínio e finalidade que Person pode usar. As tarefas executam em segundo plano e retornam a esta conversa. As alterações valem para novas tarefas.",
-    "defaultAgentHint": "Sem predefinições, Ekko usa o provedor, modelo e esforço de raciocínio atuais de Person."
+    "defaultAgentHint": "Sem predefinições, Ekko usa o provedor, modelo e esforço de raciocínio atuais de Person.",
+    "clearHistoryTasks": "Limpar histórico e tarefas",
+    "clearHistoryTasksConfirm": "Limpar o histórico do Person, as tarefas e seus agendamentos? As memórias, configurações e arquivos do espaço de trabalho serão mantidos.",
+    "clearHistoryTasksBusy": "Aguarde a conclusão das respostas e tarefas antes de limpar.",
+    "cleared": "Histórico e tarefas limpos.",
+    "workspaceHint": "Todas as tarefas em segundo plano usam este espaço de trabalho, inclusive as próximas execuções das tarefas existentes."
   },
   "ru": {
     "subtitle": "Помощник вашей учётной записи",
@@ -757,7 +802,12 @@ export const personMessages = {
     "defaultEffort": "По умолчанию",
     "addAgent": "Добавить агента",
     "agentsHint": "Настройте агентов, модели, интенсивность рассуждений и назначение для Person. Задачи выполняются в фоне, а результаты возвращаются в этот диалог. Изменения действуют для новых задач.",
-    "defaultAgentHint": "Без настроек Ekko использует текущего провайдера, модель и интенсивность рассуждений Person."
+    "defaultAgentHint": "Без настроек Ekko использует текущего провайдера, модель и интенсивность рассуждений Person.",
+    "clearHistoryTasks": "Очистить историю и задачи",
+    "clearHistoryTasksConfirm": "Очистить историю Person, задачи и их расписания? Память, настройки и файлы рабочей области сохранятся.",
+    "clearHistoryTasksBusy": "Дождитесь завершения ответов и задач перед очисткой.",
+    "cleared": "История и задачи очищены.",
+    "workspaceHint": "Все фоновые задачи используют эту рабочую область, включая последующие запуски существующих задач."
   },
   "ar": {
     "subtitle": "مساعد حسابك",
@@ -833,7 +883,12 @@ export const personMessages = {
     "defaultEffort": "افتراضي النموذج",
     "addAgent": "إضافة وكيل",
     "agentsHint": "اضبط الوكلاء والنماذج ومستوى التفكير والغرض المتاح لـ Person. تعمل المهام في الخلفية وتعود نتائجها إلى هذه المحادثة. تسري التغييرات على المهام الجديدة.",
-    "defaultAgentHint": "بدون إعدادات مسبقة، يستخدم Ekko موفر Person الحالي ونموذجه ومستوى تفكيره."
+    "defaultAgentHint": "بدون إعدادات مسبقة، يستخدم Ekko موفر Person الحالي ونموذجه ومستوى تفكيره.",
+    "clearHistoryTasks": "مسح سجل المحادثة والمهام",
+    "clearHistoryTasksConfirm": "هل تريد مسح سجل محادثة Person والمهام وجداولها؟ ستُحفظ الذاكرة والإعدادات وملفات مساحة العمل.",
+    "clearHistoryTasksBusy": "انتظر اكتمال الردود والمهام قبل المسح.",
+    "cleared": "تم مسح سجل المحادثة والمهام.",
+    "workspaceHint": "تستخدم جميع المهام الخلفية مساحة العمل هذه، بما في ذلك عمليات التشغيل اللاحقة للمهام الحالية."
   },
   "tr": {
     "subtitle": "Hesap asistanınız",
@@ -909,6 +964,11 @@ export const personMessages = {
     "defaultEffort": "Model varsayılanı",
     "addAgent": "Ajan ekle",
     "agentsHint": "Person için ajanları, modelleri, düşünme düzeyini ve amaçlarını belirleyin. Görevler arka planda çalışır ve sonuçları bu konuşmaya döner. Değişiklikler yeni görevlere uygulanır.",
-    "defaultAgentHint": "Ön ayar yoksa Ekko, Person’ın geçerli sağlayıcısını, modelini ve düşünme düzeyini kullanır."
+    "defaultAgentHint": "Ön ayar yoksa Ekko, Person’ın geçerli sağlayıcısını, modelini ve düşünme düzeyini kullanır.",
+    "clearHistoryTasks": "Sohbet geçmişini ve görevleri temizle",
+    "clearHistoryTasksConfirm": "Person sohbet geçmişi, görevler ve ilgili zamanlamalar temizlensin mi? Bellek, ayarlar ve çalışma alanı dosyaları korunur.",
+    "clearHistoryTasksBusy": "Temizlemeden önce yanıtların ve görevlerin bitmesini bekleyin.",
+    "cleared": "Sohbet geçmişi ve görevler temizlendi.",
+    "workspaceHint": "Mevcut görevlerin sonraki çalıştırmaları dahil tüm arka plan görevleri bu çalışma alanını kullanır."
   }
 }

@@ -9,8 +9,8 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true) {
   const image = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#345678' } }).png().toBuffer()
   await page.route('**/api/theme/background?*', route => route.fulfill({ contentType: 'image/png', body: image }))
   const globalModel = { model: 'global-model', provider: 'provider', profile: 'default' }
-  const state: any = { settings: { model: globalModel, reasoningEffort: '', timezone: 'UTC', agents: [] }, inherits_global_model: true, reasoning_efforts: ['none', 'low', 'high'], revision: 0, busy: false, tasks: [{ id: 'task1', title: 'Check report', summary: 'Verify a report', status: 'open', revision: 0, execution_state: 'running', running: true }], schedules: [], memories: [], interactions: [] }
-  state.session = { id: 'person-main-1', source: 'builtin_agent', agent: 'ekko-agent', agent_preset: 'person', agent_mode: 'scoped', profile: 'default', title: 'Person', model: 'global-model', provider: 'provider', started_at: 1, ended_at: null, message_count: 0, tool_call_count: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, billing_provider: null, estimated_cost_usd: 0, actual_cost_usd: null, cost_status: '' }
+  const state: any = { settings: { model: globalModel, reasoningEffort: '', timezone: 'UTC', agents: [], workspace: '' }, history_revision: 0, can_clear: false, inherits_global_model: true, reasoning_efforts: ['none', 'low', 'high'], revision: 0, busy: false, tasks: [{ id: 'task1', title: 'Check report', summary: 'Verify a report', status: 'open', revision: 0, execution_state: 'running', running: true }], schedules: [], memories: [], interactions: [] }
+  state.session = { id: 'person-main-1', source: 'builtin_agent', agent: 'ekko-agent', agent_preset: 'person', agent_mode: 'scoped', profile: 'default', title: 'Person', workspace: '/tmp/person/default', model: 'global-model', provider: 'provider', started_at: 1, ended_at: null, message_count: 0, tool_call_count: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, billing_provider: null, estimated_cost_usd: 0, actual_cost_usd: null, cost_status: '' }
   await page.addInitScript(() => { (window as any).__PW_CHAT_SOCKET_RESUMES__ = { 'person-main-1': { session_id: 'person-main-1', messages: [], isWorking: false, events: [] } } })
   const operations: any[] = []
   await page.route('**/api/studio/person**', async route => {
@@ -20,6 +20,7 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true) {
     if (path.endsWith('/models') || path.endsWith('/agent-models')) return route.fulfill({ json: { groups: [{ provider: 'provider', profile: 'default', label: 'My provider', models: ['global-model', 'fast-model'], model_meta: { 'global-model': { reasoning_efforts: ['none', 'low', 'high'] }, 'fast-model': { reasoning: false } } }] } })
     if (path.endsWith('/settings')) {
       if (body.expected_revision !== state.revision) return route.fulfill({ status: 409, json: { error: 'Settings changed' } })
+      if (body.workspace !== undefined) { state.settings.workspace = body.workspace; state.session.workspace = body.workspace || '/tmp/person/default' }
       if (body.agents) state.settings.agents = body.agents
       if (body.model) { state.settings.model = body.model; state.inherits_global_model = false; state.reasoning_efforts = []; state.settings.reasoningEffort = '' }
       if (body.reasoning_effort !== undefined) state.settings.reasoningEffort = body.reasoning_effort
@@ -27,12 +28,22 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true) {
       state.revision++
       return route.fulfill({ json: { settings: state.settings, revision: state.revision, inherits_global_model: state.inherits_global_model, reasoning_efforts: state.reasoning_efforts } })
     }
+    if (path.endsWith('/clear')) {
+      if (body.expected_history_revision !== state.history_revision || state.busy || state.tasks.some((task: any) => task.running)) return route.fulfill({ status: 409, json: { error: 'Wait for Person tasks and result delivery to finish' } })
+      state.tasks = []; state.schedules = []; state.interactions = []; state.history_revision++
+      await page.evaluate(() => {
+        (window as any).__PW_CHAT_SOCKET_RESUMES__['person-main-1'].messages = []
+        ;(window as any).__PW_CHAT_SOCKET__.broadcast('session.command', { event: 'session.command', session_id: 'person-main-1', command: 'clear', action: 'clear', ok: true, clearHistory: true })
+      })
+      return route.fulfill({ json: { cleared: true } })
+    }
     if (path.endsWith('/tasks/task1/chat')) {
       if (req.method() === 'POST') { state.tasks[0].running = true; state.tasks[0].status = 'open'; state.tasks[0].revision++ }
       return route.fulfill({ json: { task: state.tasks[0], session: { ...state.session, id: 'person-task-task1', title: state.tasks[0].title } } })
     }
     if (path.endsWith('/tasks/apply')) { state.tasks[0].status = body.action === 'close' ? 'closed' : 'open'; state.tasks[0].revision++; return route.fulfill({ json: {} }) }
     if (path.endsWith('/memory')) { state.memories = [{ id: 'm1', revision: 0, content: body.content }]; return route.fulfill({ json: {} }) }
+    state.can_clear = !state.busy && !state.tasks.some((task: any) => task.running)
     state.session.model = state.settings.model?.model || ''; state.session.provider = state.settings.model?.provider || ''; state.session.reasoning_effort = state.settings.reasoningEffort
     return route.fulfill({ json: state })
   })
@@ -444,4 +455,85 @@ test('Person releases shared loading and displays its initial request error', as
   await expect(page.locator('.person-view > .page-loading-overlay')).toHaveCount(0)
   await expect(page.locator('.person-alert')).toContainText('Person temporarily unavailable')
   await expect(page.getByRole('button', { name: 'Tasks', exact: true })).toBeVisible()
+})
+
+for (const mode of ['light', 'dark'] as const) {
+  test(`Person selects the shared workspace and clears history and tasks with a broom in ${mode}`, async ({ page }) => {
+    if (mode === 'dark') await page.setViewportSize({ width: 360, height: 780 })
+    const { state, operations } = await setup(page, mode, mode === 'dark')
+    state.tasks[0].running = false
+    state.memories = [{ id: 'kept-memory', revision: 0, content: 'Keep my preference' }]
+    await page.addInitScript(() => {
+      (window as any).__PW_CHAT_SOCKET_RESUMES__['person-main-1'].messages = [{ id: 1, role: 'assistant', content: 'Old Person conversation', timestamp: 1 }]
+    })
+    await page.goto('/#/person')
+    await expect(page.getByText('Old Person conversation', { exact: true })).toBeVisible()
+    const workspace = page.getByRole('button', { name: 'Workspace', exact: true })
+    const broom = page.getByRole('button', { name: 'Clear chat history and tasks', exact: true })
+    await expect(workspace).toBeEnabled()
+    await expect(broom).toBeEnabled()
+    expect((await broom.textContent())?.trim()).toBe('')
+    await workspace.click()
+    const picker = page.locator('.n-modal:visible')
+    await expect(picker.getByText('All background tasks use this workspace.', { exact: false })).toBeVisible()
+    await picker.locator('.folder-path-input input').fill('/workspace/person-shared')
+    await picker.getByRole('button', { name: 'OK', exact: true }).click()
+    await expect(picker).toHaveCount(0)
+    expect(operations.filter(op => op.path.endsWith('/settings')).at(-1).body.workspace).toBe('/workspace/person-shared')
+    await page.reload()
+    await expect(page.getByText('Old Person conversation', { exact: true })).toBeVisible()
+    await workspace.click()
+    await expect(picker.locator('.folder-path-input input')).toHaveValue('/workspace/person-shared')
+    await picker.screenshot({ path: `/tmp/person-workspace-picker-${mode}.png` })
+    await picker.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await broom.click()
+    await expect(page.getByText('Clear Person chat history, tasks and their schedules?', { exact: false })).toBeVisible()
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    expect(operations.filter(op => op.path.endsWith('/clear'))).toHaveLength(0)
+    await expect(page.getByText('Old Person conversation', { exact: true })).toBeVisible()
+    await broom.click()
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click()
+    await expect(page.getByText('Old Person conversation', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('Chat history and tasks cleared.', { exact: true })).toBeVisible()
+    expect(operations.filter(op => op.path.endsWith('/clear'))).toEqual([expect.objectContaining({ body: { expected_history_revision: 0 } })])
+    expect(state.tasks).toEqual([])
+    expect(state.memories).toHaveLength(1)
+    expect(state.settings.workspace).toBe('/workspace/person-shared')
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+    await expect(page.locator('.session-tasks-drawer .task-row')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.session-tasks-drawer:visible')).toHaveCount(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    const bounds = await broom.boundingBox()
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+    await page.screenshot({ path: `/tmp/person-header-controls-${mode}.png`, animations: 'disabled' })
+  })
+}
+
+test('Person disables workspace and broom controls while tasks or main replies are running', async ({ page }) => {
+  const { state, operations } = await setup(page, 'light', false)
+  await page.goto('/#/person')
+  const workspace = page.getByRole('button', { name: 'Workspace', exact: true })
+  const broom = page.getByRole('button', { name: 'Clear chat history and tasks', exact: true })
+  await expect(workspace).toBeDisabled(); await expect(broom).toBeDisabled()
+  state.tasks[0].running = false
+  await emit(page, 'person.updated', {})
+  await expect(workspace).toBeEnabled(); await expect(broom).toBeEnabled()
+  await emit(page, 'run.started', {})
+  await expect(workspace).toBeDisabled(); await expect(broom).toBeDisabled()
+  expect(operations.filter(op => op.path.endsWith('/clear'))).toHaveLength(0)
+})
+
+test('Person preserves records when work starts after opening the clear confirmation', async ({ page }) => {
+  const { state, operations } = await setup(page, 'light', false)
+  state.tasks[0].running = false
+  await page.addInitScript(() => { (window as any).__PW_CHAT_SOCKET_RESUMES__['person-main-1'].messages = [{ id: 1, role: 'user', content: 'Keep the old conversation', timestamp: 1 }] })
+  await page.goto('/#/person')
+  await page.getByRole('button', { name: 'Clear chat history and tasks', exact: true }).click()
+  state.tasks[0].running = true
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click()
+  await expect(page.locator('.person-alert')).toContainText('Wait for Person tasks')
+  await expect(page.getByText('Keep the old conversation', { exact: true })).toBeVisible()
+  expect(state.tasks).toHaveLength(1)
+  expect(operations.filter(op => op.path.endsWith('/clear'))).toHaveLength(1)
 })

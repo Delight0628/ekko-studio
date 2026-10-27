@@ -40,11 +40,18 @@ export function personSettings(userId: number): { settings: PersonSettings; revi
   const row = personDb().prepare('SELECT * FROM person_accounts WHERE user_id=?').get(userId) as { settings_json: string; revision: number } | undefined
   return { settings: row ? { ...PERSON_DEFAULTS, ...JSON.parse(row.settings_json) } : { ...PERSON_DEFAULTS }, revision: row?.revision || 0 }
 }
-export function savePersonSettings(userId: number, settings: PersonSettings, revision: number) {
+export function savePersonSettings(userId: number, settings: PersonSettings, revision: number, workspace?: string) {
   return personTransaction(() => {
     if (personSettings(userId).revision !== revision) throw personError('Settings changed; reload and retry', 409)
     personDb().prepare('INSERT INTO person_accounts VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET settings_json=excluded.settings_json,revision=excluded.revision')
       .run(userId, JSON.stringify(settings), revision + 1)
+    if (workspace) {
+      personDb().prepare('UPDATE session_tasks SET workspace=? WHERE owner_user_id=? AND bot_id=?').run(workspace, userId, `person:${userId}`)
+      personDb().prepare(`UPDATE sessions SET workspace=? WHERE CAST(studio_user_id AS TEXT)=? AND
+        (id=? OR id IN (SELECT 'person-task-' || id FROM session_tasks WHERE owner_user_id=? AND bot_id=?))`)
+        .run(workspace, String(userId), personSessionId(userId), userId, `person:${userId}`)
+    }
+    personUpdated(userId)
     return personSettings(userId)
   })
 }

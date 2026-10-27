@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, computed, watch, provide } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NButton, NInput, NSelect, NAlert, NTabs, NTabPane, NDrawer, NDrawerContent, NTooltip } from 'naive-ui'
+import { NButton, NInput, NSelect, NAlert, NTabs, NTabPane, NDrawer, NDrawerContent, NTooltip, NModal, NPopconfirm, useMessage } from 'naive-ui'
 import PageLoading from '@/components/common/PageLoading.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import ChatInput from '@/components/hermes/chat/ChatInput.vue'
@@ -13,12 +13,17 @@ import PersonAgentSettings from '@/components/hermes/person/PersonAgentSettings.
 import { onPersonUpdated } from '@/api/studio/chat'
 import ModelCascader from '@/components/hermes/models/ModelCascader.vue'
 import SessionTaskIcon from '@/components/common/SessionTaskIcon.vue'
+import FolderIcon from '@/components/common/FolderIcon.vue'
+import BroomIcon from '@/components/common/BroomIcon.vue'
+import FolderPicker from '@/components/hermes/chat/FolderPicker.vue'
+import { useDefaultWorkspace } from '@/composables/useDefaultWorkspace'
 import { useChatStore } from '@/stores/hermes/chat'
 import { useSettingsStore } from '@/stores/hermes/settings'
 import type { AvailableModelGroup } from '@/api/hermes/system'
 import { personRequest, type PersonSnapshot, type PersonModelGroup, type PersonTask, type PersonSchedule, type PersonMemory } from '@/api/person'
 
 const { t } = useI18n()
+const message = useMessage()
 const settingsStore = useSettingsStore()
 const chatStore = useChatStore()
 const data = ref<PersonSnapshot | null>(null)
@@ -28,6 +33,11 @@ const pending = ref(false)
 const tab = ref('settings')
 const showTasks = ref(false)
 const showPanel = ref(false)
+const showWorkspace = ref(false)
+const showClearConfirm = ref(false)
+const workspaceValue = ref<string | null>('')
+const workspaceDirectories = useDefaultWorkspace()
+const { defaultWorkspaces, recentWorkspaces } = workspaceDirectories
 const chatTaskId = ref<string | null>(null)
 function openTask(task: PersonTask) { showTasks.value = false; chatTaskId.value = task.id }
 provide(personTaskNavigation, taskId => { showTasks.value = false; chatTaskId.value = taskId })
@@ -85,6 +95,35 @@ async function act(work: () => Promise<unknown>) {
 function syncSession(snapshot: PersonSnapshot) {
   const session = chatStore.ensureSessionLoaded(snapshot.session)
   if (chatStore.activeSessionId === session.id) chatStore.activeSession = session
+}
+function folderName(path: string) { return path.replace(/\\/g, '/').split('/').filter(Boolean).at(-1) || path }
+function openWorkspace() {
+  workspaceValue.value = data.value?.session.workspace || ''
+  showWorkspace.value = true
+  void workspaceDirectories.init().catch(e => { error.value = String(e) })
+}
+async function saveWorkspace() {
+  const workspace = workspaceValue.value?.trim() || ''
+  await saveSettings({ workspace })
+  if (data.value?.settings.workspace !== workspace) return false
+  await refresh()
+  showWorkspace.value = false
+  return true
+}
+async function clearHistory() {
+  if (!data.value?.can_clear || busy.value || pending.value || settingsWrites.value) return false
+  pending.value = true; error.value = ''
+  try {
+    await personRequest('/clear', { expected_history_revision: data.value.history_revision })
+    const next = await personRequest<PersonSnapshot>('', undefined, 'GET', lifetime.signal)
+    if (disposed) return true
+    snapshotSequence++; data.value = next; syncSession(next)
+    showTasks.value = false; chatTaskId.value = null; showClearConfirm.value = false
+    await chatStore.switchSession(next.session.id)
+    message.success(t('person.cleared'))
+    return true
+  } catch (e) { if (!disposed) { error.value = String(e); await refresh() }; return false }
+  finally { pending.value = false }
 }
 async function openModels(event: MouseEvent) {
   modelTrigger.value = event.currentTarget as HTMLElement
@@ -150,6 +189,19 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
             {{ t('person.tasks') }}
           </NTooltip>
           <NTooltip trigger="hover">
+            <template #trigger><NButton quaternary circle size="small" :disabled="!data?.can_clear || busy || pending || settingsWrites > 0" :aria-label="t('chat.workspace')" :aria-expanded="showWorkspace" @click="openWorkspace"><FolderIcon /></NButton></template>
+            {{ data?.session.workspace || t('chat.workspace') }}
+          </NTooltip>
+          <NPopconfirm v-model:show="showClearConfirm" :positive-text="t('common.confirm')" :negative-text="t('common.cancel')" :positive-button-props="{ loading: pending }" :disabled="!data?.can_clear || busy || pending || settingsWrites > 0" @positive-click="clearHistory">
+            <template #trigger>
+              <NTooltip trigger="hover">
+                <template #trigger><NButton quaternary circle size="small" :aria-label="t('person.clearHistoryTasks')" :disabled="!data?.can_clear || busy || pending || settingsWrites > 0"><BroomIcon /></NButton></template>
+                {{ data?.can_clear && !busy ? t('person.clearHistoryTasks') : t('person.clearHistoryTasksBusy') }}
+              </NTooltip>
+            </template>
+            {{ t('person.clearHistoryTasksConfirm') }}
+          </NPopconfirm>
+          <NTooltip trigger="hover">
             <template #trigger><NButton quaternary circle size="small" :aria-label="t('person.schedules')" :aria-expanded="showPanel && tab === 'schedules'" @click="openPanel('schedules')"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></NButton></template>
             {{ t('person.schedules') }}
           </NTooltip>
@@ -163,10 +215,22 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
     </PageHeader>
     <NAlert v-if="error" class="person-alert" type="error" closable @close="error = ''">{{ error }}</NAlert>
     <template v-if="data">
+      <NModal v-model:show="showWorkspace" preset="dialog" :title="t('chat.setWorkspaceTitle')" :positive-text="t('common.ok')" :negative-text="t('common.cancel')"
+        :positive-button-props="{ loading: settingsWrites > 0, disabled: busy || pending || !data?.can_clear }" style="width: var(--studio-workspace-picker-width)" @positive-click="saveWorkspace">
+        <p>{{ t('person.workspaceHint') }}</p>
+        <div v-if="defaultWorkspaces.length" class="person-workspace-shortcuts">
+          <NButton v-for="path in defaultWorkspaces" :key="path" size="tiny" :title="path" @click="workspaceValue = path">{{ folderName(path) }}</NButton>
+        </div>
+        <FolderPicker v-model="workspaceValue" show-favorite :favorite="!!workspaceValue && workspaceDirectories.isDefaultWorkspace(workspaceValue)" :favorite-disabled="!workspaceValue"
+          @toggle-favorite="workspaceValue && workspaceDirectories.toggleDefaultWorkspace(workspaceValue).catch(e => { error = String(e) })" />
+        <div v-if="recentWorkspaces.length" class="person-workspace-shortcuts">
+          <NButton v-for="entry in recentWorkspaces" :key="entry.path" size="tiny" :title="entry.path" @click="workspaceValue = entry.path">{{ folderName(entry.path) }}</NButton>
+        </div>
+      </NModal>
       <MessageList :user-label="t('person.you')" />
       <div class="person-compose">
         <button v-if="!currentModel" type="button" class="person-model-hint" @click="openModels">{{ t('person.defaultUnavailable') }}</button>
-        <ChatInput managed-reasoning-effort :send-disabled="!currentModel || settingsWrites > 0"
+        <ChatInput managed-reasoning-effort :send-disabled="!currentModel || pending || settingsWrites > 0"
           :model-label="modelLabel" :model-disabled="busy || settingsWrites > 0" :model-expanded="showModelPicker"
           :reasoning-effort="reasoningEffort" :reasoning-effort-disabled="busy || !currentModel"
           :scoped-reasoning-efforts="data.reasoning_efforts" @update:reasoning-effort="selectEffort" @model-click="openModels" />
@@ -240,6 +304,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
 .person-header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding: calc(21px * var(--spacing-scale, 1)) calc(20px * var(--spacing-scale, 1)); border-bottom: var(--border-width, 1px) solid $border-color; }
 .person-title { font-size: calc(var(--font-size-base, 14px) * 16 / 14); font-weight: 600; }
 .person-header-actions { display: flex; align-items: center; gap: 4px; }
+.person-workspace-shortcuts { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .person-alert { margin: 12px; width: auto; }
 .person-compose { flex-shrink: 0; min-width: 0; }
 .person-model-hint { display: block; margin: 0 auto; border: 0; background: transparent; color: $accent-primary; cursor: pointer; font: inherit; font-size: 12px; padding: 8px; }
