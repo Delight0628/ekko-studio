@@ -1166,6 +1166,7 @@ function makeSocket(url, options) {
     id: 'pw-socket-' + socketNumber,
     rooms: new Set(),
     connected: true,
+    get volatile() { return this },
     url,
     options,
     on(event, handler) {

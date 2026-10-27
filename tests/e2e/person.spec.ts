@@ -13,7 +13,7 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true) {
   state.session = { id: 'person-main-1', source: 'builtin_agent', agent: 'ekko-agent', agent_preset: 'person', agent_mode: 'scoped', profile: 'default', title: 'Person', model: 'global-model', provider: 'provider', started_at: 1, ended_at: null, message_count: 0, tool_call_count: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, billing_provider: null, estimated_cost_usd: 0, actual_cost_usd: null, cost_status: '' }
   await page.addInitScript(() => { (window as any).__PW_CHAT_SOCKET_RESUMES__ = { 'person-main-1': { session_id: 'person-main-1', messages: [], isWorking: false, events: [] } } })
   const operations: any[] = []
-  await page.route('**/api/studio/person**', async route => {
+  await page.route(/^https?:\/\/[^/]+\/api\/studio\/person(?:\/|\?|$)/, async route => {
     const req = route.request(); const path = new URL(req.url()).pathname; const body = req.postDataJSON()
     operations.push({ path, body, headers: req.headers() })
     if (path.endsWith('/capabilities')) return route.fulfill({ json: { agents: [{ runtime: 'ekko', installed: true }, { runtime: 'codex', installed: true }], native_allowed: true } })
@@ -66,8 +66,13 @@ for (const mode of ['light', 'dark'] as const) {
     const run = await page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.emitted.find((e: any) => e.event === 'run').payload)
     expect(run).toMatchObject({ session_id: 'person-main-1', agent_id: 'ekko-agent', model: 'global-model', reasoning_effort: 'high' })
     await emit(page, 'run.started', { run_id: 'person-run' })
+    await expect(page.locator('.thinking-avatar')).toHaveAttribute('src', '/person/thinking.gif')
+    await expect.poll(() => page.locator('.thinking-avatar').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
     await emit(page, 'reasoning.delta', { delta: 'Checking the task requirements.' })
     await expect(page.locator('.live-reasoning-detail')).toContainText('Checking the task requirements.')
+    await page.mouse.move(600, 30)
+    await page.locator('.thinking-avatar').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: `/tmp/person-animation-thinking-${mode}.png`, animations: 'disabled' })
     await emit(page, 'tool.started', { tool_call_id: 'tasks-query', tool: 'bot_tasks_query', arguments: {} })
     await expect(page.locator('.tool-call-name').filter({ hasText: 'bot_tasks_query' })).toBeVisible()
     await emit(page, 'tool.completed', { tool_call_id: 'tasks-query', tool: 'bot_tasks_query', output: '{"tasks":[]}' })
@@ -162,6 +167,34 @@ async function emit(page: Page, event: string, payload: Record<string, unknown>)
 }
 async function emitted(page: Page, event: string) {
   return page.evaluate(event => (window as any).__PW_CHAT_SOCKET__.emitted.filter((e: any) => e.event === event).map((e: any) => e.payload), event)
+}
+
+for (const mode of ['light', 'dark'] as const) {
+  test(`Person navigation follows account presence on desktop and mobile in ${mode}`, async ({ page }) => {
+    await setup(page, mode, mode === 'dark')
+    await page.goto('/#/person')
+    const avatar = page.locator('.studio-navigation-rail__avatar:visible')
+    for (const state of ['idle', 'thinking', 'searching', 'done', 'error', 'sleeping']) {
+      await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__?.allSockets?.some((socket: any) => String(socket.url).endsWith('/person-presence')))).toBe(true)
+      await page.evaluate(state => {
+        const socket = (window as any).__PW_CHAT_SOCKET__.allSockets.find((socket: any) => String(socket.url).endsWith('/person-presence'))
+        socket.__trigger('person.presence', { state, lastActivityAt: 1, sleepAt: 600001 })
+      }, state)
+      await expect(avatar).toHaveAttribute('src', `/person/${state}.gif`)
+      await expect.poll(() => avatar.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
+      await page.screenshot({ path: `/tmp/person-animation-${mode}-${state}.png`, animations: 'disabled' })
+    }
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.getByRole('button', { name: 'Menu', exact: true }).click()
+    await expect(page.locator('.studio-mobile-drawer')).toBeVisible()
+    await expect(avatar).toBeInViewport()
+    await expect(avatar).toHaveAttribute('src', '/person/sleeping.gif')
+    await expect.poll(() => avatar.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
+    await page.screenshot({ path: `/tmp/person-animation-${mode}-mobile.png`, animations: 'disabled' })
+    await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.emitted.some((event: any) => event.event === 'person.activity'))).toBe(true)
+    await page.getByRole('link', { name: 'Your account assistant', exact: true }).click()
+    await expect(page.locator('.studio-mobile-drawer')).not.toBeVisible()
+  })
 }
 
 for (const mode of ['light', 'dark'] as const) {

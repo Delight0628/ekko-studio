@@ -8,6 +8,13 @@ export function initPersonTables(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS person_accounts (
       user_id INTEGER PRIMARY KEY, settings_json TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS person_presence (
+      user_id INTEGER PRIMARY KEY, last_activity_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS person_presence_feedback (
+      user_id INTEGER PRIMARY KEY, event_id TEXT NOT NULL, state TEXT NOT NULL,
+      started_at INTEGER NOT NULL, expires_at INTEGER NOT NULL
+    );
     DROP TABLE IF EXISTS person_memories;
     CREATE TABLE IF NOT EXISTS person_executions (
       id TEXT PRIMARY KEY, task_id TEXT NOT NULL, owner_user_id INTEGER NOT NULL, requirements_revision INTEGER NOT NULL,
@@ -17,6 +24,8 @@ export function initPersonTables(db: DatabaseSync): void {
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, occurrence_id TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_person_runs ON person_executions(owner_user_id, task_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_person_presence_runs ON person_executions(owner_user_id)
+      WHERE state IN ('starting','running','stopping');
     CREATE UNIQUE INDEX IF NOT EXISTS idx_person_active_run ON person_executions(task_id)
       WHERE state IN ('queued','starting','stopping','running','waiting_person','waiting_user','waiting_approval');
     CREATE TABLE IF NOT EXISTS person_interactions (

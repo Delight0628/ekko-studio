@@ -1,4 +1,5 @@
 import { personUpdated } from './person-updates'
+import { recordPersonOutcome } from './person-presence-store'
 import { createHash, randomUUID } from 'node:crypto'
 import { getDb } from '../infrastructure/database'
 import { PERSON_DEFAULTS, personError } from '../contracts/person'
@@ -97,9 +98,11 @@ export function taskPersonExecutions(userId: number, taskId: string): PersonExec
 }
 export function setPersonExecution(run: PersonExecution, state: PersonRunState, extra: { output?: string; error?: string } = {}): boolean {
   personUpdated(run.owner_user_id)
-  return !!personDb().prepare(`UPDATE person_executions SET state=?,output=?,error=?,updated_at=?
+  const changed = !!personDb().prepare(`UPDATE person_executions SET state=?,output=?,error=?,updated_at=?
     WHERE id=? AND owner_user_id=? AND generation=? AND state NOT IN ('interrupted','stopping','finished','failed')`)
     .run(state, extra.output ?? run.output, extra.error ?? run.error, Date.now(), run.id, run.owner_user_id, run.generation).changes
+  if (changed && (state === 'finished' || state === 'failed')) recordPersonOutcome(run.owner_user_id, `task:${run.id}`, state === 'finished' ? 'done' : 'error')
+  return changed
 }
 export function personEvent(run: PersonExecution, kind: string, payload: unknown) {
   const json = JSON.stringify(payload, (key, value) => /token|secret|authorization|api[_-]?key/i.test(key) ? '[redacted]' : value) || '{}'

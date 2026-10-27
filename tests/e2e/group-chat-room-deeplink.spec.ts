@@ -446,6 +446,7 @@ function makeSocket(url, options) {
   const listeners = new Map()
   const socket = {
     connected: true,
+    get volatile() { return this },
     url,
     options,
     on(event, handler) {

@@ -13,6 +13,14 @@ interface ChatAgentSessionIdentity {
 }
 
 export const PERSON_AVATAR = { label: 'Person', src: deploymentUrl('/coding-agents/person.jpg') } as const satisfies ChatAgentAvatar
+export const PERSON_ANIMATIONS = {
+  idle: deploymentUrl('/person/idle.gif'),
+  thinking: deploymentUrl('/person/thinking.gif'),
+  searching: deploymentUrl('/person/searching.gif'),
+  done: deploymentUrl('/person/done.gif'),
+  error: deploymentUrl('/person/error.gif'),
+  sleeping: deploymentUrl('/person/sleeping.gif'),
+} as const
 
 const AGENT_AVATARS = {
   hermes: { label: 'Hermes', src: deploymentUrl('/coding-agents/hermes.png') },

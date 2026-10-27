@@ -93,6 +93,7 @@ import type {
 import { authenticateUserToken, inspectAppUserToken, isAuthEnabled, type AuthenticatedUser } from '../public/auth'
 import { userCanAccessProfile } from '../repositories/users-store'
 import { observeRunChatPetEvent } from '../public/pet-events'
+import { observePersonPresenceEvent } from '../services/person/presence'
 import { observeChatRunWebhookEvent, type ChatRunWebhookAgent } from '../services/webhooks'
 import { getAgentStatusSnapshot } from '../public/agent-status-registry'
 import {
@@ -3114,6 +3115,7 @@ export class ChatRunSocket {
       workflowNodeId: state?.webhookWorkflowNodeId,
     })
     if (!isPrivatePersonSession(sessionId)) this.observePetEvent(profile, event, tagged)
+    observePersonPresenceEvent(sessionId, event, tagged)
     this.emitPendingInteraction(profile, event, tagged)
     if (state?.isWorking) {
       state.events.push({ event, data: tagged })
@@ -3435,6 +3437,7 @@ export class ChatRunSocket {
       workflowNodeId: state?.webhookWorkflowNodeId,
     })
     if (!isPrivatePersonSession(sessionId)) this.observePetEvent(profile, event, tagged)
+    observePersonPresenceEvent(sessionId, event, tagged)
     this.emitPendingInteraction(profile, event, tagged)
     this.nsp.to(`session:${sessionId}`).emit(event, tagged)
     if (!this.nsp.adapter.rooms.get(`session:${sessionId}`)?.size && socket.connected) {

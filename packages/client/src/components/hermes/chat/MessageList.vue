@@ -789,7 +789,7 @@ defineExpose({
     >
       <template #empty>
         <div class="empty-state">
-          <img :src="emptyState.logo" :alt="emptyState.alt" class="empty-logo" />
+          <img :src="emptyState.logo" :alt="emptyState.alt" class="empty-logo" :class="{ 'empty-logo--person': assistantAgent.label === 'Person' }" />
           <p>{{ emptyState.text }}</p>
         </div>
       </template>
@@ -1745,6 +1745,7 @@ defineExpose({
     height: 48px;
     object-fit: contain;
     opacity: 0.25;
+    &--person { aspect-ratio: 1; border-radius: 4px; object-fit: cover; }
   }
 
   p {

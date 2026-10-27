@@ -171,3 +171,39 @@ open, and a new message can continue it once interruption is acknowledged.
 Already performed external actions are not undone. Future schedule occurrences
 remain enabled; cancelling a schedule is a separate action. This path does not
 use ordinary chat's socket stop control or change its behavior.
+
+## Account animation and inactivity
+
+The Person navigation avatar uses the supplied transparent idle, thinking,
+searching, completion, error and sleeping animations from the supplied 240 × 240 GIF pack without
+transcoding. The main conversation's live reasoning row uses the thinking clip.
+Static Person avatars and animations use square frames with small rounded
+corners. Static photos fill the square crop; the square animations retain their
+original framing. Completion plays for two seconds and error plays for three
+seconds, then restores the current working, idle or sleeping state. A newer
+outcome replaces the previous feedback; cancelled work does not celebrate completion.
+
+The authenticated `/person-presence` Socket.IO namespace sends `person.presence`
+snapshots with `state`, `lastActivityAt` and `sleepAt`, plus `feedbackId` and
+`feedbackUntil` during outcome feedback. Its only client write is
+`person.activity`, with no account, state or timestamp parameters. It is available
+through both local and cloud App relay transports. Each connection is bound to
+the authenticated Studio account, independently of Profile and open conversation.
+
+The server checks connected accounts once per second and publishes only changed
+snapshots. Persisted outcome events publish immediately, and server timers switch
+all connected devices at feedback and sleep deadlines. Reconnecting during an
+outcome uses the existing deadline; it does not restart the feedback. A running Person main turn shows thinking; a main tool or a task in
+starting/running/stopping shows searching. Queued tasks, goals that are merely
+open, completed/failed tasks, and waiting questions/approvals do not count as
+executing work. Outcome feedback temporarily takes priority over work and sleep;
+afterward active work takes priority over sleep. Outcomes do not reset inactivity.
+
+The last user interaction is persisted in `person_presence` using server time.
+With no executing work, ten minutes without input on any connected device shows
+sleeping. Pointer, touch, keyboard and wheel input wakes the account on all its
+connected devices; clients throttle reports with a trailing update. Snapshot
+reads, timers, connecting and reconnecting do not wake Person. Offline input is
+not buffered for replay, and reconnecting receives a fresh server snapshot.
+Clients clear the previous account's state on logout; the server rejects revoked
+credentials and disconnects their presence subscriptions.
