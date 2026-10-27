@@ -691,6 +691,20 @@ describe('ChatInput draft persistence', () => {
     expect(persistReasoningEffortMock).toHaveBeenLastCalledWith('failed-default-effort', 'low')
   })
 
+  it('selects the lowest effort again when a managed draft returns to the default model', async () => {
+    const wrapper = mountForSession('draft-default-effort', {}, {}, {
+      draft: true, draftConfig: { codingAgentMode: 'global', model: '' },
+      nativeReasoningEfforts: ['low', 'high'], reasoningEffort: '',
+    })
+    await flushPromises()
+    expect(wrapper.emitted('update:reasoningEffort')).toEqual([['low']])
+    await wrapper.setProps({ reasoningEffort: 'low' })
+    await wrapper.setProps({ reasoningEffort: '' })
+    await flushPromises()
+    expect(wrapper.emitted('update:reasoningEffort')).toEqual([['low'], ['low']])
+    expect(persistReasoningEffortMock).not.toHaveBeenCalled()
+  })
+
   it('stores maximum reasoning effort for the active session', async () => {
     const wrapper = mountForSession('session-reasoning-max')
     const store = useChatStore()

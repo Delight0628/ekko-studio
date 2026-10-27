@@ -156,10 +156,12 @@ watch([reasoningEffortOptions, requestedReasoningEffort, canEditReasoningEffort]
   }
   const fallback = agentReasoningEffortValue('', options)
   if ((!requested && fallback) || (!isGlobalCodingAgentSession.value && requested && !options.some(option => option.value === requested))) {
-    const key = JSON.stringify([chatStore.activeSessionId, props.draft, props.managedReasoningEffort,
-      reasoningSession.value?.profile, reasoningSession.value?.provider, reasoningSession.value?.model, requested, fallback])
-    if (lastAutomaticEffortWrite === key) return
-    lastAutomaticEffortWrite = key
+    if (!props.draft && !props.managedReasoningEffort) {
+      const key = JSON.stringify([chatStore.activeSessionId,
+        reasoningSession.value?.profile, reasoningSession.value?.provider, reasoningSession.value?.model, requested, fallback])
+      if (lastAutomaticEffortWrite === key) return
+      lastAutomaticEffortWrite = key
+    }
     onReasoningEffortChange(fallback)
   }
 }, { immediate: true })
