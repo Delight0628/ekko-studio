@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { personSessionId, ownsPersonSession } from '../../contracts/person-session'
 import { personError } from '../../contracts/person'
 import { createSession, getSession, updateSession } from '../../repositories/session-store'
@@ -9,6 +10,8 @@ import { personRuntime } from '../../public/person-runtime'
 import { effectivePersonSettings, personUser, validatePersonSelection } from './catalog'
 import { PERSON_SYSTEM_PROMPT } from './model'
 import { personTools } from './tools'
+import { createPersonContext } from './context'
+import { recordSessionUsage } from '../usage/usage-recorder'
 
 export function personChatBusy(userId: number): boolean {
   return !!getChatRunServer()?.isSessionRunning?.(personSessionId(userId))
@@ -42,11 +45,21 @@ export async function createPersonChatAgent(userId: number, sessionId: string) {
   await validatePersonSelection(userId, selection)
   const factory = personRuntime().chatAgent
   if (!factory) throw personError('Person chat runtime unavailable', 503)
+  const context = createPersonContext(userId, sessionId, settings.contextTokens)
+  const summaryRunId = randomUUID()
+  let summaryCall = 0, requestedAt = Date.now()
   return factory({ selection, tools: personTools(userId, 'main', undefined, `session:${sessionId}`),
     systemPrompt: `${PERSON_SYSTEM_PROMPT}\nRole: main. Current time: ${new Date().toISOString()}. Account timezone: ${settings.timezone}. Query task records on demand.`,
     maxSteps: settings.maxSteps, contextTokens: settings.contextTokens,
     workspace: getSession(sessionId)!.workspace!,
+    loadHistory: context.loadHistory, summaryCache: context.summaryCache,
+    onSummaryUsage: response => recordSessionUsage({ sessionId, runId: `person:context:${summaryRunId}:${++summaryCall}`,
+      purpose: 'person_context_summary', source: 'ekko_agent', agent: 'ekko_agent', accountId: String(userId),
+      profile: selection.profile, provider: selection.provider, model: selection.model, usageScope: 'model_call', apiCalls: 1,
+      usage: response.usage, apiDuration: (Date.now() - requestedAt) / 1000 }),
     beforeRequest: () => {
+      requestedAt = Date.now()
+      context.assertCurrent()
       const user = personUser(userId)
       if (user.role !== 'super_admin' && !user.profiles.includes(selection.profile)) throw personError('Resource permission revoked', 403)
     },

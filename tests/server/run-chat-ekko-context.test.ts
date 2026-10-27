@@ -8,6 +8,7 @@ import * as runUsageStore from '../../packages/server/src/modules/studio/reposit
 
 const createPersonChatAgentMock = vi.hoisted(() => vi.fn())
 vi.mock('../../packages/server/src/modules/studio/services/person/chat-agent', () => ({ createPersonChatAgent: createPersonChatAgentMock }))
+vi.mock('../../packages/server/src/modules/studio/repositories/person-store', () => ({ personBackgroundPendingCount: () => 0 }))
 const saveTaskPlanMock = vi.hoisted(() => vi.fn())
 const getSessionTasksMock = vi.hoisted(() => vi.fn((sessionId: string) => ({ session_id: sessionId, revision: 0, updated_at: 0, tasks: [] })))
 const updateSessionTasksMock = vi.hoisted(() => vi.fn((sessionId: string) => ({ session_id: sessionId, revision: 1, updated_at: 1, tasks: [] })))
@@ -210,7 +211,7 @@ describe('ekko-agent context usage events', () => {
     expect(sessionMap.get('person-main-7').ekkoBoundaryInterrupt).toBeUndefined()
     expect(createPersonChatAgentMock).toHaveBeenCalledWith(7, 'person-main-7')
     expect(getGlobalEkkoAgentMock).not.toHaveBeenCalled()
-    expect(buildCompressedHistoryMock).toHaveBeenCalled()
+    expect(buildCompressedHistoryMock).not.toHaveBeenCalled()
     expect(addMessageMock).toHaveBeenCalledWith(expect.objectContaining({ session_id: 'person-main-7', role: 'user', content: 'Prepare report' }))
     expect(addMessageMock).toHaveBeenCalledWith(expect.objectContaining({ session_id: 'person-main-7', role: 'assistant', content: 'Done' }))
     expect(events.map(e => e.event)).toContain('run.completed')

@@ -1401,7 +1401,7 @@ export async function handleEkkoAgentRun(
       )
     }
     let fixedContextEstimate: Promise<number> | undefined
-    const compressedHistory = callbackContext
+    const compressedHistory = callbackContext || isPersonSession(sessionId)
       ? []
       : data.context_compression_enabled === false ? [] : await buildCompressedHistory(
         sessionId,

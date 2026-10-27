@@ -3,6 +3,26 @@ import { createPersonAgent } from '../../packages/server/src/bootstrap/person-ch
 import type { ModelClient, ModelRequest, ModelEvent } from '../../packages/ekko-agent/src/model/types'
 
 describe('Person agent in the shared chat runtime', () => {
+  it('loads selected history once and reports the prepared request size, including tools', async () => {
+    const { countTextTokens } = await import('../../packages/ekko-agent/src')
+    const requests: ModelRequest[] = [], events: any[] = []
+    const history = vi.fn(() => [{role:'user' as const,content:'Historical evidence: code LIME-42'}])
+    const client: ModelClient = {
+      provider:'test',capabilities:{streaming:true,tools:true,vision:false,jsonMode:false,systemPrompt:true},
+      create:vi.fn(async()=>({content:'summary'})),
+      async *stream(request) { requests.push(request); yield {type:'text-delta',text:'LIME-42'};yield {type:'done',response:{content:'LIME-42'}} },
+    }
+    const agent=createPersonAgent({workspace:'/tmp/person-test',selection:{runtime:'ekko',mode:'scoped',profile:'default',provider:'test',model:'m'},
+      contextTokens:8000,maxSteps:3,systemPrompt:'You are Person',tools:[],loadHistory:history})
+    const result=await agent.run({messages:[{role:'user',content:'What was the code?'}],modelClient:client,onEvent:e=>{events.push(e)}})
+    expect(history).toHaveBeenCalledExactlyOnceWith('What was the code?')
+    expect(JSON.stringify(requests[0].messages)).toContain('Historical evidence')
+    expect(requests[0].messages.filter(m=>m.content==='What was the code?')).toHaveLength(1)
+    const expected=Math.ceil(countTextTokens(JSON.stringify({messages:requests[0].messages,tools:requests[0].tools}))*1.15)
+    expect(events.filter(e=>e.type==='context.estimated').at(-1).estimate.contextTokens).toBe(expected)
+    expect(result.contextEstimate?.contextTokens).toBe(expected)
+    expect(requests[0].context).toBeUndefined()
+  })
   it('captures the initiating turn before task creation and forwards the runtime origin', async () => {
     const execute = vi.fn(async () => ({ execution: { state: 'queued' } }))
     let step = 0

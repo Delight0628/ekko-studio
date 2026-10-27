@@ -1,5 +1,4 @@
 import { personUpdated } from './person-updates'
-import { personSessionId } from '../contracts/person-session'
 import { createHash, randomUUID } from 'node:crypto'
 import { getDb } from '../infrastructure/database'
 import { PERSON_DEFAULTS, personError } from '../contracts/person'
@@ -47,9 +46,6 @@ export function savePersonSettings(userId: number, settings: PersonSettings, rev
       .run(userId, JSON.stringify(settings), revision + 1)
     return personSettings(userId)
   })
-}
-export function searchPersonContext(userId: number, query: string) {
-  return personDb().prepare("SELECT id,role,substr(content,1,2000) AS content,timestamp * 1000 AS created_at FROM messages WHERE session_id=? AND role IN ('user','assistant') AND instr(lower(content),lower(?))>0 ORDER BY id DESC LIMIT 8").all(personSessionId(userId), query)
 }
 export function personMemories(userId: number, query = '') {
   return personDb().prepare('SELECT * FROM person_memories WHERE owner_user_id=? AND instr(lower(content),lower(?))>0 ORDER BY updated_at DESC LIMIT 20').all(userId, query)

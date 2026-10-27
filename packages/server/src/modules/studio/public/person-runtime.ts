@@ -15,10 +15,13 @@ export interface PersonModelCall {
   beforeRequest?: () => void
   onEvent?: (event: unknown) => void
   onUsage?: (response: ModelResponse) => void
-  prepare?: (request: ModelRequest, summarize: (text: string) => Promise<string>) => Promise<ModelRequest>
+  onSummaryUsage?: (response: ModelResponse) => void
+  summaryCache?: { get(key: string): string | undefined; set(key: string, summary: string): void }
+  onPrepared?: (request: ModelRequest) => void
 }
-export interface PersonChatAgentOptions extends Pick<PersonModelCall, 'selection' | 'tools' | 'systemPrompt' | 'maxSteps' | 'contextTokens' | 'beforeRequest'> {
+export interface PersonChatAgentOptions extends Pick<PersonModelCall, 'selection' | 'tools' | 'systemPrompt' | 'maxSteps' | 'contextTokens' | 'beforeRequest' | 'summaryCache' | 'onSummaryUsage'> {
   workspace: string
+  loadHistory?: (query: string) => AgentMessage[]
 }
 export interface PersonResultDelivery {
   user: AuthenticatedUser

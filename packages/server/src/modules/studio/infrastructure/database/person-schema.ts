@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { initPersonContextTables } from './person-context-schema'
 
 /** Account-owned goals share session_tasks, but do not depend on a chat's lifetime. */
 export function initPersonTables(db: DatabaseSync): void {
@@ -62,4 +63,5 @@ export function initPersonTables(db: DatabaseSync): void {
       PRIMARY KEY(session_id, assistant_message_id)
     );
   `)
+  initPersonContextTables(db)
 }

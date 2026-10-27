@@ -11,6 +11,45 @@ function client() {
   } as unknown as ModelClient }
 }
 describe('Person provider request budget', () => {
+  function longTurn(): ModelRequest {
+    const messages: ModelRequest['messages']=[{role:'system',content:'Person instructions'},{role:'user',content:'Do not send anything; investigate only.'}]
+    for(let i=0;i<12;i++) messages.push({role:'assistant',content:'',toolCalls:[{id:`t${i}`,name:'lookup',arguments:{}}]},
+      {role:'tool',toolCallId:`t${i}`,content:`result ${i}: `+'evidence constraint detail '.repeat(250)})
+    return {messages,tools:[{name:'lookup',parameters:{type:'object'}}],maxTokens:2048}
+  }
+  it('reuses persisted checkpoints across wrappers without compressing on small turns', async () => {
+    const cache=new Map<string,string>(); const call={...input(),summaryCache:{get:(k:string)=>cache.get(k),set:(k:string,s:string)=>{cache.set(k,s)}}}
+    const first=client(); await personBudgetedClient(first.port,call).create(longTurn())
+    expect(cache.size).toBeGreaterThan(0)
+    const second=client(); await personBudgetedClient(second.port,call).create(longTurn())
+    expect(second.sent).toHaveLength(1)
+    expect(second.sent[0].messages).toEqual(first.sent.at(-1)!.messages)
+    expect(second.sent[0].messages).toContainEqual(longTurn().messages[1])
+    expect(second.sent[0].messages.slice(-2)).toEqual(longTurn().messages.slice(-2))
+    const small=client(); await personBudgetedClient(small.port,call).create({messages:[{role:'user',content:'hello'}]})
+    expect(small.sent).toHaveLength(1)
+  })
+  it('invalidates checkpoint keys when source content or selected model changes', async () => {
+    const cache=new Map<string,string>(); const call={...input(),summaryCache:{get:(k:string)=>cache.get(k),set:(k:string,s:string)=>{cache.set(k,s)}}}
+    await personBudgetedClient(client().port,call).create(longTurn())
+    const changed=longTurn(); changed.messages[3].content+=' Revoked permission.'
+    const c=client(); await personBudgetedClient(c.port,call).create(changed)
+    expect(c.sent.length).toBeGreaterThan(1)
+    const other=client(); await personBudgetedClient(other.port,{...call,selection:{...call.selection,model:'other'}}).create(longTurn())
+    expect(other.sent.length).toBeGreaterThan(1)
+  })
+  it('does not cache late summaries after cancellation', async () => {
+    const c=client(), abort=new AbortController(), set=vi.fn()
+    c.port.create=vi.fn(async()=>{abort.abort(new Error('cancelled'));return {content:'late summary'}})
+    await expect(personBudgetedClient(c.port,{...input(),signal:abort.signal,summaryCache:{get:()=>undefined,set}}).create(longTurn())).rejects.toThrow('cancelled')
+    expect(set).not.toHaveBeenCalled()
+  })
+  it('rejects an oversized newest tool batch without silently losing the current request', async () => {
+    const c=client(), request=longTurn()
+    request.messages.at(-1)!.content='huge current evidence '.repeat(20000)
+    await expect(personBudgetedClient(c.port,input()).create(request)).rejects.toThrow('budget')
+    expect(c.sent.every(r=>r.messages[0].content.startsWith('Summarize task context'))).toBe(true)
+  })
   it('checks every request, strips native continuation, and checks tools as well as messages', async () => {
     const c = client(); const call=input(); call.beforeRequest=vi.fn()
     const wrapped=personBudgetedClient(c.port,call)
