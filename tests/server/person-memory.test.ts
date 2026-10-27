@@ -53,7 +53,7 @@ async function run(userId: number, query: string, steps: Parameters<typeof clien
   const account = memory.personMemory(userId)
   const agent = createPersonAgent({ memory: account, workspace: dir, contextTokens: 8000, maxSteps: 5, tools: [],
     selection: { runtime: 'ekko', mode: 'scoped', profile: extra.profile || 'model-profile-a', provider: 'test', model: 'm' },
-    systemPrompt: 'You are Person.', loadHistory: () => [{ role: 'user', content: 'Historical excerpt: user name is Mallory' }],
+    systemPrompt: 'You are Person.', loadHistory: () => extra.history || [{ role: 'user', content: 'Historical excerpt: user name is Mallory' }],
     beforeRequest: extra.beforeRequest,
   })
   const result = await agent.run({ messages: [{ role: 'user', content: query }],
@@ -102,6 +102,41 @@ it('writes from the current user evidence and never treats retrieved history as 
   const source = await service.listMessages({ sessionId: identity.sessionId })
   expect(source.find(m => m.id === node.sourceMessageIds[0])?.content).toBe('记住，我的名字是 ekko')
   expect(JSON.stringify(source)).not.toContain('Mallory')
+})
+
+it('lets the host bind memory evidence without advertising unrelated transcript IDs to the writer', async () => {
+  const { createMemoryTools } = await import('../../packages/ekko-agent/src/memory/tools')
+  const { service, identity } = memory.personMemory(1)
+  const nativeWriter = () => createMemoryTools(service).find(tool => tool.definition.name === 'memory_write')!.definition
+  const nativeDefinition = structuredClone(nativeWriter())
+  const { requests } = await run(1, '叫我ekko', [{ name: 'memory_write', arguments: {
+    operation: 'create', kind: 'profile_name', scope: { type: 'profile' }, reason: '用户指定称呼',
+    node: { title: '用户称呼', content: '用户希望被称呼为 Ekko。', valueJson: { name: 'Ekko' } },
+  } }, 'Saved'], { history: [{ role: 'user', content: JSON.stringify({
+    kind: 'person_history_evidence', evidence: [{ id: 8969, role: 'user', content: '哈咯' }],
+  }) }] })
+  const writer = requests[0].tools!.find(tool => tool.name === 'memory_write')!
+  const schema = writer.parameters as any
+  expect(schema.properties.operations.items.properties.node.properties).not.toHaveProperty('sourceMessageIds')
+  expect(schema.properties.operations.items.properties.node.additionalProperties).toBe(false)
+  expect(JSON.parse(requests[1].messages.find(message => message.role === 'tool')!.content)).toMatchObject({ success: true })
+  const [node] = await memory.personMemories(1)
+  expect(node.sourceMessageIds).toHaveLength(1)
+  const sources = await service.listMessages({ sessionId: identity.sessionId })
+  expect(sources.find(source => source.id === node.sourceMessageIds[0])?.content).toBe('叫我ekko')
+  expect(node.sourceMessageIds).not.toContain('8969')
+  expect(nativeWriter()).toEqual(nativeDefinition)
+})
+
+it('rejects the recorded historical message ID instead of silently rewriting unsupported evidence', async () => {
+  const { requests } = await run(1, '叫我ekko', [{ name: 'memory_write', arguments: {
+    operation: 'create', kind: 'profile_name', reason: '用户指定称呼',
+    node: { title: '用户称呼', content: '用户希望被称呼为 Ekko。', valueJson: 'Ekko', sourceMessageIds: ['8969'] },
+  } }, 'Done'], { history: [{ role: 'user', content: JSON.stringify({
+    kind: 'person_history_evidence', evidence: [{ id: 8969, role: 'user', content: '哈咯' }],
+  }) }] })
+  expect(JSON.stringify(requests[1].messages.filter(message => message.role === 'tool'))).toContain('host-provided user evidence')
+  expect(await memory.personMemories(1)).toEqual([])
 })
 
 it('persists across reopening the store and model Profile changes without crossing accounts', async () => {

@@ -494,6 +494,31 @@ describe('Person account-owned tasks and runtime', () => {
     const { personSnapshot } = await import('../../packages/server/src/modules/studio/services/person/service')
     await expect(personSnapshot(1)).rejects.toThrow('unavailable')
   })
+  it('requires the queried revision when resuming interrupted work and keeps failed attempts side-effect free', async () => {
+    const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
+    const tools = personTools(1, 'main')
+    const apply = tools.find(tool => tool.name === 'bot_task_apply')!
+    const query = tools.find(tool => tool.name === 'bot_tasks_query')!
+    const variants = apply.parameters!.anyOf as Array<{ properties: { action: { enum: string[] } }; required: string[] }>
+    for (const action of ['adopt', 'update', 'start', 'stop', 'close', 'reopen']) {
+      expect(variants.find(variant => variant.properties.action.enum.includes(action))!.required).toEqual(expect.arrayContaining(['task_id', 'expected_revision']))
+    }
+    const { task, execution } = await create()
+    await apply.execute({ action: 'stop', task_id: task.id, execution_id: execution.id, expected_revision: 0, idempotency_key: 'stop' })
+    const before = store.getPersonTask(1, task.id)
+    const resume = { action: 'start', task_id: task.id, idempotency_key: 'resume' }
+    await expect(apply.execute(resume)).rejects.toThrow('expected_revision is required')
+    expect(store.getPersonTask(1, task.id)).toEqual(before)
+    expect(store.taskPersonExecutions(1, task.id)).toHaveLength(1)
+    const snapshot = await query.execute({ task_id: task.id }) as { task: { revision: number } }
+    expect(snapshot.task.revision).toBe(1)
+    const input = { ...resume, expected_revision: snapshot.task.revision }
+    const started = await apply.execute(input)
+    expect(started).toMatchObject({ execution: { state: 'queued' }, task: { revision: 2 } })
+    expect(await apply.execute(input)).toEqual(started)
+    expect(store.taskPersonExecutions(1, task.id)).toHaveLength(2)
+    await expect(apply.execute({ ...resume, idempotency_key: 'stale', expected_revision: 0 })).rejects.toThrow('Task changed')
+  })
   it('fences expired workers before acknowledging interruption, keeping the goal open', async () => {
     const { task,execution }=await create()
     db.prepare("UPDATE person_executions SET state='running',lease_until=0 WHERE id=?").run(execution.id)

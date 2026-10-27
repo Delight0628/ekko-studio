@@ -22,6 +22,10 @@ describe('Person agent in the shared chat runtime', () => {
     expect(events.filter(e=>e.type==='context.estimated').at(-1).estimate.contextTokens).toBe(expected)
     expect(result.contextEstimate?.contextTokens).toBe(expected)
     expect(requests[0].context).toBeUndefined()
+    const prompt = requests[0].messages.filter(message => message.role === 'system').map(message => message.content).join('\n')
+    expect(prompt).not.toContain('Use terminal_exec')
+    expect(prompt).not.toContain('## Command Environment')
+    expect(prompt).not.toContain('use code_exec')
   })
   it('captures the initiating turn before task creation and forwards the runtime origin', async () => {
     const execute = vi.fn(async () => ({ execution: { state: 'queued' } }))

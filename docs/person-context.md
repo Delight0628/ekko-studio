@@ -7,6 +7,10 @@ history compressor for `person-main-*`; Person's adapter supplies history.
 There is no fallback to the old Person substring scan or shared compression
 snapshots.
 
+Person main also opts out of the runtime's generic shell/code execution guidance:
+its registered tools dispatch background tasks rather than execute commands.
+The runtime default and ordinary Ekko chats retain their existing instructions.
+
 ## Storage and retrieval
 
 `person_context_progress`, `person_context_chunks`, `person_context_search` and
@@ -88,6 +92,10 @@ budget. The overall Person request budget still includes system text, tool
 schemas, retrieved history, memory, output and safety reserves. Name queries can
 use the `profile_name` kind instead of guessing matching text. Person advertises
 only the native writer's atomic batch schema, avoiding duplicate legacy fields.
+It omits the model-supplied `sourceMessageIds` field: the host binds the current
+user input automatically. History's transcript IDs are a different namespace from
+native memory evidence IDs. Explicit unsupported IDs still fail native validation;
+the adapter never rewrites a rejected citation into an accepted one.
 The optional JEV enhancements remain disabled in this Person runtime; no Profile
 JEV configuration or credentials are implicitly inherited.
 
@@ -115,6 +123,9 @@ waiting executions. The conversation's composer also shows Stop even with a
 draft or before streaming begins. It uses the same task API, preserves the draft
 and attachments, and disables Stop until acknowledgement. Person can use `bot_task_apply` with `action: stop`, the
 current `task_id`, `execution_id`, `expected_revision` and an idempotency key.
+Every existing-task action, including `start` to continue interrupted work, requires
+the queried `revision` as `expected_revision`. The tool schema declares each
+action's required fields, and stale or missing revisions remain rejected.
 Query first: targeting an execution prevents an old click or replay from stopping
 a later scheduled occurrence or follow-up turn.
 

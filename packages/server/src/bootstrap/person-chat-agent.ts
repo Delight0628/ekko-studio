@@ -32,10 +32,17 @@ export function createPersonAgent(options: PersonChatAgentOptions) {
     if (!tool) continue
     // The native writer exposes both batch and legacy single-write schemas. Person
     // only advertises the atomic batch, avoiding two copies of every field.
-    const definition = name === 'memory_write' ? { ...tool.definition, parameters: {
-      type: 'object' as const, properties: { operations: (tool.definition.parameters as any).properties.operations },
-      required: ['operations'], additionalProperties: false,
-    } } : tool.definition
+    const definition = { ...tool.definition }
+    if (name === 'memory_write') {
+      const operations = structuredClone((tool.definition.parameters as any).properties.operations)
+      // Transcript IDs in retrieved history are not native memory evidence IDs.
+      // The native writer already binds omitted IDs to this turn's trusted user input.
+      delete operations.items.properties.node.properties.sourceMessageIds
+      definition.parameters = {
+        type: 'object', properties: { operations }, required: ['operations'], additionalProperties: false,
+      }
+      definition.description += ' In Person, use only the operations array. Evidence is bound automatically to the current user message; omit sourceMessageIds and never copy historical transcript IDs into memory writes.'
+    }
     registry.register({ definition, concurrency: tool.concurrency, async execute(args, context) {
       options.beforeRequest?.()
       context?.signal?.throwIfAborted()
@@ -55,6 +62,7 @@ export function createPersonAgent(options: PersonChatAgentOptions) {
   const isolated = (input: AgentRuntimeRunInput, onPrepared?: (request: ModelRequest) => void): AgentRuntimeRunInput => ({ ...input,
     modelClient: input.modelClient ? personBudgetedClient(input.modelClient, { ...options, onPrepared, messages: [], signal: input.signal || new AbortController().signal }) : undefined,
     memoryEnabled: Boolean(options.memory),
+    toolExecutionGuidelinesEnabled: false,
     memoryInput: options.memory ? {
       messages: input.memoryInput?.messages || [], writePolicy: 'automatic',
       origin: options.memory.identity.origin,
