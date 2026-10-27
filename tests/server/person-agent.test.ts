@@ -12,13 +12,15 @@ let tasks: typeof import('../../packages/server/src/modules/studio/services/pers
 let runner: typeof import('../../packages/server/src/modules/studio/services/person/runner')
 let schedules: typeof import('../../packages/server/src/modules/studio/services/person/schedules')
 let runtime: PersonRuntimePort
+let nativeTaskRun: ReturnType<typeof vi.fn>
 const selection = { runtime: 'ekko', mode: 'scoped' as const, profile: 'default', provider: 'test', model: 'm', apiMode: 'chat_completions' }
 let catalog: Array<any>
 let activeAccount = true
 
 beforeEach(async () => {
   vi.resetModules(); db = new DatabaseSync(':memory:'); dir = mkdtempSync(join(tmpdir(), 'person-test-')); activeAccount = true
-  vi.doMock('../../packages/server/src/modules/studio/public/chat-run', () => ({ getChatRunServer: () => ({ isSessionRunning: () => false }) }))
+  nativeTaskRun = vi.fn()
+  vi.doMock('../../packages/server/src/modules/studio/public/chat-run', () => ({ getChatRunServer: () => ({ isSessionRunning: () => false, runAndWait: nativeTaskRun }) }))
   vi.doMock('../../packages/server/src/modules/studio/infrastructure/database/index', () => ({ getDb: () => db, isSqliteAvailable: () => true }))
   vi.doMock('../../packages/server/src/modules/studio/public/config', () => ({ config: { appHome: dir }, getWebUiHome: () => dir }))
   vi.doMock('../../packages/server/src/modules/studio/repositories/users-store', () => ({
@@ -26,7 +28,7 @@ beforeEach(async () => {
     listUserProfiles: () => [{ profile_name: 'default' }], userCanAccessProfile: (_id: number, p: string) => p === 'default',
   }))
   vi.doMock('../../packages/server/src/modules/studio/public/profile-config', () => ({ listProfileNamesFromDisk: () => ['default'], getActiveProfileName: () => 'default' }))
-  vi.doMock('../../packages/server/src/modules/studio/public/agent-status-registry', () => ({ getAgentAvailabilitySnapshot: () => ({ agents: [{ id: 'ekko-agent', installed: true }, { id: 'codex', installed: true }, { id: 'pi', installed: false }] }) }))
+  vi.doMock('../../packages/server/src/modules/studio/public/agent-status-registry', () => ({ getAgentAvailabilitySnapshot: () => ({ agents: [{ id: 'hermes', installed: true }, { id: 'ekko-agent', installed: true }, { id: 'codex', installed: true }, { id: 'pi', installed: false }] }) }))
   catalog = [{ provider: 'test', models: ['m'], api_mode: 'chat_completions' }]
   vi.doMock('../../packages/server/src/modules/studio/public/session-agent-runtime', () => ({ getSessionAvailableModelGroups: async () => catalog, validateCodingAgentModelEffort: vi.fn(async () => {}) }))
   vi.doMock('../../packages/server/src/modules/studio/services/usage/usage-recorder', () => ({ recordSessionUsage: vi.fn() }))
@@ -61,6 +63,41 @@ async function create(overrides = {}) {
 const wait = async (id: string, state: string) => vi.waitFor(() => expect(store.getPersonExecution(1, id).state).toBe(state), { timeout: 2000, interval: 10 })
 
 describe('Person account-owned tasks and runtime', () => {
+  it.each(['hermes', 'ekko', 'codex'])('automatically handles %s approvals on initial, continued and scheduled tasks without creating user interactions', async agent => {
+    const { executePersonTask } = await import('../../packages/server/src/bootstrap/person-task-runtime')
+    const { configurePerson } = await import('../../packages/server/src/modules/studio/services/person/service')
+    const { continuePersonTask } = await import('../../packages/server/src/modules/studio/services/person/task-chat')
+    const { ensurePersonSession } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
+    const { deliverPersonResults, finishPersonDelivery } = await import('../../packages/server/src/modules/studio/services/person/delivery')
+    await ensurePersonSession(1)
+    runtime.execute = executePersonTask
+    nativeTaskRun.mockImplementation(async (request, options) => {
+      expect(options.approvalChoice).toBe('once')
+      options.onEvent('run.started', { session_id: request.session_id })
+      options.onEvent('approval.requested', { approval_id: 'native-approval', choices: ['once', 'deny'] })
+      expect(store.personInteractions(1)).toEqual([])
+      expect(db.prepare("SELECT COUNT(*) AS n FROM person_executions WHERE state='waiting_approval'").get()?.n).toBe(0)
+      options.onEvent('approval.resolved', { approval_id: 'native-approval', choice: 'once', resolved: true })
+      return { ok: true, output: 'Completed without manual approval' }
+    })
+    await configurePerson(1, { agents: [{ id: 'worker', name: 'Worker', description: 'Execute tasks', selection: { ...selection, runtime: agent } }], expected_revision: 1 })
+    const { task, execution } = await create({ agent_id: 'worker' })
+    await runner.tickPersonWork(); await wait(execution.id, 'finished')
+    await deliverPersonResults(); finishPersonDelivery(1, execution.id, true)
+    const next = await continuePersonTask(1, task.id, {
+      input: [{ type: 'text', text: 'Continue the saved work' }], expected_revision: store.getPersonTask(1, task.id).revision, idempotency_key: 'continue-auto',
+    }) as any
+    await runner.tickPersonWork(); await wait(next.execution.id, 'finished')
+    const scheduled = await create({ agent_id: 'worker', start: false })
+    await schedules.applyPersonSchedule(1, { action: 'create', task_id: scheduled.task.id, kind: 'cron', expression: '* * * * *', timezone: 'UTC', expected_revision: 0, idempotency_key: 'auto-schedule' })
+    schedules.tickPersonSchedules(store.listPersonSchedules(1)[0].next_at)
+    const occurrence = store.taskPersonExecutions(1, scheduled.task.id)[0]
+    await runner.tickPersonWork(); await wait(occurrence.id, 'finished')
+    expect(nativeTaskRun).toHaveBeenCalledTimes(3)
+    expect(runtime.answer).not.toHaveBeenCalled()
+    expect(store.personInteractions(1)).toEqual([])
+  })
+
   it('persists each return on its exact assistant reply and never exposes another account or session', async () => {
     const { ensurePersonSession } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
     const sessions = await import('../../packages/server/src/modules/studio/repositories/session-store')

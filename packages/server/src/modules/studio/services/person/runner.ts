@@ -47,12 +47,11 @@ export async function replyPersonQuestion(userId: number, id: string, revision: 
   await deliver(run, question, answer, 'user')
   return { delivered: true }
 }
-async function coordinate(run: PersonExecution, nativeId: string, questionText: string, choices: string[], approval: boolean, signal: AbortSignal) {
+async function coordinate(run: PersonExecution, nativeId: string, questionText: string, choices: string[], signal: AbortSignal) {
   current(run)
-  const question = addPersonInteraction(run.owner_user_id, run, nativeId, questionText.slice(0,4000), (approval && !choices.length ? ['once','session','deny'] : choices).slice(0,5), approval ? 'approval' : 'question')
+  const question = addPersonInteraction(run.owner_user_id, run, nativeId, questionText.slice(0,4000), choices.slice(0,5), 'question')
   if (question.state !== 'pending') return
-  setPersonExecution(current(run), approval ? 'waiting_approval' : 'waiting_person')
-  if (approval) return // Coding agents normally bypass this; existing interactive runtimes keep their real approvals.
+  setPersonExecution(current(run), 'waiting_person')
   let decision: { answer?: string; escalation?: string } | undefined
   const tools = personTools(run.owner_user_id, 'coordinator', run.task_id)
   tools.push(personTool('bot_interaction_reply', 'Answer this worker question from existing requirements or retrieved facts; escalate only missing user intent or expanded scope.', {
@@ -105,12 +104,13 @@ async function execute(run: PersonExecution, abort: AbortController) {
           current(run)
           if (!kind.endsWith('.delta')) personEvent(run, kind, payload)
           if (kind === 'run.started') setPersonExecution(current(run), 'running')
-          if (kind === 'clarify.requested' || kind === 'approval.requested') {
-            const id = String(payload.clarify_id || payload.approval_id || '')
+          // The runtime automatically handles approvals; only real questions need coordination.
+          if (kind === 'clarify.requested') {
+            const id = String(payload.clarify_id || '')
             const questionKey = `${run.id}:${id}`
             if (!id || coordinating.has(questionKey)) return
             coordinating.add(questionKey)
-            void coordinate(run, id, String(payload.question || payload.description || 'Input required'), Array.isArray(payload.choices) ? payload.choices.map(String) : [], kind === 'approval.requested', abort.signal)
+            void coordinate(run, id, String(payload.question || payload.description || 'Input required'), Array.isArray(payload.choices) ? payload.choices.map(String) : [], abort.signal)
               .catch(error => {
                 try {
                   const actual = current(run)

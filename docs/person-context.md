@@ -172,6 +172,24 @@ Already performed external actions are not undone. Future schedule occurrences
 remain enabled; cancelling a schedule is a separate action. This path does not
 use ordinary chat's socket stop control or change its behavior.
 
+## Delegated execution approvals
+
+Every Person task turn enables the host's internal `approvalChoice: 'once'`,
+including initial dispatch, continuation in the saved conversation and scheduled
+occurrences. Hermes approvals are answered through its runtime broker. Ekko uses
+a run-scoped callback so parallel tool calls do not compete for the single human
+approval slot; cancelled calls still return a denial. Coding Agents retain their existing unattended launch
+configuration and use the same automatic response if a runtime requests approval.
+These responses apply to individual requests; they do not write permanent allow
+rules or change the ordinary chat approval settings.
+
+Approval events remain in execution history but do not create durable human
+interactions or put the task in `waiting_approval`. Real clarification questions
+still go through Person's coordinator and can wait for missing user intent.
+The host deduplicates approval requests, sends resolution after the request event,
+and stops the run if its approval cannot be applied. Completed or cancelled runs
+do not grant late approvals. Account, Profile and task ownership checks still apply.
+
 ## Account animation and inactivity
 
 The Person navigation avatar uses the supplied transparent idle, thinking,

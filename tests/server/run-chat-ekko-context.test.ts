@@ -182,6 +182,34 @@ function continuationContext(subagentId = 'child-background') {
 }
 
 describe('ekko-agent context usage events', () => {
+  it('approves parallel delegated tools without prompts and still coordinates real questions', async () => {
+    const { handleEkkoAgentRun } = await import('../../packages/server/src/modules/studio/services/chat-run/handle-ekko-agent-run')
+    const { nsp, socket, sessionMap, events } = makeHarness()
+    ;(socket as any).data = { internalToolApprovalChoice: 'once' }
+    const verified = vi.fn()
+    agentRunMock.mockImplementationOnce(async (input: any) => {
+      input.onEvent({ type: 'run.started', runId: 'auto-tools', maxSteps: 3 })
+      const approve = (id: string, choices = ['once', 'deny']) => input.toolContext.requestToolApproval({
+        approvalId: id, toolName: 'terminal_exec', key: id, command: 'Remove generated output', description: 'Clean output', choices, timeoutMs: 1000,
+      })
+      expect(await Promise.all([approve('parallel-a'), approve('parallel-b')])).toEqual(['once', 'once'])
+      expect(events.some(e => e.event === 'approval.requested')).toBe(false)
+      const question = input.toolContext.requestUserClarification({ clarifyId: 'auto-question', question: 'Which report?', choices: ['Weekly'], timeoutMs: 1000 })
+      expect(events.some(e => e.event === 'clarify.requested')).toBe(true)
+      expect(respondToEkkoClarification('session-1', 'auto-question', 'Weekly').resolved).toBe(true)
+      expect(await question).toBe('Weekly')
+      expect(await approve('unsupported', ['deny'])).toBe('deny')
+      sessionMap.get('session-1').abortController.abort()
+      expect(await approve('cancelled')).toBe('deny')
+      verified()
+      return { runId: 'auto-tools', output: { role: 'assistant', content: 'Done' }, steps: [], messages: [], events: [] }
+    })
+    await handleEkkoAgentRun(nsp as any, socket as any, { session_id: 'session-1', input: 'Execute task', coding_agent_id: 'ekko-agent',
+      onEvent: (event, payload) => events.push({ event, payload }) }, 'default', sessionMap, vi.fn(() => false))
+    expect(agentRunMock).toHaveBeenCalledOnce()
+    expect(verified).toHaveBeenCalledOnce()
+  })
+
   it('runs Person through single-chat persistence, reasoning events and real clarification/approval callbacks', async () => {
     const { handleEkkoAgentRun } = await import('../../packages/server/src/modules/studio/services/chat-run/handle-ekko-agent-run')
     const { nsp, socket, sessionMap, events } = makeHarness()
@@ -371,7 +399,7 @@ describe('ekko-agent context usage events', () => {
     expect(events.some(item => item.event === 'run.completed')).toBe(true)
   })
 
-  it('bridges Ekko tool approval requests through the existing chat events', async () => {
+  it.each([false, true])('keeps ordinary Ekko approvals interactive with client-supplied policy: %s', async forgedPolicy => {
     agentRunMock.mockImplementationOnce(async (input: any) => {
       input.onEvent({ type: 'run.started', runId: 'run-approval', maxSteps: 3 })
       const choicePromise = input.toolContext.requestToolApproval({
@@ -405,6 +433,7 @@ describe('ekko-agent context usage events', () => {
       session_id: 'session-1',
       input: 'remove the build directory',
       coding_agent_id: 'ekko-agent',
+      ...(forgedPolicy ? { internalToolApprovalChoice: 'once', approvalChoice: 'once' } : {}),
       onEvent: (event: string, payload: any) => events.push({ event, payload }),
     }, 'default', sessionMap, vi.fn(() => false))
 

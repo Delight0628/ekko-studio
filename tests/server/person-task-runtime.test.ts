@@ -16,6 +16,19 @@ function input(signal: AbortSignal, runtime = 'ekko'): Parameters<PersonRuntimeP
 }
 beforeEach(() => { vi.resetAllMocks(); native.available = true; native.abortSession.mockResolvedValue(undefined) })
 
+it.each(['ekko','hermes','codex'])('enables per-request automatic approvals on every %s task turn', async runtime => {
+  native.runAndWait.mockResolvedValue({ ok: true, output: 'Done' })
+  const task = input(new AbortController().signal, runtime)
+  await executePersonTask(task)
+  await executePersonTask({ ...task, prompt: [{ type: 'text', text: 'Continue the saved work' }] })
+  for (const [request, options] of native.runAndWait.mock.calls) {
+    expect(options).toMatchObject({ approvalChoice: 'once', user: task.user, profile: 'default' })
+    expect(request).toMatchObject({ session_id: task.sessionId, source: runtime === 'hermes' ? 'api_server' : runtime === 'ekko' ? 'builtin_agent' : 'coding_agent' })
+    expect(request.instructions).toContain('Ask clarifying questions normally')
+    expect(request).not.toHaveProperty('approvalChoice')
+  }
+})
+
 it.each(['ekko','hermes','codex'])('waits for %s initialization, then shares the real stop acknowledgement across requests', async runtime => {
   const worker = deferred<{ ok: boolean }>(); const ack = deferred()
   const controller = new AbortController()

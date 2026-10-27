@@ -1326,36 +1326,44 @@ export async function handleEkkoAgentRun(
       mcpSessionSignal: mcpLease.signal,
       timeoutMs: 120_000,
       signal: abortController.signal,
-      requestToolApproval: (request: AgentToolApprovalRequest) => waitForEkkoToolApproval(request, {
-        sessionId,
-        signal: abortController.signal,
-        onRequested: (pending: any) => {
-          const requestedAt = Date.now()
-          emit('approval.requested', {
-            event: 'approval.requested',
-            run_id: runId || turnId,
-            approval_id: pending.approvalId,
-            command: pending.command,
-            description: pending.description,
-            choices: pending.choices,
-            allow_permanent: pending.allowPermanent,
-            timeout_ms: pending.timeoutMs,
-            remaining_timeout_ms: pending.timeoutMs,
-            requested_at: requestedAt,
-            tool: pending.toolName,
-            permission_key: pending.key,
-          })
-        },
-        onResolved: (choice: any) => {
-          emit('approval.resolved', {
-            event: 'approval.resolved',
-            run_id: runId || turnId,
-            approval_id: request.approvalId,
-            choice,
-            resolved: true,
-          })
-        },
-      }),
+      requestToolApproval: (request: AgentToolApprovalRequest) => {
+        // Internal runAndWait policy lives on the server-owned socket, never in
+        // client run data. Resolve here so parallel tools need no interactive broker slot.
+        const automaticChoice = socket.data?.internalToolApprovalChoice
+        if (automaticChoice === 'once' || automaticChoice === 'session' || automaticChoice === 'always') {
+          return Promise.resolve(!abortController.signal.aborted && request.choices.includes(automaticChoice) ? automaticChoice : 'deny')
+        }
+        return waitForEkkoToolApproval(request, {
+          sessionId,
+          signal: abortController.signal,
+          onRequested: (pending: any) => {
+            const requestedAt = Date.now()
+            emit('approval.requested', {
+              event: 'approval.requested',
+              run_id: runId || turnId,
+              approval_id: pending.approvalId,
+              command: pending.command,
+              description: pending.description,
+              choices: pending.choices,
+              allow_permanent: pending.allowPermanent,
+              timeout_ms: pending.timeoutMs,
+              remaining_timeout_ms: pending.timeoutMs,
+              requested_at: requestedAt,
+              tool: pending.toolName,
+              permission_key: pending.key,
+            })
+          },
+          onResolved: (choice: any) => {
+            emit('approval.resolved', {
+              event: 'approval.resolved',
+              run_id: runId || turnId,
+              approval_id: request.approvalId,
+              choice,
+              resolved: true,
+            })
+          },
+        })
+      },
       requestUserClarification: (request: AgentClarificationRequest) => waitForEkkoClarification(request, {
         sessionId,
         runId: runId || turnId,
