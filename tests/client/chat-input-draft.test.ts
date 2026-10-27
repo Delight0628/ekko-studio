@@ -549,12 +549,14 @@ describe('ChatInput draft persistence', () => {
   })
 
   it.each([
-    ['', 'chat.reasoningEffort.options.none'],
-    ['high', 'chat.reasoningEffort.options.high'],
-    ['unlisted-effort', 'unlisted-effort'],
-  ])('keeps Ekko run-detail effort %s read-only without rewriting the saved value', async (effort, label) => {
+    ['ekko-agent', '', 'chat.reasoningEffort.options.none'],
+    ['ekko-agent', 'high', 'chat.reasoningEffort.options.high'],
+    ['ekko-agent', 'unlisted-effort', 'unlisted-effort'],
+    ['hermes', '', 'chat.reasoningEffort.options.default'],
+  ])('keeps %s run-detail effort %s read-only without rewriting the saved value', async (agent, effort, label) => {
     const wrapper = mountForSession('ekko-run-detail', {
-      source: 'workflow', codingAgentId: 'ekko-agent', codingAgentMode: 'scoped',
+      source: 'workflow', agent, codingAgentId: agent === 'hermes' ? undefined : 'ekko-agent',
+      codingAgentMode: agent === 'hermes' ? undefined : 'scoped',
       provider: 'test-provider', model: 'historical-model', reasoningEffort: effort,
     }, {}, { reasoningEffortDisabled: true })
     await nextTick()
