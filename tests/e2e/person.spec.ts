@@ -71,6 +71,133 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true, custo
   return { state, operations }
 }
 
+async function backgroundTaskCount(page: Page, count: number, state = 'searching') {
+  await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__?.allSockets?.some((socket: any) => String(socket.url).endsWith('/person-presence')))).toBe(true)
+  await page.evaluate(({ count, state }) => {
+    const socket = (window as any).__PW_CHAT_SOCKET__.allSockets.find((socket: any) => String(socket.url).endsWith('/person-presence'))
+    socket.__trigger('person.presence', { state, backgroundTaskCount: count, lastActivityAt: 1, sleepAt: 600001 })
+  }, { count, state })
+}
+
+for (const mode of ['light', 'dark'] as const) {
+  test(`Person background-task island expands from the center and updates live in ${mode}`, async ({ page }) => {
+    const { state } = await setup(page, mode, mode === 'dark', false)
+    state.tasks[0].running = false; state.tasks[0].status = 'completed'; state.tasks[0].execution_state = 'finished'
+    await page.setViewportSize({ width: mode === 'dark' ? 360 : 1440, height: 900 })
+    await page.goto('/#/person')
+    await expect(page.locator('.person-title')).toBeVisible()
+    await expect(page.locator('.person-view')).toHaveAttribute('aria-busy', 'false')
+    const island = page.locator('.person-task-island')
+    await expect(island).toHaveCount(0)
+    const messages = page.locator('.person-view .message-list-shell')
+    const composer = page.locator('.person-compose')
+    const messageBounds = await messages.boundingBox(), composerBounds = await composer.boundingBox()
+    await page.evaluate(async () => { const image = new Image(); image.src = '/person/searching.gif'; await image.decode() })
+    await backgroundTaskCount(page, 3)
+    const animations = await page.evaluate(async () => {
+      await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame)
+      const animations = document.querySelector('.person-task-activity')!.getAnimations({ subtree: true })
+      for (const animation of animations) { animation.pause(); animation.currentTime = 100 }
+      return animations.length
+    })
+    expect(animations).toBeGreaterThan(0)
+    await page.screenshot({ path: `/tmp/person-task-island-enter-${mode}.png` })
+    await page.evaluate(() => document.querySelector('.person-task-activity')!.getAnimations({ subtree: true }).forEach(animation => animation.finish()))
+    await expect(page.getByRole('button', { name: 'zhezhe · Background tasks · 3', exact: true })).toBeVisible()
+    await expect(island.locator('img')).toHaveAttribute('src', '/person/searching.gif')
+    const box = await island.boundingBox()
+    expect(Math.abs(box!.x + box!.width / 2 - page.viewportSize()!.width / 2)).toBeLessThan(1)
+    await expect(page.locator('.person-task-activity')).toHaveCSS('position', 'fixed')
+    expect(await messages.boundingBox()).toEqual(messageBounds)
+    expect(await composer.boundingBox()).toEqual(composerBounds)
+    const headerBounds = await page.locator('.person-header').boundingBox()
+    expect(box!.y).toBeGreaterThanOrEqual(headerBounds!.y + headerBounds!.height)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.screenshot({ path: `/tmp/person-task-island-expanded-${mode}.png`, animations: 'disabled' })
+    await island.evaluate(element => { (element as HTMLElement).dataset.instance = 'same-task-animation' })
+    // The server count can exceed the current task-list page; feedback never hides active tasks.
+    await backgroundTaskCount(page, 24, 'done')
+    await expect(page.getByRole('button', { name: 'zhezhe · Background tasks · 24', exact: true })).toBeVisible()
+    await expect(island).toHaveAttribute('data-instance', 'same-task-animation')
+    await expect(island.locator('img')).toHaveAttribute('src', '/person/searching.gif')
+    await island.click()
+    await expect(page.locator('.session-tasks-drawer')).toBeVisible()
+    await expect(island).toHaveAttribute('aria-expanded', 'true')
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.session-tasks-drawer')).not.toBeVisible()
+    await backgroundTaskCount(page, 0, 'idle')
+    await expect(island).toHaveCount(0)
+    expect(await messages.boundingBox()).toEqual(messageBounds)
+    expect(await composer.boundingBox()).toEqual(composerBounds)
+    await backgroundTaskCount(page, 1)
+    await expect(island).toBeVisible()
+    await page.setViewportSize({ width: mode === 'dark' ? 1440 : 360, height: 900 })
+    await expect.poll(async () => {
+      const resized = await island.boundingBox()
+      return Math.abs(resized!.x + resized!.width / 2 - page.viewportSize()!.width / 2)
+    }).toBeLessThan(1)
+    await page.locator('.person-compose textarea').click()
+    await expect(page.locator('.person-compose textarea')).toBeFocused()
+    await island.focus(); await page.keyboard.press('Enter')
+    await expect(page.locator('.session-tasks-drawer')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await page.goto('/#/hermes/theme')
+    await expect(island).toHaveCount(0)
+  })
+
+  test(`Person background-task island follows wallpaper, regional and reset themes in ${mode}`, async ({ page }) => {
+    await setup(page, mode, true, false)
+    const island = page.locator('.person-task-island')
+    async function open() { await page.goto('/#/person'); await backgroundTaskCount(page, 2); await expect(island).toBeVisible() }
+    const wallpaper = mode === 'light' ? 'rgba(255, 255, 255, 0.72)' : 'rgba(42, 42, 42, 0.72)'
+    await open()
+    await expect(island).toHaveCSS('background-color', wallpaper)
+    await page.goto('/#/hermes/theme')
+    await page.getByTestId('theme-global-backgroundColor').fill('#223344')
+    await page.getByTestId('theme-global-opacity').fill('0.4')
+    await page.getByTestId('theme-global-opacity').dispatchEvent('change')
+    await open()
+    await expect(island).toHaveCSS('background-color', 'rgba(34, 51, 68, 0.4)')
+    await page.goto('/#/hermes/theme')
+    await page.getByTestId('theme-scope').selectOption('card')
+    await page.getByTestId('theme-card-backgroundColor').fill('#336699')
+    await page.getByTestId('theme-card-opacity').fill('0')
+    await page.getByTestId('theme-card-opacity').dispatchEvent('change')
+    await page.getByTestId('theme-card-radius').fill('18')
+    await page.getByTestId('theme-card-radius').dispatchEvent('change')
+    await page.getByTestId('theme-card-blur').fill('4')
+    await page.getByTestId('theme-card-blur').dispatchEvent('change')
+    await open()
+    await expect(island).toHaveCSS('background-color', 'rgba(51, 102, 153, 0)')
+    await expect(island).toHaveCSS('border-radius', '18px')
+    await expect(island).toHaveCSS('opacity', '1')
+    await expect(island).toHaveCSS('backdrop-filter', /blur\(4px\)/)
+    await page.goto('/#/hermes/theme')
+    await page.getByRole('button', { name: 'Restore defaults', exact: true }).click()
+    await open()
+    await expect(island).toHaveCSS('background-color', wallpaper)
+    await page.goto('/#/hermes/theme')
+    await page.getByRole('button', { name: 'Remove', exact: true }).click()
+    await open()
+    await expect(island).toHaveCSS('background-color', mode === 'light' ? 'rgb(255, 255, 255)' : 'rgb(42, 42, 42)')
+  })
+}
+
+test('Person background-task island supports reduced motion and hides for main-chat activity alone', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await setup(page, 'light', false, false)
+  await page.goto('/#/person')
+  await backgroundTaskCount(page, 0, 'thinking')
+  await expect(page.locator('.person-task-island')).toHaveCount(0)
+  await backgroundTaskCount(page, 1)
+  const island = page.getByRole('button', { name: 'zhezhe · Background tasks · 1', exact: true })
+  await expect(island).toBeVisible()
+  await expect(island.locator('img')).toHaveAttribute('src', '/coding-agents/person.jpg')
+  expect(await island.evaluate(element => element.getAnimations().length)).toBe(0)
+  await island.click()
+  await expect(page.locator('.session-tasks-drawer')).toBeVisible()
+})
+
 test('Person general settings save independently, survive refresh and retain drafts across tabs', async ({ page }) => {
   const { state, operations } = await setup(page, 'light', false, false)
   const originalAgents = structuredClone(state.settings.agents)
@@ -1169,12 +1296,15 @@ for (const mode of ['light', 'dark'] as const) {
     releaseSnapshot()
     await expect.poll(() => emitted(page, 'resume')).toEqual(expect.arrayContaining([expect.objectContaining({ session_id: 'person-main-1' })]))
     await expect(overlay.locator('.studio-loading-logo')).toBeVisible()
+    await backgroundTaskCount(page, 2)
+    await expect(page.locator('.person-task-island')).toHaveCount(0)
     await page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.latest.__trigger('resumed', {
       session_id: 'person-main-1', isWorking: false, events: [],
       messages: [{ id: 1, role: 'user', content: 'Loaded Person history', timestamp: 1 }],
       messageTotal: 1, messageLoadedCount: 1, hasMoreBefore: false,
     }))
     await expect(overlay).toHaveCount(0)
+    await expect(page.locator('.person-task-island')).toBeVisible()
     await expect(page.getByText('Loaded Person history', { exact: true })).toBeVisible()
     const input = surface.locator('.input-textarea')
     await input.fill('Keep this Person draft')

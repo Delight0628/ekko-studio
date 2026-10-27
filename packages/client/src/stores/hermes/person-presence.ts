@@ -11,6 +11,10 @@ export const usePersonPresenceStore = defineStore('personPresence', () => {
   const state = computed(() => snapshot.value?.state || 'idle')
   const avatarSrc = computed(() => PERSON_ANIMATIONS[state.value])
   const avatarKey = computed(() => snapshot.value?.feedbackId || state.value)
+  const backgroundTaskCount = computed(() => {
+    const count = snapshot.value?.backgroundTaskCount
+    return Number.isSafeInteger(count) && count! > 0 ? count! : 0
+  })
   let socket: ReturnType<typeof connectPersonPresence> | null = null
   let stopAuth: (() => void) | null = null
   let activityTimer: ReturnType<typeof setTimeout> | null = null
@@ -51,5 +55,5 @@ export const usePersonPresenceStore = defineStore('personPresence', () => {
     lastSent = -Infinity
     snapshot.value = null
   }
-  return { snapshot, state, avatarSrc, avatarKey, start, stop }
+  return { snapshot, state, avatarSrc, avatarKey, backgroundTaskCount, start, stop }
 })

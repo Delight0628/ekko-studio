@@ -29,6 +29,28 @@ function execution(id: string, owner: number, status: string) {
 }
 
 describe('Person account presence', () => {
+  it('counts all account background tasks once, including queued/waiting work and pending reports', () => {
+    for (let i = 0; i < 30; i++) execution(`finished${i}`, 1, 'finished')
+    for (const status of ['queued', 'starting', 'running', 'stopping', 'waiting_person', 'waiting_user', 'waiting_approval']) execution(status, 1, status)
+    execution('other-account', 2, 'running')
+    execution('pending-report', 1, 'finished')
+    execution('reported', 1, 'finished')
+    for (const [id, status] of [['pending-report', 'pending'], ['reported', 'delivered']]) {
+      state.db!.prepare('INSERT INTO person_deliveries(execution_id,owner_user_id,origin_json,state,updated_at) VALUES (?,1,?,?,0)').run(id, '{}', status)
+    }
+    state.db!.prepare("INSERT INTO person_executions(id,task_id,owner_user_id,requirements_revision,state,session_id,selection_json,created_at,updated_at) VALUES ('previous-running','running',1,0,'finished','previous','{}',0,0)").run()
+    state.db!.prepare("INSERT INTO person_deliveries(execution_id,owner_user_id,origin_json,state,updated_at) VALUES ('previous-running',1,'{}','pending',0)").run()
+    recordPersonOutcome(1, 'feedback', 'done')
+    expect(personPresenceSnapshot(1)).toMatchObject({ state: 'done', backgroundTaskCount: 8 })
+    expect(personPresenceSnapshot(2).backgroundTaskCount).toBe(1)
+    state.db!.prepare("UPDATE person_executions SET state='finished' WHERE owner_user_id=1").run()
+    state.db!.prepare("UPDATE person_deliveries SET state='delivered' WHERE execution_id='previous-running'").run()
+    state.db!.prepare("UPDATE person_deliveries SET state='queued' WHERE execution_id='pending-report'").run()
+    expect(personPresenceSnapshot(1).backgroundTaskCount).toBe(1)
+    state.db!.prepare("UPDATE person_deliveries SET state='delivered' WHERE owner_user_id=1").run()
+    expect(personPresenceSnapshot(1).backgroundTaskCount).toBe(0)
+  })
+
   it('sleeps exactly ten minutes after server-recorded interaction; reads and restart do not wake it', () => {
     const now = 1_000_000
     expect(personPresenceSnapshot(1, now).state).toBe('idle')
@@ -174,9 +196,12 @@ it('synchronizes two real Socket.IO devices across Profiles, isolates accounts, 
     execution('running', 1, 'running')
     await (presence as any).refresh()
     await vi.waitFor(() => expect(snapshots.get(reconnect).state).toBe('searching'))
+    expect(snapshots.get(reconnect).backgroundTaskCount).toBe(1)
+    expect(snapshots.get(other).backgroundTaskCount).toBe(0)
     expect(snapshots.get(other).state).toBe('idle')
     setPersonExecution(getPersonExecution(1, 'running'), 'finished')
     await vi.waitFor(() => expect(snapshots.get(reconnect).state).toBe('done'))
+    expect(snapshots.get(reconnect).backgroundTaskCount).toBe(0)
     expect(snapshots.get(a)).toEqual(snapshots.get(reconnect))
     const outcomeReconnect = await device('user1', 'yet-another-profile')
     expect(snapshots.get(outcomeReconnect).feedbackUntil).toBe(snapshots.get(a).feedbackUntil)

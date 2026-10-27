@@ -240,11 +240,20 @@ seconds, then restores the current working, idle or sleeping state. A newer
 outcome replaces the previous feedback; cancelled work does not celebrate completion.
 
 The authenticated `/person-presence` Socket.IO namespace sends `person.presence`
-snapshots with `state`, `lastActivityAt` and `sleepAt`, plus `feedbackId` and
+snapshots with `state`, `backgroundTaskCount`, `lastActivityAt` and `sleepAt`, plus `feedbackId` and
 `feedbackUntil` during outcome feedback. Its only client write is
 `person.activity`, with no account, state or timestamp parameters. It is available
 through both local and cloud App relay transports. Each connection is bound to
 the authenticated Studio account, independently of Profile and open conversation.
+
+Person shows a fixed capsule floating at the top center while this count is
+positive, without reserving a row or shifting the conversation and composer.
+It uses zhezhe's execution animation and opens the task drawer when
+selected, expanding from the center on arrival and collapsing after the last task.
+The server counts distinct account tasks across all pages, including queued and
+waiting executions, stopping work and pending result delivery. Outcome feedback
+does not replace the capsule's execution animation. Reduced motion uses a static
+avatar and skips the transition.
 
 The server checks connected accounts once per second and publishes only changed
 snapshots. Persisted outcome events publish immediately, and server timers switch

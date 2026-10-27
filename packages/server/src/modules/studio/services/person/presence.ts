@@ -1,10 +1,10 @@
 import { personSessionId } from '../../contracts/person-session'
 import { getChatRunServer } from '../../public/chat-run'
-import { personHasExecutingTask, personLastActivity, touchPersonActivity, personFeedback, recordPersonOutcome } from '../../repositories/person-presence-store'
+import { personHasExecutingTask, personBackgroundTaskCount, personLastActivity, touchPersonActivity, personFeedback, recordPersonOutcome } from '../../repositories/person-presence-store'
 
 export const PERSON_SLEEP_AFTER_MS = 10 * 60 * 1000
 export type PersonPresenceState = 'idle' | 'thinking' | 'searching' | 'done' | 'error' | 'sleeping'
-export interface PersonPresenceSnapshot { state: PersonPresenceState; lastActivityAt: number; sleepAt: number; feedbackId?: string; feedbackUntil?: number }
+export interface PersonPresenceSnapshot { state: PersonPresenceState; backgroundTaskCount: number; lastActivityAt: number; sleepAt: number; feedbackId?: string; feedbackUntil?: number }
 interface MainActivity { runId?: string; tools: Set<string>; waiting: Set<string> }
 const mainActivity = new Map<number, MainActivity>()
 
@@ -41,15 +41,16 @@ export function observePersonPresenceEvent(sessionId: string, event: string, pay
 export function personPresenceSnapshot(userId: number, now = Date.now()): PersonPresenceSnapshot {
   const lastActivityAt = personLastActivity(userId, now)
   const sleepAt = lastActivityAt + PERSON_SLEEP_AFTER_MS
+  const backgroundTaskCount = personBackgroundTaskCount(userId)
   const feedback = personFeedback(userId, now)
-  if (feedback) return { state: feedback.state, lastActivityAt, sleepAt, feedbackId: feedback.event_id, feedbackUntil: feedback.expires_at }
+  if (feedback) return { state: feedback.state, backgroundTaskCount, lastActivityAt, sleepAt, feedbackId: feedback.event_id, feedbackUntil: feedback.expires_at }
   const activity = mainActivity.get(userId)
   const working = !!getChatRunServer()?.isSessionRunning?.(personSessionId(userId))
   let state: PersonPresenceState
   if (personHasExecutingTask(userId) || (working && !activity?.waiting.size && !!activity?.tools.size)) state = 'searching'
   else if (working && !activity?.waiting.size) state = 'thinking'
   else state = now >= sleepAt ? 'sleeping' : 'idle'
-  return { state, lastActivityAt, sleepAt }
+  return { state, backgroundTaskCount, lastActivityAt, sleepAt }
 }
 
 export function recordPersonActivity(userId: number): void { touchPersonActivity(userId) }

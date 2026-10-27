@@ -3,7 +3,7 @@ import { getApiKey, getBaseUrlValue } from '@/api/client'
 import { socketEndpoint } from '@/utils/deployment-url'
 
 export type PersonPresenceState = 'idle' | 'thinking' | 'searching' | 'done' | 'error' | 'sleeping'
-export interface PersonPresenceSnapshot { state: PersonPresenceState; lastActivityAt: number; sleepAt: number; feedbackId?: string; feedbackUntil?: number }
+export interface PersonPresenceSnapshot { state: PersonPresenceState; backgroundTaskCount: number; lastActivityAt: number; sleepAt: number; feedbackId?: string; feedbackUntil?: number }
 
 export function connectPersonPresence() {
   const endpoint = socketEndpoint(getBaseUrlValue(), '/person-presence')

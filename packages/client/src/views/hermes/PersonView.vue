@@ -15,6 +15,7 @@ import PersonPanelIcon from '@/components/hermes/person/PersonPanelIcon.vue'
 import { useTaskDrawerLayout } from '@/components/hermes/tasks/useTaskDrawerLayout'
 import PersonAgentSettings from '@/components/hermes/person/PersonAgentSettings.vue'
 import PersonGeneralSettings from '@/components/hermes/person/PersonGeneralSettings.vue'
+import PersonTaskActivity from '@/components/hermes/person/PersonTaskActivity.vue'
 import { onPersonUpdated } from '@/api/studio/chat'
 import ModelCascader from '@/components/hermes/models/ModelCascader.vue'
 import SessionTaskIcon from '@/components/common/SessionTaskIcon.vue'
@@ -24,6 +25,7 @@ import FolderPicker from '@/components/hermes/chat/FolderPicker.vue'
 import { useDefaultWorkspace } from '@/composables/useDefaultWorkspace'
 import { useChatStore } from '@/stores/hermes/chat'
 import { useSettingsStore } from '@/stores/hermes/settings'
+import { usePersonPresenceStore } from '@/stores/hermes/person-presence'
 import type { AvailableModelGroup } from '@/api/hermes/system'
 import { personRequest, type PersonSnapshot, type PersonModelGroup, type PersonTask, type PersonSchedule, type PersonMemory } from '@/api/person'
 
@@ -31,6 +33,7 @@ const { t } = useI18n()
 const message = useMessage()
 const settingsStore = useSettingsStore()
 const chatStore = useChatStore()
+const personPresence = usePersonPresenceStore()
 const data = ref<PersonSnapshot | null>(null)
 const initializing = ref(true)
 const error = ref('')
@@ -213,6 +216,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
     </PageHeader>
     <NAlert v-if="error" class="person-alert" type="error" closable @close="error = ''">{{ error }}</NAlert>
     <template v-if="data">
+      <PersonTaskActivity :count="personPresence.backgroundTaskCount" :expanded="showTasks" @open="openPanel('tasks')" />
       <NModal v-model:show="showWorkspace" preset="dialog" :title="t('chat.setWorkspaceTitle')" :positive-text="t('common.ok')" :negative-text="t('common.cancel')"
         :positive-button-props="{ loading: settingsWrites > 0, disabled: busy || pending || !data?.can_clear }" style="width: var(--studio-workspace-picker-width)" @positive-click="saveWorkspace">
         <p>{{ t('person.workspaceHint') }}</p>

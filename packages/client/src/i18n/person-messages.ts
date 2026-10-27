@@ -1,5 +1,6 @@
 export const personMessages = {
   "en": {
+    "backgroundTasks": "Background tasks",
     "title": "Personal assistant",
     "stopTask": "Stop task",
     "subtitle": "Your account assistant",
@@ -122,6 +123,7 @@ export const personMessages = {
     "compressionDisabled": "Automatic compression is disabled in global settings. Model context limits still apply.",
   },
   "zh": {
+    "backgroundTasks": "后台任务",
     "title": "个人助理",
     "stopTask": "停止任务",
     "subtitle": "你的账号助理",
@@ -244,6 +246,7 @@ export const personMessages = {
     "compressionDisabled": "全局设置已关闭自动压缩，仍受模型上下文上限约束。",
   },
   "zh-TW": {
+    "backgroundTasks": "背景任務",
     "title": "個人助理",
     "stopTask": "停止任務",
     "subtitle": "你的帳號助理",
@@ -366,6 +369,7 @@ export const personMessages = {
     "compressionDisabled": "全域設定已關閉自動壓縮，仍受模型上下文上限限制。",
   },
   "ja": {
+    "backgroundTasks": "バックグラウンドタスク",
     "title": "パーソナルアシスタント",
     "stopTask": "タスクを停止",
     "subtitle": "アカウントのアシスタント",
@@ -488,6 +492,7 @@ export const personMessages = {
     "compressionDisabled": "全体設定で自動圧縮が無効です。モデルのコンテキスト上限は適用されます。",
   },
   "ko": {
+    "backgroundTasks": "백그라운드 작업",
     "title": "개인 비서",
     "stopTask": "작업 중지",
     "subtitle": "계정 도우미",
@@ -610,6 +615,7 @@ export const personMessages = {
     "compressionDisabled": "전역 설정에서 자동 압축이 꺼져 있습니다. 모델 컨텍스트 한도는 계속 적용됩니다.",
   },
   "fr": {
+    "backgroundTasks": "Tâches en arrière-plan",
     "title": "Assistant personnel",
     "stopTask": "Arrêter la tâche",
     "subtitle": "Votre assistant de compte",
@@ -732,6 +738,7 @@ export const personMessages = {
     "compressionDisabled": "La compression automatique est désactivée dans les paramètres globaux. Les limites du modèle restent applicables.",
   },
   "es": {
+    "backgroundTasks": "Tareas en segundo plano",
     "title": "Asistente personal",
     "stopTask": "Detener tarea",
     "subtitle": "Tu asistente de cuenta",
@@ -854,6 +861,7 @@ export const personMessages = {
     "compressionDisabled": "La compresión automática está desactivada en los ajustes globales. Se mantienen los límites del modelo.",
   },
   "de": {
+    "backgroundTasks": "Hintergrundaufgaben",
     "title": "Persönlicher Assistent",
     "stopTask": "Aufgabe stoppen",
     "subtitle": "Dein Kontoassistent",
@@ -976,6 +984,7 @@ export const personMessages = {
     "compressionDisabled": "Automatische Komprimierung ist global deaktiviert. Die Kontextgrenzen des Modells gelten weiterhin.",
   },
   "pt": {
+    "backgroundTasks": "Tarefas em segundo plano",
     "title": "Assistente pessoal",
     "stopTask": "Parar tarefa",
     "subtitle": "Seu assistente de conta",
@@ -1098,6 +1107,7 @@ export const personMessages = {
     "compressionDisabled": "A compressão automática está desativada nos ajustes globais. Os limites do modelo continuam valendo.",
   },
   "ru": {
+    "backgroundTasks": "Фоновые задачи",
     "title": "Личный помощник",
     "stopTask": "Остановить задачу",
     "subtitle": "Помощник вашей учётной записи",
@@ -1220,6 +1230,7 @@ export const personMessages = {
     "compressionDisabled": "Автоматическое сжатие отключено в общих настройках. Ограничения контекста модели сохраняются.",
   },
   "ar": {
+    "backgroundTasks": "المهام في الخلفية",
     "title": "المساعد الشخصي",
     "stopTask": "إيقاف المهمة",
     "subtitle": "مساعد حسابك",
@@ -1342,6 +1353,7 @@ export const personMessages = {
     "compressionDisabled": "الضغط التلقائي معطل في الإعدادات العامة. تظل حدود سياق النموذج سارية.",
   },
   "tr": {
+    "backgroundTasks": "Arka plan görevleri",
     "title": "Kişisel asistan",
     "stopTask": "Görevi durdur",
     "subtitle": "Hesap asistanınız",

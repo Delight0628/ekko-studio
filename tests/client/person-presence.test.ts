@@ -53,15 +53,28 @@ it('throttles input with a trailing report and drops offline/background input', 
 it('clears old account state and rejects retained socket callbacks after logout', () => {
   const store = usePersonPresenceStore(); store.start()
   const old = transport.sockets[0]
-  old.handlers.get('person.presence')({ state: 'thinking', lastActivityAt: 1, sleepAt: 600001 })
+  old.handlers.get('person.presence')({ state: 'thinking', backgroundTaskCount: 3, lastActivityAt: 1, sleepAt: 600001 })
+  expect(store.backgroundTaskCount).toBe(3)
   transport.invalidate!()
   store.start()
   old.handlers.get('person.presence')({ state: 'searching', lastActivityAt: 1, sleepAt: 600001 })
   expect(store.state).toBe('idle')
+  expect(store.backgroundTaskCount).toBe(0)
   expect(old.disconnect).toHaveBeenCalledOnce()
   window.dispatchEvent(new Event('keydown'))
   expect(transport.sockets[1].volatile.emit).toHaveBeenCalledOnce()
   expect(old.volatile.emit).not.toHaveBeenCalled()
+})
+
+it('takes task counts from server snapshots independently of outcome animations', () => {
+  const store = usePersonPresenceStore(); store.start()
+  const socket = transport.sockets[0]
+  socket.handlers.get('person.presence')({ state: 'done', backgroundTaskCount: 24, lastActivityAt: 1, sleepAt: 600001 })
+  expect(store.backgroundTaskCount).toBe(24)
+  socket.handlers.get('person.presence')({ state: 'searching', backgroundTaskCount: 2, lastActivityAt: 1, sleepAt: 600001 })
+  expect(store.backgroundTaskCount).toBe(2)
+  socket.handlers.get('person.presence')({ state: 'idle', backgroundTaskCount: 0, lastActivityAt: 1, sleepAt: 600001 })
+  expect(store.backgroundTaskCount).toBe(0)
 })
 
 it('uses authoritative outcome deadlines and gives consecutive outcome animations distinct identities', () => {
