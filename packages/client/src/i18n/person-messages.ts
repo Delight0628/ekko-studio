@@ -1,5 +1,6 @@
 export const personMessages = {
   "en": {
+    "stopTask": "Stop task",
     "subtitle": "Your account assistant",
     "chooseModel": "Choose a model",
     "modelSearch": "Search model or provider",
@@ -76,6 +77,7 @@ export const personMessages = {
     "defaultAgentHint": "With no presets, tasks use Ekko with the current Person provider, model and reasoning effort."
   },
   "zh": {
+    "stopTask": "停止任务",
     "subtitle": "你的账号助理",
     "chooseModel": "选择模型",
     "modelSearch": "搜索模型或供应商",
@@ -152,6 +154,7 @@ export const personMessages = {
     "defaultAgentHint": "未添加预设时，使用 Ekko，并继承当前 Person 的 provider、model 和思考强度。"
   },
   "zh-TW": {
+    "stopTask": "停止任務",
     "subtitle": "你的帳號助理",
     "chooseModel": "選擇模型",
     "modelSearch": "搜尋模型或供應商",
@@ -228,6 +231,7 @@ export const personMessages = {
     "defaultAgentHint": "未新增預設時，使用 Ekko，並繼承目前 Person 的 provider、model 和思考強度。"
   },
   "ja": {
+    "stopTask": "タスクを停止",
     "subtitle": "アカウントのアシスタント",
     "chooseModel": "モデルを選択",
     "modelSearch": "モデルやプロバイダーを検索",
@@ -304,6 +308,7 @@ export const personMessages = {
     "defaultAgentHint": "プリセットがない場合、Ekko が現在の Person のプロバイダー、モデル、推論強度を使用します。"
   },
   "ko": {
+    "stopTask": "작업 중지",
     "subtitle": "계정 도우미",
     "chooseModel": "모델 선택",
     "modelSearch": "모델 또는 공급자 검색",
@@ -380,6 +385,7 @@ export const personMessages = {
     "defaultAgentHint": "프리셋이 없으면 Ekko가 현재 Person의 공급자, 모델 및 추론 강도를 사용합니다."
   },
   "fr": {
+    "stopTask": "Arrêter la tâche",
     "subtitle": "Votre assistant de compte",
     "chooseModel": "Choisir un modèle",
     "modelSearch": "Rechercher un modèle ou fournisseur",
@@ -456,6 +462,7 @@ export const personMessages = {
     "defaultAgentHint": "Sans préréglage, Ekko utilise le fournisseur, le modèle et le niveau de raisonnement actuels de Person."
   },
   "es": {
+    "stopTask": "Detener tarea",
     "subtitle": "Tu asistente de cuenta",
     "chooseModel": "Elegir modelo",
     "modelSearch": "Buscar modelo o proveedor",
@@ -532,6 +539,7 @@ export const personMessages = {
     "defaultAgentHint": "Sin ajustes predefinidos, Ekko usa el proveedor, modelo y esfuerzo de razonamiento actuales de Person."
   },
   "de": {
+    "stopTask": "Aufgabe stoppen",
     "subtitle": "Dein Kontoassistent",
     "chooseModel": "Modell wählen",
     "modelSearch": "Modell oder Anbieter suchen",
@@ -608,6 +616,7 @@ export const personMessages = {
     "defaultAgentHint": "Ohne Voreinstellungen nutzt Ekko den aktuellen Anbieter, das Modell und die Denkintensität von Person."
   },
   "pt": {
+    "stopTask": "Parar tarefa",
     "subtitle": "Seu assistente de conta",
     "chooseModel": "Escolher modelo",
     "modelSearch": "Buscar modelo ou provedor",
@@ -684,6 +693,7 @@ export const personMessages = {
     "defaultAgentHint": "Sem predefinições, Ekko usa o provedor, modelo e esforço de raciocínio atuais de Person."
   },
   "ru": {
+    "stopTask": "Остановить задачу",
     "subtitle": "Помощник вашей учётной записи",
     "chooseModel": "Выбрать модель",
     "modelSearch": "Поиск модели или провайдера",
@@ -760,6 +770,7 @@ export const personMessages = {
     "defaultAgentHint": "Без настроек Ekko использует текущего провайдера, модель и интенсивность рассуждений Person."
   },
   "ar": {
+    "stopTask": "إيقاف المهمة",
     "subtitle": "مساعد حسابك",
     "chooseModel": "اختيار نموذج",
     "modelSearch": "البحث عن نموذج أو مزود",
@@ -836,6 +847,7 @@ export const personMessages = {
     "defaultAgentHint": "بدون إعدادات مسبقة، يستخدم Ekko موفر Person الحالي ونموذجه ومستوى تفكيره."
   },
   "tr": {
+    "stopTask": "Görevi durdur",
     "subtitle": "Hesap asistanınız",
     "chooseModel": "Model seçin",
     "modelSearch": "Model veya sağlayıcı arayın",

@@ -19660,6 +19660,7 @@
                       "adopt",
                       "update",
                       "start",
+                      "stop",
                       "close",
                       "reopen"
                     ]
@@ -19674,6 +19675,10 @@
                   },
                   "task_id": {
                     "type": "string"
+                  },
+                  "execution_id": {
+                    "type": "string",
+                    "description": "Required with task_id and expected_revision for stop; query the current execution first. Stops only this occurrence, keeping the goal and future schedules."
                   },
                   "schedule_id": {
                     "type": "string"

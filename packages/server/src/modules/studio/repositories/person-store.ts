@@ -47,15 +47,18 @@ export function savePersonSettings(userId: number, settings: PersonSettings, rev
     return personSettings(userId)
   })
 }
+const taskExecutionColumns = `
+  (SELECT id FROM person_executions e WHERE e.task_id=t.id ORDER BY created_at DESC,rowid DESC LIMIT 1) AS execution_id,
+  COALESCE((SELECT state FROM person_executions e WHERE e.task_id=t.id ORDER BY created_at DESC,rowid DESC LIMIT 1),'idle') AS execution_state,
+  EXISTS(SELECT 1 FROM person_executions e WHERE e.task_id=t.id AND e.state IN ('queued','starting','running','stopping','waiting_person','waiting_user','waiting_approval'))
+    OR EXISTS(SELECT 1 FROM person_deliveries d JOIN person_executions e ON e.id=d.execution_id WHERE e.task_id=t.id AND d.state IN ('pending','queued')) AS running`
 export function getPersonTask(userId: number, id: string): PersonTask {
-  const task = personDb().prepare('SELECT * FROM session_tasks WHERE id=? AND owner_user_id=? AND bot_id=?').get(id, userId, `person:${userId}`) as unknown as PersonTask | undefined
+  const task = personDb().prepare(`SELECT t.*, ${taskExecutionColumns} FROM session_tasks t WHERE id=? AND owner_user_id=? AND bot_id=?`).get(id, userId, `person:${userId}`) as unknown as PersonTask | undefined
   if (!task) throw personError('Task not found', 404)
   return task
 }
 export function listPersonTasks(userId: number, search = '', offset = 0, options: { status?: string; order?: string; limit?: number } = {}): PersonTask[] {
-  return personDb().prepare(`SELECT t.*, COALESCE((SELECT state FROM person_executions e WHERE e.task_id=t.id ORDER BY created_at DESC,rowid DESC LIMIT 1),'idle') AS execution_state,
-    EXISTS(SELECT 1 FROM person_executions e WHERE e.task_id=t.id AND e.state IN ('queued','starting','running','stopping','waiting_person','waiting_user','waiting_approval'))
-      OR EXISTS(SELECT 1 FROM person_deliveries d JOIN person_executions e ON e.id=d.execution_id WHERE e.task_id=t.id AND d.state IN ('pending','queued')) AS running
+  return personDb().prepare(`SELECT t.*, ${taskExecutionColumns}
     FROM session_tasks t WHERE owner_user_id=? AND bot_id=? AND (instr(lower(title),lower(?))>0 OR instr(lower(summary),lower(?))>0)
     AND (?='' OR status=?) ORDER BY updated_at ${options.order === 'oldest' ? 'ASC' : 'DESC'},id LIMIT ? OFFSET ?`).all(userId, `person:${userId}`, search, search, options.status || '', options.status || '', Math.max(1, Math.min(100, Number(options.limit) || 20)), offset) as unknown as PersonTask[]
 }

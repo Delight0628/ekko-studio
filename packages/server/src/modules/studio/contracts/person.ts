@@ -47,6 +47,7 @@ export interface PersonTask {
   created_at: number
   updated_at: number
   running?: boolean | number
+  execution_id?: string | null
   execution_state?: PersonRunState | 'idle'
 }
 export interface PersonExecution {

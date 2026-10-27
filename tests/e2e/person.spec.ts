@@ -9,7 +9,7 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true) {
   const image = await sharp({ create: { width: 16, height: 16, channels: 3, background: '#345678' } }).png().toBuffer()
   await page.route('**/api/theme/background?*', route => route.fulfill({ contentType: 'image/png', body: image }))
   const globalModel = { model: 'global-model', provider: 'provider', profile: 'default' }
-  const state: any = { settings: { model: globalModel, reasoningEffort: '', timezone: 'UTC', agents: [] }, inherits_global_model: true, reasoning_efforts: ['none', 'low', 'high'], revision: 0, busy: false, tasks: [{ id: 'task1', title: 'Check report', summary: 'Verify a report', status: 'open', revision: 0, execution_state: 'running', running: true }], schedules: [], memories: [], interactions: [] }
+  const state: any = { settings: { model: globalModel, reasoningEffort: '', timezone: 'UTC', agents: [] }, inherits_global_model: true, reasoning_efforts: ['none', 'low', 'high'], revision: 0, busy: false, tasks: [{ id: 'task1', title: 'Check report', summary: 'Verify a report', status: 'open', revision: 0, execution_id: 'execution1', execution_state: 'running', running: true }], schedules: [], memories: [], interactions: [] }
   state.session = { id: 'person-main-1', source: 'builtin_agent', agent: 'ekko-agent', agent_preset: 'person', agent_mode: 'scoped', profile: 'default', title: 'Person', model: 'global-model', provider: 'provider', started_at: 1, ended_at: null, message_count: 0, tool_call_count: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, billing_provider: null, estimated_cost_usd: 0, actual_cost_usd: null, cost_status: '' }
   await page.addInitScript(() => { (window as any).__PW_CHAT_SOCKET_RESUMES__ = { 'person-main-1': { session_id: 'person-main-1', messages: [], isWorking: false, events: [] } } })
   const operations: any[] = []
@@ -28,10 +28,16 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true) {
       return route.fulfill({ json: { settings: state.settings, revision: state.revision, inherits_global_model: state.inherits_global_model, reasoning_efforts: state.reasoning_efforts } })
     }
     if (path.endsWith('/tasks/task1/chat')) {
-      if (req.method() === 'POST') { state.tasks[0].running = true; state.tasks[0].status = 'open'; state.tasks[0].revision++ }
+      if (req.method() === 'POST') { state.tasks[0].running = true; state.tasks[0].status = 'open'; state.tasks[0].execution_state = 'queued'; state.tasks[0].execution_id = 'execution2'; state.tasks[0].revision++ }
       return route.fulfill({ json: { task: state.tasks[0], session: { ...state.session, id: 'person-task-task1', title: state.tasks[0].title } } })
     }
-    if (path.endsWith('/tasks/apply')) { state.tasks[0].status = body.action === 'close' ? 'closed' : 'open'; state.tasks[0].revision++; return route.fulfill({ json: {} }) }
+    if (path.endsWith('/tasks/apply')) {
+      if (body.expected_revision !== state.tasks[0].revision || (body.action === 'stop' && body.execution_id !== state.tasks[0].execution_id)) return route.fulfill({ status: 409, json: { error: 'Execution changed' } })
+      if (body.action === 'stop') state.tasks[0].execution_state = 'stopping'
+      else state.tasks[0].status = body.action === 'close' ? 'closed' : 'open'
+      state.tasks[0].revision++
+      return route.fulfill({ json: { task: state.tasks[0] } })
+    }
     if (path.endsWith('/memory')) { state.memories = state.memories.filter((m: any) => m.id !== body.id); return route.fulfill({ json: {} }) }
     state.session.model = state.settings.model?.model || ''; state.session.provider = state.settings.model?.provider || ''; state.session.reasoning_effort = state.settings.reasoningEffort
     return route.fulfill({ json: state })
@@ -400,4 +406,75 @@ test('Person uses the single-chat task drawer with search and filters but no pag
   await page.getByRole('button', { name: 'Search tasks or conversations' }).click()
   await page.getByRole('textbox', { name: 'Search tasks or conversations' }).fill('Report 60')
   await expect.poll(() => operations.filter(op => op.path.endsWith('/tasks/query')).at(-1).body.search).toBe('Report 60')
+})
+
+for (const mode of ['light', 'dark'] as const) {
+  test(`stops a Person task from the list and waits for acknowledgement in ${mode}`, async ({ page }) => {
+    const { state, operations } = await setup(page, mode)
+    if (mode === 'dark') await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/#/person')
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+    await page.getByRole('button', { name: 'Stop task', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Stopping', exact: true })).toBeDisabled()
+    expect(operations.filter(op => op.path.endsWith('/tasks/apply')).map(op => op.body)).toEqual([
+      { action: 'stop', task_id: 'task1', execution_id: 'execution1', expected_revision: 0, idempotency_key: expect.any(String) },
+    ])
+    await expect(page.locator('.task-row button[aria-haspopup=menu]:visible')).toBeDisabled()
+    await page.evaluate(async () => { await Promise.all(document.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {}))) })
+    await page.screenshot({ path: `/tmp/person-stop-list-${mode}.png` })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    Object.assign(state.tasks[0], { running: false, execution_state: 'interrupted' })
+    await emit(page, 'person.updated', {})
+    await expect(page.locator('[role=status]:visible')).toContainText('Interrupted')
+    await expect(page.getByRole('button', { name: 'Stopping', exact: true })).toHaveCount(0)
+    await expect(page.locator('.task-row button[aria-haspopup=menu]:visible')).toBeEnabled()
+    expect(await emitted(page, 'abort')).toEqual([])
+  })
+}
+
+test('stops a waiting task inside its conversation, then continues it without stopping Person', async ({ page }) => {
+  const { state, operations } = await setup(page, 'light', false)
+  state.tasks[0].execution_state = 'waiting_user'
+  await page.addInitScript(() => {
+    (window as any).__PW_CHAT_SOCKET_RESUMES__['person-task-task1'] = { session_id: 'person-task-task1', messages: [], isWorking: false, events: [] }
+  })
+  await page.goto('/#/person')
+  await page.locator('.person-compose .input-textarea').fill('Keep my draft')
+  await emit(page, 'run.started', { run_id: 'main-active' })
+  await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+  await page.getByRole('button', { name: 'View in conversation: Check report', exact: true }).click()
+  const drawer = page.locator('.person-task-chat')
+  await drawer.getByRole('button', { name: 'Stop task', exact: true }).click()
+  await expect(drawer.getByRole('button', { name: 'Stopping', exact: true })).toBeDisabled()
+  await expect(drawer.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.evaluate(async () => { await Promise.all(document.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {}))) })
+  await page.screenshot({ path: '/tmp/person-stop-chat-mobile.png' })
+  Object.assign(state.tasks[0], { running: false, execution_state: 'interrupted' })
+  await emit(page, 'person.updated', {})
+  await expect(drawer.getByRole('button', { name: 'Stopping', exact: true })).toHaveCount(0)
+  await drawer.locator('.input-textarea').fill('Continue from the saved result')
+  await drawer.getByRole('button', { name: 'Send', exact: true }).click()
+  expect(operations.find(op => op.path.endsWith('/tasks/task1/chat') && op.body).body.expected_revision).toBe(1)
+  await expect(drawer.getByRole('button', { name: 'Stop task', exact: true })).toBeEnabled()
+  expect(await emitted(page, 'abort')).toEqual([])
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.person-compose .input-textarea')).toHaveValue('Keep my draft')
+  await emit(page, 'message.delta', { run_id: 'main-active', delta: 'Person is still responding.' })
+  await expect(page.locator('.person-view').getByText('Person is still responding.', { exact: true })).toBeVisible()
+})
+
+test('refreshes a stale stop without automatically cancelling a newer execution', async ({ page }) => {
+  const { state, operations } = await setup(page, 'light', false)
+  await page.goto('/#/person')
+  await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Stop task', exact: true })).toBeVisible()
+  Object.assign(state.tasks[0], { execution_id: 'execution2', revision: 2 })
+  await page.getByRole('button', { name: 'Stop task', exact: true }).click()
+  await expect(page.getByText('Could not update task status. Refresh and try again.')).toBeVisible()
+  expect(operations.filter(op => op.path.endsWith('/tasks/apply'))).toHaveLength(1)
+  expect(state.tasks[0].execution_state).toBe('running')
+  await page.getByRole('button', { name: 'Stop task', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Stopping', exact: true })).toBeDisabled()
+  expect(operations.filter(op => op.path.endsWith('/tasks/apply')).at(-1).body).toMatchObject({ execution_id: 'execution2', expected_revision: 2 })
 })

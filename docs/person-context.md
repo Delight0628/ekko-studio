@@ -107,3 +107,25 @@ Regression coverage includes the recorded `名字 称呼 姓名` search failure,
 controlled-name lookup, automatic recall, evidence provenance, Profile changes,
 account isolation, stale corrections/deletion, callback injection and the full
 toolset under the minimum 8k request budget.
+
+## Stopping a task
+
+The task list and task conversation expose Stop task for queued, active and
+waiting executions. Person can use `bot_task_apply` with `action: stop`, the
+current `task_id`, `execution_id`, `expected_revision` and an idempotency key.
+Query first: targeting an execution prevents an old click or replay from stopping
+a later scheduled occurrence or follow-up turn.
+
+Queued work becomes interrupted without starting. Active work first persists
+`stopping` and fences its generation, expires pending questions and cancels its
+result callback. The runner aborts the coordinator and native worker; only native
+acknowledgement changes the execution to `interrupted`. Failed acknowledgements
+remain durable and retry after a restart. Slow acknowledgements do not block
+other task dispatch. During native initialization the intent stays stopping until
+the worker can accept interruption; it is never prematurely reported as stopped.
+
+Stopping retains the goal, conversation and existing artifacts. The goal stays
+open, and a new message can continue it once interruption is acknowledged.
+Already performed external actions are not undone. Future schedule occurrences
+remain enabled; cancelling a schedule is a separate action. This path does not
+use ordinary chat's socket stop control or change its behavior.

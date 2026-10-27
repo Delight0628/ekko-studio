@@ -7,7 +7,7 @@ import { personDb, personTransaction, personSettings, getPersonExecution, getPer
 import { personUser, validatePersonSelection } from './catalog'
 import { runPersonModel } from './model'
 import { personTools, personTool } from './tools'
-import { personRunSignal, releasePersonRun } from './tasks'
+import { acknowledgePersonStop, personRunSignal, releasePersonRun } from './tasks'
 import { tickPersonSchedules } from './schedules'
 import { deliverPersonResults, readyPersonDelivery } from './delivery'
 import { logger } from '../../public/logging'
@@ -152,13 +152,8 @@ export async function tickPersonWork() {
     const db = personDb()
     const stopping = db.prepare("SELECT * FROM person_executions WHERE state='stopping' LIMIT 30").all() as unknown as PersonExecution[]
     for (const run of stopping) {
-      try {
-        await personRuntime().stop(run.session_id)
-        personTransaction(() => {
-          db.prepare("UPDATE person_executions SET state='interrupted',updated_at=? WHERE id=? AND generation=? AND state='stopping'")
-            .run(Date.now(), run.id, run.generation)
-        })
-      } catch (error) { logger.warn(error, 'Person stop acknowledgement failed; intent retained') }
+      // A slow native acknowledgement must not block unrelated tasks or schedules.
+      void acknowledgePersonStop(run).catch(error => logger.warn(error, 'Person stop acknowledgement failed; intent retained'))
     }
     // Lost workers are visible as interrupted, never silently counted as running.
     const expired = db.prepare("SELECT * FROM person_executions WHERE state IN ('starting','running','waiting_person','waiting_user','waiting_approval') AND lease_until<?").all(Date.now()) as unknown as PersonExecution[]

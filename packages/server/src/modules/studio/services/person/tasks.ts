@@ -4,17 +4,60 @@ import { config } from '../../public/config'
 import { randomUUID, createHash } from 'node:crypto'
 import { personError, personRevision, personText } from '../../contracts/person'
 import type { PersonExecution, PersonTaskOrigin } from '../../contracts/person'
-import { personDb, replayPersonOperation, adoptPersonGoal, personOperation, getPersonTask, personTaskRunning, createPersonTask, updatePersonTask, enqueuePersonExecution } from '../../repositories/person-store'
+import { personDb, personTransaction, getPersonExecution, replayPersonOperation, adoptPersonGoal, personOperation, getPersonTask, personTaskRunning, createPersonTask, updatePersonTask, enqueuePersonExecution } from '../../repositories/person-store'
+import { personRuntime } from '../../public/person-runtime'
+import { personUpdated } from '../../repositories/person-updates'
+import { logger } from '../../public/logging'
 import { validatePersonSelection } from './catalog'
 import { selectPersonExecutionAgent } from './agents'
 import { savePersonTaskOrigin } from './delivery'
 
 const running = new Map<string, AbortController>()
+const stopping = new Map<string, Promise<void>>()
 export function personRunSignal(run: PersonExecution) { const controller = new AbortController(); running.set(run.id, controller); return controller }
 export function releasePersonRun(id: string) { running.delete(id) }
+
+/** Called inside the operation transaction, before any native stop side effects. */
+function requestStop(userId: number, taskId: string, executionId: string) {
+  const run = getPersonExecution(userId, executionId)
+  const task = getPersonTask(userId, taskId)
+  if (run.task_id !== taskId || task.execution_id !== run.id) throw personError('Execution changed; query the task again', 409)
+  if (!['queued','starting','running','waiting_person','waiting_user','waiting_approval','stopping'].includes(run.state)) throw personError('Execution is no longer running', 409)
+  if (run.state !== 'stopping') {
+    const now = Date.now()
+    const db = personDb()
+    db.prepare('UPDATE person_executions SET state=?,generation=generation+1,updated_at=? WHERE id=?')
+      .run(run.state === 'queued' ? 'interrupted' : 'stopping', now, run.id)
+    db.prepare('UPDATE session_tasks SET revision=revision+1,updated_at=? WHERE id=?').run(now, taskId)
+    db.prepare("UPDATE person_interactions SET state='expired',revision=revision+1 WHERE execution_id=? AND state='pending'").run(run.id)
+    db.prepare("UPDATE person_deliveries SET state='cancelled',updated_at=? WHERE execution_id=? AND state IN ('waiting','pending','queued')").run(now, run.id)
+    if (run.occurrence_id) db.prepare('UPDATE person_occurrences SET state=? WHERE id=?').run(run.state === 'queued' ? 'interrupted' : 'stopping', run.occurrence_id)
+  }
+  return { task: getPersonTask(userId, taskId), execution: getPersonExecution(userId, executionId) }
+}
+
+/** A durable stopping intent blocks new work until the native runtime acknowledges it. */
+export function acknowledgePersonStop(run: PersonExecution): Promise<void> {
+  const pending = stopping.get(run.id)
+  if (pending) return pending
+  const actual = getPersonExecution(run.owner_user_id, run.id)
+  if (actual.state !== 'stopping' || actual.generation !== run.generation) return Promise.resolve()
+  const result = Promise.resolve().then(async () => {
+    running.get(run.id)?.abort(new Error('Person task stopped'))
+    await personRuntime().stop(run.session_id)
+    personTransaction(() => {
+      const changed = personDb().prepare("UPDATE person_executions SET state='interrupted',lease_until=0,updated_at=? WHERE id=? AND generation=? AND state='stopping'")
+        .run(Date.now(), run.id, run.generation)
+      if (changed.changes && run.occurrence_id) personDb().prepare("UPDATE person_occurrences SET state='interrupted' WHERE id=?").run(run.occurrence_id)
+    })
+    personUpdated(run.owner_user_id)
+  }).finally(() => stopping.delete(run.id))
+  stopping.set(run.id, result)
+  return result
+}
 export async function applyPersonTask(userId: number, input: Record<string, unknown>, boundTask?: string, origin?: PersonTaskOrigin) {
   const action = personText(input.action, 'action', 30)
-  if (!['create','adopt','update','start','close','reopen'].includes(action)) throw personError('Unsupported task action')
+  if (!['create','adopt','update','start','stop','close','reopen'].includes(action)) throw personError('Unsupported task action')
   const key = personText(input.idempotency_key, 'idempotency_key', 200)
   if (boundTask && (input.task_id !== boundTask || action === 'create' || action === 'adopt')) throw personError('Task is outside this coordinator scope', 403)
   const replay = replayPersonOperation(userId, `task:${key}`, input)
@@ -26,7 +69,7 @@ export async function applyPersonTask(userId: number, input: Record<string, unkn
   if (workspace && !isAbsolute(workspace)) throw personError('Workspace must be an absolute path')
   const taskWorkspace = workspace || resolve(config.appHome, 'person', String(userId), 'workspaces', createHash('sha256').update(key).digest('hex').slice(0,24))
   if (['create','adopt'].includes(action)) await mkdir(taskWorkspace, { recursive: true })
-  return personOperation(userId, `task:${key}`, input, () => {
+  const result = personOperation(userId, `task:${key}`, input, () => {
     if (action === 'adopt') {
       const task = adoptPersonGoal(userId, personText(input.task_id,'task_id',100),personRevision(input.expected_revision),selection!,taskWorkspace,personText(input.goal,'goal',8000))
       savePersonTaskOrigin(userId, task.id, origin)
@@ -39,6 +82,7 @@ export async function applyPersonTask(userId: number, input: Record<string, unkn
     }
     const task = getPersonTask(userId, personText(input.task_id, 'task_id', 100))
     if (task.revision !== personRevision(input.expected_revision)) throw personError('Task changed; query it again', 409)
+    if (action === 'stop') return requestStop(userId, task.id, personText(input.execution_id, 'execution_id', 100))
     if (personTaskRunning(task.id)) throw personError('Task is running; wait for it to finish', 409)
     const db = personDb()
     if (action === 'reopen') {
@@ -59,5 +103,9 @@ export async function applyPersonTask(userId: number, input: Record<string, unkn
     }
     return { task: getPersonTask(userId, task.id) }
   })
+  if (action === 'stop' && result.execution?.state === 'stopping') {
+    void acknowledgePersonStop(result.execution).catch(error => logger.warn(error, 'Person stop acknowledgement failed; intent retained'))
+  }
+  return result
 }
 export function personOperationKey() { return randomUUID() }
