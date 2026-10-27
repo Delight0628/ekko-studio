@@ -21,8 +21,9 @@ export function ownedPersonTaskSession(userId: number | undefined, sessionId: st
 export async function personTaskChat(userId: number, taskId: string) {
   const task = getPersonTask(userId, taskId)
   const selection = JSON.parse(task.selection_json)
-  await validatePersonSelection(userId, selection)
   const id = personTaskSessionId(taskId)
+  const user = personUser(userId)
+  if (user.role !== 'super_admin' && !user.profiles.includes(selection.profile || 'default')) throw personError('Resource permission revoked', 403)
   if (!getSession(id)) createSession({ id, user_id: userId, studio_user_id: userId, title: task.title,
     source: selection.runtime === 'ekko' ? 'builtin_agent' : selection.runtime === 'hermes' ? 'api_server' : 'coding_agent',
     agent: selection.runtime === 'ekko' ? 'ekko-agent' : selection.runtime, agent_mode: selection.mode,

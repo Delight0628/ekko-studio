@@ -392,3 +392,56 @@ test('Person uses the single-chat task drawer with search and filters but no pag
   await page.getByRole('textbox', { name: 'Search tasks or conversations' }).fill('Report 60')
   await expect.poll(() => operations.filter(op => op.path.endsWith('/tasks/query')).at(-1).body.search).toBe('Report 60')
 })
+
+for (const mode of ['light', 'dark'] as const) {
+  test(`Person uses shared loading until its snapshot and conversation are ready in ${mode}`, async ({ page }) => {
+    if (mode === 'dark') await page.setViewportSize({ width: 390, height: 844 })
+    await setup(page, mode, mode === 'dark')
+    await page.addInitScript(() => { delete (window as any).__PW_CHAT_SOCKET_RESUMES__['person-main-1'] })
+    let releaseSnapshot!: () => void
+    let releaseRefresh!: () => void
+    const snapshot = new Promise<void>(resolve => { releaseSnapshot = resolve })
+    const refresh = new Promise<void>(resolve => { releaseRefresh = resolve })
+    let requests = 0
+    await page.route(/\/api\/studio\/person(?:\?.*)?$/, async route => {
+      requests++
+      await (requests === 1 ? snapshot : refresh)
+      await route.fallback()
+    })
+    await page.goto('/#/person')
+    const surface = page.locator('.person-view')
+    const overlay = surface.locator(':scope > .page-loading-overlay')
+    await expect(overlay.locator('.studio-loading-logo')).toBeVisible()
+    await expect(surface).toHaveAttribute('aria-busy', 'true')
+    await expect(surface.locator(':scope > .page-loading-content')).toHaveAttribute('inert', '')
+    await expect(surface.locator(':scope > .page-loading-content')).not.toBeVisible()
+    await page.screenshot({ path: `/tmp/person-shared-loading-${mode}.png` })
+    releaseSnapshot()
+    await expect.poll(() => emitted(page, 'resume')).toEqual(expect.arrayContaining([expect.objectContaining({ session_id: 'person-main-1' })]))
+    await expect(overlay.locator('.studio-loading-logo')).toBeVisible()
+    await page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.latest.__trigger('resumed', {
+      session_id: 'person-main-1', isWorking: false, events: [],
+      messages: [{ id: 1, role: 'user', content: 'Loaded Person history', timestamp: 1 }],
+      messageTotal: 1, messageLoadedCount: 1, hasMoreBefore: false,
+    }))
+    await expect(overlay).toHaveCount(0)
+    await expect(page.getByText('Loaded Person history', { exact: true })).toBeVisible()
+    const input = surface.locator('.input-textarea')
+    await input.fill('Keep this Person draft')
+    await emit(page, 'person.updated', {})
+    await expect.poll(() => requests).toBeGreaterThan(1)
+    await expect(overlay).toHaveCount(0)
+    await expect(input).toBeVisible()
+    await expect(input).toHaveValue('Keep this Person draft')
+    releaseRefresh()
+  })
+}
+
+test('Person releases shared loading and displays its initial request error', async ({ page }) => {
+  await setup(page, 'light', false)
+  await page.route(/\/api\/studio\/person(?:\?.*)?$/, route => route.fulfill({ status: 503, json: { error: 'Person temporarily unavailable' } }))
+  await page.goto('/#/person')
+  await expect(page.locator('.person-view > .page-loading-overlay')).toHaveCount(0)
+  await expect(page.locator('.person-alert')).toContainText('Person temporarily unavailable')
+  await expect(page.getByRole('button', { name: 'Tasks', exact: true })).toBeVisible()
+})

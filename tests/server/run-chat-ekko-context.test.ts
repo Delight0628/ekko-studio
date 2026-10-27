@@ -8,6 +8,7 @@ import * as runUsageStore from '../../packages/server/src/modules/studio/reposit
 
 const createPersonChatAgentMock = vi.hoisted(() => vi.fn())
 vi.mock('../../packages/server/src/modules/studio/services/person/chat-agent', () => ({ createPersonChatAgent: createPersonChatAgentMock }))
+vi.mock('../../packages/server/src/modules/studio/repositories/person-store', () => ({ personBackgroundPendingCount: vi.fn(() => 0) }))
 const saveTaskPlanMock = vi.hoisted(() => vi.fn())
 const getSessionTasksMock = vi.hoisted(() => vi.fn((sessionId: string) => ({ session_id: sessionId, revision: 0, updated_at: 0, tasks: [] })))
 const updateSessionTasksMock = vi.hoisted(() => vi.fn((sessionId: string) => ({ session_id: sessionId, revision: 1, updated_at: 1, tasks: [] })))

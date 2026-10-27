@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, computed, watch, provide } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NButton, NInput, NSelect, NAlert, NTabs, NTabPane, NSpin, NDrawer, NDrawerContent, NTooltip } from 'naive-ui'
+import { NButton, NInput, NSelect, NAlert, NTabs, NTabPane, NDrawer, NDrawerContent, NTooltip } from 'naive-ui'
+import PageLoading from '@/components/common/PageLoading.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import ChatInput from '@/components/hermes/chat/ChatInput.vue'
 import MessageList from '@/components/hermes/chat/MessageList.vue'
@@ -21,6 +22,7 @@ const { t } = useI18n()
 const settingsStore = useSettingsStore()
 const chatStore = useChatStore()
 const data = ref<PersonSnapshot | null>(null)
+const initializing = ref(true)
 const error = ref('')
 const pending = ref(false)
 const tab = ref('settings')
@@ -127,18 +129,18 @@ function editSchedule(schedule: PersonSchedule) { scheduleEdit.value = schedule;
 watch(busy, (running, wasRunning) => { if (wasRunning && !running) void refresh() })
 const stopPersonUpdates = onPersonUpdated(event => { if (event.session_id === data.value?.session.id) void refresh() })
 onMounted(async () => {
-  chatStore.setRuntimeMode('default')
-  void settingsStore.fetchSettings()
-  await refresh()
-  if (!disposed && data.value) {
-    await chatStore.switchSession(data.value.session.id)
-  }
+  try {
+    chatStore.setRuntimeMode('default')
+    await Promise.all([settingsStore.fetchSettings(), refresh()])
+    if (!disposed && data.value) await chatStore.switchSession(data.value.session.id)
+  } catch (e) { if (!disposed) error.value = String(e) }
+  finally { if (!disposed) initializing.value = false }
 })
 onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() })
 </script>
 
 <template>
-  <section class="person-view">
+  <PageLoading :show="initializing || chatStore.isLoadingMessages" initial-only class="person-view">
     <PageHeader>
       <header class="person-header">
         <span class="person-title">Person</span>
@@ -160,8 +162,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
       </header>
     </PageHeader>
     <NAlert v-if="error" class="person-alert" type="error" closable @close="error = ''">{{ error }}</NAlert>
-    <div v-if="!data" class="person-loading"><NSpin /></div>
-    <template v-else>
+    <template v-if="data">
       <MessageList :user-label="t('person.you')" />
       <div class="person-compose">
         <button v-if="!currentModel" type="button" class="person-model-hint" @click="openModels">{{ t('person.defaultUnavailable') }}</button>
@@ -230,7 +231,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
       <SessionTasksDrawer v-model:show="showTasks" person @open-person-task="openTask" />
       <PersonTaskChat v-if="chatTaskId" :task-id="chatTaskId" :main-session-id="data.session.id" @close="chatTaskId = null; refresh()" />
     </template>
-  </section>
+  </PageLoading>
 </template>
 
 <style scoped lang="scss">
@@ -240,7 +241,6 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
 .person-title { font-size: calc(var(--font-size-base, 14px) * 16 / 14); font-weight: 600; }
 .person-header-actions { display: flex; align-items: center; gap: 4px; }
 .person-alert { margin: 12px; width: auto; }
-.person-loading { flex: 1; display: grid; place-items: center; }
 .person-compose { flex-shrink: 0; min-width: 0; }
 .person-model-hint { display: block; margin: 0 auto; border: 0; background: transparent; color: $accent-primary; cursor: pointer; font: inherit; font-size: 12px; padding: 8px; }
 .person-card { padding: 16px; margin: 12px 0; border: 1px solid $border-light; border-radius: var(--radius-component, 8px); }

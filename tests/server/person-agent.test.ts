@@ -15,18 +15,21 @@ let runtime: PersonRuntimePort
 const selection = { runtime: 'ekko', mode: 'scoped' as const, profile: 'default', provider: 'test', model: 'm', apiMode: 'chat_completions' }
 let catalog: Array<any>
 let activeAccount = true
+let installedAgent = true
+let allowedProfiles: string[] = ['default']
 
 beforeEach(async () => {
   vi.resetModules(); db = new DatabaseSync(':memory:'); dir = mkdtempSync(join(tmpdir(), 'person-test-')); activeAccount = true
+  installedAgent = true; allowedProfiles = ['default']
   vi.doMock('../../packages/server/src/modules/studio/public/chat-run', () => ({ getChatRunServer: () => ({ isSessionRunning: () => false }) }))
   vi.doMock('../../packages/server/src/modules/studio/infrastructure/database/index', () => ({ getDb: () => db, isSqliteAvailable: () => true }))
   vi.doMock('../../packages/server/src/modules/studio/public/config', () => ({ config: { appHome: dir }, getWebUiHome: () => dir }))
   vi.doMock('../../packages/server/src/modules/studio/repositories/users-store', () => ({
     findUserById: (id: number) => ({ id, status: activeAccount ? 'active' : 'disabled', role: id === 1 ? 'super_admin' : 'admin', username: `user${id}` }),
-    listUserProfiles: () => [{ profile_name: 'default' }], userCanAccessProfile: (_id: number, p: string) => p === 'default',
+    listUserProfiles: () => allowedProfiles.map(profile_name => ({ profile_name })), userCanAccessProfile: (_id: number, p: string) => allowedProfiles.includes(p),
   }))
   vi.doMock('../../packages/server/src/modules/studio/public/profile-config', () => ({ listProfileNamesFromDisk: () => ['default'], getActiveProfileName: () => 'default' }))
-  vi.doMock('../../packages/server/src/modules/studio/public/agent-status-registry', () => ({ getAgentAvailabilitySnapshot: () => ({ agents: [{ id: 'ekko-agent', installed: true }, { id: 'codex', installed: true }, { id: 'pi', installed: false }] }) }))
+  vi.doMock('../../packages/server/src/modules/studio/public/agent-status-registry', () => ({ getAgentAvailabilitySnapshot: () => ({ agents: [{ id: 'ekko-agent', installed: installedAgent }, { id: 'codex', installed: true }, { id: 'pi', installed: false }] }) }))
   catalog = [{ provider: 'test', models: ['m'], api_mode: 'chat_completions' }]
   vi.doMock('../../packages/server/src/modules/studio/public/session-agent-runtime', () => ({ getSessionAvailableModelGroups: async () => catalog, validateCodingAgentModelEffort: vi.fn(async () => {}) }))
   vi.doMock('../../packages/server/src/modules/studio/services/usage/usage-recorder', () => ({ recordSessionUsage: vi.fn() }))
@@ -476,6 +479,31 @@ it('requires reopening closed tasks and rejects stale, unauthorized or invalid c
   expect(ownedPersonTaskSession(1, chat.session.id).task.status).toBe('closed')
   activeAccount = false
   expect(() => ownedPersonTaskSession(1, chat.session.id)).toThrow('unavailable')
+})
+
+it.each(['disabled', 'removed', 'uninstalled'])('reads completed task history when the execution model is %s, while rejecting new execution', async unavailable => {
+  const { personTaskChat, continuePersonTask } = await import('../../packages/server/src/modules/studio/services/person/task-chat')
+  const sessions = await import('../../packages/server/src/modules/studio/repositories/session-store')
+  const { task, execution } = await create()
+  const chat = await personTaskChat(1, task.id)
+  sessions.addMessage({ session_id: chat.session.id, role: 'assistant', content: 'Persisted task result' })
+  await runner.tickPersonWork(); await wait(execution.id, 'finished')
+  if (unavailable === 'disabled') catalog[0].model_meta = { m: { disabled: true } }
+  if (unavailable === 'removed') catalog = []
+  if (unavailable === 'uninstalled') installedAgent = false
+  expect(await personTaskChat(1, task.id)).toMatchObject({ task: { status: 'completed' }, session: { id: chat.session.id } })
+  expect(sessions.getSessionDetail(chat.session.id)?.messages).toEqual(expect.arrayContaining([expect.objectContaining({ content: 'Persisted task result' })]))
+  await expect(continuePersonTask(1, task.id, { input: [{ type: 'text', text: 'Continue' }],
+    expected_revision: store.getPersonTask(1, task.id).revision, idempotency_key: 'unavailable' })).rejects.toThrow(unavailable === 'uninstalled' ? 'not installed' : 'unavailable')
+})
+
+it('keeps task history private after resource permission is revoked', async () => {
+  const { personTaskChat, ownedPersonTaskSession } = await import('../../packages/server/src/modules/studio/services/person/task-chat')
+  const task = store.createPersonTask(2, 'Private task', 'Read history', selection, dir)
+  const chat = await personTaskChat(2, task.id)
+  allowedProfiles = []
+  await expect(personTaskChat(2, task.id)).rejects.toThrow('permission revoked')
+  expect(() => ownedPersonTaskSession(2, chat.session.id)).toThrow('permission revoked')
 })
 
 

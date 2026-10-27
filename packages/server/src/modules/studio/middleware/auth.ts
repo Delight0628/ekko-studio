@@ -341,7 +341,9 @@ export async function requireUserJwt(ctx: Context, next: Next): Promise<void> {
   const body = ctx.request.body as Record<string, unknown> | undefined
   let decodedPath = ctx.path
   try { decodedPath = decodeURIComponent(ctx.path) } catch { /* Router handles invalid escapes. */ }
-  const refs = [decodedPath, ...Object.values(ctx.query || {}), body?.session_id, body?.sessionId, body?.session_ids, body?.ids, body?.parent_session_id]
+  const batchRefs = Array.isArray(body?.sessions) ? body.sessions.map(target =>
+    typeof target === 'string' ? target : target && typeof target === 'object' ? target.id : undefined) : []
+  const refs = [decodedPath, ...Object.values(ctx.query || {}), body?.session_id, body?.sessionId, body?.session_ids, body?.ids, body?.parent_session_id, ...batchRefs]
   const workerRefs = [...new Set(refs.flatMap(ref => String(ref || '').match(/person-task-[^/\s?"&,]+/g) || []))]
   const workerRead = ctx.method === 'GET' && /^\/api\/studio\/sessions\/(?:conversations\/)?person-task-[^/]+(?:\/(?:messages(?:\/paginated)?|context|usage|workspace-files\/list|workspace-file\/(?:read|content|diff)))?$/.test(decodedPath)
   if (workerRefs.length && !workerRead) {
