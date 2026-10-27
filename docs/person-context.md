@@ -73,3 +73,37 @@ but this does not guarantee semantic recall or complete evidence for every
 question. A local scale test is not a concurrency SLA or a months-long accuracy
 evaluation. The earlier isolated experiments are separate from these production
 integration tests and must not be reported as this implementation's accuracy.
+
+
+## Account memory
+
+Person uses Ekko Agent's `MemoryService`, `SqliteMemoryStore` and native structured
+memory tools. Each Studio account has an independent database at
+`<Web UI home>/person/<account id>/memory.db` and a stable `person:<account id>`
+identity. Selecting a different model Profile does not select another memory
+store. Ordinary Ekko chat continues to use its existing store and scopes.
+
+The first model request automatically recalls memory within a 1,000-token card
+budget. The overall Person request budget still includes system text, tool
+schemas, retrieved history, memory, output and safety reserves. Name queries can
+use the `profile_name` kind instead of guessing matching text. Person advertises
+only the native writer's atomic batch schema, avoiding duplicate legacy fields.
+The optional JEV enhancements remain disabled in this Person runtime; no Profile
+JEV configuration or credentials are implicitly inherited.
+
+Only the current host-provided user evidence is captured for memory writes.
+Retrieved history and background callbacks cannot become fresh user evidence;
+callback memory writes are rejected. Native revision checks, canonical keys,
+account ownership and explicit forget intent apply. The memory panel lists
+active cards and can delete an exact card at its current revision. New memories
+and corrections are made in the Person conversation so the structured value,
+content and source evidence are updated together.
+
+The legacy `person_memories` table is dropped at database initialization. Its
+contents are intentionally discarded; there is no migration or fallback reader.
+Person's conversation/history index, tasks and ordinary chat data are retained.
+
+Regression coverage includes the recorded `名字 称呼 姓名` search failure,
+controlled-name lookup, automatic recall, evidence provenance, Profile changes,
+account isolation, stale corrections/deletion, callback injection and the full
+toolset under the minimum 8k request budget.

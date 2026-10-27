@@ -1,13 +1,14 @@
+import { personMemories } from './memory'
 import { ensurePersonSession, personChatBusy } from './chat-agent'
 import { personError, personRevision, personText } from '../../contracts/person'
-import { personSettings, savePersonSettings, personMemories,
+import { personSettings, savePersonSettings,
   listPersonTasks, listPersonSchedules, personInteractions } from '../../repositories/person-store'
 import { effectivePersonSettings, personModelSelection, personUser, validatePersonSelection, PERSON_REASONING_EFFORTS } from './catalog'
 import { validatePersonAgents } from './agents'
 
 export async function personSnapshot(userId: number) {
   personUser(userId)
-  return { ...await ensurePersonSession(userId), tasks: listPersonTasks(userId), memories: personMemories(userId),
+  return { ...await ensurePersonSession(userId), tasks: listPersonTasks(userId), memories: await personMemories(userId),
     schedules: listPersonSchedules(userId), interactions: personInteractions(userId), busy: personChatBusy(userId) }
 }
 export async function configurePerson(userId: number, input: Record<string, unknown>) {
@@ -39,4 +40,4 @@ export async function configurePerson(userId: number, input: Record<string, unkn
 }
 // Service facade for the thin HTTP controller.
 export { withPersonTaskReturns } from '../../repositories/person-return-store'
-export { changePersonMemory, listPersonTasks, taskPersonExecutions, personEvents } from '../../repositories/person-store'
+export { listPersonTasks, taskPersonExecutions, personEvents } from '../../repositories/person-store'

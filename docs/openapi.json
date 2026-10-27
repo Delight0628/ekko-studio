@@ -19302,8 +19302,8 @@
         "tags": [
           "Person"
         ],
-        "summary": "Create memory",
-        "description": "Studio user login required. Account isolation is enforced by the server. Mutations use current revisions; task and schedule operations require an idempotency key. Worker question answers are delivered through their original interactive runtime.",
+        "summary": "Delete Person memory",
+        "description": "Studio user login required. Permanently delete one account-owned memory card at its current revision. New memories and corrections are made through the Person conversation.",
         "operationId": "memory",
         "security": [
           {
@@ -19331,19 +19331,22 @@
                   "id": {
                     "type": "string"
                   },
-                  "content": {
-                    "type": "string",
-                    "maxLength": 2000
-                  },
                   "forget": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "enum": [
+                      true
+                    ]
                   },
                   "expected_revision": {
                     "type": "integer",
-                    "minimum": 0
+                    "minimum": 1
                   }
                 },
-                "required": []
+                "required": [
+                  "id",
+                  "forget",
+                  "expected_revision"
+                ]
               }
             }
           }

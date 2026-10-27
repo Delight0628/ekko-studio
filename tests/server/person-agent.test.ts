@@ -51,6 +51,8 @@ beforeEach(async () => {
 afterEach(async () => {
   await runner?.stopPersonWork()
   await new Promise(resolve => setTimeout(resolve, 10))
+  const { closePersonMemoryStores } = await import('../../packages/server/src/modules/studio/services/person/memory')
+  closePersonMemoryStores()
   db?.close(); rmSync(dir, { recursive: true, force: true }); vi.clearAllMocks()
 })
 async function create(overrides = {}) {
@@ -192,8 +194,10 @@ describe('Person account-owned tasks and runtime', () => {
   })
 
   it('separates account memory, conversations and tasks while reusing the existing goal table', async () => {
-    store.changePersonMemory(1, { content: 'Prefer Chinese', source: 'user' })
-    expect(store.personMemories(2)).toEqual([])
+    const { personMemory, personMemories } = await import('../../packages/server/src/modules/studio/services/person/memory')
+    const memory = personMemory(1)
+    await memory.service.write({ operation: 'create', kind: 'language_preference', node: { title: 'Language', content: 'Prefer Chinese', valueJson: 'Chinese' }, identity: memory.identity, reason: 'User preference' })
+    expect(await personMemories(2)).toEqual([])
     const { task } = await create({ start: false })
     expect(() => store.getPersonTask(2, task.id)).toThrow('not found')
     expect(db.prepare('SELECT session_id,source_message_id,bot_id FROM session_tasks WHERE id=?').get(task.id)).toMatchObject({ session_id: null, source_message_id: null, bot_id: 'person:1' })
@@ -379,7 +383,7 @@ describe('Person account-owned tasks and runtime', () => {
   it('exposes only preset dispatch tools and no acceptance tool', async () => {
     const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
     const main = personTools(1, 'main').map(t => t.name)
-    expect(main).toEqual(expect.arrayContaining(['bot_task_apply','bot_agents_list','bot_schedule_apply','bot_memory_apply','bot_decision_request']))
+    expect(main).toEqual(expect.arrayContaining(['bot_task_apply','bot_agents_list','bot_schedule_apply','bot_decision_request']))
     expect(main.some(t => /shell|terminal|browser|exec_command|file_write/.test(t))).toBe(false)
     expect(main).not.toContain('bot_review_submit')
     expect(main).not.toContain('bot_models_search')
@@ -512,4 +516,44 @@ it('queries the same 100-task window as single chat with account-scoped search, 
   expect(completed[0].title).toBe('Task 1')
   expect(completed.at(-1)?.title).toBe('Task 53')
   expect(store.listPersonTasks(1, 'Private report', 0, { limit: 100 })).toEqual([])
+})
+
+
+it('uses the complete native memory toolset within the minimum Person budget', async () => {
+  const { createPersonAgent } = await import('../../packages/server/src/bootstrap/person-chat-agent')
+  const { createPersonChatAgent, ensurePersonSession } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
+  const { personMemory } = await import('../../packages/server/src/modules/studio/services/person/memory')
+  const { countTextTokens } = await import('../../packages/ekko-agent/src/model/tokens')
+  runtime.chatAgent = createPersonAgent
+  const settings = store.personSettings(1)
+  store.savePersonSettings(1, { ...settings.settings, contextTokens: 8000 }, settings.revision)
+  await ensurePersonSession(1)
+  const account = personMemory(1)
+  await account.service.write({operation:'create',kind:'profile_name',identity:account.identity,reason:'User name',node:{title:'Name',content:'用户的名字是 ekko',valueJson:'ekko'}})
+  const requests: any[] = []
+  const agent = await createPersonChatAgent(1, 'person-main-1')
+  await agent.run({ messages: [{role:'user',content:'我的名字是什么'}], memoryInput: {messages:[{role:'user',content:'我的名字是什么'}]},
+    modelClient: { provider:'test', capabilities:{streaming:true,tools:true,vision:false,jsonMode:false,systemPrompt:true},
+      create:async()=>({content:'summary'}), async *stream(request) { requests.push(request); yield {type:'done',response:{content:'ekko'}} } } })
+  await account.service.drain()
+  expect(requests).toHaveLength(1)
+  expect(requests[0].tools.map((t:any)=>t.name)).toContain('memory_write')
+  expect(JSON.stringify(requests[0].messages)).toContain('用户的名字是 ekko')
+  expect(Math.ceil(countTextTokens(JSON.stringify({ messages: requests[0].messages, tools: requests[0].tools })) * 1.15) + 2048 + 1024).toBeLessThanOrEqual(8000)
+})
+
+it('removes the legacy Person memory table without changing ordinary messages', async () => {
+  const { createSession, addMessage } = await import('../../packages/server/src/modules/studio/repositories/session-store')
+  createSession({ id: 'ordinary-memory-regression', title: 'Ordinary chat', profile: 'default', agent: 'ekko-agent' })
+  addMessage({ session_id: 'ordinary-memory-regression', role: 'user', content: 'Keep this ordinary chat message' })
+  const sessions = db.prepare('SELECT * FROM sessions ORDER BY id').all()
+  const messages = db.prepare('SELECT * FROM messages ORDER BY id').all()
+  db.exec("CREATE TABLE person_memories (content TEXT); INSERT INTO person_memories VALUES ('old memory')")
+  const { initPersonTables } = await import('../../packages/server/src/modules/studio/infrastructure/database/person-schema')
+  const before = db.prepare("SELECT sql FROM sqlite_master WHERE name IN ('sessions','messages') ORDER BY name").all()
+  initPersonTables(db)
+  expect(db.prepare("SELECT name FROM sqlite_master WHERE name='person_memories'").get()).toBeUndefined()
+  expect(db.prepare("SELECT sql FROM sqlite_master WHERE name IN ('sessions','messages') ORDER BY name").all()).toEqual(before)
+  expect(db.prepare('SELECT * FROM sessions ORDER BY id').all()).toEqual(sessions)
+  expect(db.prepare('SELECT * FROM messages ORDER BY id').all()).toEqual(messages)
 })

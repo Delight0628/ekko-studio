@@ -1,3 +1,5 @@
+import type { MemoryService } from '../../../../../ekko-agent/src/memory/service'
+import type { MemoryRuntimeIdentity } from '../../../../../ekko-agent/src/memory/types'
 import type { AgentRuntimeRunInput, AgentRuntimeRunResult, AgentRuntimeContextEstimate, AgentRuntimeBoundaryInterruptRequest, AgentRuntimeBoundaryInterruptResult } from '../../../../../ekko-agent/src/runtime/types'
 import type { AgentMessage, AgentToolDefinition, ModelRequest, ModelResponse } from '../../../../../ekko-agent/src/model/types'
 import type { PersonSelection, PersonTaskOrigin } from '../contracts/person'
@@ -21,6 +23,7 @@ export interface PersonModelCall {
 }
 export interface PersonChatAgentOptions extends Pick<PersonModelCall, 'selection' | 'tools' | 'systemPrompt' | 'maxSteps' | 'contextTokens' | 'beforeRequest' | 'summaryCache' | 'onSummaryUsage'> {
   workspace: string
+  memory?: { service: MemoryService; identity: MemoryRuntimeIdentity }
   loadHistory?: (query: string) => AgentMessage[]
 }
 export interface PersonResultDelivery {

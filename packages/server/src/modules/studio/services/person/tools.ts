@@ -6,8 +6,9 @@ import { personExecutionAgents } from './agents'
 import { applyPersonTask } from './tasks'
 import { applyPersonSchedule } from './schedules'
 import type { PersonTool } from './model'
-import { personMemories, listAssignablePersonGoals, changePersonMemory, listPersonTasks, getPersonTask, taskPersonExecutions, personEvents, listPersonSchedules, getPersonExecution } from '../../repositories/person-store'
+import { listAssignablePersonGoals, listPersonTasks, getPersonTask, taskPersonExecutions, personEvents, listPersonSchedules, getPersonExecution } from '../../repositories/person-store'
 import { openPersonContextStore } from '../../repositories/person-context-store'
+import { personMemoryReadTools } from './memory'
 import { personSessionId } from '../../contracts/person-session'
 
 const string = { type: 'string' }
@@ -30,7 +31,7 @@ export async function readPersonArtifact(userId: number, executionId: string, pa
   return { path: local, content: content.slice(offset, offset + 6000), next_offset: offset + 6000 < content.length ? offset + 6000 : null,
     version: `${info.size}:${info.mtimeMs}` }
 }
-export function personTools(userId: number, role: PersonRole, taskId?: string, source = ''): PersonTool[] {
+export function personTools(userId: number, role: PersonRole, taskId?: string): PersonTool[] {
   const ensureTask = (id: unknown) => { const value = personText(id, 'task_id', 100); if (taskId && taskId !== value) throw personError('Task outside role scope', 403); return value }
   const tools: PersonTool[] = [
     personTool('bot_tasks_query', 'Read task requirements and execution state. Set assignable=true to discover existing account-owned session goals that can be adopted. Results are paginated; details require a task ID.', { task_id: string, search: string, offset: integer, assignable: { type: 'boolean' } }, [], async args => {
@@ -47,7 +48,7 @@ export function personTools(userId: number, role: PersonRole, taskId?: string, s
       return personEvents(userId, run.id, Number(args.after) || 0).map((event: any) => ({ ...event, payload: event.payload.slice(0,1200) })).slice(0,8)
     }),
   ]
-  tools.push(personTool('bot_memory_search', 'Search Person memory only. This does not read Ekko Agent memory.', { query: string }, [], async args => personMemories(userId, String(args.query || '').slice(0,200)).slice(0,8)))
+  if (role !== 'main') tools.push(...personMemoryReadTools(userId))
   if (role === 'main') tools.push(personTool('bot_decision_request', 'Ask only for a missing user decision and wait for their reply through the chat. This never grants authorization.', { question: string, choices: { type: 'array', items: string, maxItems: 5 } }, ['question'], async () => {
     // The single-chat Agent adapter binds this definition to requestUserClarification.
     throw personError('User decisions require the single-chat runtime')
@@ -71,14 +72,6 @@ export function personTools(userId: number, role: PersonRole, taskId?: string, s
         return { evidence: [evidence] }
       }
       return context.search(personText(args.query, 'query', 200), personRevision(args.offset ?? 0))
-    }),
-    personTool('bot_memory_apply', 'Save a stable user preference, correct a memory, or forget one at the user request. Do not store task logs or speculative personal facts.', {
-      action: { type: 'string', enum: ['save','correct','forget'] }, id: string, content: string, expected_revision: integer,
-    }, ['action'], async args => {
-      if (!['save','correct','forget'].includes(String(args.action))) throw personError('Invalid memory action')
-      return changePersonMemory(userId, { id: args.action === 'save' ? undefined : personText(args.id, 'id', 100),
-        revision: args.action === 'save' ? undefined : personRevision(args.expected_revision), forget: args.action === 'forget',
-        content: args.action === 'forget' ? undefined : personText(args.content, 'content', 2000), source })
     }),
     personTool('bot_schedules_query', 'List saved schedules without copying task histories.', {}, [], async () => listPersonSchedules(userId)),
     personTool('bot_schedule_apply', 'Create a once or five-field-cron schedule for an open task, or pause/resume/cancel. A once expression is ISO-8601 with offset; cron needs IANA timezone. Cancelling a schedule does not stop current work.', {

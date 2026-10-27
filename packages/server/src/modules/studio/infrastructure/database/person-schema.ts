@@ -8,11 +8,7 @@ export function initPersonTables(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS person_accounts (
       user_id INTEGER PRIMARY KEY, settings_json TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0
     );
-    CREATE TABLE IF NOT EXISTS person_memories (
-      id TEXT PRIMARY KEY, owner_user_id INTEGER NOT NULL, content TEXT NOT NULL,
-      source TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_person_memories ON person_memories(owner_user_id, updated_at);
+    DROP TABLE IF EXISTS person_memories;
     CREATE TABLE IF NOT EXISTS person_executions (
       id TEXT PRIMARY KEY, task_id TEXT NOT NULL, owner_user_id INTEGER NOT NULL, requirements_revision INTEGER NOT NULL,
       state TEXT NOT NULL, session_id TEXT NOT NULL, selection_json TEXT NOT NULL,

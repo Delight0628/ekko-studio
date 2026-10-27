@@ -47,25 +47,6 @@ export function savePersonSettings(userId: number, settings: PersonSettings, rev
     return personSettings(userId)
   })
 }
-export function personMemories(userId: number, query = '') {
-  return personDb().prepare('SELECT * FROM person_memories WHERE owner_user_id=? AND instr(lower(content),lower(?))>0 ORDER BY updated_at DESC LIMIT 20').all(userId, query)
-}
-export function changePersonMemory(userId: number, input: { id?: string; content?: string; source: string; revision?: number; forget?: boolean }) {
-  const db = personDb(); const now = Date.now()
-  if (!input.id) {
-    if (input.forget || !input.content) throw personError('Memory ID and revision required')
-    if (Number((db.prepare('SELECT COUNT(*) AS n FROM person_memories WHERE owner_user_id=?').get(userId) as { n: number }).n) >= 500) throw personError('Memory limit reached')
-    const id = randomUUID()
-    db.prepare('INSERT INTO person_memories VALUES (?,?,?,?,0,?,?)').run(id, userId, input.content!, input.source, now, now)
-    return { id, revision: 0 }
-  }
-  const result = input.forget
-    ? db.prepare('DELETE FROM person_memories WHERE id=? AND owner_user_id=? AND revision=?').run(input.id, userId, input.revision!)
-    : db.prepare('UPDATE person_memories SET content=?,source=?,revision=revision+1,updated_at=? WHERE id=? AND owner_user_id=? AND revision=?')
-      .run(input.content!, input.source, now, input.id, userId, input.revision!)
-  if (!result.changes) throw personError('Memory not found or changed', 409)
-  return { id: input.id, revision: input.revision! + 1, deleted: !!input.forget }
-}
 export function getPersonTask(userId: number, id: string): PersonTask {
   const task = personDb().prepare('SELECT * FROM session_tasks WHERE id=? AND owner_user_id=? AND bot_id=?').get(id, userId, `person:${userId}`) as unknown as PersonTask | undefined
   if (!task) throw personError('Task not found', 404)

@@ -1974,7 +1974,7 @@ const personBodies = {
   '/tasks/apply': {fields:{...personFields,action:{type:'string',enum:['create','adopt','update','start','close','reopen']}},required:['action','idempotency_key']},
   '/schedules/apply': {fields:{action:{type:'string',enum:['create','update','pause','resume','cancel']},idempotency_key:personFields.idempotency_key,expected_revision:personFields.expected_revision,task_id:personFields.task_id,schedule_id:personFields.schedule_id,kind:{type:'string',enum:['once','cron']},expression:{type:'string',description:'ISO date with offset or five-field cron'},timezone:{type:'string'},misfire:{type:'string',enum:['skip','run_latest']}},required:['action','idempotency_key']},
   '/interactions/{id}/answer': {fields:{answer:{type:'string',maxLength:4000},expected_revision:personFields.expected_revision},required:['answer','expected_revision']},
-  '/memory': {fields:{id:{type:'string'},content:{type:'string',maxLength:2000},forget:{type:'boolean'},expected_revision:personFields.expected_revision}},
+  '/memory': {fields:{id:{type:'string'},forget:{type:'boolean',enum:[true]},expected_revision:{type:'integer',minimum:1}},required:['id','forget','expected_revision']},
 }
 for (const [suffix, schema] of Object.entries(personBodies)) {
   const operation = openapi.paths['/api/studio/person'+suffix]?.[schema.method || 'post']
@@ -1983,6 +1983,8 @@ for (const [suffix, schema] of Object.entries(personBodies)) {
   operation.description='Studio user login required. Account isolation is enforced by the server. Mutations use current revisions; task and schedule operations require an idempotency key. Worker question answers are delivered through their original interactive runtime.'
 }
 
+openapi.paths['/api/studio/person/memory'].post.summary = 'Delete Person memory'
+openapi.paths['/api/studio/person/memory'].post.description = 'Studio user login required. Permanently delete one account-owned memory card at its current revision. New memories and corrections are made through the Person conversation.'
 openapi.paths['/api/studio/person/tasks/{id}/chat'].get.description = 'Open the account-owned hidden task conversation. Returns task and session metadata for standard socket resume. It stays excluded from ordinary session lists. Read-only history is permitted to its owner; direct run, abort and other session mutations remain forbidden.'
 openapi.paths['/api/studio/person/tasks/{id}/chat'].post.description = 'Continue an idle, non-closed task in the same hidden worker session through the durable background runner. Completed tasks reopen automatically on new input. Running tasks, pending result delivery and stale revisions return 409. Completion wakes the original Person main session again.'
 

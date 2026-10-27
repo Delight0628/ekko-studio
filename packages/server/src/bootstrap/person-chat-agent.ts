@@ -8,6 +8,7 @@ import { personBudgetedClient } from './person-model-context'
 
 export function createPersonAgent(options: PersonChatAgentOptions) {
   let originMessages: PersonTaskOrigin['messages'] = []
+  let memoryWritable = false
   const registry = new AgentToolRegistry()
   for (const tool of options.tools) registry.register({ definition: { name: tool.name, description: tool.description, parameters: tool.parameters }, async execute(args, context = {}) {
     options.beforeRequest?.()
@@ -23,7 +24,27 @@ export function createPersonAgent(options: PersonChatAgentOptions) {
     return { ok: true, content }
   } })
   const runtime = new AgentRuntime({ tools: registry, systemPrompt: options.systemPrompt,
+    memory: options.memory?.service, profileId: options.memory?.identity.profileId,
     skillsEnabled: false, backgroundDelegationEnabled: false, maxSteps: options.maxSteps, maxModelRetries: 1, modelDefaults: { maxTokens: 2048 } })
+  // Reuse the native tools, while fencing writes from callbacks and stale runs.
+  for (const name of ['memory_search', 'memory_get', 'memory_write', 'memory_forget']) {
+    const tool = registry.get(name)
+    if (!tool) continue
+    // The native writer exposes both batch and legacy single-write schemas. Person
+    // only advertises the atomic batch, avoiding two copies of every field.
+    const definition = name === 'memory_write' ? { ...tool.definition, parameters: {
+      type: 'object' as const, properties: { operations: (tool.definition.parameters as any).properties.operations },
+      required: ['operations'], additionalProperties: false,
+    } } : tool.definition
+    registry.register({ definition, concurrency: tool.concurrency, async execute(args, context) {
+      options.beforeRequest?.()
+      context?.signal?.throwIfAborted()
+      if (!memoryWritable && (name === 'memory_write' || name === 'memory_forget')) {
+        return { ok: false, content: 'A background result cannot change personal memory. Wait for a user message.' }
+      }
+      return tool.execute(args, context)
+    } })
+  }
   const estimate = (request: ModelRequest): AgentRuntimeContextEstimate => {
     const systems = request.messages.filter(m => m.role === 'system')
     return { contextTokens: Math.ceil(countTextTokens(JSON.stringify({ messages: request.messages, tools: request.tools })) * 1.15),
@@ -33,7 +54,15 @@ export function createPersonAgent(options: PersonChatAgentOptions) {
   }
   const isolated = (input: AgentRuntimeRunInput, onPrepared?: (request: ModelRequest) => void): AgentRuntimeRunInput => ({ ...input,
     modelClient: input.modelClient ? personBudgetedClient(input.modelClient, { ...options, onPrepared, messages: [], signal: input.signal || new AbortController().signal }) : undefined,
-    memoryEnabled: false, memoryInput: undefined, skillReviewEnabled: false, backgroundDelegationEnabled: false,
+    memoryEnabled: Boolean(options.memory),
+    memoryInput: options.memory ? {
+      messages: input.memoryInput?.messages || [], writePolicy: 'automatic',
+      origin: options.memory.identity.origin,
+      recallScopes: options.memory.identity.recallScopes, writeScopes: options.memory.identity.writeScopes,
+      defaultWriteScope: options.memory.identity.defaultWriteScope,
+    } : undefined,
+    toolContext: options.memory ? { ...input.toolContext, sessionId: options.memory.identity.sessionId, profileId: options.memory.identity.profileId } : input.toolContext,
+    skillReviewEnabled: false, backgroundDelegationEnabled: false,
     ephemeralContext: true, contextKey: undefined,
   })
   return {
@@ -41,6 +70,9 @@ export function createPersonAgent(options: PersonChatAgentOptions) {
     requestBoundaryInterrupt: (request: AgentRuntimeBoundaryInterruptRequest) => runtime.requestBoundaryInterrupt(request),
     estimateContext: (input: AgentRuntimeRunInput) => runtime.estimateContext(isolated(input)),
     run: async (input: AgentRuntimeRunInput) => {
+      options.beforeRequest?.()
+      input.signal?.throwIfAborted()
+      memoryWritable = Boolean(input.memoryInput?.messages.some(message => typeof message === 'string' || message.role === 'user'))
       const current = input.messages.findLast(message => typeof message === 'string' || message.role === 'user')
       const query = typeof current === 'string' ? current : current?.content || ''
       const messages = [...(options.loadHistory?.(String(query)) || []), ...input.messages]

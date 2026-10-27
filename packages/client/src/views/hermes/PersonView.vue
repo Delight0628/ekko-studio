@@ -36,7 +36,6 @@ const modelGroups = ref<PersonModelGroup[]>([])
 const settingsWrites = ref(0)
 let settingsChain = Promise.resolve()
 const optimisticEffort = ref<string | null>(null)
-const memoryText = ref(''); const editingMemory = ref<PersonMemory | null>(null)
 const scheduleTask = ref<string | null>(null); const scheduleKind = ref('once'); const expression = ref(''); const timezone = ref(Intl.DateTimeFormat().resolvedOptions().timeZone)
 const scheduleEdit = ref<PersonSchedule | null>(null)
 let refreshing = false
@@ -118,7 +117,6 @@ function selectModel(selection: { provider: string; model: string }) {
 }
 function selectEffort(value: string) { optimisticEffort.value = value; void saveSettings({ reasoning_effort: value }) }
 function inheritModel() { void saveSettings({ use_global_default: true }); showModelPicker.value = false }
-function memorySave() { return act(async () => { await personRequest('/memory', { content: memoryText.value, ...(editingMemory.value ? { id: editingMemory.value.id, expected_revision: editingMemory.value.revision } : {}) }); memoryText.value = ''; editingMemory.value = null }) }
 function memoryForget(memory: PersonMemory) { return act(() => personRequest('/memory', { id: memory.id, expected_revision: memory.revision, forget: true })) }
 function scheduleAction(schedule: PersonSchedule, action: string) { return act(() => personRequest('/schedules/apply', { schedule_id: schedule.id, action, expected_revision: schedule.revision, idempotency_key: crypto.randomUUID() })) }
 function scheduleSave() { return act(async () => { await personRequest('/schedules/apply', { action: scheduleEdit.value ? 'update' : 'create', task_id: scheduleTask.value, schedule_id: scheduleEdit.value?.id, expected_revision: scheduleEdit.value?.revision, kind: scheduleKind.value, expression: expression.value, timezone: timezone.value, misfire: 'run_latest', idempotency_key: crypto.randomUUID() }); expression.value = ''; scheduleEdit.value = null }) }
@@ -206,15 +204,9 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
           </NTabPane>
         <NTabPane name="memory" :tab-props="{ role: 'tab', 'aria-selected': tab === 'memory' }" :tab="t('person.memory')">
           <p>{{ t('person.memoryHint') }}</p>
-          <form @submit.prevent="memorySave" class="person-row">
-          <NInput v-model:value="memoryText" :maxlength="2000" :input-props="{ 'aria-label': t('person.memory') }" />
-          <NButton attr-type="submit" :disabled="pending || !memoryText.trim()">{{ t('common.save') }}</NButton>
-          <NButton v-if="editingMemory" @click="editingMemory = null; memoryText = ''">{{ t('common.cancel') }}</NButton>
-          </form>
           <article v-for="memory in data.memories" :key="memory.id" class="person-card" data-theme-surface="card">
           <p>{{ memory.content }}</p>
           <div class="person-row">
-          <NButton @click="editingMemory = memory; memoryText = memory.content">{{ t('common.edit') }}</NButton>
           <NButton :disabled="pending" @click="memoryForget(memory)">{{ t('person.forget') }}</NButton>
           </div>
           </article>

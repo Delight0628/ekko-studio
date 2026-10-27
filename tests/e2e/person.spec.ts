@@ -32,7 +32,7 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true) {
       return route.fulfill({ json: { task: state.tasks[0], session: { ...state.session, id: 'person-task-task1', title: state.tasks[0].title } } })
     }
     if (path.endsWith('/tasks/apply')) { state.tasks[0].status = body.action === 'close' ? 'closed' : 'open'; state.tasks[0].revision++; return route.fulfill({ json: {} }) }
-    if (path.endsWith('/memory')) { state.memories = [{ id: 'm1', revision: 0, content: body.content }]; return route.fulfill({ json: {} }) }
+    if (path.endsWith('/memory')) { state.memories = state.memories.filter((m: any) => m.id !== body.id); return route.fulfill({ json: {} }) }
     state.session.model = state.settings.model?.model || ''; state.session.provider = state.settings.model?.provider || ''; state.session.reasoning_effort = state.settings.reasoningEffort
     return route.fulfill({ json: state })
   })
@@ -41,7 +41,7 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true) {
 
 for (const mode of ['light', 'dark'] as const) {
   test(`Person reuses single chat controls, inherits defaults and switches models in ${mode}`, async ({ page }) => {
-    const { operations } = await setup(page, mode)
+    const { state, operations } = await setup(page, mode)
     await page.goto('/#/person')
     const input = page.getByPlaceholder('Type a message... (Enter to send, Shift+Enter for new line)')
     await expect(page.locator('.input-model-button')).toHaveAttribute('aria-label', 'global-model')
@@ -95,10 +95,19 @@ for (const mode of ['light', 'dark'] as const) {
     await expect(page.getByRole('button', { name: /^(Pause|Resume|Cancel run|Accept result|Details)$/ })).toHaveCount(0)
     await page.screenshot({ path: `/tmp/person-tasks-${mode}-running.png`, animations: 'disabled' })
     await page.keyboard.press('Escape')
+    state.memories = [{ id: 'saved-memory', revision: 2, content: 'Keep responses short' }]
     await page.getByRole('button', { name: 'Memory', exact: true }).click()
-    await page.getByRole('textbox', { name: 'Memory', exact: true }).fill('Keep responses short')
-    await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(page.getByText('Keep responses short', { exact: true })).toBeVisible()
+    await expect(page.getByText('Tell Person what to remember or correct', { exact: false })).toBeVisible()
+    await expect(page.getByRole('textbox', { name: 'Memory', exact: true })).toHaveCount(0)
+    await page.evaluate(async () => {
+      await Promise.all(document.getAnimations().filter(animation => animation.effect?.getTiming().iterations !== Infinity)
+        .map(animation => animation.finished.catch(() => {})))
+    })
+    await page.screenshot({ path: `/tmp/person-memory-${mode}.png` })
+    await page.getByRole('button', { name: 'Forget', exact: true }).click()
+    await expect(page.getByText('Keep responses short', { exact: true })).toHaveCount(0)
+    expect(operations.filter(op => op.path.endsWith('/memory')).at(-1).body).toEqual({ id: 'saved-memory', expected_revision: 2, forget: true })
     await page.keyboard.press('Escape')
     await expect(page.locator('.n-drawer:visible')).toHaveCount(0)
     await page.setViewportSize({ width: 390, height: 844 })

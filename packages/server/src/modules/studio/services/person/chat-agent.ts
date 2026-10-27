@@ -1,3 +1,4 @@
+import { personMemory } from './memory'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { personSessionId, ownsPersonSession } from '../../contracts/person-session'
@@ -48,11 +49,11 @@ export async function createPersonChatAgent(userId: number, sessionId: string) {
   const context = createPersonContext(userId, sessionId, settings.contextTokens)
   const summaryRunId = randomUUID()
   let summaryCall = 0, requestedAt = Date.now()
-  return factory({ selection, tools: personTools(userId, 'main', undefined, `session:${sessionId}`),
+  return factory({ selection, tools: personTools(userId, 'main'),
     systemPrompt: `${PERSON_SYSTEM_PROMPT}\nRole: main. Current time: ${new Date().toISOString()}. Account timezone: ${settings.timezone}. Query task records on demand.`,
     maxSteps: settings.maxSteps, contextTokens: settings.contextTokens,
     workspace: getSession(sessionId)!.workspace!,
-    loadHistory: context.loadHistory, summaryCache: context.summaryCache,
+    memory: personMemory(userId), loadHistory: context.loadHistory, summaryCache: context.summaryCache,
     onSummaryUsage: response => recordSessionUsage({ sessionId, runId: `person:context:${summaryRunId}:${++summaryCall}`,
       purpose: 'person_context_summary', source: 'ekko_agent', agent: 'ekko_agent', accountId: String(userId),
       profile: selection.profile, provider: selection.provider, model: selection.model, usageScope: 'model_call', apiCalls: 1,
