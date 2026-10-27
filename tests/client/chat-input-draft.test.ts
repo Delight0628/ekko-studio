@@ -189,7 +189,7 @@ describe('ChatInput draft persistence', () => {
       model_meta: { 'draft-model': { reasoning_efforts: ['high', 'max'] }, 'simple-model': { reasoning: false } },
     }] }]
     await nextTick()
-    expect(wrapper.get('.n-slider-stub').attributes('max')).toBe('2')
+    expect(wrapper.get('.n-slider-stub').attributes('max')).toBe('1')
     expect(useChatStore().setSessionReasoningEffort).not.toHaveBeenCalled()
     expect(useChatStore().activeSession?.reasoningEffort).toBe('low')
     await wrapper.setProps({ reasoningEffort: 'max' })
@@ -250,8 +250,8 @@ describe('ChatInput draft persistence', () => {
     })
     await nextTick()
     expect(wrapper.find('.reasoning-effort-button').exists()).toBe(true)
-    expect(wrapper.get('.n-slider-stub').attributes('max')).toBe('2')
-    await wrapper.get('.n-slider-stub').setValue('1')
+    expect(wrapper.get('.n-slider-stub').attributes('max')).toBe('1')
+    await wrapper.get('.n-slider-stub').setValue('0')
     expect(onEffortChange).toHaveBeenCalledWith('low')
     expect(useChatStore().activeSession?.reasoningEffort).toBe('low')
     expect(useChatStore().setSessionReasoningEffort).not.toHaveBeenCalled()
@@ -539,9 +539,9 @@ describe('ChatInput draft persistence', () => {
     expect(wrapper.find('.n-popover-stub').exists()).toBe(true)
     expect(wrapper.find('.n-slider-stub').exists()).toBe(true)
     expect(wrapper.get('.n-slider-stub').attributes('min')).toBe('0')
-    expect(wrapper.get('.n-slider-stub').attributes('max')).toBe('6')
+    expect(wrapper.get('.n-slider-stub').attributes('max')).toBe('4')
     expect(wrapper.get('.reasoning-effort-button').attributes('disabled')).toBeUndefined()
-    await wrapper.get('.n-slider-stub').setValue('4')
+    await wrapper.get('.n-slider-stub').setValue('2')
     expect(useChatStore().setSessionReasoningEffort).toHaveBeenCalledWith('session-codex', 'high')
     expect(useChatStore().activeSession?.reasoningEffort).toBe('high')
   })
@@ -587,7 +587,7 @@ describe('ChatInput draft persistence', () => {
     expect(useChatStore().activeSession?.reasoningEffort).toBe('high')
     await wrapper.setProps({ nativeReasoningEfforts: ['low', 'high'] })
     expect(wrapper.get('.reasoning-effort-button').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('.n-slider-stub').attributes('max')).toBe('2')
+    expect(wrapper.get('.n-slider-stub').attributes('max')).toBe('1')
     await wrapper.get('.n-slider-stub').setValue('1')
     expect(useChatStore().activeSession?.reasoningEffort).toBe('high')
     expect(useChatStore().setSessionReasoningEffort).not.toHaveBeenCalled()
@@ -625,8 +625,8 @@ describe('ChatInput draft persistence', () => {
     await nextTick()
     expect(wrapper.get('.reasoning-effort-button').text()).toContain('chat.reasoningEffort.options.high')
     expect(wrapper.get('.reasoning-effort-button').attributes('disabled')).toBeUndefined()
-    expect(wrapper.get('.n-slider-stub').attributes('max')).toBe('3')
-    await wrapper.get('.n-slider-stub').setValue('1')
+    expect(wrapper.get('.n-slider-stub').attributes('max')).toBe('2')
+    await wrapper.get('.n-slider-stub').setValue('0')
     expect(useChatStore().setSessionReasoningEffort).toHaveBeenCalledWith('editable-scoped', 'low')
     expect(useChatStore().activeSession?.reasoningEffort).toBe('low')
     expect(useChatStore().activeSession?.model).toBe('reasoning-model')
@@ -671,7 +671,7 @@ describe('ChatInput draft persistence', () => {
     const wrapper = mountForSession('session-reasoning-max')
     const store = useChatStore()
 
-    await wrapper.get('.n-slider-stub').setValue('7')
+    await wrapper.get('.n-slider-stub').setValue('4')
     await nextTick()
 
     expect(store.sessions[0].reasoningEffort).toBe('max')
@@ -687,10 +687,10 @@ describe('ChatInput draft persistence', () => {
       model_meta: { glm: { reasoning: true, reasoning_efforts: ['low', 'high', 'max'] }, fast: { reasoning: false } },
     }] }]
     await nextTick()
-    expect(wrapper.get('.n-slider-stub').attributes('max')).toBe('3')
-    await wrapper.get('.n-slider-stub').setValue('3')
-    expect(wrapper.get('.reasoning-effort-slider-popover').attributes('style')).toContain('--reasoning-effort-accent-color: #ef4444')
+    expect(wrapper.get('.n-slider-stub').attributes('max')).toBe('2')
     await wrapper.get('.n-slider-stub').setValue('2')
+    expect(wrapper.get('.reasoning-effort-slider-popover').attributes('style')).toContain('--reasoning-effort-accent-color: #ef4444')
+    await wrapper.get('.n-slider-stub').setValue('1')
     const store = useChatStore()
     expect(store.sessions[0].reasoningEffort).toBe('high')
     store.sessions[0].model = 'fast'
@@ -703,7 +703,7 @@ describe('ChatInput draft persistence', () => {
     const wrapper = mountForSession('session-reasoning')
     const store = useChatStore()
 
-    await wrapper.get('.n-slider-stub').setValue('5')
+    await wrapper.get('.n-slider-stub').setValue('2')
     await nextTick()
 
     expect(store.sessions[0].reasoningEffort).toBe('high')

@@ -101,7 +101,9 @@ const requestedReasoningEffort = computed<string>(() =>
   ((props.draft || props.managedReasoningEffort) ? props.reasoningEffort : composerSession.value?.reasoningEffort
     || props.nativeEffortChoices?.find(choice => choice.model === composerSession.value?.model)?.effort) || ''
 )
-const currentReasoningEffort = computed(() => agentReasoningEffortValue(requestedReasoningEffort.value, reasoningEffortOptions.value))
+const currentReasoningEffort = computed(() => props.reasoningEffortDisabled || isReadOnlyCodingAgentEffort.value
+  ? requestedReasoningEffort.value
+  : agentReasoningEffortValue(requestedReasoningEffort.value, reasoningEffortOptions.value))
 const reasoningEffortSliderValue = computed(() => {
   const index = reasoningEffortOptions.value.findIndex(option => option.value === currentReasoningEffort.value)
   return index >= 0 ? index : 0

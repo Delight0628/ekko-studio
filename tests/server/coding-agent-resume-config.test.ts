@@ -411,7 +411,7 @@ describe('coding agent resumed session config', () => {
         HERMES_STUDIO_SESSION_ID: 'session-1',
         CODEX_HOME: expect.stringContaining(join('coding-agent', 'model', 'default', 'global', 'codex', 'runs')),
       }),
-      args: [],
+      args: ['-c', 'model_reasoning_effort="low"'],
       promptFile: expect.stringContaining(join('AGENTS.md')),
     }))
     expect(updateSessionMock).toHaveBeenCalledWith('session-1', expect.objectContaining({
