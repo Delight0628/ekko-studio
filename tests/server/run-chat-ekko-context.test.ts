@@ -237,12 +237,29 @@ describe('ekko-agent context usage events', () => {
     await handleEkkoAgentRun(nsp as any, socket as any, { session_id: 'person-main-7', input: 'Prepare report', coding_agent_id: 'ekko-agent', resolved_mcp_servers: {},
       onEvent: (event, payload) => events.push({ event, payload }) }, 'default', sessionMap, vi.fn(() => false))
     expect(sessionMap.get('person-main-7').ekkoBoundaryInterrupt).toBeUndefined()
-    expect(createPersonChatAgentMock).toHaveBeenCalledWith(7, 'person-main-7')
+    expect(createPersonChatAgentMock).toHaveBeenCalledWith(7, 'person-main-7', undefined)
     expect(getGlobalEkkoAgentMock).not.toHaveBeenCalled()
     expect(buildCompressedHistoryMock).not.toHaveBeenCalled()
     expect(addMessageMock).toHaveBeenCalledWith(expect.objectContaining({ session_id: 'person-main-7', role: 'user', content: 'Prepare report' }))
     expect(addMessageMock).toHaveBeenCalledWith(expect.objectContaining({ session_id: 'person-main-7', role: 'assistant', content: 'Done' }))
     expect(events.map(e => e.event)).toContain('run.completed')
+    expect(events.map(e => e.event)).not.toContain('run.failed')
+  })
+
+  it('binds a Person callback execution only from its matching trusted continuation', async () => {
+    const { handleEkkoAgentRun } = await import('../../packages/server/src/modules/studio/services/chat-run/handle-ekko-agent-run')
+    const { nsp, socket, sessionMap, events } = makeHarness()
+    ;(socket as any).data = { user: { id: 7 } }
+    getSessionMock.mockReturnValue({ ...getSessionMock(), id: 'person-main-7', studio_user_id: '7' })
+    createPersonChatAgentMock.mockResolvedValue({ run: agentRunMock, estimateContext: agentEstimateContextMock, sessionWorkspaceDirectory: () => '/tmp/person-workspace' })
+    agentRunMock.mockResolvedValueOnce({ runId: 'callback', output: { role: 'assistant', content: 'Processed' }, steps: [], messages: [], events: [] })
+    const callback = { ...continuationContext('person-result:execution-7'), runtime: 'ekko' as const }
+    await handleEkkoAgentRun(nsp as any, socket as any, {
+      session_id: 'person-main-7', input: 'Process saved return instructions', coding_agent_id: 'ekko-agent', background_delegation_id: callback.subagentId,
+      onEvent: (event, payload) => events.push({ event, payload }),
+    }, 'default', sessionMap, vi.fn(() => false), true, callback)
+    expect(createPersonChatAgentMock).toHaveBeenCalledWith(7, 'person-main-7', 'execution-7')
+    expect(agentRunMock).toHaveBeenCalledOnce()
     expect(events.map(e => e.event)).not.toContain('run.failed')
   })
 

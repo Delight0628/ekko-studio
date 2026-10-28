@@ -6,7 +6,32 @@ Person conversations have independent generated `person-main-<uuid>` IDs and use
 
 Memory, Agent presets and execution settings remain account-scoped. Each main turn includes the current conversation identity and the complete account-owned Person conversation directory (IDs and names), without search pagination. New turns reflect creation, renaming and deletion; conversations being deleted are excluded. Names are user-provided labels and do not define responsibilities, hierarchy or Agent bindings. `bot_sessions_query` remains available to search conversation content or refresh the directory during a turn. The directory is part of the system prompt and its context budget; it does not include message history. History search covers the account's Person conversations and carries each original's conversation ID and name. Recent dialogue remains local to the current conversation. One account-wide message boundary is captured before the current input is persisted, and edits/deletion of any captured source fence subsequent tools and requests. Indexing retains a 64-chunk bound across sources per pass.
 
-Every Person task has a required owning `session_tasks.session_id`. New work defaults to the current conversation and accepts an explicit owned `session_id` for cross-conversation assignment. Continuing a task preserves its task, runtime conversation and owner. The task's owning conversation is authoritative for initial, continued and scheduled result delivery, even when another conversation supplied the instruction. Durable questions and completion links also target that conversation. Task and schedule drawers are filtered to the selected conversation.
+Every Person task has a required owning `session_tasks.session_id`. New work defaults to the current conversation and accepts an explicit owned `session_id` for cross-conversation assignment. Continuing a task preserves its task, runtime conversation and owner. A planned flow can transfer ownership using `advance`, described below. The task's current owning conversation is authoritative for result delivery, even when another conversation supplied the instruction. Durable questions and completion links also target that conversation. Task and schedule drawers are filtered to the selected conversation.
+
+### Planned role flows and creators
+
+New tasks record `creator_session_id` from the trusted originating conversation, independently of the task's owning `session_id`. Account API creation uses its selected conversation when no originating chat exists. The model cannot supply or overwrite the creator. Historical tasks without a creator record are not assigned an inferred creator.
+
+The first planner can set `return_expectation` and an ordered `next_steps` array at creation. Each remaining step has `session_id`, `goal` and `return_expectation`. All destinations must belong to the account. The route is fixed after creation: `advance` takes only a fresh task reference and a processing outcome in `message`; it does not accept a destination or replacement steps. For example:
+
+```json
+{
+  "title": "Deliver a reviewed page",
+  "session_id": "person-main-copy",
+  "goal": "Prepare page copy",
+  "return_expectation": "Review the copy before advancing",
+  "next_steps": [
+    { "session_id": "person-main-code", "goal": "Implement the reviewed copy", "return_expectation": "Check the implementation before advancing" },
+    { "session_id": "person-main-boss", "goal": "Prepare the final deliverables", "return_expectation": "Summarize the result for the user" }
+  ]
+}
+```
+
+Each result invokes its owning role once with two user-message inputs: the worker receipt marked as data, followed by the saved processing instruction. The role evaluates the requested processing and calls `advance` when successful. The backend, rather than a model-selected destination, reads the next saved step and atomically updates the same task's owner, current requirements, origin and next execution. The task ID, creator, worker conversation, selected execution Agent, artifacts and execution history remain. The handoff carries the preceding output and processing outcome. Roles are conversation labels, not Agent preset bindings. Failed workers cannot advance; authorized correction continues the current stage. A missing/deleting destination leaves the current task untouched.
+
+The flow remains open through worker completion until the last role finishes processing with `advance`. Advancing the final stage completes the task without creating another execution. Ordinary tasks retain automatic completion. Role processing and qualitative conditions still rely on model judgment; the route, stage version, actor permissions and ownership change are enforced by code. The fixed route is bounded to 12 remaining steps and 32,000 characters of step data. Flow tasks do not accept schedules; each subsequent execution is dispatched by advancement.
+
+The current role and original creator can stop a flow, including while awaiting a result or between stages. Stop persists a flag, cancels pending callbacks/follow-ups and interrupts the active worker. Neither late callbacks nor another role can resume it. Only the creator (or the authenticated account API) can explicitly reopen the stopped flow; reopening alone launches no execution. Other roles can inspect account tasks but cannot mutate a flow they neither own nor created. Stop/resume never changes the creator or route. Revision and execution checks fence stale actions, and idempotent retries do not repeat a transfer. Return cards remain bound to the conversation that received that specific execution, even after the task moves on.
 
 Deleting a conversation blocks new dispatch into it, cancels its schedules and result deliveries, interrupts queued/follow-up work and waits for active native workers and the main run to stop. Its messages, tasks, worker sessions, execution records, questions, schedules, return cards and derived context are then removed together. Shared memory, presets, workspace files and other conversations remain. A failed native stop leaves the conversation present so deletion can be retried. There is no legacy task reassignment: obsolete account-only tasks without an owning conversation are discarded at initialization.
 

@@ -1,5 +1,6 @@
 vi.mock('../../packages/server/src/modules/studio/repositories/person-session-store', () => ({ personSessionIds: (userId: number) => userId === 1 ? ['person-main-1'] : [] }))
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('../../packages/server/src/modules/studio/services/person/presence', () => ({ observePersonPresenceEvent: vi.fn() }))
 
 const personDeliveryCurrentMock = vi.hoisted(() => vi.fn(() => true))
 const finishPersonDeliveryMock = vi.hoisted(() => vi.fn())
@@ -114,7 +115,7 @@ describe('ChatRunSocket clarify responses', { timeout: 15_000 }, () => {
     bridgeMock.statusIfLoaded.mockResolvedValue({ ok: true, exists: false, running: false, loaded: false })
   })
 
-  it.each([true, false])('returns a Person background result through the original chat queue (busy=%s)', async busy => {
+  it.each([{ busy: true, flow: false }, { busy: false, flow: false }, { busy: true, flow: true }, { busy: false, flow: true }])('returns a Person background result through one original chat run (busy=$busy, flow=$flow)', async ({ busy, flow }) => {
     const { ChatRunSocket } = await import('../../packages/server/src/modules/studio/sockets/chat-run')
     const { io, socket } = createSocketHarness()
     const server = new ChatRunSocket(io as any)
@@ -126,7 +127,8 @@ describe('ChatRunSocket clarify responses', { timeout: 15_000 }, () => {
     finishPersonDeliveryMock.mockClear()
     const handle = vi.spyOn(server as any, 'handleRun').mockImplementation(async (_socket: any, data: any) => { data.onEvent('run.completed', { output: 'Your report is ready' }) })
     const result = { user: { id: 1, username: 'user1', role: 'admin', profiles: ['default'] }, executionId: 'exec1', taskId: 'task1', title: 'Report', status: 'finished', output: '/tmp/report.txt', error: '',
-      origin: { sessionId: sid, runId: 'original-run', messages: [{ role: 'user', content: 'Prepare report' }] } }
+      origin: { sessionId: sid, runId: 'original-run', messages: [{ role: 'user', content: 'Prepare report' }] },
+      ...(flow ? { returnExpectation: '检查报告后按预设步骤移交', flow: { index: 0, total: 2, stopped: false, completed: false, next_session_id: 'person-main-design' } } : {}) }
     await server.deliverPersonResult(result as any)
     if (busy) {
       expect(handle).not.toHaveBeenCalled()
@@ -139,9 +141,18 @@ describe('ChatRunSocket clarify responses', { timeout: 15_000 }, () => {
     const [ownerSocket, data, _profile, skip, context] = handle.mock.calls[0] as any[]
     expect(ownerSocket.data.user.id).toBe(1)
     expect(data).toMatchObject({ session_id: sid, display_input: null, background_delegation_id: 'person-result:exec1', autonomous: true })
-    expect(data.input).toContain('/tmp/report.txt')
+    if (flow) {
+      expect(data.input).toContain('检查报告后按预设步骤移交')
+      expect(data.input).toContain('person-main-design')
+      expect(data.input).toContain('bot_task_control advance')
+      expect(context.messages).toHaveLength(2)
+      expect(context.messages[1]).toMatchObject({ role: 'user', content: expect.stringContaining('/tmp/report.txt') })
+      expect(context.messages[1].content).not.toContain('检查报告后按预设步骤移交')
+      expect(data.storage_message).toContain('检查报告后按预设步骤移交')
+    } else expect(data.input).toContain('/tmp/report.txt')
     expect(skip).toBe(true)
-    expect(context).toMatchObject({ originRunId: 'original-run', messages: [{ role: 'user', content: 'Prepare report' }], memoryPolicy: 'disabled' })
+    expect(context).toMatchObject({ originRunId: 'original-run', memoryPolicy: 'disabled' })
+    expect(context.messages[0]).toEqual({ role: 'user', content: 'Prepare report' })
     expect(finishPersonDeliveryMock).toHaveBeenCalledWith(1, 'exec1', true, '')
   })
 

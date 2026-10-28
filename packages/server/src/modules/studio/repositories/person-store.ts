@@ -60,6 +60,7 @@ export function savePersonSettings(userId: number, settings: PersonSettings, rev
 }
 const executionOrder = "CASE WHEN state IN ('finished','failed','interrupted') THEN 2 WHEN state='pending' THEN 1 ELSE 0 END,created_at DESC,rowid DESC"
 const taskExecutionColumns = `
+  json_extract(t.requirements_json, '$.creator_session_id') AS creator_session_id,
   (SELECT title FROM sessions s WHERE s.id=t.session_id) AS session_title,
   (SELECT id FROM person_executions e WHERE e.task_id=t.id ORDER BY ${executionOrder} LIMIT 1) AS execution_id,
   COALESCE((SELECT state FROM person_executions e WHERE e.task_id=t.id ORDER BY ${executionOrder} LIMIT 1),'idle') AS execution_state,
@@ -80,7 +81,7 @@ export function createPersonTask(userId: number, title: string, requirements: st
   requirePersonSession(userId, sessionId)
   const db = personDb(); const id = randomUUID(); const now = Date.now()
   db.prepare(`INSERT INTO session_tasks(id,session_id,title,summary,owner_user_id,bot_id,requirements_json,selection_json,workspace,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(id, sessionId, title, requirements.slice(0,1000), userId, `person:${userId}`, JSON.stringify({ goal: requirements }), JSON.stringify(selection), workspace, now, now)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(id, sessionId, title, requirements.slice(0,1000), userId, `person:${userId}`, JSON.stringify({ goal: requirements, creator_session_id: sessionId }), JSON.stringify(selection), workspace, now, now)
   return getPersonTask(userId, id)
 }
 export function updatePersonTask(userId: number, id: string, revision: number, requirements: string) {
@@ -91,6 +92,7 @@ export function updatePersonTask(userId: number, id: string, revision: number, r
   return getPersonTask(userId, id)
 }
 export function enqueuePersonExecution(task: PersonTask, occurrence: string | null = null, input?: import('../contracts/runs/session').ContentBlock[], followup = false): PersonExecution {
+  if (JSON.parse(task.requirements_json).flow?.stopped) throw personError('Flow is stopped', 409)
   requirePersonSession(task.owner_user_id, task.session_id)
   if (task.status !== 'open') throw personError('Task must be open', 409)
   const id = randomUUID(); const now = Date.now()

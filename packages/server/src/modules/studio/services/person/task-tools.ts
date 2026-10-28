@@ -1,21 +1,28 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { PersonTask, PersonTaskOrigin } from '../../contracts/person'
 import { personError } from '../../contracts/person'
-import { getPersonTask, listAssignablePersonGoals, listPersonTasks, taskPersonExecutions } from '../../repositories/person-store'
+import { getPersonExecution, getPersonTask, listAssignablePersonGoals, listPersonTasks, taskPersonExecutions } from '../../repositories/person-store'
 import { applyPersonTask } from './tasks'
 import { continuePersonTask } from './task-chat'
 import { requirePersonSession } from '../../repositories/person-session-store'
 import type { PersonTool } from './model'
+import { personFlowSummary, personRequirements } from '../../contracts/person-flow'
+import { personDeliveryCurrent } from './delivery'
 
-type Field = { type: 'string' | 'boolean' | 'integer' | ['string', 'null']; maxLength?: number; minLength?: number; minimum?: number; enum?: string[]; description?: string }
-type Action = 'adopt' | 'update' | 'start' | 'continue' | 'stop' | 'close' | 'reopen'
-type Snapshot = Pick<PersonTask, 'id' | 'session_id' | 'session_title' | 'title' | 'summary' | 'status' | 'revision' | 'execution_id' | 'execution_state' | 'running' | 'pending_count'>
+type Field = { type: 'string' | 'boolean' | 'integer' | 'array' | ['string', 'null']; maxLength?: number; minLength?: number; minimum?: number; enum?: string[]; description?: string; maxItems?: number; items?: { type: 'object'; properties: Record<string, Field>; required: string[]; additionalProperties: false } }
+type Action = 'adopt' | 'update' | 'start' | 'continue' | 'stop' | 'close' | 'reopen' | 'advance'
+type Snapshot = Pick<PersonTask, 'id' | 'session_id' | 'session_title' | 'title' | 'summary' | 'status' | 'revision' | 'execution_id' | 'execution_state' | 'running' | 'pending_count'> & { requirements_json?: string }
 type Reference = { task: Snapshot; assignable: boolean; expiresAt: number }
 const text = (maxLength: number): Field => ({ type: 'string', minLength: 1, maxLength })
 const actionFields: Record<Action, string[]> = {
-  adopt: ['goal', 'agent_id', 'start', 'session_id'], update: ['goal'], continue: ['message'], start: [], stop: [], close: [], reopen: [],
+  adopt: ['goal', 'agent_id', 'start', 'session_id'], update: ['goal'], continue: ['message'], start: [], stop: [], close: [], reopen: [], advance: ['message'],
 }
-const actionRequired: Partial<Record<Action, string[]>> = { adopt: ['goal'], update: ['goal'], continue: ['message'] }
+const actionRequired: Partial<Record<Action, string[]>> = { adopt: ['goal'], update: ['goal'], continue: ['message'], advance: ['message'] }
+const flowFields: Record<string, Field> = {
+  return_expectation: { ...text(4000), description: 'Saved instructions for the receiving role after execution.' },
+  next_steps: { type: 'array', maxItems: 12, description: 'Remaining stages in order, fixed by the first planner.', items: { type: 'object', additionalProperties: false,
+    properties: { session_id: text(100), goal: text(8000), return_expectation: text(4000) }, required: ['session_id','goal','return_expectation'] } },
+}
 const queryAgain = 'Call bot_tasks_query again and reconsider the action using its current task_ref and allowed_actions.'
 const listAgain = 'List tasks with bot_tasks_query {"search":"","offset":0}, or put keywords in search. Omit task_id; never guess all/recent/0. For details, copy an exact id from the list.'
 
@@ -31,13 +38,30 @@ function validate(input: Record<string, unknown>, fields: Record<string, Field>,
     if (types.includes('boolean') && typeof value !== 'boolean') throw personError(`Invalid ${key}`)
     if (types.includes('integer') && (!Number.isSafeInteger(value) || Number(value) < (field.minimum || 0))) throw personError(`Invalid ${key}`)
     if (field.enum && !field.enum.includes(String(value))) throw personError(`Unsupported ${key}`)
+    if (types.includes('array')) {
+      if (!Array.isArray(value) || value.length > field.maxItems!) throw personError(`Invalid ${key}`)
+      for (const item of value) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) throw personError(`Invalid ${key} item`)
+        validate(item, field.items!.properties, field.items!.required)
+      }
+    }
   }
 }
 function failure(code: string, message: string, recovery: string, taskId?: string) {
   return { ok: false as const, error: { code, message, recovery, ...(taskId ? { query: { task_id: taskId } } : {}) } }
 }
-function actions(task: Snapshot, assignable = false): Action[] {
+function actions(task: Snapshot, assignable = false, sessionId = ''): Action[] {
   if (assignable) return ['adopt']
+  const requirements = task.requirements_json ? personRequirements({ requirements_json: task.requirements_json }) : undefined
+  if (requirements?.flow) {
+    const own = sessionId === task.session_id, creator = sessionId === requirements.creator_session_id
+    if (!own && !creator) return []
+    if (requirements.flow.stopped) return creator ? ['reopen'] : []
+    if (!own) return requirements.flow.completed || task.status === 'closed' ? [] : ['stop']
+    if (!requirements.flow.completed && task.status !== 'closed' && task.execution_state === 'finished' && !task.pending_count) return ['advance', 'continue', 'stop', 'close']
+    if (!requirements.flow.completed && task.status !== 'closed' && task.execution_state === 'failed' && !task.pending_count) return ['continue', 'stop', 'close']
+    if (!requirements.flow.completed && !task.running && task.status === 'open') return ['update', 'start', 'continue', 'stop', 'close']
+  }
   if (task.execution_state === 'stopping') return ['stop']
   if (task.running) return task.execution_id && ['pending','queued','starting','running','waiting_person','waiting_user','waiting_approval'].includes(task.execution_state || '') ? ['continue', 'stop'] : ['continue']
   return task.status === 'open' ? ['update', 'start', 'continue', 'close'] : task.status === 'closed' ? ['reopen'] : ['continue', 'reopen', 'close']
@@ -51,7 +75,7 @@ export function personTaskTools(userId: number, currentSessionId: string): Perso
   const ttl = 10 * 60_000
   const expose = (task: Snapshot, assignable = false) => {
     const snapshot: Snapshot = { id: task.id, session_id: task.session_id, session_title: task.session_title, title: task.title, summary: task.summary.slice(0, 500), status: task.status,
-      revision: task.revision, execution_id: task.execution_id || null, execution_state: task.execution_state || 'idle', running: Boolean(task.running), pending_count: task.pending_count || 0 }
+      revision: task.revision, execution_id: task.execution_id || null, execution_state: task.execution_state || 'idle', running: Boolean(task.running), pending_count: task.pending_count || 0, requirements_json: task.requirements_json }
     for (const [ref, value] of references) if (value.expiresAt <= Date.now()) references.delete(ref)
     let ref = [...references].find(([, value]) => value.assignable === assignable && JSON.stringify(value.task) === JSON.stringify(snapshot))?.[0]
     if (!ref) {
@@ -59,16 +83,23 @@ export function personTaskTools(userId: number, currentSessionId: string): Perso
       if (references.size >= 128) references.delete(references.keys().next().value!)
       references.set(ref, { task: snapshot, assignable, expiresAt: Date.now() + ttl })
     }
-    const { revision: _revision, running: _running, ...visible } = snapshot
-    return { ...visible, task_ref: ref, allowed_actions: actions(snapshot, assignable) }
+    const { revision: _revision, running: _running, requirements_json: _requirements, ...visible } = snapshot
+    const context = _requirements ? personFlowSummary({ requirements_json: _requirements }) : undefined
+    return { ...visible, ...context, ...(context ? { return_expectation: context.return_expectation.slice(0,400) } : {}), task_ref: ref, allowed_actions: actions(snapshot, assignable, currentSessionId) }
   }
   const execute = async (input: Record<string, unknown>, origin?: PersonTaskOrigin) => {
+    origin ||= { sessionId: currentSessionId, runId: '', messages: [] }
     // Stable ordering gives exact retries the same durable idempotency key, even
     // when a model reorders fields or the service committed before a transport error.
     const normalized = Object.fromEntries(Object.entries(input).sort(([a], [b]) => a.localeCompare(b)))
     const key = createHash('sha256').update(JSON.stringify(normalized)).digest('hex')
     const previous = requests.get(key)
     if (previous) return { ...await previous as object, replayed: true }
+    if (origin.returnExecutionId) {
+      if (!personDeliveryCurrent(userId, origin.returnExecutionId)) throw personError('Result callback is no longer current', 409)
+      const returned = getPersonTask(userId, getPersonExecution(userId, origin.returnExecutionId).task_id)
+      if (personRequirements(returned).flow && input.task_id !== returned.id) throw personError('A flow callback must operate its existing task', 403)
+    }
     if (requests.size >= 128) return failure('TURN_LIMIT', 'Too many task operations in this turn', 'Continue in a new user turn.')
     const pending = (async () => {
       const result = normalized.action === 'continue'
@@ -94,33 +125,34 @@ export function personTaskTools(userId: number, currentSessionId: string): Perso
       }
     },
   })
-  const query = define('bot_tasks_query', 'List/search current tasks; omit task_id or use null/empty unless reading an exact id returned here. Never invent IDs such as all/recent/0. Use current task_ref and allowed_actions for control. assignable=true discovers account-owned goals for explicit adoption.', {
-    session_id: { ...text(100), description: 'Optional conversation ID from bot_sessions_query to filter tasks.' },
+  const query = define('bot_tasks_query', 'List/search tasks; omit task_id for lists, use an exact returned ID for details. Use fresh task_ref and allowed_actions. assignable=true lists adoptable goals.', {
+    session_id: { ...text(100), description: 'Conversation filter.' },
     task_id: { ...text(100), type: ['string', 'null'], minLength: 0 }, search: { ...text(200), minLength: 0 }, offset: { type: 'integer', minimum: 0 }, assignable: { type: 'boolean' },
   }, [], async args => {
     if (args.assignable) return { tasks: (listAssignablePersonGoals(userId, String(args.search || '')) as Snapshot[]).map(task => expose(task, true)) }
     const taskId = String(args.task_id || '').trim()
     if (taskId) {
       const task = getPersonTask(userId, taskId)
-      return { task: { ...expose(task), goal: JSON.parse(task.requirements_json).goal }, executions: taskPersonExecutions(userId, task.id).slice(0, 5).map(run => ({ id: run.id, state: run.state, output_preview: run.output.slice(0, 500) })) }
+      const requirements = personRequirements(task)
+      return { task: { ...expose(task), goal: requirements.goal, return_expectation: requirements.return_expectation || '' }, executions: taskPersonExecutions(userId, task.id).slice(0, 5).map(run => ({ id: run.id, state: run.state, output_preview: run.output.slice(0, 500) })) }
     }
     const offset = Number(args.offset) || 0
     const tasks = listPersonTasks(userId, String(args.search || ''), offset, { limit: 11, sessionId: args.session_id ? requirePersonSession(userId, String(args.session_id)).id : undefined })
     return { tasks: tasks.slice(0, 10).map(task => expose(task)), next_offset: tasks.length > 10 ? offset + 10 : null }
   })
-  const create = define('bot_task_create', 'Create new background work. Supply all requirements in goal; choose agent_id from bot_agents_list. Starts immediately unless start=false. Identical requests within this turn are deduplicated by the host. Use bot_task_control to operate existing work.', {
-    session_id: { ...text(100), description: 'Owning conversation ID from bot_sessions_query. Defaults to the current conversation. Always use the user-specified conversation.' }, title: text(200), goal: text(8000), agent_id: text(100), start: { type: 'boolean' },
+  const create = define('bot_task_create', 'Create work; choose agent_id from bot_agents_list. Starts unless start=false. Plan all next_steps now; the host fixes creator and route. Retries are deduplicated.', {
+    session_id: text(100), title: text(200), goal: text(8000), agent_id: text(100), start: { type: 'boolean' }, ...flowFields,
   }, ['title', 'goal'], (args, origin) => execute({ action: 'create', session_id: currentSessionId, ...args }, origin))
-  const control = define('bot_task_control', 'Operate existing work using a fresh task_ref and allowed_actions. continue adds a turn to the same task, Agent and conversation, queueing behind running work. adopt needs explicit user intent; adopt/update need goal. Stop cancels follow-ups but preserves schedules; query to confirm interruption. Reopen closed work first. On stale references, query and reconsider. Host manages versions and retries.', {
-    task_ref: text(100), action: { ...text(30), enum: Object.keys(actionFields), description: 'start runs saved requirements; continue adds a turn; update changes requirements; reopen changes status only.' }, session_id: { ...text(100), description: 'Target conversation for adopt only; existing tasks keep their conversation.' }, goal: { ...text(8000), description: 'Required for adopt/update only.' }, message: { ...text(32000), description: 'Required for continue: complete user follow-up with relevant context.' }, agent_id: text(100), start: { type: 'boolean' },
+  const control = define('bot_task_control', 'Use fresh task_ref/allowed_actions. advance follows the saved route or completes; continue keeps task/Agent/owner. Only its creator reopens a stopped flow. Query stale references again.', {
+    task_ref: text(100), action: { ...text(30), enum: Object.keys(actionFields) }, session_id: { ...text(100), description: 'Adopt only; advance cannot choose a destination.' }, goal: { ...text(8000), description: 'Adopt/update only.' }, message: { ...text(32000), description: 'continue: follow-up; advance: outcome and artifacts (max 4000).' }, agent_id: text(100), start: { type: 'boolean' },
   }, ['task_ref', 'action'], async (args, origin) => {
     const action = args.action as Action
     if (Object.keys(args).some(key => !['task_ref', 'action', ...actionFields[action]].includes(key))) throw personError(`Unsupported fields for ${action}`)
-    if (actionRequired[action]?.some(key => args[key] === undefined)) throw personError(`${action} requires goal`)
+    if (actionRequired[action]?.some(key => args[key] === undefined)) throw personError(`${action} requires ${actionRequired[action]!.join(', ')}`)
     const reference = references.get(String(args.task_ref))
     if (!reference || reference.expiresAt <= Date.now()) return failure('INVALID_TASK_REF', 'Task reference is unknown or expired', queryAgain)
     const { task, assignable } = reference
-    if (!actions(task, assignable).includes(action)) return failure('ACTION_NOT_ALLOWED', 'Action is unavailable for the queried task state', queryAgain, task.id)
+    if (!actions(task, assignable, currentSessionId).includes(action)) return failure('ACTION_NOT_ALLOWED', 'Action is unavailable for the queried task state', queryAgain, task.id)
     const { task_ref: _ref, ...intent } = args
     return execute({ ...(action === 'adopt' ? { session_id: currentSessionId } : {}), ...intent, task_id: task.id, expected_revision: task.revision,
       ...(!assignable ? { expected_execution_id: task.execution_id || null } : {}),

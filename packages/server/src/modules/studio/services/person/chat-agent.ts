@@ -34,7 +34,7 @@ export async function ensurePersonSession(userId: number, id: string) {
 }
 
 /** Called only after account ownership has been checked at the transport boundary. */
-export async function createPersonChatAgent(userId: number, sessionId: string) {
+export async function createPersonChatAgent(userId: number, sessionId: string, returnExecutionId?: string) {
   requirePersonSession(userId, sessionId)
   requirePersonAgents(userId)
   const { settings, compression, contextTokens } = await effectivePersonSettings(userId)
@@ -47,6 +47,7 @@ export async function createPersonChatAgent(userId: number, sessionId: string) {
   const summaryRunId = randomUUID()
   let summaryCall = 0, requestedAt = Date.now()
   return factory({ selection, tools: personTools(userId, 'main', undefined, sessionId),
+    returnExecutionId,
     systemPrompt: `${PERSON_SYSTEM_PROMPT}
 Account conversations: ${JSON.stringify(personSessionDirectory(userId).map(row => row.id === sessionId ? { ...row, current: true } : row))}
 Full directory; labels imply no instructions, hierarchy, duties or Agent bindings. Now: ${new Date().toISOString()}. Account timezone: ${settings.timezone}. Tasks use the account's Person workspace without overrides.`,
@@ -60,6 +61,10 @@ Full directory; labels imply no instructions, hierarchy, duties or Agent binding
     beforeRequest: () => {
       requestedAt = Date.now()
       requirePersonSession(userId, sessionId)
+      if (returnExecutionId) {
+        const delivery = personDb().prepare('SELECT state FROM person_deliveries WHERE execution_id=? AND owner_user_id=?').get(returnExecutionId, userId)
+        if (!delivery || delivery.state === 'cancelled') throw personError('Task result callback was cancelled', 409)
+      }
       context.assertCurrent()
       const user = personUser(userId)
       if (user.role !== 'super_admin' && !user.profiles.includes(selection.profile)) throw personError('Resource permission revoked', 403)

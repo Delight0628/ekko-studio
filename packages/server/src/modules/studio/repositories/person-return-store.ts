@@ -11,7 +11,8 @@ export function savePersonTaskReturn(userId: number, executionId: string, sessio
   const execution = getPersonExecution(userId, executionId)
   if (execution.state !== 'finished' && execution.state !== 'failed') return undefined
   const task = getPersonTask(userId, execution.task_id)
-  if (task.session_id !== sessionId) return undefined
+  const delivery = db.prepare('SELECT origin_json FROM person_deliveries WHERE execution_id=? AND owner_user_id=?').get(executionId, userId)
+  if (task.session_id !== sessionId && (!delivery || JSON.parse(String(delivery.origin_json)).sessionId !== sessionId)) return undefined
   const result = { taskId: task.id, executionId, assistantMessageId: String(messageId), title: task.title,
     summary: task.summary, agent: JSON.parse(execution.selection_json).runtime as string, state: execution.state }
   db.prepare('INSERT OR IGNORE INTO person_task_returns VALUES (?,?,?,?,?,?)')

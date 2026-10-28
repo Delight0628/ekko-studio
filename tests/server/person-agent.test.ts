@@ -1577,3 +1577,159 @@ it('discards obsolete account-only tasks without migrating their executions into
   expect(store.getPersonTask(1, retained.task.id).session_id).toBe('person-main-1')
   expect(store.personSettings(1).settings.agents).toHaveLength(1)
 })
+
+describe('Person planned role flow', () => {
+  async function fixture() {
+    const { createPersonConversation } = await import('../../packages/server/src/modules/studio/services/person/conversations')
+    const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
+    const b = await createPersonConversation(1, '文案'), c = await createPersonConversation(1, '程序员')
+    const role = (id: string, executionId?: string) => {
+      const tools = personTools(1, 'main', undefined, id)
+      const origin = { sessionId: id, runId: `role-${id}`, messages: [{ role: 'user' as const, content: '按保存的流程处理同一份成果' }], ...(executionId ? { returnExecutionId: executionId } : {}) }
+      return (name: string, args: Record<string, unknown>) => tools.find(tool => tool.name === name)!.execute(args, origin) as Promise<any>
+    }
+    const boss = role('person-main-1')
+    const created = await boss('bot_task_create', { session_id: b.id, title: '多角色页面任务', goal: '生成页面文案', return_expectation: '检查措辞，通过后推进。',
+      next_steps: [{ session_id: c.id, goal: '将已审核文案实现为页面', return_expectation: '检查实现并移交汇总。' },
+        { session_id: 'person-main-1', goal: '整理最终成果', return_expectation: '向用户汇总完成结果。' }] })
+    expect(created.ok).toBe(true)
+    return { b, c, boss, role, created }
+  }
+
+  it('moves one task along the original route and preserves creator, outputs, worker session and return receipts', async () => {
+    const { b, c, role, created } = await fixture()
+    const delivery = await import('../../packages/server/src/modules/studio/services/person/delivery')
+    const { savePersonTaskReturn, withPersonTaskReturns } = await import('../../packages/server/src/modules/studio/repositories/person-return-store')
+    const { addMessage } = await import('../../packages/server/src/modules/studio/repositories/session-store')
+    const taskId = created.task.id
+    let executionId = created.execution.id
+    for (const [index, current, target] of [[0, b.id, c.id], [1, c.id, 'person-main-1'], [2, 'person-main-1', null]] as const) {
+      await runner.tickPersonWork(); await wait(executionId, 'finished')
+      expect(store.getPersonTask(1, taskId).status).toBe('open')
+      await delivery.deliverPersonResults()
+      expect(vi.mocked(runtime.deliver).mock.calls.at(-1)![0]).toMatchObject({ origin: { sessionId: current }, flow: { index, next_session_id: target }, returnExpectation: expect.any(String) })
+      const call = role(current, executionId)
+      const snapshot = await call('bot_tasks_query', { task_id: taskId })
+      expect(snapshot.task.creator_session_id).toBe('person-main-1')
+      expect(snapshot.task.allowed_actions).toContain('advance')
+      expect(await call('bot_task_control', { action: 'advance', task_ref: snapshot.task.task_ref, session_id: 'person-main-1', message: '跳过阶段' })).toMatchObject({ ok: false })
+      expect(await call('bot_task_create', { title: '替代任务', goal: '绕过保存路线' })).toMatchObject({ ok: false, error: { code: 'ACCESS_DENIED' } })
+      const request = { action: 'advance', task_ref: snapshot.task.task_ref, message: `阶段 ${index} 已核对，成果 result.txt` }
+      const next = await call('bot_task_control', request)
+      expect(next.ok).toBe(true)
+      expect(await call('bot_task_control', request)).toMatchObject({ ok: true, replayed: true })
+      expect(next.task).toMatchObject({ id: taskId, session_id: target || current, creator_session_id: 'person-main-1', status: target ? 'open' : 'completed' })
+      const reply = addMessage({ session_id: current, role: 'assistant', content: '本阶段处理完成' })
+      expect(savePersonTaskReturn(1, executionId, current, reply)).toMatchObject({ taskId, executionId })
+      expect(withPersonTaskReturns(current, [{ id: reply, role: 'assistant' }])[0]).toHaveProperty('person_task_return.taskId', taskId)
+      expect(store.getPersonExecution(1, executionId).output).toContain('result.txt')
+      if (target) {
+        expect(next.execution.id).not.toBe(executionId)
+        expect(store.getPersonExecution(1, next.execution.id).session_id).toBe(`person-task-${taskId}`)
+        expect(JSON.parse(store.getPersonTask(1, taskId).requirements_json).handoff).toMatchObject({ execution_id: executionId, output: expect.stringContaining('result.txt') })
+        executionId = next.execution.id
+      }
+    }
+    expect(store.listPersonTasks(1)).toHaveLength(1)
+    expect(store.taskPersonExecutions(1, taskId)).toHaveLength(3)
+    expect(db.prepare("SELECT COUNT(*) AS n FROM person_events WHERE kind='flow.transferred'").get()?.n).toBe(2)
+    const completed = store.getPersonTask(1, taskId)
+    await expect(tasks.applyPersonTask(1, { action: 'advance', task_id: taskId, expected_revision: completed.revision, message: '再推进', idempotency_key: 'after-end' })).rejects.toThrow('Flow is stopped, complete or unavailable')
+    const secondPrompt = JSON.parse(String(vi.mocked(runtime.execute).mock.calls[1][0].prompt))
+    expect(secondPrompt.requirements).toMatchObject({ goal: '将已审核文案实现为页面', handoff: { message: expect.stringContaining('阶段 0') } })
+    expect(secondPrompt.requirements).not.toHaveProperty('flow')
+    const finalRole = role('person-main-1')
+    const afterCompletion = await finalRole('bot_tasks_query', { task_id: taskId })
+    const followup = await finalRole('bot_task_control', { action: 'continue', task_ref: afterCompletion.task.task_ref, message: '补充最终说明' })
+    expect(followup).toMatchObject({ ok: true, task: { id: taskId, flow: { completed: false, index: 2 } } })
+    await runner.tickPersonWork(); await wait(followup.execution.id, 'finished')
+    await delivery.deliverPersonResults()
+    expect(vi.mocked(runtime.deliver).mock.calls.at(-1)![0]).toMatchObject({ executionId: followup.execution.id, origin: { sessionId: 'person-main-1' }, flow: { next_session_id: null } })
+  })
+
+  it.each(['queued', 'running', 'pending_return', 'queued_return', 'between_stages'])('allows the original creator to stop after transfer during %s', async phase => {
+    const { b, c, boss, role, created } = await fixture()
+    const delivery = await import('../../packages/server/src/modules/studio/services/person/delivery')
+    await runner.tickPersonWork(); await wait(created.execution.id, 'finished')
+    await delivery.deliverPersonResults()
+    const receiver = role(b.id, created.execution.id)
+    const first = await receiver('bot_tasks_query', { task_id: created.task.id })
+    const next = await receiver('bot_task_control', { action: 'advance', task_ref: first.task.task_ref, message: '通过，继续下一阶段' })
+    expect(next.ok).toBe(true)
+    if (phase === 'running') {
+      runtime.execute = vi.fn(input => new Promise(resolve => { input.onEvent('run.started', {}); input.signal.addEventListener('abort', () => resolve({ ok: false, error: 'Stopped' }), { once: true }) }))
+      await runner.tickPersonWork(); await wait(next.execution.id, 'running')
+    } else if (phase !== 'queued') {
+      await runner.tickPersonWork(); await wait(next.execution.id, 'finished')
+      if (phase !== 'pending_return') await delivery.deliverPersonResults()
+      if (phase === 'between_stages') delivery.finishPersonDelivery(1, next.execution.id, true)
+    }
+    const receivingRole = role(c.id, next.execution.id)
+    const beforeStop = await receivingRole('bot_tasks_query', { task_id: created.task.id })
+    const snapshot = await boss('bot_tasks_query', { task_id: created.task.id })
+    expect(snapshot.task.allowed_actions).toEqual(['stop'])
+    const stopped = await boss('bot_task_control', { action: 'stop', task_ref: snapshot.task.task_ref })
+    expect(stopped.ok).toBe(true)
+    expect(stopped.task).toMatchObject({ session_id: c.id, creator_session_id: 'person-main-1', flow: { stopped: true } })
+    if (phase === 'running') await wait(next.execution.id, 'interrupted')
+    expect(await receivingRole('bot_task_control', { action: 'advance', task_ref: beforeStop.task.task_ref, message: '迟到回调' })).toMatchObject({ ok: false })
+    await expect(tasks.applyPersonTask(1, { action: 'advance', task_id: created.task.id, expected_revision: store.getPersonTask(1, created.task.id).revision, message: '继续', idempotency_key: 'stopped-advance' })).rejects.toThrow('stopped')
+    await runner.tickPersonWork()
+    expect(store.taskPersonExecutions(1, created.task.id)).toHaveLength(2)
+    expect(delivery.personDeliveryCurrent(1, next.execution.id)).toBe(false)
+    expect(db.prepare("SELECT COUNT(*) AS n FROM person_deliveries WHERE state IN ('waiting','pending','queued')").get()?.n).toBe(0)
+    expect((await role(c.id)('bot_tasks_query', { task_id: created.task.id })).task.allowed_actions).toEqual([])
+    const latest = await boss('bot_tasks_query', { task_id: created.task.id })
+    expect(await boss('bot_task_control', { action: 'reopen', task_ref: latest.task.task_ref })).toMatchObject({ ok: true, task: { flow: { stopped: false } } })
+  })
+
+  it('keeps failed work in its current stage and rejects stale callbacks after stop and reopen', async () => {
+    const { b, boss, role, created } = await fixture()
+    runtime.execute = vi.fn(async () => ({ ok: false, error: 'Generation failed' }))
+    await runner.tickPersonWork(); await wait(created.execution.id, 'failed')
+    const delivery = await import('../../packages/server/src/modules/studio/services/person/delivery')
+    await delivery.deliverPersonResults()
+    const receiving = role(b.id, created.execution.id)
+    const first = await receiving('bot_tasks_query', { task_id: created.task.id })
+    expect(first.task.allowed_actions).not.toContain('advance')
+    const snapshot = await boss('bot_tasks_query', { task_id: created.task.id })
+    expect(await boss('bot_task_control', { action: 'stop', task_ref: snapshot.task.task_ref })).toMatchObject({ ok: true })
+    const stopped = store.getPersonTask(1, created.task.id)
+    await expect(tasks.applyPersonTask(1, { action: 'reopen', task_id: stopped.id, expected_revision: stopped.revision, idempotency_key: 'wrong-resumer' }, undefined,
+      { sessionId: b.id, runId: '', messages: [] })).rejects.toThrow('Only the creator')
+    const last = await boss('bot_tasks_query', { task_id: created.task.id })
+    expect(await boss('bot_task_control', { action: 'reopen', task_ref: last.task.task_ref })).toMatchObject({ ok: true })
+    expect(delivery.personDeliveryCurrent(1, created.execution.id)).toBe(false)
+    const { createPersonAgent } = await import('../../packages/server/src/bootstrap/person-chat-agent')
+    const { createPersonChatAgent } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
+    runtime.chatAgent = createPersonAgent
+    const lateCallback = await createPersonChatAgent(1, b.id, created.execution.id)
+    await expect(lateCallback.run({ messages: [{ role: 'user', content: '迟到回流' }] })).rejects.toThrow('Task result callback was cancelled')
+    const ref = await receiving('bot_tasks_query', { task_id: created.task.id })
+    expect(await receiving('bot_task_control', { action: 'continue', task_ref: ref.task.task_ref, message: 'Late retry' })).toMatchObject({ ok: false })
+    expect(store.taskPersonExecutions(1, created.task.id)).toHaveLength(1)
+    expect(store.getPersonTask(1, created.task.id).session_id).toBe(b.id)
+  })
+
+  it('rejects foreign destinations, route replacement, stale revisions and removed next roles atomically', async () => {
+    const { b, c, role, created } = await fixture()
+    await expect(create({ next_steps: [{ session_id: 'person-main-2', goal: 'foreign', return_expectation: 'report' }] })).rejects.toThrow()
+    await expect(create({ creator_session_id: c.id })).rejects.toThrow('Creator')
+    await expect(tasks.applyPersonTask(1, { action: 'update', task_id: created.task.id, expected_revision: 0, next_steps: [], goal: 'replace route', idempotency_key: 'replace' })).rejects.toThrow('fixed at creation')
+    await runner.tickPersonWork(); await wait(created.execution.id, 'finished')
+    const current = store.getPersonTask(1, created.task.id)
+    const request = { action: 'advance', task_id: current.id, expected_revision: current.revision, expected_execution_id: current.execution_id, message: '通过', idempotency_key: 'advance' }
+    await expect(tasks.applyPersonTask(1, { ...request, expected_revision: current.revision - 1 })).rejects.toThrow('Task changed')
+    await expect(tasks.applyPersonTask(2, request)).rejects.toThrow('Task not found')
+    const stranger = role(c.id)
+    expect((await stranger('bot_tasks_query', { task_id: current.id })).task.allowed_actions).toEqual([])
+    const { beginPersonSessionDeletion } = await import('../../packages/server/src/modules/studio/repositories/person-session-store')
+    const release = beginPersonSessionDeletion(1, c.id)
+    try { await expect(tasks.applyPersonTask(1, request)).rejects.toThrow() } finally { release() }
+    expect(store.getPersonTask(1, current.id)).toMatchObject({ session_id: b.id, revision: current.revision })
+    expect(store.taskPersonExecutions(1, current.id)).toHaveLength(1)
+    const advanced = await tasks.applyPersonTask(1, request)
+    expect(advanced.task.session_id).toBe(c.id)
+    expect(await tasks.applyPersonTask(1, request)).toEqual(advanced)
+  })
+})

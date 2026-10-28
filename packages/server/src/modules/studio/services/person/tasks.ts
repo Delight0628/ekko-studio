@@ -11,6 +11,8 @@ import { validatePersonSelection } from './catalog'
 import { selectPersonExecutionAgent } from './agents'
 import { savePersonTaskOrigin } from './delivery'
 import { requirePersonSession } from '../../repositories/person-session-store'
+import { personRequirements } from '../../contracts/person-flow'
+import { advancePersonFlow, assertPersonTaskActor, plannedPersonFlow, stopPersonFlow } from './task-flow'
 
 const running = new Map<string, AbortController>()
 const stopping = new Map<string, Promise<void>>()
@@ -60,7 +62,10 @@ export function acknowledgePersonStop(run: PersonExecution): Promise<void> {
 export interface PersonTaskResult { task: PersonTask; execution?: PersonExecution }
 export async function applyPersonTask(userId: number, input: Record<string, unknown>, boundTask?: string, origin?: PersonTaskOrigin): Promise<PersonTaskResult> {
   const action = personText(input.action, 'action', 30)
-  if (!['create','adopt','update','start','stop','close','reopen'].includes(action)) throw personError('Unsupported task action')
+  if (!['create','adopt','update','start','stop','close','reopen','advance'].includes(action)) throw personError('Unsupported task action')
+  if (Object.hasOwn(input, 'creator_session_id')) throw personError('Creator is assigned by the host')
+  if (!['create','adopt'].includes(action) && (Object.hasOwn(input, 'next_steps') || Object.hasOwn(input, 'return_expectation'))) throw personError('Flow is fixed at creation')
+  if (action === 'advance' && ['session_id','goal','agent_id','start'].some(key => Object.hasOwn(input, key))) throw personError('Advance uses the saved next step')
   const key = personText(input.idempotency_key, 'idempotency_key', 200)
   if (boundTask && (input.task_id !== boundTask || action === 'create' || action === 'adopt')) throw personError('Task is outside this coordinator scope', 403)
   const targetSession = ['create', 'adopt'].includes(action) ? String(input.session_id || origin?.sessionId || '') : getPersonTask(userId, String(input.task_id)).session_id
@@ -71,21 +76,30 @@ export async function applyPersonTask(userId: number, input: Record<string, unkn
   const selection = ['create','adopt'].includes(action) ? await selectPersonExecutionAgent(userId, input.agent_id) : null
   if (selection) await validatePersonSelection(userId, selection)
   if (action === 'start') await validatePersonSelection(userId, JSON.parse(getPersonTask(userId, String(input.task_id)).selection_json))
+  if (action === 'advance') {
+    const task = getPersonTask(userId, String(input.task_id)), flow = personRequirements(task).flow
+    if (flow?.steps[flow.index]) await validatePersonSelection(userId, JSON.parse(task.selection_json))
+  }
   const taskWorkspace = personWorkspace(userId)
   if (input.workspace && input.workspace !== taskWorkspace) throw personError('Task workspace is managed by Person settings')
   if (['create','adopt'].includes(action)) await ensureDirectory(taskWorkspace)
   const result = personOperation(userId, `task:${key}`, operationInput, () => {
     if (action !== 'stop') requirePersonSession(userId, targetSession)
+    const plan = ['create','adopt'].includes(action) ? plannedPersonFlow(userId, input) : undefined
     if (action === 'adopt') {
       const task = adoptPersonGoal(userId, personText(input.task_id,'task_id',100),personRevision(input.expected_revision),selection!,taskWorkspace,personText(input.goal,'goal',8000),targetSession)
+      personDb().prepare('UPDATE session_tasks SET requirements_json=? WHERE id=?').run(JSON.stringify({ ...personRequirements(task), ...plan,
+        creator_session_id: requirePersonSession(userId, origin?.sessionId || targetSession).id }), task.id)
       savePersonTaskOrigin(userId, task.id, origin)
-      const execution = input.start === false ? undefined : enqueuePersonExecution(task)
+      const execution = input.start === false ? undefined : enqueuePersonExecution(getPersonTask(userId, task.id))
       return { task: getPersonTask(userId, task.id), execution }
     }
     if (action === 'create') {
       const task = createPersonTask(userId, personText(input.title, 'title', 200), personText(input.goal, 'goal', 8000), selection!, taskWorkspace, targetSession)
+      personDb().prepare('UPDATE session_tasks SET requirements_json=? WHERE id=?').run(JSON.stringify({ ...personRequirements(task), ...plan,
+        creator_session_id: requirePersonSession(userId, origin?.sessionId || targetSession).id }), task.id)
       savePersonTaskOrigin(userId, task.id, origin)
-      const execution = input.start === false ? undefined : enqueuePersonExecution(task)
+      const execution = input.start === false ? undefined : enqueuePersonExecution(getPersonTask(userId, task.id))
       return { task: getPersonTask(userId, task.id), execution }
     }
     const task = getPersonTask(userId, personText(input.task_id, 'task_id', 100))
@@ -93,11 +107,29 @@ export async function applyPersonTask(userId: number, input: Record<string, unkn
     // Schedules can enqueue a new execution without changing the task revision.
     // Check the observed execution in the same transaction as the mutation.
     if (input.expected_execution_id !== undefined && input.expected_execution_id !== (task.execution_id || null)) throw personError('Execution changed; query the task again', 409)
+    const requirements = personRequirements(task)
+    if (requirements.flow) {
+      assertPersonTaskActor(task, origin, ['stop','reopen'].includes(action))
+      if (action === 'stop') {
+        stopPersonFlow(task, origin)
+        const active = personDb().prepare("SELECT id FROM person_executions WHERE task_id=? AND id=? AND state IN ('pending','queued','starting','running','stopping','waiting_person','waiting_user','waiting_approval')").get(task.id, task.execution_id || '')
+        return active ? requestStop(userId, task.id, String(active.id)) : { task: getPersonTask(userId, task.id) }
+      }
+      if (requirements.flow.stopped && action !== 'reopen') throw personError('Flow is stopped; its creator must reopen it', 409)
+    }
+    if (action === 'advance') return advancePersonFlow(task, input.message, origin)
     if (action === 'stop') return requestStop(userId, task.id, personText(input.execution_id, 'execution_id', 100))
     if (personTaskRunning(task.id)) throw personError('Task is running; wait for it to finish', 409)
     const db = personDb()
     if (action === 'reopen') {
-      if (task.status === 'open') throw personError('Task is already open',409)
+      if (requirements.flow?.stopped) {
+        if (origin && origin.sessionId !== requirements.creator_session_id) throw personError('Only the creator can resume a stopped flow', 403)
+      } else if (task.status === 'open') throw personError('Task is already open',409)
+      if (requirements.flow) {
+        requirements.flow.stopped = false
+        requirements.flow.completed = false
+        db.prepare('UPDATE session_tasks SET requirements_json=? WHERE id=?').run(JSON.stringify(requirements), task.id)
+      }
       db.prepare("UPDATE session_tasks SET status='open',completion_evidence='',completed_at=NULL,revision=revision+1,updated_at=? WHERE id=?").run(Date.now(),task.id)
     } else if (action === 'update') {
       savePersonTaskOrigin(userId, task.id, origin)

@@ -8,6 +8,8 @@ import { personUpdated } from '../../repositories/person-updates'
 import { personUser, validatePersonSelection } from './catalog'
 import { savePersonTaskOrigin } from './delivery'
 import { requirePersonSession } from '../../repositories/person-session-store'
+import { personRequirements } from '../../contracts/person-flow'
+import { assertPersonTaskActor } from './task-flow'
 
 /** Hidden task conversations are account-owned, never shared by Profile. */
 export function ownedPersonTaskSession(userId: number | undefined, sessionId: string) {
@@ -58,11 +60,18 @@ export async function continuePersonTask(userId: number, taskId: string, body: R
   const input = chatInput(body.input)
   const result = personOperation(userId, key, request, () => {
     const current = getPersonTask(userId, taskId)
+    const requirements = personRequirements(current)
+    if (requirements.flow) {
+      assertPersonTaskActor(current, origin)
+      if (requirements.flow.stopped) throw personError('Flow is stopped; its creator must reopen it', 409)
+      requirements.flow.completed = false
+    }
     requirePersonSession(userId, current.session_id)
     if (current.revision !== personRevision(body.expected_revision)) throw personError('Task changed; query it again', 409)
     if (current.execution_state === 'stopping') throw personError('Task is stopping; wait for acknowledgement', 409)
     if (Object.hasOwn(body, 'expected_execution_id') && body.expected_execution_id !== (current.execution_id || null)) throw personError('Execution changed; query the task again', 409)
     if (current.status === 'closed') throw personError('Reopen the task before continuing', 409)
+    if (requirements.flow) personDb().prepare('UPDATE session_tasks SET requirements_json=? WHERE id=?').run(JSON.stringify(requirements), taskId)
     personDb().prepare("UPDATE session_tasks SET status='open',completion_evidence='',completed_at=NULL,revision=revision+1,updated_at=? WHERE id=?")
       .run(Date.now(), taskId)
     savePersonTaskOrigin(userId, taskId, origin)

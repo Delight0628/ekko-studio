@@ -23,6 +23,7 @@ export interface PersonModelCall {
   onPrepared?: (request: ModelRequest) => void
 }
 export interface PersonChatAgentOptions extends Pick<PersonModelCall, 'selection' | 'tools' | 'systemPrompt' | 'maxSteps' | 'contextTokens' | 'compression' | 'beforeRequest' | 'summaryCache' | 'onSummaryUsage'> {
+  returnExecutionId?: string
   workspace: string
   memory?: { service: MemoryService; identity: MemoryRuntimeIdentity }
   loadHistory?: (query: string) => AgentMessage[]
@@ -36,6 +37,8 @@ export interface PersonResultDelivery {
   status: string
   output: string
   error: string
+  returnExpectation?: string
+  flow?: { index: number; total: number; stopped: boolean; completed: boolean; next_session_id: string | null }
 }
 export interface PersonRuntimePort {
   deliver(input: PersonResultDelivery): Promise<void>

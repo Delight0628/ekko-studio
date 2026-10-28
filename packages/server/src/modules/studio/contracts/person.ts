@@ -21,6 +21,7 @@ export interface PersonTaskOrigin {
   sessionId: string
   runId: string
   messages: AgentMessage[]
+  returnExecutionId?: string
 }
 export interface PersonSettings {
   workspace: string
@@ -36,6 +37,7 @@ export interface PersonTask {
   id: string
   session_id: string
   session_title?: string
+  creator_session_id?: string | null
   owner_user_id: number
   bot_id: string
   title: string

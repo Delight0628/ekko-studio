@@ -499,7 +499,11 @@ export async function handleEkkoAgentRun(
   const reasoningEffort = studioModelReasoningEffort({ ...modelConfig, baseUrl, reasoningEffort: persistedReasoningEffort,
     metadata: data.model_groups?.find(group => group.provider === modelConfig.provider)?.model_meta?.[modelConfig.model],
   }) as ModelReasoningEffort | undefined
-  const agent = isPersonSession(sessionId) ? await createPersonChatAgent(Number(authenticatedUserId), sessionId) : getGlobalEkkoAgent(profile)
+  const personReturnId = backgroundContinuationContext?.runtime === 'ekko'
+    && backgroundContinuationContext.subagentId === data.background_delegation_id
+    && data.background_delegation_id?.startsWith('person-result:')
+    ? data.background_delegation_id.slice('person-result:'.length) : undefined
+  const agent = isPersonSession(sessionId) ? await createPersonChatAgent(Number(authenticatedUserId), sessionId, personReturnId) : getGlobalEkkoAgent(profile)
   state.ekkoBoundaryInterrupt = agent.requestBoundaryInterrupt
     ? (expectedRunId: string) => agent.requestBoundaryInterrupt({ sessionId, expectedRunId }) : undefined
   const workspace = selectWorkspace(

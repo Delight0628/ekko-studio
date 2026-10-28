@@ -6,13 +6,14 @@ import { personDb, getPersonExecution, getPersonTask } from '../../repositories/
 import { personUpdated } from '../../repositories/person-updates'
 import { personRuntime } from '../../public/person-runtime'
 import { personUser } from './catalog'
+import { personFlowSummary, personRequirements } from '../../contracts/person-flow'
 
 export function savePersonTaskOrigin(userId: number, taskId: string, supplied?: PersonTaskOrigin) {
   const sessionId = getPersonTask(userId, taskId).session_id
   if (!ownsPersonSession(userId, getSession(sessionId))) throw personError('Task conversation not found', 404)
   if (supplied && !ownsPersonSession(userId, getSession(supplied.sessionId))) throw personError('Invalid background task origin', 403)
   // UI actions and schedules use a bounded snapshot of the same account conversation.
-  const origin: PersonTaskOrigin = supplied ? { ...supplied, sessionId } : { sessionId, runId: '', messages: (getSessionDetail(sessionId)?.messages || [])
+  const origin: PersonTaskOrigin = supplied ? { ...supplied, sessionId, returnExecutionId: undefined } : { sessionId, runId: '', messages: (getSessionDetail(sessionId)?.messages || [])
     .filter(message => ['user','assistant'].includes(message.role) && !message.tool_calls?.length)
     .slice(-20).map(message => ({ role: message.role as 'user' | 'assistant', content: String(message.content || '').slice(0,6000) })) }
   personDb().prepare('INSERT INTO person_task_origins VALUES (?,?,?) ON CONFLICT(task_id) DO UPDATE SET origin_json=excluded.origin_json')
@@ -34,7 +35,9 @@ export function cancelPersonDelivery(userId: number, executionId: string) {
 export function personDeliveryCurrent(userId: number, executionId: string) {
   const run = getPersonExecution(userId, executionId)
   const task = getPersonTask(userId, run.task_id)
-  return ownsPersonSession(userId, getSession(task.session_id)) && ['finished','failed'].includes(run.state) && task.status !== 'closed' && task.requirements_revision === run.requirements_revision
+  const flow = personRequirements(task).flow
+  if (flow && !personDb().prepare("SELECT 1 FROM person_deliveries WHERE execution_id=? AND state IN ('pending','queued')").get(executionId)) return false
+  return !flow?.stopped && !flow?.completed && ownsPersonSession(userId, getSession(task.session_id)) && ['finished','failed'].includes(run.state) && task.status !== 'closed' && task.requirements_revision === run.requirements_revision
 }
 export async function deliverPersonResults() {
   const db = personDb()
@@ -60,8 +63,10 @@ export async function deliverPersonResults() {
     try {
       db.prepare("UPDATE person_deliveries SET state='queued',error='',updated_at=? WHERE execution_id=?").run(Date.now(), run.id)
       const user = personUser(row.owner_user_id)
+      const context = personFlowSummary(task)
       await personRuntime().deliver({ user, origin, executionId: run.id, taskId: task.id, title: task.title,
-        status: run.state, output: run.output.slice(0,12000), error: run.error.slice(0,2000) })
+        status: run.state, output: run.output.slice(0,12000), error: run.error.slice(0,2000),
+        ...(context.flow ? { returnExpectation: context.return_expectation, flow: context.flow } : {}) })
     } catch (error) { finishPersonDelivery(row.owner_user_id, run.id, false, String(error)) }
   }
 }

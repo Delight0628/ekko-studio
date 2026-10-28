@@ -14,6 +14,7 @@ import { logger } from '../../public/logging'
 import { requirePersonSession } from '../../repositories/person-session-store'
 import { personWorkspace } from './workspace'
 import { ensureDirectory } from '../workspace/directory'
+import { personRequirements } from '../../contracts/person-flow'
 
 const active = new Map<string, { run: PersonExecution; abort: AbortController }>()
 const busyTasks = new Set<string>()
@@ -105,7 +106,9 @@ async function execute(run: PersonExecution, abort: AbortController) {
     personDb().prepare('UPDATE session_tasks SET workspace=? WHERE id=?').run(workspace, task.id)
     personDb().prepare('UPDATE sessions SET workspace=? WHERE id=? AND CAST(studio_user_id AS TEXT)=?').run(workspace, run.session_id, String(userId))
     const decisions = personDb().prepare("SELECT question,answer,answered_by FROM person_interactions WHERE task_id=? AND state='answered' ORDER BY created_at DESC LIMIT 10").all(task.id)
-    const prompt = run.input_json ? JSON.parse(run.input_json) : JSON.stringify({ title: task.title, requirements: JSON.parse(task.requirements_json), decisions })
+    const requirements = personRequirements(task)
+    const prompt = run.input_json ? JSON.parse(run.input_json) : JSON.stringify({ title: task.title,
+      requirements: { goal: requirements.goal, ...(requirements.handoff ? { handoff: requirements.handoff } : {}) }, decisions })
     current(run)
     const result = await personRuntime().execute({ user: personUser(userId), selection, sessionId: run.session_id, workspace, prompt, displayInput: run.input_json ? undefined : String(JSON.parse(task.requirements_json).goal || task.summary), signal: abort.signal,
       onEvent: (kind, payload) => {
@@ -139,7 +142,7 @@ async function execute(run: PersonExecution, abort: AbortController) {
       const scheduled = personDb().prepare("SELECT id FROM person_schedules WHERE task_id=? AND state IN ('active','paused')").get(task.id)
       const pending = getPersonTask(userId, task.id).pending_count
       personDb().prepare("UPDATE session_tasks SET status=?,completion_evidence=?,completed_at=?,updated_at=?,revision=revision+1 WHERE id=?")
-        .run(scheduled || pending ? 'open' : 'completed', output.slice(0,2000), scheduled || pending ? null : Date.now(), Date.now(), task.id)
+        .run(scheduled || pending || (requirements.flow && !requirements.flow.completed) ? 'open' : 'completed', output.slice(0,2000), scheduled || pending || (requirements.flow && !requirements.flow.completed) ? null : Date.now(), Date.now(), task.id)
       if (run.occurrence_id) personDb().prepare("UPDATE person_occurrences SET state='finished' WHERE id=?").run(run.occurrence_id)
     })
   } catch (error) {
