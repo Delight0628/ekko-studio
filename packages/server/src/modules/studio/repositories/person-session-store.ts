@@ -35,3 +35,9 @@ export function beginPersonSessionDeletion(userId: number, sessionId: string) {
 export function personSessionIds(userId: number): string[] {
   return personDb().prepare("SELECT id FROM sessions WHERE CAST(studio_user_id AS TEXT)=? AND id LIKE 'person-main-%'").all(String(userId)).map(row => String(row.id))
 }
+
+/** Full prompt directory, independent of search pagination and message history. */
+export function personSessionDirectory(userId: number) {
+  return personDb().prepare("SELECT id,title FROM sessions WHERE CAST(studio_user_id AS TEXT)=? AND id LIKE 'person-main-%' ORDER BY id")
+    .all(String(userId)).filter(row => !deleting.has(String(row.id))) as Array<{ id: string; title: string | null }>
+}

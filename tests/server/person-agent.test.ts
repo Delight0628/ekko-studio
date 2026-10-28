@@ -1361,6 +1361,69 @@ it.each(['pending','queued','starting','running','waiting_person','waiting_user'
 
 
 describe('Person multi-conversation ownership', () => {
+  async function requestWithDirectory() {
+    const { createPersonAgent } = await import('../../packages/server/src/bootstrap/person-chat-agent')
+    const { createPersonChatAgent } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
+    runtime.chatAgent = createPersonAgent
+    const requests: import('../../packages/ekko-agent/src/model/types').ModelRequest[] = []
+    const agent = await createPersonChatAgent(1, 'person-main-1')
+    await agent.run({ messages: [{ role: 'user', content: '你好' }],
+      modelClient: { provider: 'test', capabilities: { streaming: true, tools: true, vision: false, jsonMode: false, systemPrompt: true },
+        create: async () => ({ content: 'summary' }), async *stream(request) { requests.push(request); yield { type: 'done', response: { content: '你好' } } } } })
+    expect(requests).toHaveLength(1)
+    const prompt = requests[0].messages.filter(message => message.role === 'system').map(message => message.content).join('\n')
+    const line = prompt.split('\n').find(value => value.startsWith('Account conversations: '))!
+    const entries = JSON.parse(line.slice('Account conversations: '.length)) as Array<{ id: string; title: string | null; current?: boolean }>
+    expect(entries.filter(entry => entry.current)).toHaveLength(1)
+    return { prompt, currentId: entries.find(entry => entry.current)!.id, directory: entries.map(({ id, title }) => ({ id, title })) }
+  }
+
+  it('includes the full owned conversation directory in the model request beyond search page limits', async () => {
+    const { createSession, addMessage } = await import('../../packages/server/src/modules/studio/repositories/session-store')
+    const { beginPersonSessionDeletion } = await import('../../packages/server/src/modules/studio/repositories/person-session-store')
+    modelContextLength = 32000
+    const expected = [{ id: 'person-main-1', title: 'Conversation 1' }]
+    for (let i = 0; i < 105; i++) {
+      const entry = { id: `person-main-directory-${i}`, title: i === 0 ? '文案"\n自定义名称' : `会话 ${i}` }
+      createSession({ ...entry, studio_user_id: 1, source: 'builtin_agent', agent: 'ekko-agent', profile: i % 2 ? 'other-profile' : 'default' })
+      expected.push(entry)
+    }
+    for (const id of ['ordinary-private', 'person-task-private', 'person-main-deleting']) {
+      createSession({ id, title: id, studio_user_id: 1, source: 'builtin_agent', profile: 'default' })
+    }
+    addMessage({ session_id: expected[1].id, role: 'user', content: 'History must not become directory data' })
+    const release = beginPersonSessionDeletion(1, 'person-main-deleting')
+    try {
+      const { prompt, directory, currentId } = await requestWithDirectory()
+      expect(directory).toHaveLength(expected.length)
+      expect(directory).toEqual(expect.arrayContaining(expected))
+      expect(currentId).toBe('person-main-1')
+      expect(directory).toContainEqual({ id: 'person-main-1', title: 'Conversation 1' })
+      for (const excluded of ['person-main-2', 'ordinary-private', 'person-task-private', 'person-main-deleting', 'History must not become directory data']) {
+        expect(prompt).not.toContain(excluded)
+      }
+    } finally { release() }
+  })
+
+  it('refreshes the directory and current name on the next turn after create, rename and delete', async () => {
+    const { createPersonConversation, deletePersonConversation } = await import('../../packages/server/src/modules/studio/services/person/conversations')
+    const { updateSession } = await import('../../packages/server/src/modules/studio/repositories/session-store')
+    const b = await createPersonConversation(1, '文案')
+    expect((await requestWithDirectory()).directory).toContainEqual({ id: b.id, title: '文案' })
+    updateSession('person-main-1', { title: '老板' })
+    updateSession(b.id, { title: '新的会话名' })
+    const c = await createPersonConversation(1, '程序员')
+    const updated = await requestWithDirectory()
+    expect(updated.directory).toEqual(expect.arrayContaining([
+      { id: 'person-main-1', title: '老板' }, { id: b.id, title: '新的会话名' }, { id: c.id, title: '程序员' },
+    ]))
+    expect(updated.currentId).toBe('person-main-1')
+    await deletePersonConversation(1, b.id, b.history_revision)
+    const next = await requestWithDirectory()
+    expect(next.directory).toHaveLength(2)
+    expect(next.directory.map(entry => entry.id)).not.toContain(b.id)
+  })
+
   it('binds an implicit task destination before checking idempotent retries', async () => {
     const { createPersonConversation } = await import('../../packages/server/src/modules/studio/services/person/conversations')
     const b = await createPersonConversation(1, 'B')
