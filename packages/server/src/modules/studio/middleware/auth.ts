@@ -1,5 +1,5 @@
 import { ownedPersonTaskSession } from '../services/person/task-chat'
-import { ownsPersonSession } from '../contracts/person-session'
+import { isPersonSession, isPrivatePersonSession, ownsPersonSession } from '../contracts/person-session'
 import { getSession } from '../repositories/session-store'
 import { handleSessionShareHttp } from '../services/session-shares/http-access'
 import type { Context, Next } from 'koa'
@@ -331,6 +331,32 @@ function isAccountModelApiPath(path: string | undefined): boolean {
     || path === '/api/ekko-studio/models/v1/models' || path === '/api/ekko-studio/models/v1/responses'
 }
 
+/** Only session identifiers carry ownership; search text and file paths do not. */
+function requestedPersonSessionIds(ctx: Context): string[] {
+  const body = ctx.request.body as Record<string, unknown> | undefined
+  const query = ctx.query || {}
+  const route = /^\/api\/studio\/(?:sessions\/(?:(?:conversations|hermes)\/)?|person\/conversations\/)([^/]+)/i.exec(ctx.path)
+    || /^\/api\/coding-agents\/runs\/([^/]+)/i.exec(ctx.path)
+  let routeId = route?.[1]
+  try { if (routeId) routeId = decodeURIComponent(routeId) } catch { /* Router rejects invalid escapes. */ }
+  const refs: unknown[] = [routeId]
+  for (const source of [query, body]) {
+    for (const key of ['session_id', 'sessionId', 'parent_session_id', 'session_ids']) refs.push(source?.[key])
+  }
+  if (/^\/api\/studio\/logs\/[^/]+\/?$/i.test(ctx.path)) refs.push(query.session)
+  if (/^\/api\/studio\/sessions\/usage\/?$/i.test(ctx.path) && typeof query.ids === 'string') {
+    refs.push(query.ids.split(','))
+  }
+  if (/^\/api\/studio\/sessions\/batch-delete\/?$/i.test(ctx.path)) {
+    const targets = Array.isArray(body?.sessions) && body.sessions.length ? body.sessions : body?.ids
+    if (Array.isArray(targets)) refs.push(targets.map(target =>
+      typeof target === 'string' ? target : target && typeof target === 'object' ? target.id : undefined))
+  }
+  return [...new Set(refs.flatMap(ref => Array.isArray(ref) ? ref : [ref])
+    .filter((ref): ref is string => typeof ref === 'string')
+    .map(ref => ref.trim()).filter(isPrivatePersonSession))]
+}
+
 export async function requireUserJwt(ctx: Context, next: Next): Promise<void> {
   if (!isProtectedHttpPath(ctx.path)) {
     await next()
@@ -338,18 +364,15 @@ export async function requireUserJwt(ctx: Context, next: Next): Promise<void> {
   }
 
   // Internal Person sessions never become profile-shared HTTP resources.
-  const body = ctx.request.body as Record<string, unknown> | undefined
   let decodedPath = ctx.path
   try { decodedPath = decodeURIComponent(ctx.path) } catch { /* Router handles invalid escapes. */ }
-  const batchRefs = Array.isArray(body?.sessions) ? body.sessions.map(target =>
-    typeof target === 'string' ? target : target && typeof target === 'object' ? target.id : undefined) : []
-  const refs = [decodedPath, ...Object.values(ctx.query || {}), body?.session_id, body?.sessionId, body?.session_ids, body?.ids, body?.parent_session_id, ...batchRefs]
-  const workerRefs = [...new Set(refs.flatMap(ref => String(ref || '').match(/person-task-[^/\s?"&,]+/g) || []))]
-  const workerRead = ctx.method === 'GET' && /^\/api\/studio\/sessions\/(?:conversations\/)?person-task-[^/]+(?:\/(?:messages(?:\/paginated)?|context|usage|workspace-files\/list|workspace-file\/(?:read|content|diff)))?$/.test(decodedPath)
+  const refs = requestedPersonSessionIds(ctx)
+  const workerRefs = refs.filter(id => id.startsWith('person-task-'))
+  const workerRead = ctx.method === 'GET' && /^\/api\/studio\/sessions\/(?:conversations\/)?person-task-[^/]+(?:\/(?:messages(?:\/paginated)?|context|usage|workspace-files\/list|workspace-file\/(?:read|content|diff)))?\/?$/i.test(decodedPath)
   if (workerRefs.length && !workerRead) {
     ctx.status = 404; ctx.body = { error: 'Session not found' }; return
   }
-  const personRefs = [...new Set(refs.flatMap(ref => typeof ref === 'string' ? ref.match(/person-main-[^/\s?"&,]+/g) || [] : Array.isArray(ref) ? ref.filter(value => typeof value === 'string' && value.startsWith('person-main-')) : []))]
+  const personRefs = refs.filter(isPersonSession)
   if (!workerRefs.length && !personRefs.length && await handleSessionShareHttp(ctx, next)) return
 
   const secret = await getJwtSecret()

@@ -132,6 +132,40 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true, custo
   return { state, operations }
 }
 
+for (const listState of ['existing', 'empty', 'unavailable']) {
+  test(`leaving a focused Person result sends to ordinary chat (${listState} list)`, async ({ page }) => {
+    const { state } = await setup(page, 'light', false, false)
+    const ordinarySession = { ...state.session, id: 'ordinary-chat', agent_preset: '', title: 'Ordinary chat' }
+    await page.route(/\/api\/studio\/sessions(?:\?.*)?$/, route => route.fulfill({
+      status: listState === 'unavailable' ? 503 : 200,
+      json: listState === 'unavailable' ? { error: 'Session list unavailable' }
+        : { sessions: listState === 'existing' ? [ordinarySession] : [] },
+    }))
+    await page.addInitScript(() => {
+      (window as any).__PW_CHAT_SOCKET_RESUMES__['person-main-1'].messages = [
+        { id: 580, role: 'assistant', content: 'Private Person search result', timestamp: 1 },
+      ]
+      ;(window as any).__PW_CHAT_SOCKET_RESUMES__['ordinary-chat'] = {
+        session_id: 'ordinary-chat', messages: [], isWorking: false, events: [],
+      }
+    })
+    await page.goto('/#/person?session=person-main-1&message=580')
+    await expect(page.getByText('Private Person search result', { exact: true })).toBeVisible()
+
+    await page.getByRole('link', { name: 'Chat', exact: true }).click()
+    await expect(page).toHaveURL(/#\/hermes\/chat$/)
+    await expect(page.locator('.chat-panel')).toBeVisible()
+    await expect(page.getByText('Private Person search result', { exact: true })).toHaveCount(0)
+    await page.locator('.input-textarea').fill('Continue in ordinary chat')
+    await page.getByRole('button', { name: 'Send', exact: true }).click()
+    await expect.poll(() => emitted(page, 'run')).toHaveLength(1)
+    const [run] = await emitted(page, 'run')
+    expect(run.session_id).toBeTruthy()
+    expect(run.session_id).not.toMatch(/^person-(main|task)-/)
+    if (listState === 'existing') expect(run.session_id).toBe('ordinary-chat')
+  })
+}
+
 async function setupSessionModels(page: Page) {
   const { state, operations } = await setup(page, 'light', false, false)
   const second = { ...state.session, id: 'person-main-second', title: 'Second' }

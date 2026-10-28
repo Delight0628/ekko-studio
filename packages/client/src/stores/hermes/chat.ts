@@ -1816,6 +1816,12 @@ function createChatState(scopedSessionId?: string) {
 
   async function loadSessions(profile?: string | null, preferredSessionId?: string | null, preferredFocusId?: string | null) {
     const requestSequence = ++loadSessionsRequestSequence
+    // Returning from Person must detach its private conversation even when
+    // the ordinary chat list is slow or unavailable.
+    if (/^person-(main|task)-/.test(activeSessionId.value || '')) {
+      clearActiveSession()
+      sessions.value = sessions.value.filter(session => !/^person-(main|task)-/.test(session.id))
+    }
     const selectionSequence = activeSelectionSequence
     isLoadingSessions.value = true
     try {
