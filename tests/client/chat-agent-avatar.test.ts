@@ -28,6 +28,9 @@ describe('single chat Agent avatars', () => {
 
   it.each([
     ['Hermes', { agent: 'hermes' }, '/coding-agents/hermes.png'],
+    ['Hermes', { source: 'coding_agent', agent: 'hermes' }, '/coding-agents/hermes.png'],
+    ['Hermes', { source: 'coding_agent', agent: ' Hermes ' }, '/coding-agents/hermes.png'],
+    ['Hermes', { source: 'coding_agent', codingAgentId: 'hermes' }, '/coding-agents/hermes.png'],
     ['Ekko', { agent: 'ekko-agent' }, '/coding-agents/ekko-agent.png'],
     ['Ekko', { agent: 'ekko_agent' }, '/coding-agents/ekko-agent.png'],
     ['Claude', { agent: 'claude' }, '/coding-agents/claude-code.svg'],

@@ -45,6 +45,7 @@ export function chatSessionAgentAvatar(session?: ChatAgentSessionIdentity | null
   if (!session) return AGENT_AVATARS['ekko-agent']
   if (session.id?.startsWith('person-main-')) return PERSON_AVATAR
   const runtime = String(session?.codingAgentId || session?.agent || '').trim().toLowerCase()
+  if (runtime === 'hermes') return AGENT_AVATARS.hermes
   if (runtime === 'ekko-agent' || runtime === 'ekko_agent' || runtime === 'ekko') return AGENT_AVATARS['ekko-agent']
   if (runtime === 'claude' || runtime === 'claude-code') return AGENT_AVATARS['claude-code']
   if (runtime === 'codex') return AGENT_AVATARS.codex

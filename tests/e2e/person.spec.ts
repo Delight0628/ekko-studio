@@ -764,6 +764,28 @@ test('Person saves agent presets, preserves unsaved edits and only offers openin
   expect(operations.filter(op => op.path.endsWith('/tasks/apply')).map(op => op.body.action)).toEqual(['close', 'reopen'])
 })
 
+for (const [width, mode] of [[1440, 'light'], [390, 'dark']] as const) {
+  test(`Person task list shows the executing Agent avatar at ${width}px`, async ({ page }) => {
+    const { state } = await setup(page, mode, false, false)
+    state.tasks = ['hermes', 'ekko', 'claude-code'].map(runtime => ({ ...state.tasks[0], id: `task-${runtime}`,
+      title: `Work by ${runtime}`, execution_state: 'finished', running: false,
+      selection_json: JSON.stringify({ runtime, profile: 'default' }) }))
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/#/person')
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+    const drawer = page.locator('.session-tasks-drawer')
+    await expect(drawer.locator('.task-row')).toHaveCount(3)
+    for (const [runtime, label, asset] of [['hermes', 'Hermes', 'hermes.png'], ['ekko', 'Ekko', 'ekko-agent.png'], ['claude-code', 'Claude', 'claude-code.svg']]) {
+      const row = drawer.locator('.task-row').filter({ hasText: `Work by ${runtime}` })
+      const source = row.locator(width === 390 ? '.mobile-source' : '.source-session')
+      if (width === 1440) await expect(source).toContainText(label)
+      await expect(source.locator('img')).toHaveAttribute('src', `/coding-agents/${asset}`)
+      await expect.poll(() => source.locator('img').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
+    }
+    await page.screenshot({ path: `/tmp/person-task-agent-avatars-${width}.png`, animations: 'disabled' })
+  })
+}
+
 for (const scenario of ['after-request', 'reconnect', 'idle-schedule'] as const) {
   test(`Person streams a background result to the main window (${scenario})`, async ({ page }) => {
     const { state, operations } = await setup(page, 'light', false)
