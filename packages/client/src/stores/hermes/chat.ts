@@ -1350,6 +1350,7 @@ function createChatState(scopedSessionId?: string) {
   const messageHistoryRevisions = new Map<string, number>()
   const runtimeMode = ref<ChatRuntimeMode>(scopedSessionId ? 'default' : activeRuntimeMode)
   const seenSessionCommandEvents = new WeakSet<RunEvent>()
+  const announcedPersonRuns = new Set<string>()
   const sessions = ref<Session[]>([])
   const activeSessionId = ref<string | null>(null)
   const focusMessageId = ref<string | null>(null)
@@ -1372,6 +1373,9 @@ function createChatState(scopedSessionId?: string) {
     clearBackgroundObservers()
     streamStates.value.clear()
     serverWorking.value.clear()
+    announcedPersonRuns.clear()
+    pendingApprovals.value = new Map([...pendingApprovals.value].filter(([id]) => !id.startsWith('person-main-')))
+    pendingClarifies.value = new Map([...pendingClarifies.value].filter(([id]) => !id.startsWith('person-main-')))
   })
 
   onScopeDispose(() => {
@@ -1577,8 +1581,8 @@ function createChatState(scopedSessionId?: string) {
     queueLengths.value = new Map()
     queuedUserMessages.value = new Map()
     queueInsertionStates.value = new Map()
-    pendingApprovals.value = new Map()
-    pendingClarifies.value = new Map()
+    pendingApprovals.value = new Map([...pendingApprovals.value].filter(([id]) => id.startsWith('person-main-')))
+    pendingClarifies.value = new Map([...pendingClarifies.value].filter(([id]) => id.startsWith('person-main-')))
     pendingApprovalResponseIds.clear()
     pendingClarifyResponseIds.clear()
     streamStates.value = new Map()
@@ -3531,7 +3535,7 @@ function createChatState(scopedSessionId?: string) {
   function respondToClarifyFor(sessionId: string, clarifyId: string, response: string): PendingInteractionSubmitResult {
     const pending = pendingClarifies.value.get(sessionId)
     if (!pending || pending.clarifyId !== clarifyId) return 'missing'
-    respondClarify(sessionId, clarifyId, response, runtimeTransport())
+    respondClarify(sessionId, clarifyId, response, sessionId.startsWith('person-main-') ? 'chat-run' : runtimeTransport())
     pendingClarifyResponseIds.set(sessionId, clarifyId)
     return 'submitted'
   }
@@ -3548,7 +3552,7 @@ function createChatState(scopedSessionId?: string) {
   function respondApprovalFor(sessionId: string, approvalId: string, choice: PendingApproval['choices'][number]): PendingInteractionSubmitResult {
     const pending = pendingApprovals.value.get(sessionId)
     if (!pending || pending.approvalId !== approvalId) return 'missing'
-    respondToolApproval(sessionId, approvalId, choice, runtimeTransport())
+    respondToolApproval(sessionId, approvalId, choice, sessionId.startsWith('person-main-') ? 'chat-run' : runtimeTransport())
     pendingApprovalResponseIds.set(sessionId, approvalId)
     return 'submitted'
   }
@@ -3698,6 +3702,7 @@ function createChatState(scopedSessionId?: string) {
   }
 
   function showCompletionNotificationIfEnabled(sessionId: string, messageId?: string | null) {
+    if (sessionId.startsWith('person-main-')) return // The global Person terminal event owns this notification.
     const settingsStore = useSettingsStore()
     if (!settingsStore.display.notify_on_complete) return
 
@@ -5335,6 +5340,16 @@ function createChatState(scopedSessionId?: string) {
   function handlePeerUserMessage(evt: RunEvent) {
     const sid = evt.session_id
     if (scopedSessionId ? sid !== scopedSessionId : sid?.startsWith('person-task-')) return
+    if (evt.event === 'person.run.completed' || evt.event === 'person.run.failed') {
+      if (scopedSessionId || !sid?.startsWith('person-main-') || !evt.notification_id || announcedPersonRuns.has(evt.notification_id)) return
+      announcedPersonRuns.add(evt.notification_id)
+      if (announcedPersonRuns.size > 1000) announcedPersonRuns.delete(announcedPersonRuns.values().next().value!)
+      if (useSettingsStore().display.notify_on_complete) void showCompletionNotification({
+        title: 'zhezhe', body: truncateNotificationText(evt.output || '', 140),
+        icon: chatSessionAgentAvatar({ id: sid }).src, tag: `hermes-person-${evt.notification_id}`, clickUrl: '/person',
+      })
+      return
+    }
     if (evt.event === 'approval.requested') return setPendingApproval(evt)
     if (evt.event === 'approval.resolved') return clearPendingApproval(evt)
     if (evt.event === 'clarify.requested') return setPendingClarify(evt)

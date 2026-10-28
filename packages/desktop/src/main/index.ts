@@ -1592,7 +1592,7 @@ function resolveNotificationIcon(icon: unknown): string {
 
 function safeNotificationClickUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null
-  return value.startsWith('/hermes/') && !value.includes('..') && !value.includes('\\') ? value : null
+  return (value === '/person' || value.startsWith('/hermes/')) && !value.includes('..') && !value.includes('\\') ? value : null
 }
 
 ipcMain.handle('hermes-desktop:notify-completion', (_event, payload?: { title?: unknown; body?: unknown; icon?: unknown; tag?: unknown; clickUrl?: unknown }) => {

@@ -83,6 +83,7 @@ export interface RunEvent {
   name?: string
   preview?: string
   timestamp?: number
+  notification_id?: string
   error?: string
   /** Final response text on `run.completed`. May be empty/null if the agent
    * silently swallowed an upstream error — see chat store for fallback. */
@@ -891,6 +892,11 @@ export function connectChatRun(requestedProfile?: string | null, transport: Chat
     on('run.peer_user_message', globalPeerUserMessageHandler)
     on('clarify.requested', globalClarifyRequestedHandler)
     on('clarify.resolved', globalClarifyResolvedHandler)
+    for (const event of ['run.completed', 'run.failed', 'approval.requested', 'approval.resolved', 'clarification.requested', 'clarification.resolved']) {
+      on(`person.${event}`, data => globalPeerUserMessageHandler({ ...data,
+        event: event.startsWith('clarification.') ? event.replace('clarification.', 'clarify.')
+          : event.startsWith('run.') ? `person.${event}` : event }))
+    }
 
     // Compression events
     on('compression.started', globalCompressionStartedHandler)

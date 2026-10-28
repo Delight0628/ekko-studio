@@ -114,6 +114,7 @@ function createMockSocket(id: string, auth: Record<string, unknown> = {}, header
     data: {},
     handshake: { auth, headers },
     broadcast: { emit: vi.fn() },
+    join: vi.fn(),
     on: vi.fn((event: string, handler: (...args: any[]) => void) => {
       handlers.set(event, (...args: any[]) => {
         if (mcuEventsRequiringApiToken.has(event) && args[0] && typeof args[0] === 'object' && !Array.isArray(args[0])) {
@@ -273,6 +274,8 @@ describe('GlobalAgentServer', () => {
     })
     nsp.__handlers.get('connection')?.(frontendSocket)
 
+    expect(frontendSocket.join).toHaveBeenCalledWith('person-notifications:7')
+    expect(agentSocket.join).not.toHaveBeenCalled()
     expect(frontendSocket.__handlers.has('mcu.events.subscribe')).toBe(false)
 
     const httpAck = vi.fn()

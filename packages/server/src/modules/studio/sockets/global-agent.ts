@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'crypto'
 import { mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
+import { personNotificationRoom } from '../contracts/person-session'
 import type { Server, Socket } from 'socket.io'
 import { io as createClientSocket, type Socket as ClientSocket } from 'socket.io-client'
 import { logger } from '../public/logging'
@@ -981,6 +982,7 @@ export class GlobalAgentServer {
   }
 
   private onConnection(socket: Socket): void {
+    if (socket.data.globalAgentRole === 'frontend' && socket.data.user?.id) socket.join(personNotificationRoom(socket.data.user.id))
     if (socket.data.globalAgentRole === 'frontend') {
       this.onFrontendConnection(socket)
       return

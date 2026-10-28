@@ -71,6 +71,25 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true, custo
   return { state, operations }
 }
 
+test('Person events use the existing global question notification and open the main window',async({page})=>{
+  await setup(page,'light',false,false)
+  await page.goto('/#/person')
+  await expect(page.locator('.person-title')).toHaveText('Personal assistant')
+  await page.getByRole('link',{name:'Chat',exact:true}).click()
+  await expect(page).toHaveURL(/#\/hermes\/chat$/)
+  await expect.poll(()=>page.evaluate(()=>(window as any).__PW_CHAT_SOCKET__?.allSockets?.some((socket:any)=>String(socket.url).endsWith('/chat-run')))).toBe(true)
+  await page.evaluate(()=>{
+    const socket=(window as any).__PW_CHAT_SOCKET__.allSockets.find((socket:any)=>String(socket.url).endsWith('/chat-run'))
+    socket.__trigger('person.clarification.requested',{event:'person.clarification.requested',session_id:'person-main-1',clarify_id:'main-question',question:'Choose the report scope',choices:['Today','This week'],durable:true})
+  })
+  const title=page.getByRole('button',{name:'zhezhe · The agent has a question for you'})
+  await expect(title).toBeVisible()
+  await expect(page.getByText('Choose the report scope',{exact:true})).toBeVisible()
+  await title.click()
+  await expect(page).toHaveURL(/#\/person$/)
+  await expect(page.locator('.person-title')).toHaveText('Personal assistant')
+})
+
 async function backgroundTaskCount(page: Page, count: number, state = 'searching') {
   await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__?.allSockets?.some((socket: any) => String(socket.url).endsWith('/person-presence')))).toBe(true)
   await page.evaluate(({ count, state }) => {

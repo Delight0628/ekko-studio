@@ -8,6 +8,7 @@ import { useGroupChatStore, type GroupPendingApproval, type GroupPendingClarify 
 import PendingInteractionCountdown from '@/components/hermes/chat/PendingInteractionCountdown.vue'
 import { useProfilesStore } from '@/stores/hermes/profiles'
 import { useSettingsStore } from '@/stores/hermes/settings'
+import { connectChatRun, getChatRunSocket } from '@/api/studio/chat'
 import { copyToClipboard } from '@/utils/clipboard'
 import { playCompletionSound } from '@/utils/completion-sound'
 import { showSystemNotification } from '@/utils/completion-notification'
@@ -111,6 +112,7 @@ function normalizePendingSourceTitle(title: string): string {
 }
 
 function sessionTitle(sessionId: string): string {
+  if (sessionId.startsWith('person-main-')) return 'zhezhe'
   return normalizePendingSourceTitle(chatStore.sessions.find(session => session.id === sessionId)?.title || sessionId)
 }
 
@@ -452,6 +454,7 @@ watch(pendingActions, actions => {
 }, { deep: true, immediate: true })
 
 onMounted(() => {
+  if (!getChatRunSocket()) connectChatRun(profilesStore.activeProfileName)
   window.addEventListener(PENDING_INTERACTION_EXPIRED_EVENT, showPendingInteractionExpired)
   window.addEventListener('hermes:workflow-approval-visible', handleVisibleWorkflowApproval)
   resetWorkflowSubscriptions(profilesStore.activeProfileName)

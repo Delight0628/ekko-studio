@@ -6,7 +6,9 @@ import { onPersonUpdated, personUpdated } from '../repositories/person-updates'
 import { personChatInteraction, answerPersonChatInteraction } from '../services/person/chat-interactions'
 import { ownedPersonTaskSession } from '../services/person/task-chat'
 import { answerPersonTaskInteraction } from '../services/person/chat-interactions'
-import { isPersonSession, isPrivatePersonSession, ownsPersonSession, personSessionId } from '../contracts/person-session'
+import { isPersonSession, isPrivatePersonSession, ownsPersonSession, personSessionId, personNotificationRoom } from '../contracts/person-session'
+import { foregroundNotification, foregroundNotificationPreview } from '../services/chat-run/foreground-notification'
+import { chatCompletionText } from '../services/notifications/chat-completion-text'
 import { ensurePersonSession } from '../services/person/chat-agent'
 import { requirePersonAgents } from '../services/person/agents'
 import { isNativeCodingAgent } from '../contracts/agents/native-coding-agents'
@@ -465,7 +467,7 @@ export class ChatRunSocket {
   private stopPersonUpdates: () => void
   private personQuestions = new Map<number, ReturnType<typeof personChatInteraction>>()
 
-  constructor(io: Server) {
+  constructor(private readonly io: Server) {
     this.nsp = io.of('/chat-run')
     this.stopPersonUpdates = onPersonUpdated(userId => this.syncPersonInteraction(userId))
     this.stopUsageUpdates = onRunUsageUpdated((sessionId, summary) => {
@@ -878,6 +880,7 @@ export class ChatRunSocket {
       })
     }
     const socketUser = socket.data.user as AuthenticatedUser | undefined
+    if (socketUser && !shared) socket.join(personNotificationRoom(socketUser.id))
     const socketProfile = (socket.handshake.query?.profile as string) || 'default'
     const currentProfile = () => socketProfile || getActiveProfileName() || 'default'
     const mobileTarget = socket.data.mobileDeviceTarget as MobileDeviceTarget | undefined
@@ -3453,7 +3456,25 @@ export class ChatRunSocket {
   }
 
   private emitPendingInteraction(profile: string, event: string, payload: any) {
-    if (isPrivatePersonSession(payload?.session_id)) return
+    if (isPrivatePersonSession(payload?.session_id)) {
+      const session = getSession(payload.session_id)
+      const userId = Number(session?.studio_user_id)
+      if (session?.id !== payload.session_id || !ownsPersonSession(userId, session) || payload.replayed || payload.restored || payload.background_snapshot) return
+      const interaction = ['approval.requested', 'approval.resolved', 'clarify.requested', 'clarify.resolved'].includes(event)
+      const notice = foregroundNotification(event, payload)
+      if (!interaction && (!notice || ['cancelled', 'canceled'].includes(payload.stop_reason))) return
+      const name = `person.${event.replace('clarify.', 'clarification.')}`
+      const preview = event === 'run.completed' ? { ...payload, output: chatCompletionText({ type: name,
+        subject: { session_id: session!.id, message_id: payload.message_id }, payload }) } : payload
+      const data = interaction ? { ...payload, event: name }
+        : { event: name, session_id: session!.id, run_id: payload.run_id, notification_id: notice!.id,
+          timestamp: Date.now(), output: foregroundNotificationPreview(notice!.kind, session, preview).content }
+      // Reuse the authenticated chat transports and their existing notification handlers.
+      for (const namespace of ['/chat-run', '/global-agent']) {
+        this.io.of(namespace).to(personNotificationRoom(userId)).emit(name, data)
+      }
+      return
+    }
     this.emitSessionActivity(profile, event, payload)
     if (event !== 'approval.requested' && event !== 'approval.resolved'
       && event !== 'clarify.requested' && event !== 'clarify.resolved'
