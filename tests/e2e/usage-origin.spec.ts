@@ -32,6 +32,12 @@ for (const width of [390, 1280]) {
     await expect(page.locator('.stat-card').nth(2).locator('.stat-label')).toHaveText('Total Sessions')
     const agents = page.getByTestId('agent-usage')
     await expect(agents.locator('.agent-name')).toHaveText(['Qwen Code', 'zhezhe', 'Ekko', 'future-cli'])
+    for (const [agent, logo] of [['qwen', 'qwen-logo.svg'], ['zhezhe', 'person.jpg'], ['ekko_agent', 'ekko-agent.png']]) {
+      const image = agents.locator(`[data-agent="${agent}"] .agent-logo img`)
+      await expect(image).toHaveAttribute('src', `/coding-agents/${logo}`)
+      await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+    }
+    await expect(agents.locator('[data-agent="future-cli"] .agent-logo svg')).toBeVisible()
     await expect(agents.locator('[data-agent="zhezhe"] .agent-tokens')).toHaveText('30')
     await expect(agents.locator('[data-agent="zhezhe"] .agent-details')).toContainText('Input 25')
     await expect(agents.locator('[data-agent="qwen"] .agent-details')).toContainText('Input 75')
