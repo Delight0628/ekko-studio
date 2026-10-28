@@ -37,13 +37,17 @@ export function personOperation<T>(userId: number, key: string, input: unknown, 
     return result
   })
 }
+function sharedPersonSettings(settings: Partial<PersonSettings>) {
+  const { workspace, timezone, maxSteps, compressionThreshold, agents, maxConcurrentTasks } = { ...PERSON_DEFAULTS, ...settings }
+  return { workspace, timezone, maxSteps, compressionThreshold, agents, maxConcurrentTasks }
+}
 export function personSettings(userId: number, sessionId?: string): { settings: PersonSettings; revision: number } {
   if (sessionId) requirePersonSession(userId, sessionId)
   const row = personDb().prepare('SELECT * FROM person_accounts WHERE user_id=?').get(userId) as { settings_json: string; revision: number } | undefined
-  // Historical fixed budgets must not cap the selected model's context window.
-  const { contextTokens: _legacyBudget, ...saved } = row ? JSON.parse(row.settings_json) : {}
+  const shared = sharedPersonSettings(row ? JSON.parse(row.settings_json) : {})
   const conversation = sessionId ? personDb().prepare('SELECT settings_json FROM person_conversation_settings WHERE session_id=? AND owner_user_id=?').get(sessionId, userId) : undefined
-  return { settings: { ...PERSON_DEFAULTS, ...saved, ...(conversation ? JSON.parse(String(conversation.settings_json)) : {}) }, revision: row?.revision || 0 }
+  const local = conversation ? JSON.parse(String(conversation.settings_json)) : {}
+  return { settings: { ...shared, model: local.model ?? null, reasoningEffort: local.reasoningEffort ?? '' }, revision: row?.revision || 0 }
 }
 export function savePersonSettings(userId: number, settings: PersonSettings, revision: number, workspace?: string, sessionId?: string) {
   return personTransaction(() => {
@@ -54,9 +58,8 @@ export function savePersonSettings(userId: number, settings: PersonSettings, rev
       personDb().prepare('INSERT INTO person_conversation_settings VALUES (?,?,?) ON CONFLICT(session_id) DO UPDATE SET settings_json=excluded.settings_json')
         .run(sessionId, userId, JSON.stringify({ model: settings.model, reasoningEffort: settings.reasoningEffort }))
     }
-    const shared = sessionId ? { ...settings, model: account.settings.model, reasoningEffort: account.settings.reasoningEffort } : settings
     personDb().prepare('INSERT INTO person_accounts VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET settings_json=excluded.settings_json,revision=excluded.revision')
-      .run(userId, JSON.stringify(shared), revision + 1)
+      .run(userId, JSON.stringify(sharedPersonSettings(settings)), revision + 1)
     if (workspace) {
       personDb().prepare('UPDATE session_tasks SET workspace=? WHERE owner_user_id=? AND bot_id=?').run(workspace, userId, `person:${userId}`)
       personDb().prepare(`UPDATE sessions SET workspace=? WHERE CAST(studio_user_id AS TEXT)=? AND

@@ -61,7 +61,7 @@ beforeEach(async () => {
   }
   const { configurePersonRuntime } = await import('../../packages/server/src/modules/studio/public/person-runtime')
   configurePersonRuntime(runtime)
-  store.savePersonSettings(1, { ...store.personSettings(1).settings, model: selection, workspace: dir, agents: [{ id: 'worker', name: 'Worker', description: 'Execute tasks', selection: { ...selection, reasoningEffort: '' } }] }, 0)
+  store.savePersonSettings(1, { ...store.personSettings(1).settings, workspace: dir, agents: [{ id: 'worker', name: 'Worker', description: 'Execute tasks', selection: { ...selection, reasoningEffort: '' } }] }, 0)
 })
 afterEach(async () => {
   await runner?.stopPersonWork()
@@ -74,6 +74,67 @@ async function create(overrides = {}) {
   return tasks.applyPersonTask(1, { action: 'create', session_id: 'person-main-1', idempotency_key: crypto.randomUUID(), title: 'Compute result', goal: 'Write 42 into result.txt', ...overrides }) as Promise<{ task: import('../../packages/server/src/modules/studio/contracts/person').PersonTask; execution: import('../../packages/server/src/modules/studio/contracts/person').PersonExecution }>
 }
 const wait = async (id: string, state: string) => vi.waitFor(() => expect(store.getPersonExecution(1, id).state).toBe(state), { timeout: 2000, interval: 10 })
+
+describe('Person session model isolation', () => {
+  it.each([{ model: selection }, { reasoning_effort: 'high' }, { use_global_default: true }])('rejects model settings without a session: %j', async patch => {
+    const { configurePerson } = await import('../../packages/server/src/modules/studio/services/person/service')
+    const before = db.prepare('SELECT * FROM person_accounts').all()
+    await expect(configurePerson(1, { ...patch, expected_revision: 1 })).rejects.toMatchObject({ status: 400, message: expect.stringContaining('session_id') })
+    expect(db.prepare('SELECT * FROM person_accounts').all()).toEqual(before)
+    expect(db.prepare('SELECT * FROM person_conversation_settings').all()).toEqual([])
+  })
+
+  it('never inherits obsolete account model settings and discards them without migrating conversations', async () => {
+    const { createSession } = await import('../../packages/server/src/modules/studio/repositories/session-store')
+    const { initPersonTables } = await import('../../packages/server/src/modules/studio/infrastructure/database/person-schema')
+    const { personSnapshot } = await import('../../packages/server/src/modules/studio/services/person/service')
+    createSession({ id: 'person-main-other', studio_user_id: 1, title: 'Other', agent_preset: 'person' })
+    const shared = store.personSettings(1).settings
+    db.prepare('UPDATE person_accounts SET settings_json=? WHERE user_id=1').run(JSON.stringify({ ...shared, model: { ...selection, model: 'obsolete' }, reasoningEffort: 'high', contextTokens: 123 }))
+    db.prepare('INSERT INTO person_conversation_settings VALUES (?,?,?)').run('person-main-1', 1, JSON.stringify({ model: selection, reasoningEffort: 'high' }))
+    expect(store.personSettings(1, 'person-main-other').settings).toMatchObject({ model: null, reasoningEffort: '' })
+    initPersonTables(db)
+    const stored = JSON.parse(String(db.prepare('SELECT settings_json FROM person_accounts WHERE user_id=1').get()!.settings_json))
+    expect(stored).not.toHaveProperty('model')
+    expect(stored).not.toHaveProperty('reasoningEffort')
+    expect(stored).not.toHaveProperty('contextTokens')
+    expect(stored).toMatchObject({ workspace: dir, agents: shared.agents })
+    expect(await personSnapshot(1, 'person-main-1')).toMatchObject({ settings: { model: selection, reasoningEffort: 'high' } })
+    expect(await personSnapshot(1, 'person-main-other')).toMatchObject({ settings: { model: selection, reasoningEffort: 'low' }, inherits_global_model: true })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM person_conversation_settings').get()?.n).toBe(1)
+    const revision = store.personSettings(1).revision
+    initPersonTables(db)
+    expect(store.personSettings(1).revision).toBe(revision)
+  })
+
+  it('keeps model, effort, reset and runtime selection local to the selected owned session', async () => {
+    const { createPersonConversation } = await import('../../packages/server/src/modules/studio/services/person/conversations')
+    const { configurePerson, personSnapshot } = await import('../../packages/server/src/modules/studio/services/person/service')
+    const { createPersonChatAgent } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
+    const second = await createPersonConversation(1, 'Second')
+    catalog[0].models.push('m2')
+    catalog[0].model_meta = { m: { reasoning_efforts: ['low', 'high'] }, m2: { reasoning_efforts: ['low', 'high'] } }
+    runtime.chatAgent = vi.fn(() => ({ run: vi.fn(), dispose: vi.fn() } as any))
+    mainBusy = second.id
+    await configurePerson(1, { session_id: 'person-main-1', model: { ...selection, model: 'm2' }, reasoning_effort: 'high', expected_revision: 1 })
+    mainBusy = false
+    await configurePerson(1, { session_id: second.id, reasoning_effort: 'low', expected_revision: 2 })
+    expect(await personSnapshot(1, 'person-main-1')).toMatchObject({ settings: { model: { model: 'm2' }, reasoningEffort: 'high' } })
+    expect(await personSnapshot(1, second.id)).toMatchObject({ settings: { model: selection, reasoningEffort: 'low' } })
+    await createPersonChatAgent(1, 'person-main-1')
+    expect(runtime.chatAgent).toHaveBeenLastCalledWith(expect.objectContaining({ selection: expect.objectContaining({ model: 'm2' }) }))
+    await createPersonChatAgent(1, second.id)
+    expect(runtime.chatAgent).toHaveBeenLastCalledWith(expect.objectContaining({ selection }))
+    await expect(configurePerson(1, { session_id: 'person-main-2', model: selection, expected_revision: 3 })).rejects.toMatchObject({ status: 404 })
+    await configurePerson(1, { session_id: second.id, model: { ...selection, model: 'm2' }, reasoning_effort: 'high', expected_revision: 3 })
+    await configurePerson(1, { session_id: 'person-main-1', use_global_default: true, reasoning_effort: 'low', expected_revision: 4 })
+    expect(await personSnapshot(1, 'person-main-1')).toMatchObject({ inherits_global_model: true, settings: { model: selection, reasoningEffort: 'low' } })
+    expect(await personSnapshot(1, second.id)).toMatchObject({ inherits_global_model: false, settings: { model: { model: 'm2' }, reasoningEffort: 'high' } })
+    const shared = JSON.parse(String(db.prepare('SELECT settings_json FROM person_accounts WHERE user_id=1').get()!.settings_json))
+    expect(shared).not.toHaveProperty('model')
+    expect(shared).not.toHaveProperty('reasoningEffort')
+  })
+})
 
 describe('Person account-owned tasks and runtime', () => {
   it.each(['hermes', 'ekko', 'codex'])('automatically handles %s approvals on initial, continued and scheduled tasks without creating user interactions', async agent => {
@@ -158,13 +219,13 @@ describe('Person account-owned tasks and runtime', () => {
     catalog[0].models.push('m2')
     catalog[0].model_meta = { m: { reasoning_efforts: ['low', 'high'] }, m2: { reasoning: false } }
     const { configurePerson, personSnapshot } = await import('../../packages/server/src/modules/studio/services/person/service')
-    await configurePerson(1, { reasoning_effort: 'high', expected_revision: 1 })
+    await configurePerson(1, { session_id: 'person-main-1', reasoning_effort: 'high', expected_revision: 1 })
     expect(await personSnapshot(1, 'person-main-1')).toMatchObject({ session: { reasoning_effort: 'high' } })
-    const switched = await configurePerson(1, { model: { profile: 'default', provider: 'test', model: 'm2' }, expected_revision: 2 })
+    const switched = await configurePerson(1, { session_id: 'person-main-1', model: { profile: 'default', provider: 'test', model: 'm2' }, expected_revision: 2 })
     expect(switched).toMatchObject({ inherits_global_model: false, reasoning_efforts: [], settings: { model: { model: 'm2' }, reasoningEffort: '' } })
     expect(await personSnapshot(1, 'person-main-1')).toMatchObject({ settings: { model: { model: 'm2' } } })
-    await expect(configurePerson(1, { reasoning_effort: 'high', expected_revision: 3 })).rejects.toThrow('does not support')
-    const restored = await configurePerson(1, { use_global_default: true, expected_revision: 3 })
+    await expect(configurePerson(1, { session_id: 'person-main-1', reasoning_effort: 'high', expected_revision: 3 })).rejects.toThrow('does not support')
+    const restored = await configurePerson(1, { session_id: 'person-main-1', use_global_default: true, expected_revision: 3 })
     expect(restored).toMatchObject({ inherits_global_model: true, settings: { model: selection } })
     expect(store.personSettings(1).settings.model).toBeNull()
   })
@@ -175,14 +236,14 @@ describe('Person account-owned tasks and runtime', () => {
     catalog[0].model_meta = { m: { reasoning_efforts: ['low', 'medium', 'high', 'xhigh', 'max'] } }
     const agent = { id: 'worker', name: 'Worker', description: 'Execute tasks', selection: { ...selection, reasoningEffort: 'xhigh' } }
     await configurePerson(1, { agents: [agent], expected_revision: 1 })
-    await runPersonModel(1, 'main', [{ role: 'user', content: 'Hello' }], [], new AbortController().signal)
+    await runPersonModel(1, 'main', [{ role: 'user', content: 'Hello' }], [], new AbortController().signal, '', undefined, undefined, 'person-main-1')
     expect(vi.mocked(runtime.model).mock.calls.at(-1)![0].reasoningEffort).toBe('low')
-    await configurePerson(1, { reasoning_effort: 'xhigh', expected_revision: 2 })
+    await configurePerson(1, { session_id: 'person-main-1', reasoning_effort: 'xhigh', expected_revision: 2 })
     expect(await personSnapshot(1, 'person-main-1')).toMatchObject({ settings: { reasoningEffort: 'xhigh', agents: [agent] }, session: { reasoning_effort: 'xhigh' } })
-    await runPersonModel(1, 'main', [{ role: 'user', content: 'Think carefully' }], [], new AbortController().signal)
+    await runPersonModel(1, 'main', [{ role: 'user', content: 'Think carefully' }], [], new AbortController().signal, '', undefined, undefined, 'person-main-1')
     expect(vi.mocked(runtime.model).mock.calls.at(-1)![0].reasoningEffort).toBe('xhigh')
     expect(JSON.parse((await create({ start: false })).task.selection_json).reasoningEffort).toBe('xhigh')
-    await expect(configurePerson(1, { reasoning_effort: 'none', expected_revision: 3 })).rejects.toThrow('does not support')
+    await expect(configurePerson(1, { session_id: 'person-main-1', reasoning_effort: 'none', expected_revision: 3 })).rejects.toThrow('does not support')
   })
 
   it('saves general settings independently and follows the interaction model window and global threshold', async () => {
@@ -208,11 +269,11 @@ describe('Person account-owned tasks and runtime', () => {
     await createPersonChatAgent(1, 'person-main-1')
     expect(runtime.chatAgent).toHaveBeenLastCalledWith(expect.objectContaining({ contextTokens: 200000, maxSteps: 20, compression: expect.objectContaining({ threshold: 0.6 }), systemPrompt: expect.stringContaining('Account timezone: Europe/London') }))
     catalog[0].models.push('m2')
-    await configurePerson(1, { model: { ...selection, model: 'm2' }, expected_revision: 2 })
+    await configurePerson(1, { session_id: 'person-main-1', model: { ...selection, model: 'm2' }, expected_revision: 2 })
     expect((await personSnapshot(1, 'person-main-1')).contextTokens).toBe(128000)
     await createPersonChatAgent(1, 'person-main-1')
     expect(runtime.chatAgent).toHaveBeenLastCalledWith(expect.objectContaining({ contextTokens: 128000, compression: expect.objectContaining({ threshold: 0.6 }) }))
-    await runPersonModel(1, 'main', [{ role: 'user', content: 'Hello' }], [], new AbortController().signal)
+    await runPersonModel(1, 'main', [{ role: 'user', content: 'Hello' }], [], new AbortController().signal, '', undefined, undefined, 'person-main-1')
     expect(runtime.model).toHaveBeenLastCalledWith(expect.objectContaining({ contextTokens: 128000, compression: expect.objectContaining({ threshold: 0.6 }) }))
     globalCompression.enabled = false
     await configurePerson(1, { compressionThreshold: null, expected_revision: 3 })
@@ -234,10 +295,10 @@ describe('Person account-owned tasks and runtime', () => {
     expect(result.groups[0].models).toEqual(['m'])
     expect(JSON.stringify(result)).not.toContain('private')
     const { configurePerson } = await import('../../packages/server/src/modules/studio/services/person/service')
-    await expect(configurePerson(1, { model: { profile: 'forbidden', provider: 'test', model: 'm' }, expected_revision: 1 })).rejects.toThrow('unavailable')
-    await expect(configurePerson(1, { model: { profile: 'default', provider: 'test', model: 'hidden' }, expected_revision: 1 })).rejects.toThrow('unavailable')
-    await expect(configurePerson(1, { reasoning_effort: 'invented', expected_revision: 1 })).rejects.toThrow('Invalid reasoning')
-    await expect(configurePerson(1, { reasoning_effort: 'high', expected_revision: 0 })).rejects.toThrow('changed')
+    await expect(configurePerson(1, { session_id: 'person-main-1', model: { profile: 'forbidden', provider: 'test', model: 'm' }, expected_revision: 1 })).rejects.toThrow('unavailable')
+    await expect(configurePerson(1, { session_id: 'person-main-1', model: { profile: 'default', provider: 'test', model: 'hidden' }, expected_revision: 1 })).rejects.toThrow('unavailable')
+    await expect(configurePerson(1, { session_id: 'person-main-1', reasoning_effort: 'invented', expected_revision: 1 })).rejects.toThrow('Invalid reasoning')
+    await expect(configurePerson(1, { session_id: 'person-main-1', reasoning_effort: 'high', expected_revision: 0 })).rejects.toThrow('changed')
   })
 
   it('does not send a request if the global default is missing or disabled', async () => {
@@ -401,7 +462,7 @@ describe('Person account-owned tasks and runtime', () => {
   it('only exposes configured presets and validates effort, permission and runtime', async () => {
     const { configurePerson } = await import('../../packages/server/src/modules/studio/services/person/service')
     const { personExecutionAgents } = await import('../../packages/server/src/modules/studio/services/person/agents')
-    await configurePerson(1, { reasoning_effort: 'high', expected_revision: 1 })
+    await configurePerson(1, { session_id: 'person-main-1', reasoning_effort: 'high', expected_revision: 1 })
     const configured = await create({ start: false })
     expect(JSON.parse(configured.task.selection_json)).toMatchObject({ ...selection, reasoningEffort: '' })
     const preset = { id: 'coder', name: 'Coder', description: 'Implement code changes', selection: { ...selection, runtime: 'codex', reasoningEffort: 'low' } }

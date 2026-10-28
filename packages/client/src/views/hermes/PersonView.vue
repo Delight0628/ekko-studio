@@ -354,6 +354,7 @@ function scheduleAction(schedule: PersonSchedule, action: string) { return act((
 function saveSchedule(input: Record<string, unknown>) { return act(() => personRequest('/schedules/apply', input)) }
 
 watch(busy, (running, wasRunning) => { if (wasRunning && !running) void refresh() })
+watch(selectedSessionId, () => { optimisticEffort.value = null; showModelPicker.value = false })
 const stopPersonUpdates = onPersonUpdated(() => { void loadConversations().catch(() => {}); void refresh() })
 watch([selectedSessionId, () => route.query.message], async () => {
   if (bootstrapping) return

@@ -132,6 +132,111 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true, custo
   return { state, operations }
 }
 
+async function setupSessionModels(page: Page) {
+  const { state, operations } = await setup(page, 'light', false, false)
+  const second = { ...state.session, id: 'person-main-second', title: 'Second' }
+  state.conversations.push(second)
+  await page.addInitScript(id => {
+    (window as any).__PW_CHAT_SOCKET_RESUMES__[id] = { session_id: id, messages: [], isWorking: false, events: [] }
+  }, second.id)
+  const models = new Map(state.conversations.map((session: any) => [session.id, {
+    model: structuredClone(state.settings.model), reasoningEffort: 'low', inherits: true,
+  }])) as Map<string, { model: any; reasoningEffort: string; inherits: boolean }>
+  function snapshot(id: string) {
+    const selected = models.get(id)!
+    return { ...state, settings: { ...state.settings, model: selected.model, reasoningEffort: selected.reasoningEffort },
+      inherits_global_model: selected.inherits, reasoning_efforts: selected.model.model === 'fast-model' ? [] : ['none', 'low', 'high'],
+      session: { ...state.conversations.find((session: any) => session.id === id), model: selected.model.model, provider: selected.model.provider, reasoning_effort: selected.reasoningEffort }, tasks: [], schedules: [] }
+  }
+  await page.route(/\/api\/studio\/person(?:\?.*)?$/, route => {
+    const id = new URL(route.request().url()).searchParams.get('session_id')
+    return id && models.has(id) ? route.fulfill({ json: snapshot(id) }) : route.fallback()
+  })
+  await page.route('**/api/studio/person/settings', async route => {
+    const body = route.request().postDataJSON()
+    operations.push({ path: '/api/studio/person/settings', body })
+    const selected = models.get(body.session_id)
+    if (!selected) return route.fulfill({ status: 400, json: { error: 'session_id is required' } })
+    await state.beforeModelSave?.(body)
+    if (body.expected_revision !== state.revision) return route.fulfill({ status: 409, json: { error: 'Settings changed' } })
+    if (body.model) { selected.model = body.model; selected.inherits = false; selected.reasoningEffort = body.model.model === 'fast-model' ? '' : 'low' }
+    if (body.reasoning_effort !== undefined) selected.reasoningEffort = body.reasoning_effort
+    if (body.use_global_default) { selected.model = structuredClone(state.settings.model); selected.inherits = true; selected.reasoningEffort = 'low' }
+    state.revision++
+    const { session, ...result } = snapshot(body.session_id)
+    return route.fulfill({ json: result })
+  })
+  return { state, operations, models, second }
+}
+
+async function switchPersonSession(page: Page, id: string) {
+  await page.evaluate(id => { window.location.hash = `/person?session=${id}` }, id)
+  await expect(page.locator('.person-view')).toHaveAttribute('aria-busy', 'false')
+  await expect(page.locator('.input-model-button')).toBeVisible()
+}
+
+test('Person session models and efforts stay independent across switching, refresh and sending', async ({ page }) => {
+  const { models, second, operations } = await setupSessionModels(page)
+  await page.goto('/#/person?session=person-main-1')
+  await page.locator('.input-model-button').click()
+  await page.locator('.model-cascader:visible').getByRole('menuitemradio').filter({ hasText: 'fast-model' }).click()
+  await expect(page.locator('.input-model-button')).toHaveAttribute('aria-label', 'fast-model')
+  await switchPersonSession(page, second.id)
+  await expect(page.locator('.input-model-button')).toHaveAttribute('aria-label', 'global-model')
+  await page.locator('.reasoning-effort-button').click()
+  await page.getByRole('slider').focus(); await page.keyboard.press('ArrowRight')
+  await expect.poll(() => models.get(second.id)?.reasoningEffort).toBe('high')
+  await page.keyboard.press('Escape')
+  await switchPersonSession(page, 'person-main-1')
+  await expect(page.locator('.input-model-button')).toHaveAttribute('aria-label', 'fast-model')
+  await page.reload()
+  await expect(page.locator('.input-model-button')).toHaveAttribute('aria-label', 'fast-model')
+  await page.locator('.input-model-button').click()
+  await page.getByRole('button', { name: 'Use global default model', exact: true }).click()
+  await expect(page.locator('.reasoning-effort-button')).toHaveAttribute('aria-label', /low/i)
+  await switchPersonSession(page, second.id)
+  await expect(page.locator('.reasoning-effort-button')).toHaveAttribute('aria-label', /high/i)
+  await page.reload()
+  await expect(page.locator('.reasoning-effort-button')).toHaveAttribute('aria-label', /high/i)
+  await page.locator('.input-textarea').fill('Check this conversation')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect.poll(() => emitted(page, 'run')).toEqual([expect.objectContaining({ session_id: second.id, model: 'global-model', reasoning_effort: 'high' })])
+  expect(operations.filter(op => op.path.endsWith('/settings')).map(op => op.body.session_id)).toEqual(['person-main-1', second.id, 'person-main-1'])
+})
+
+test('Person session switch clears optimistic effort while another session save is pending', async ({ page }) => {
+  const { state, models, second } = await setupSessionModels(page)
+  let release!: () => void
+  const pending = new Promise<void>(resolve => { release = resolve })
+  let started = false
+  state.beforeModelSave = async () => { started = true; await pending }
+  await page.goto('/#/person?session=person-main-1')
+  await page.locator('.reasoning-effort-button').click()
+  await page.getByRole('slider').focus(); await page.keyboard.press('ArrowRight')
+  await expect.poll(() => started).toBe(true)
+  await expect(page.locator('.reasoning-effort-button')).toHaveAttribute('aria-label', /high/i)
+  await page.keyboard.press('Escape')
+  try {
+    await switchPersonSession(page, second.id)
+    await expect(page.locator('.reasoning-effort-button')).toHaveAttribute('aria-label', /low/i)
+  } finally { release() }
+  await expect.poll(() => models.get('person-main-1')?.reasoningEffort).toBe('high')
+  await expect(page.locator('.input-model-button')).toBeEnabled()
+  await expect(page.locator('.reasoning-effort-button')).toHaveAttribute('aria-label', /low/i)
+  await switchPersonSession(page, 'person-main-1')
+  await expect(page.locator('.reasoning-effort-button')).toHaveAttribute('aria-label', /high/i)
+})
+
+test('Person session switch closes a model picker opened for the previous session', async ({ page }) => {
+  const { second, operations } = await setupSessionModels(page)
+  await page.goto('/#/person?session=person-main-1')
+  await page.locator('.input-model-button').click()
+  await expect(page.locator('.model-cascader:visible')).toBeVisible()
+  await switchPersonSession(page, second.id)
+  await expect(page.locator('.model-cascader:visible')).toHaveCount(0)
+  expect(operations.filter(op => op.path.endsWith('/settings'))).toEqual([])
+})
+
 test('Person events use the existing global question notification and open the main window',async({page})=>{
   await setup(page,'light',false,false)
   await page.goto('/#/person')

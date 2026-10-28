@@ -22,6 +22,8 @@ export async function personSnapshot(userId: number, sessionId = '') {
 }
 export async function configurePerson(userId: number, input: Record<string, unknown>) {
   const sessionId = input.session_id === undefined ? undefined : personText(input.session_id, 'session_id', 100)
+  if (!sessionId && ['model', 'reasoning_effort', 'use_global_default'].some(key => input[key] !== undefined))
+    throw personError('session_id is required for model and reasoning settings')
   const sharedChange = ['workspace', 'timezone', 'agents', 'compressionThreshold', 'maxSteps', 'maxConcurrentTasks'].some(key => input[key] !== undefined)
   const busySession = sharedChange ? undefined : sessionId
   const old = personSettings(userId, sessionId)

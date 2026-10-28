@@ -19983,6 +19983,12 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "session_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "description": "Owned Person conversation ID. Required for model, reasoning_effort or use_global_default changes; these settings are stored only for this session."
+                  },
                   "workspace": {
                     "type": "string",
                     "maxLength": 4000,
@@ -20108,6 +20114,56 @@
                 },
                 "required": [
                   "expected_revision"
+                ],
+                "allOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "not": {
+                          "required": [
+                            "model"
+                          ]
+                        }
+                      },
+                      {
+                        "required": [
+                          "session_id"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "not": {
+                          "required": [
+                            "reasoning_effort"
+                          ]
+                        }
+                      },
+                      {
+                        "required": [
+                          "session_id"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "not": {
+                          "required": [
+                            "use_global_default"
+                          ]
+                        }
+                      },
+                      {
+                        "required": [
+                          "session_id"
+                        ]
+                      }
+                    ]
+                  }
                 ]
               }
             }

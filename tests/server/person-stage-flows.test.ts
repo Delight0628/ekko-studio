@@ -35,7 +35,7 @@ beforeEach(async()=>{
   runtime={modelConfig:vi.fn(async()=>({default:'m',default_provider:'test',groups:catalog})),model:vi.fn(async()=> 'Done'),deliver:vi.fn(async()=>{}),nativeModels:vi.fn(async()=>({status:'ready',models:[]})),
     execute:vi.fn(async input=>{input.onEvent('run.started',{});return {ok:true,output:'Verified result'}}),answer:vi.fn(async()=>true),stop:vi.fn(async()=>{})}
   const {configurePersonRuntime}=await import('../../packages/server/src/modules/studio/public/person-runtime');configurePersonRuntime(runtime)
-  store.savePersonSettings(1,{...store.personSettings(1).settings,model:selection,workspace:dir,agents:[{id:'worker',name:'Worker',description:'Execute',selection:{...selection,reasoningEffort:''}}]},0)
+  store.savePersonSettings(1,{...store.personSettings(1).settings,workspace:dir,agents:[{id:'worker',name:'Worker',description:'Execute',selection:{...selection,reasoningEffort:''}}]},0)
 })
 
 // Real provider decisions; all sessions, flows, memory and worker ports are disposable.
@@ -51,7 +51,10 @@ it.skipIf(process.env.PERSON_HANDOFF_LIVE!=='1')('replays praise handoffs with t
   const {providerConfig}=resolveModelProviderConfigs({...config,...liveSelection})
   const client=createModelClient(providerConfig,{fetch:createEkkoAuthorizedProviderFetch({...liveSelection,accessToken:config.apiKey})})
   catalog[0]={provider:'deepseek',models:['deepseek-flash'],api_mode:'chat_completions'}
-  store.savePersonSettings(1,{...store.personSettings(1).settings,model:liveSelection,maxSteps:12},1)
+  for (const sessionId of ['person-main-1', 'person-main-b', 'person-main-c']) {
+    const current = store.personSettings(1, sessionId)
+    store.savePersonSettings(1, { ...current.settings, model: liveSelection, maxSteps: 12 }, current.revision, undefined, sessionId)
+  }
   runtime.chatAgent=createPersonAgent
   sessions.updateSession('person-main-1',{title:'老板'})
   sessions.updateSession('person-main-b',{title:'程序员'})
@@ -104,8 +107,11 @@ it.skipIf(process.env.PERSON_HANDOFF_LIVE!=='1')('handles HTML in its own role o
   const {providerConfig}=resolveModelProviderConfigs({...config,...liveSelection})
   const client=createModelClient(providerConfig,{fetch:createEkkoAuthorizedProviderFetch({...liveSelection,accessToken:config.apiKey})})
   catalog[0]={provider:'deepseek',models:['deepseek-flash'],api_mode:'chat_completions'}
-  store.savePersonSettings(1,{...store.personSettings(1).settings,model:liveSelection,maxSteps:12,
-    agents:[{...store.personSettings(1).settings.agents[0],name:'编程助手',description:'把所有的编程任务交给他'}]},1)
+  for (const sessionId of ['person-main-1', 'person-main-b', 'person-main-c']) {
+    const current = store.personSettings(1, sessionId)
+    store.savePersonSettings(1, { ...current.settings, model: liveSelection, maxSteps: 12,
+      agents: [{ ...current.settings.agents[0], name: '编程助手', description: '把所有的编程任务交给他' }] }, current.revision, undefined, sessionId)
+  }
   catalog.push({provider:'test',models:['m'],api_mode:'chat_completions'})
   runtime.chatAgent=createPersonAgent
   sessions.updateSession('person-main-1',{title:'老板'})
