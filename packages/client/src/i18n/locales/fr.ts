@@ -123,8 +123,9 @@ export default {
     "openFailed": "Impossible d’ouvrir les autorisations. Ouvrez Réglages Système → Confidentialité et sécurité manuellement."
   },
   jev: {
+    globalReadonlyHint: "Seul le super administrateur peut modifier ou tester la configuration JEV globale.",
     computerUseAutomation: "Contrôle du bureau Ekko",
-    computerUseAutomationHint: "Utilise la connexion JEV de ce profil à la prochaine exécution Ekko. Seuls les libellés d’accessibilité et les états des contrôles sont envoyés, sans valeurs ni captures. En cas d’échec, le résultat natif est conservé.",
+    computerUseAutomationHint: "Utilise la connexion JEV globale à la prochaine exécution Ekko. Seuls les libellés d’accessibilité et les états des contrôles sont envoyés, sans valeurs ni captures. En cas d’échec, le résultat natif est conservé.",
     computerUseMatchEnabled: "Repérer les éléments du bureau",
     computerUseMatchHint: "Propose un jeton existant pour une cible explicite dans une nouvelle observation de fenêtre, sans cliquer.",
     computerUseMatchCandidateLimit: "Nombre maximal de candidats du bureau",
@@ -136,7 +137,7 @@ export default {
     computerUseVerifyTimeoutMs: "Délai de vérification du bureau (ms)",
 
     browserAutomation: "Automatisation du navigateur intégré",
-    browserAutomationHint: "Les évaluations facultatives utilisent la connexion JEV enregistrée pour ce profil dès la prochaine évaluation. Les libellés visibles sont envoyés à JEV, sans les valeurs saisies. Le fonctionnement habituel est conservé si le service est désactivé, indisponible ou incertain.",
+    browserAutomationHint: "Les évaluations facultatives utilisent la connexion JEV enregistrée pour la configuration globale dès la prochaine évaluation. Les libellés visibles sont envoyés à JEV, sans les valeurs saisies. Le fonctionnement habituel est conservé si le service est désactivé, indisponible ou incertain.",
     browserMatchEnabled: "Correspondance des éléments avec JEV",
     browserMatchHint: "Propose une référence réelle de l’instantané selon la description de la cible. Les éléments interactifs de tout l’instantané sont classés par pertinence avant application de la limite ; les correspondances ambiguës sont refusées.",
     browserMatchOptions: "Options de correspondance",
@@ -179,7 +180,7 @@ export default {
 
     groupSummaryReviewEnabled: 'Vérifier les résumés de groupe avec JEV',
     groupSummaryDisabled: 'Désactivé ; les résumés conservent leur comportement actuel.',
-    groupSummaryReady: 'Activé pour les résumés créés avec ce profil.',
+    groupSummaryReady: "Activé pour les résumés de groupe.",
     groupSummaryReviewMinConfidence: 'Confiance de la vérification du résumé',
     groupSummaryReviewMinConfidenceHint: 'Confiance minimale requise pour signaler un problème de qualité.',
     groupSummaryReviewTimeout: 'Budget de vérification du résumé (ms)',
@@ -221,12 +222,14 @@ export default {
     memoryMinConfidenceHint: "0,5 à 1, valeur par défaut : 0,8. En cas de doute, le traitement initial des écritures est conservé.",
     memoryTimeout: "Délai total de mémoire (ms)",
     memoryTimeoutHint: "100 à 30000 ms ; recommandé : 3000. Total par rappel ou lot d’écritures ; chaque requête respecte aussi le délai de connexion.",
+    personMemoryEnabled: "Utiliser JEV pour la mémoire de l’assistant personnel",
+    personMemoryHint: "La mémoire reste liée à votre compte. Ces options sont indépendantes de celles d’Ekko.",
     "ekkoMemoryEnabled": "Utiliser JEV pour la mémoire Ekko",
-    "description": "Évaluations Choice, Score et Noul partagées entre modules. Les paramètres concernent le Profile sélectionné.",
+    description: "Connexion et fonctions JEV globales, partagées entre tous les Profiles.",
     "timeout": "Délai (ms)",
     "keyHint": "Laisser vide pour conserver la clé enregistrée",
     "testSaved": "Tester la configuration enregistrée",
-    "deleteConfirm": "Supprimer la configuration JEV et la clé API de ce Profile ?",
+    deleteConfirm: "Supprimer la configuration JEV globale et sa clé API ?",
     "baseUrl": "Adresse de l’API",
     "apiKey": "Clé API",
     "keyPlaceholder": "Saisir votre clé API TypeSafe",
@@ -234,7 +237,7 @@ export default {
     "testSuccess": "Connexion réussie · Modèle : {model} · {duration} ms",
     "errors": {
       "invalid_request": "Entrée invalide. Vérifiez la configuration ou les paramètres de la requête.",
-      "not_configured": "Configurez et enregistrez d’abord une clé API pour ce profil.",
+      not_configured: "Configurez et enregistrez d’abord la clé API JEV globale.",
       "timeout": "La requête JEV a expiré. Réessayez ou augmentez le délai.",
       "cancelled": "La requête JEV a été annulée.",
       "auth_failed": "Échec de l’authentification TypeSafe. Vérifiez la clé API et ses autorisations.",
@@ -243,7 +246,7 @@ export default {
       "endpoint_not_found": "Point de terminaison JEV introuvable (HTTP 404). Vérifiez que l’URL de base de l’API inclut le préfixe de chemin de la passerelle.",
       "request_failed": "Impossible de joindre JEV. Vérifiez l’adresse de l’API et le réseau.",
       "settings_failed": "Impossible de lire ou d’enregistrer les paramètres JEV. Vérifiez le dossier de données Studio.",
-      "forbidden": "Vous n’avez pas accès à ce profil.",
+      forbidden: "Vous ne pouvez pas gérer la configuration JEV globale.",
       "unavailable": "Impossible de terminer l’opération. Vérifiez la connexion à Studio et réessayez."
     }
   },

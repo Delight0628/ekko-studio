@@ -123,8 +123,9 @@ export default {
     "openFailed": "无法打开授权设置，请手动前往「系统设置 → 隐私与安全性」。"
   },
   jev: {
+    globalReadonlyHint: "仅超级管理员可修改或测试全局 JEV 配置。",
     computerUseAutomation: "Ekko 电脑操作",
-    computerUseAutomationHint: "复用当前 Profile 的 JEV 连接，下次 Ekko 运行生效。仅发送辅助功能标签和控件状态，不包含字段值与截图。可选判断失败时保留原生结果。",
+    computerUseAutomationHint: "复用全局 JEV 连接，下次 Ekko 运行生效。仅发送辅助功能标签和控件状态，不包含字段值与截图。可选判断失败时保留原生结果。",
     computerUseMatchEnabled: "桌面元素语义匹配",
     computerUseMatchHint: "根据明确目标，从新鲜窗口观察中推荐已有元素 token，不会执行点击。",
     computerUseMatchCandidateLimit: "桌面匹配候选上限",
@@ -136,7 +137,7 @@ export default {
     computerUseVerifyTimeoutMs: "桌面验证超时（毫秒）",
 
     browserAutomation: "内置浏览器自动化",
-    browserAutomationHint: "可选判断复用当前 Profile 保存的 JEV 连接，下次判断生效。页面可见标签会发送给 JEV，不包含输入框的值。关闭、服务不可用或判断不确定时保留原有流程。",
+    browserAutomationHint: "可选判断复用全局保存的 JEV 连接，下次判断生效。页面可见标签会发送给 JEV，不包含输入框的值。关闭、服务不可用或判断不确定时保留原有流程。",
     browserMatchEnabled: "JEV 元素匹配",
     browserMatchHint: "根据目标描述推荐快照中的真实元素引用。先扫描整份快照中的可交互元素，按目标相关性排序后应用候选上限；有歧义时不推荐。",
     browserMatchOptions: "元素匹配选项",
@@ -179,7 +180,7 @@ export default {
 
     groupSummaryReviewEnabled: "启用群聊总结增强",
     groupSummaryDisabled: "已关闭；群聊摘要继续沿用原流程。",
-    groupSummaryReady: "已为使用此配置档案生成的摘要启用。",
+    groupSummaryReady: "已启用群聊摘要增强。",
     groupSummaryReviewMinConfidence: "摘要检查置信度",
     groupSummaryReviewMinConfidenceHint: "报告摘要质量问题所需的最低置信度。",
     groupSummaryReviewTimeout: "摘要检查时间预算（毫秒）",
@@ -221,12 +222,14 @@ export default {
     memoryMinConfidenceHint: "范围 0.5–1，默认 0.8。校验不确定时保留原写入流程。",
     memoryTimeout: "记忆增强总等待时间（毫秒）",
     memoryTimeoutHint: "范围 100–30000，推荐 3000。每次召回或整批写入的总上限；单次请求同时受连接超时限制。",
+    personMemoryEnabled: "个人助理记忆使用 JEV",
+    personMemoryHint: "记忆仍归属你的账号。这些选项独立于 Ekko 记忆设置。",
     "ekkoMemoryEnabled": "Ekko 记忆使用 JEV",
-    "description": "供各模块调用选择（Choice）、评分（Score）和真假判断（Noul），配置仅作用于当前选中的配置档案。",
+    description: "全局 JEV 连接与功能设置，所有 Profile 共用。",
     "timeout": "请求超时（毫秒）",
     "keyHint": "留空保留已保存的密钥",
     "testSaved": "测试已保存配置",
-    "deleteConfirm": "删除此配置档案的 JEV 配置和 API 密钥？",
+    deleteConfirm: "删除全局 JEV 配置和 API Key？",
     "baseUrl": "接口地址",
     "apiKey": "API 密钥",
     "keyPlaceholder": "输入 TypeSafe API 密钥",
@@ -234,7 +237,7 @@ export default {
     "testSuccess": "连接成功 · 模型：{model} · 耗时：{duration} 毫秒",
     "errors": {
       "invalid_request": "输入无效，请检查配置或请求参数。",
-      "not_configured": "请先为此配置档案设置并保存 API 密钥。",
+      not_configured: "请先配置并保存全局 JEV API Key。",
       "timeout": "JEV 请求超时，请重试或增加超时时间。",
       "cancelled": "JEV 请求已取消。",
       "auth_failed": "TypeSafe 身份验证失败，请检查 API 密钥及其权限。",
@@ -243,7 +246,7 @@ export default {
       "endpoint_not_found": "JEV 接口不存在（HTTP 404），请检查接口地址是否包含网关所需的路径前缀。",
       "request_failed": "无法连接 JEV，请检查接口地址和网络连接。",
       "settings_failed": "无法读取或保存 JEV 配置，请检查 Studio 数据目录。",
-      "forbidden": "你没有访问此配置档案的权限。",
+      forbidden: "你没有管理全局 JEV 设置的权限。",
       "unavailable": "操作未完成，请检查与 Studio 的连接后重试。"
     }
   },

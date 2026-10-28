@@ -123,8 +123,9 @@ export default {
     "openFailed": "تعذر فتح إعدادات الأذونات. افتح إعدادات النظام ← الخصوصية والأمان يدويًا."
   },
   jev: {
+    globalReadonlyHint: "يمكن للمسؤول الأعلى فقط تعديل إعدادات JEV العامة أو اختبارها.",
     computerUseAutomation: "التحكم بالكمبيوتر عبر Ekko",
-    computerUseAutomationHint: "يستخدم اتصال JEV لهذا الملف بدءًا من تشغيل Ekko التالي. يرسل تسميات إمكانية الوصول وحالات العناصر فقط، دون قيم الحقول أو الصور. يحتفظ بالنتيجة الأصلية عند الفشل.",
+    computerUseAutomationHint: "يستخدم اتصال JEV العام بدءًا من تشغيل Ekko التالي. يرسل تسميات إمكانية الوصول وحالات العناصر فقط، دون قيم الحقول أو الصور. يحتفظ بالنتيجة الأصلية عند الفشل.",
     computerUseMatchEnabled: "مطابقة عناصر سطح المكتب",
     computerUseMatchHint: "يقترح رمز عنصر موجودًا لهدف صريح من ملاحظة نافذة جديدة، دون النقر.",
     computerUseMatchCandidateLimit: "حد مرشحي سطح المكتب",
@@ -136,7 +137,7 @@ export default {
     computerUseVerifyTimeoutMs: "مهلة تحقق سطح المكتب (مللي ثانية)",
 
     browserAutomation: "أتمتة المتصفح المدمج",
-    browserAutomationHint: "تستخدم التقييمات الاختيارية اتصال JEV المحفوظ لهذا الملف الشخصي بدءًا من التقييم التالي. تُرسل التسميات المرئية دون قيم الإدخال. يستمر المسار المعتاد عند التعطيل أو عدم التوفر أو عدم اليقين.",
+    browserAutomationHint: "تستخدم التقييمات الاختيارية اتصال JEV العام المحفوظ بدءًا من التقييم التالي. تُرسل التسميات المرئية دون قيم الإدخال. يستمر المسار المعتاد عند التعطيل أو عدم التوفر أو عدم اليقين.",
     browserMatchEnabled: "مطابقة العناصر عبر JEV",
     browserMatchHint: "يقترح مرجعًا فعليًا من اللقطة وفق وصف الهدف. تُرتب العناصر التفاعلية في اللقطة كاملة حسب الصلة قبل تطبيق حد المرشحين، وتُرفض المطابقات الملتبسة.",
     browserMatchOptions: "خيارات مطابقة العناصر",
@@ -179,7 +180,7 @@ export default {
 
     groupSummaryReviewEnabled: 'مراجعة ملخصات المجموعة باستخدام JEV',
     groupSummaryDisabled: 'معطّل؛ تستمر الملخصات بالسلوك الحالي.',
-    groupSummaryReady: 'مفعّل للملخصات المنشأة بهذا الملف.',
+    groupSummaryReady: "مفعّل لملخصات المجموعات.",
     groupSummaryReviewMinConfidence: 'ثقة مراجعة الملخص',
     groupSummaryReviewMinConfidenceHint: 'الحد الأدنى للثقة للإبلاغ عن مشكلة جودة.',
     groupSummaryReviewTimeout: 'مهلة مراجعة الملخص (مللي ثانية)',
@@ -221,12 +222,14 @@ export default {
     memoryMinConfidenceHint: "من 0.5 إلى 1؛ الافتراضي 0.8. عند عدم اليقين يُحفظ مسار الكتابة الأصلي.",
     memoryTimeout: "إجمالي مهلة تحسين الذاكرة (مللي ثانية)",
     memoryTimeoutHint: "من 100 إلى 30000؛ الموصى به: 3000. إجمالي كل استرجاع أو دفعة كتابة؛ يخضع كل طلب أيضاً لمهلة الاتصال.",
+    personMemoryEnabled: "استخدام JEV لذاكرة المساعد الشخصي",
+    personMemoryHint: "تبقى الذاكرة مرتبطة بحسابك. هذه الخيارات مستقلة عن ذاكرة Ekko.",
     "ekkoMemoryEnabled": "استخدام JEV لذاكرة Ekko",
-    "description": "تقييمات Choice وScore وNoul مشتركة بين الوحدات. تنطبق الإعدادات على Profile المحدد.",
+    description: "اتصال JEV وميزاته بإعدادات عامة مشتركة بين جميع الملفات الشخصية.",
     "timeout": "المهلة (مللي ثانية)",
     "keyHint": "اتركه فارغًا للاحتفاظ بالمفتاح المحفوظ",
     "testSaved": "اختبار الإعدادات المحفوظة",
-    "deleteConfirm": "هل تريد حذف إعدادات JEV ومفتاح API لهذا Profile؟",
+    deleteConfirm: "هل تريد حذف إعدادات JEV العامة ومفتاح API؟",
     "baseUrl": "عنوان واجهة API",
     "apiKey": "مفتاح API",
     "keyPlaceholder": "أدخل مفتاح TypeSafe API",
@@ -234,7 +237,7 @@ export default {
     "testSuccess": "تم الاتصال · النموذج: {model} · المدة: {duration} مللي ثانية",
     "errors": {
       "invalid_request": "إدخال غير صالح. تحقق من الإعدادات أو معلمات الطلب.",
-      "not_configured": "اضبط مفتاح API لهذا الملف الشخصي واحفظه أولًا.",
+      not_configured: "اضبط مفتاح API العام لـ JEV واحفظه أولًا.",
       "timeout": "انتهت مهلة طلب JEV. حاول مجددًا أو زد المهلة.",
       "cancelled": "تم إلغاء طلب JEV.",
       "auth_failed": "فشلت مصادقة TypeSafe. تحقق من مفتاح API وصلاحياته.",
@@ -243,7 +246,7 @@ export default {
       "endpoint_not_found": "لم يتم العثور على نقطة نهاية JEV (HTTP 404). تحقق من عنوان API الأساسي وتضمين بادئة مسار البوابة.",
       "request_failed": "تعذر الاتصال بـ JEV. تحقق من عنوان API واتصال الشبكة.",
       "settings_failed": "تعذرت قراءة إعدادات JEV أو حفظها. تحقق من مجلد بيانات Studio.",
-      "forbidden": "ليس لديك إذن للوصول إلى هذا الملف الشخصي.",
+      forbidden: "ليس لديك إذن لإدارة إعدادات JEV العامة.",
       "unavailable": "تعذر إكمال العملية. تحقق من الاتصال بـ Studio وحاول مجددًا."
     }
   },

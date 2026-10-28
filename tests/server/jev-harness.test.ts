@@ -17,7 +17,7 @@ const fixtureSources = (() => {
   const { server, client, form } = manifest.settings
   const files = [server, client, form, ...manifest.integrations.flatMap((item: any) => item.runtimeConfig ? [item.runtimeConfig.file] : [])]
   const sources = new Map<string, string>(files.map(file => [file, readFileSync(resolve(root, file), 'utf8')]))
-  sources.set(manifest.settings.host, '<template><JevSettingsPanel :profile="selectedProfile" /></template>')
+  sources.set(manifest.settings.host, '<template><JevSettingsPanel /></template>')
   for (const integration of manifest.integrations) {
     for (const file of integration.sources) {
       const source = "import { evaluateJev } from '../../studio/public/jev'"
@@ -169,7 +169,7 @@ describe('JEV integration harness', () => {
   it('rejects a switch that is displayed but never saved', () => {
     const f = fixture()
     const source = f.sources.get(f.form)!
-    const saveStart = source.indexOf('saveJevSettings(profile, {')
+    const saveStart = source.indexOf('saveJevSettings({')
     f.sources.set(f.form, source.slice(0, saveStart) + source.slice(saveStart).replace('ekkoMemoryEnabled, ', ''))
     expect(jevHarnessViolations(f.sources, f.manifest).join('\n')).toContain('ekkoMemoryEnabled is not submitted')
   })
@@ -191,7 +191,7 @@ describe('JEV integration harness', () => {
 
   it('rejects an orphaned settings form with no frontend page entry', () => {
     const f = fixture()
-    f.change(f.manifest.settings.host, '<JevSettingsPanel :profile="selectedProfile" />', '<!-- <JevSettingsPanel :profile="selectedProfile" /> -->')
+    f.change(f.manifest.settings.host, '<JevSettingsPanel />', '<!-- <JevSettingsPanel /> -->')
     expect(jevHarnessViolations(f.sources, f.manifest).join('\n')).toContain('must be mounted in its declared frontend page')
   })
 

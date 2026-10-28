@@ -123,8 +123,9 @@ export default {
     "openFailed": "権限設定を開けませんでした。「システム設定 → プライバシーとセキュリティ」を手動で開いてください。"
   },
   jev: {
+    globalReadonlyHint: "グローバル JEV 設定の変更とテストは最上位管理者のみ可能です。",
     computerUseAutomation: "Ekko コンピューター操作",
-    computerUseAutomationHint: "このプロファイルの JEV 接続を次の Ekko 実行から使用します。送信するのはアクセシビリティのラベルと操作部品の状態のみで、入力値や画像は含みません。失敗時は元の結果を保持します。",
+    computerUseAutomationHint: "グローバル JEV 接続を次の Ekko 実行から使用します。送信するのはアクセシビリティのラベルと操作部品の状態のみで、入力値や画像は含みません。失敗時は元の結果を保持します。",
     computerUseMatchEnabled: "デスクトップ要素の照合",
     computerUseMatchHint: "最新のウィンドウ観察から、指定した対象に合う既存の要素トークンを提案します。クリックは実行しません。",
     computerUseMatchCandidateLimit: "照合候補数の上限",
@@ -136,7 +137,7 @@ export default {
     computerUseVerifyTimeoutMs: "検証のタイムアウト（ミリ秒）",
 
     browserAutomation: "内蔵ブラウザーの自動化",
-    browserAutomationHint: "このプロファイルに保存した JEV 接続を使用し、次の判定から適用します。画面上のラベルを JEV に送信しますが、入力値は含みません。無効時、利用不可時、判定が不確かな場合は従来の処理を維持します。",
+    browserAutomationHint: "保存したグローバル JEV 接続を使用し、次の判定から適用します。画面上のラベルを JEV に送信しますが、入力値は含みません。無効時、利用不可時、判定が不確かな場合は従来の処理を維持します。",
     browserMatchEnabled: "JEV による要素の照合",
     browserMatchHint: "対象の説明から実在するスナップショット参照を提案します。スナップショット全体の操作可能な要素を関連度順に並べてから候補数の上限を適用し、曖昧な場合は提案しません。",
     browserMatchOptions: "要素照合の設定",
@@ -179,7 +180,7 @@ export default {
 
     groupSummaryReviewEnabled: 'JEVでグループ要約を確認',
     groupSummaryDisabled: '無効です。要約は従来どおり動作します。',
-    groupSummaryReady: 'このプロファイルで作成した要約に対して有効です。',
+    groupSummaryReady: "グループ要約で有効です。",
     groupSummaryReviewMinConfidence: '要約確認の信頼度',
     groupSummaryReviewMinConfidenceHint: '品質問題を報告する最小信頼度です。',
     groupSummaryReviewTimeout: '要約確認の時間予算（ms）',
@@ -221,12 +222,14 @@ export default {
     memoryMinConfidenceHint: "0.5～1、既定値 0.8。検証が不確かな場合は元の書き込み処理を維持します。",
     memoryTimeout: "メモリ拡張の合計待機時間（ミリ秒）",
     memoryTimeoutHint: "100～30000、推奨値は 3000。召回または一括書き込みごとの合計上限。各リクエストには接続タイムアウトも適用されます。",
+    personMemoryEnabled: "個人アシスタントのメモリに JEV を使用",
+    personMemoryHint: "メモリはアカウントに保持され、Ekko のメモリ設定とは独立しています。",
     "ekkoMemoryEnabled": "Ekko のメモリに JEV を使用",
-    "description": "各モジュールで Choice・Score・Noul を利用できます。設定は選択中の Profile に適用されます。",
+    description: "すべての Profile で共有するグローバル JEV 接続と機能設定です。",
     "timeout": "タイムアウト（ミリ秒）",
     "keyHint": "空欄にすると保存済みのキーを維持",
     "testSaved": "保存済み設定をテスト",
-    "deleteConfirm": "この Profile の JEV 設定と API キーを削除しますか？",
+    deleteConfirm: "グローバル JEV 設定と API キーを削除しますか？",
     "baseUrl": "API URL",
     "apiKey": "API キー",
     "keyPlaceholder": "TypeSafe API キーを入力",
@@ -234,7 +237,7 @@ export default {
     "testSuccess": "接続成功 · モデル：{model} · 所要時間：{duration} ミリ秒",
     "errors": {
       "invalid_request": "入力が無効です。設定またはリクエストのパラメーターを確認してください。",
-      "not_configured": "先にこのプロファイルの API キーを設定して保存してください。",
+      not_configured: "先にグローバル JEV API キーを設定して保存してください。",
       "timeout": "JEV リクエストがタイムアウトしました。再試行するか、制限時間を延ばしてください。",
       "cancelled": "JEV リクエストはキャンセルされました。",
       "auth_failed": "TypeSafe の認証に失敗しました。API キーと権限を確認してください。",
@@ -243,7 +246,7 @@ export default {
       "endpoint_not_found": "JEV エンドポイントが見つかりません（HTTP 404）。API ベース URL にゲートウェイのパス接頭辞が含まれているか確認してください。",
       "request_failed": "JEV に接続できません。API URL とネットワークを確認してください。",
       "settings_failed": "JEV 設定を読み込みまたは保存できません。Studio のデータディレクトリを確認してください。",
-      "forbidden": "このプロファイルへのアクセス権がありません。",
+      forbidden: "グローバル JEV 設定を管理する権限がありません。",
       "unavailable": "操作を完了できませんでした。Studio への接続を確認して再試行してください。"
     }
   },

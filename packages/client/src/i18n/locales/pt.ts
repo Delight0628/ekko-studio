@@ -123,8 +123,9 @@ export default {
     "openFailed": "Não foi possível abrir a autorização. Abra Ajustes do Sistema → Privacidade e Segurança manualmente."
   },
   jev: {
+    globalReadonlyHint: "Só o superadministrador pode alterar ou testar a configuração JEV global.",
     computerUseAutomation: "Controle do computador Ekko",
-    computerUseAutomationHint: "Usa a conexão JEV deste perfil a partir da próxima execução do Ekko. Envia apenas rótulos de acessibilidade e estados, sem valores nem capturas. Falhas preservam o resultado nativo.",
+    computerUseAutomationHint: "Usa a conexão JEV global a partir da próxima execução do Ekko. Envia apenas rótulos de acessibilidade e estados, sem valores nem capturas. Falhas preservam o resultado nativo.",
     computerUseMatchEnabled: "Localizar elementos da área de trabalho",
     computerUseMatchHint: "Sugere um token existente para um alvo explícito em uma nova observação da janela. Não clica.",
     computerUseMatchCandidateLimit: "Limite de candidatos da área de trabalho",
@@ -179,7 +180,7 @@ export default {
 
     groupSummaryReviewEnabled: 'Revisar resumos do grupo com JEV',
     groupSummaryDisabled: 'Desativado; os resumos mantêm o comportamento atual.',
-    groupSummaryReady: 'Ativado para resumos criados com este perfil.',
+    groupSummaryReady: "Ativado para resumos de grupo.",
     groupSummaryReviewMinConfidence: 'Confiança da revisão do resumo',
     groupSummaryReviewMinConfidenceHint: 'Confiança mínima para relatar um problema de qualidade.',
     groupSummaryReviewTimeout: 'Tempo da revisão do resumo (ms)',
@@ -221,12 +222,14 @@ export default {
     memoryMinConfidenceHint: "De 0,5 a 1; padrão: 0,8. Na dúvida, mantém o fluxo original de gravação.",
     memoryTimeout: "Tempo total de melhoria da memória (ms)",
     memoryTimeoutHint: "De 100 a 30000 ms; recomendado: 3000. Total por recuperação ou lote de gravação; cada solicitação também respeita o tempo de conexão.",
+    personMemoryEnabled: "Usar JEV para a memória do assistente pessoal",
+    personMemoryHint: "A memória permanece na sua conta. Estas opções são independentes da memória do Ekko.",
     "ekkoMemoryEnabled": "Usar JEV para a memória do Ekko",
-    "description": "Avaliações Choice, Score e Noul partilhadas entre módulos. As definições aplicam-se ao Profile selecionado.",
+    description: "Ligação e funcionalidades JEV globais, partilhadas por todos os Profiles.",
     "timeout": "Tempo limite (ms)",
     "keyHint": "Deixe vazio para manter a chave guardada",
     "testSaved": "Testar a configuração guardada",
-    "deleteConfirm": "Eliminar a configuração JEV e a chave API deste Profile?",
+    deleteConfirm: "Eliminar a configuração JEV global e a chave API?",
     "baseUrl": "Endereço da API",
     "apiKey": "Chave API",
     "keyPlaceholder": "Introduza a sua chave API TypeSafe",
@@ -234,7 +237,7 @@ export default {
     "testSuccess": "Ligação estabelecida · Modelo: {model} · {duration} ms",
     "errors": {
       "invalid_request": "Entrada inválida. Verifique a configuração ou os parâmetros do pedido.",
-      "not_configured": "Configure e guarde primeiro uma chave API para este perfil.",
+      not_configured: "Configure e guarde primeiro a chave API JEV global.",
       "timeout": "O pedido JEV excedeu o tempo limite. Tente novamente ou aumente o limite.",
       "cancelled": "O pedido JEV foi cancelado.",
       "auth_failed": "Falha na autenticação TypeSafe. Verifique a chave API e as permissões.",
@@ -243,7 +246,7 @@ export default {
       "endpoint_not_found": "Endpoint JEV não encontrado (HTTP 404). Verifique se o URL base da API inclui o prefixo de caminho do gateway.",
       "request_failed": "Não foi possível ligar ao JEV. Verifique o endereço da API e a rede.",
       "settings_failed": "Não foi possível ler ou guardar as definições JEV. Verifique a pasta de dados do Studio.",
-      "forbidden": "Não tem acesso a este perfil.",
+      forbidden: "Não tem permissão para gerir as definições JEV globais.",
       "unavailable": "Não foi possível concluir a operação. Verifique a ligação ao Studio e tente novamente."
     }
   },

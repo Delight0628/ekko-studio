@@ -123,8 +123,9 @@ export default {
     "openFailed": "Could not open authorization. Open System Settings → Privacy & Security manually."
   },
   jev: {
+    globalReadonlyHint: "Only the super administrator can change or test the global JEV configuration.",
     computerUseAutomation: "Ekko Computer Use",
-    computerUseAutomationHint: "Uses this Profile’s JEV connection from the next Ekko run. Only accessibility labels and control states are sent; field values and screenshots are excluded. Optional failures preserve the native result.",
+    computerUseAutomationHint: "Uses the shared global JEV connection from the next Ekko run. Only accessibility labels and control states are sent; field values and screenshots are excluded. Optional failures preserve the native result.",
     computerUseMatchEnabled: "Match desktop elements",
     computerUseMatchHint: "Suggest an existing element token for an explicit target in a fresh window observation. Does not click.",
     computerUseMatchCandidateLimit: "Desktop match candidate limit",
@@ -136,7 +137,7 @@ export default {
     computerUseVerifyTimeoutMs: "Desktop verification timeout (ms)",
 
     browserAutomation: "Built-in browser automation",
-    browserAutomationHint: "Optional assessments use this Profile’s saved JEV connection and take effect on the next assessment. Rendered page labels are sent to JEV; input values are excluded. Disabled, unavailable or uncertain assessments preserve the original flow.",
+    browserAutomationHint: "Optional assessments use the shared global JEV connection and take effect on the next assessment. Rendered page labels are sent to JEV; input values are excluded. Disabled, unavailable or uncertain assessments preserve the original flow.",
     browserMatchEnabled: "JEV element matching",
     browserMatchHint: "Suggests a real snapshot ref from the target description. Interactive elements across the snapshot are ranked by relevance before applying the candidate limit; ambiguous matches are declined.",
     browserMatchOptions: "Element matching options",
@@ -179,7 +180,7 @@ export default {
 
     groupSummaryReviewEnabled: "Review group summaries with JEV",
     groupSummaryDisabled: "Disabled; group summaries keep their existing behavior.",
-    groupSummaryReady: "Enabled for summaries created with this Profile.",
+    groupSummaryReady: "Enabled for group summaries.",
     groupSummaryReviewMinConfidence: "Summary review confidence",
     groupSummaryReviewMinConfidenceHint: "Minimum confidence required to report a quality issue.",
     groupSummaryReviewTimeout: "Summary review time budget (ms)",
@@ -221,12 +222,14 @@ export default {
     memoryMinConfidenceHint: "0.5–1, default 0.8. Uncertain reviews preserve the original write flow.",
     memoryTimeout: "Memory enhancement time budget (ms)",
     memoryTimeoutHint: "100–30000 ms; recommended: 3000. Total per recall or write batch; each request also obeys the connection timeout.",
+    personMemoryEnabled: "Use JEV for personal assistant memory",
+    personMemoryHint: "Memory stays with your account. These options are independent of Ekko memory settings.",
     "ekkoMemoryEnabled": "Use JEV for Ekko memory",
-    "description": "Shared Choice, Score and Noul evaluations. Settings apply to the selected Profile.",
+    description: "Global JEV connection and feature settings, shared across all Profiles.",
     "timeout": "Timeout (ms)",
     "keyHint": "Leave blank to keep the saved key",
     "testSaved": "Test saved configuration",
-    "deleteConfirm": "Delete the JEV configuration and API key for this Profile?",
+    deleteConfirm: "Delete the global JEV configuration and API key?",
     "baseUrl": "Base URL",
     "apiKey": "API Key",
     "keyPlaceholder": "Enter your TypeSafe API key",
@@ -234,7 +237,7 @@ export default {
     "testSuccess": "Connection succeeded · Model: {model} · {duration} ms",
     "errors": {
       "invalid_request": "Invalid input. Check the configuration or request parameters.",
-      "not_configured": "Configure and save an API key for this Profile first.",
+      not_configured: "Configure and save the global JEV API key first.",
       "timeout": "The JEV request timed out. Try again or increase the timeout.",
       "cancelled": "The JEV request was cancelled.",
       "auth_failed": "TypeSafe authentication failed. Check the API key and its permissions.",
@@ -243,7 +246,7 @@ export default {
       "endpoint_not_found": "JEV endpoint not found (HTTP 404). Check the API base URL and include any gateway path prefix.",
       "request_failed": "Unable to connect to JEV. Check the API URL and network connection.",
       "settings_failed": "Unable to read or save JEV settings. Check the Studio data directory.",
-      "forbidden": "You do not have access to this Profile.",
+      forbidden: "You do not have permission to manage global JEV settings.",
       "unavailable": "Unable to complete the operation. Check the Studio connection and try again."
     }
   },

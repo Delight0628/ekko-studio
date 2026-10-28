@@ -497,7 +497,7 @@ export function resolveRequestedProfile(ctx: Context): string {
 
 export async function resolveUserProfile(ctx: Context, next: Next): Promise<void> {
   if (ctx.state.personSession) { ctx.state.profile = { name: ctx.state.personSession.profile || 'default' }; await next(); return }
-  if (isAccountModelApiPath(ctx.path)) { await next(); return }
+  if (isAccountModelApiPath(ctx.path) || ctx.path?.startsWith('/api/studio/jev/')) { await next(); return }
   if (ctx.state.sessionShare) { await next(); return }
   const user = ctx.state.user
   if (!user) {

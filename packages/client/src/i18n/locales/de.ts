@@ -123,8 +123,9 @@ export default {
     "openFailed": "Autorisierung konnte nicht geöffnet werden. Öffne Systemeinstellungen → Datenschutz & Sicherheit manuell."
   },
   jev: {
+    globalReadonlyHint: "Nur der Superadministrator darf die globale JEV-Konfiguration ändern oder testen.",
     computerUseAutomation: "Ekko-Computersteuerung",
-    computerUseAutomationHint: "Verwendet die JEV-Verbindung dieses Profils ab dem nächsten Ekko-Lauf. Nur zugängliche Beschriftungen und Zustände werden gesendet, keine Feldwerte oder Bilder. Bei Fehlern bleibt das native Ergebnis erhalten.",
+    computerUseAutomationHint: "Verwendet die globale JEV-Verbindung ab dem nächsten Ekko-Lauf. Nur zugängliche Beschriftungen und Zustände werden gesendet, keine Feldwerte oder Bilder. Bei Fehlern bleibt das native Ergebnis erhalten.",
     computerUseMatchEnabled: "Desktopelemente zuordnen",
     computerUseMatchHint: "Schlägt ein vorhandenes Element-Token für ein ausdrückliches Ziel in einer neuen Fensterbeobachtung vor. Führt keinen Klick aus.",
     computerUseMatchCandidateLimit: "Maximale Desktopkandidaten",
@@ -136,7 +137,7 @@ export default {
     computerUseVerifyTimeoutMs: "Zeitlimit der Desktopprüfung (ms)",
 
     browserAutomation: "Automatisierung des integrierten Browsers",
-    browserAutomationHint: "Optionale Bewertungen verwenden die gespeicherte JEV-Verbindung dieses Profils ab der nächsten Bewertung. Sichtbare Beschriftungen werden an JEV gesendet, Eingabewerte nicht. Bei deaktivierter, nicht verfügbarer oder unsicherer Bewertung bleibt der bisherige Ablauf erhalten.",
+    browserAutomationHint: "Optionale Bewertungen verwenden die gespeicherte globale JEV-Verbindung ab der nächsten Bewertung. Sichtbare Beschriftungen werden an JEV gesendet, Eingabewerte nicht. Bei deaktivierter, nicht verfügbarer oder unsicherer Bewertung bleibt der bisherige Ablauf erhalten.",
     browserMatchEnabled: "Elementabgleich mit JEV",
     browserMatchHint: "Schlägt anhand der Zielbeschreibung eine echte Snapshot-Referenz vor. Interaktive Elemente des gesamten Snapshots werden vor Anwendung des Kandidatenlimits nach Relevanz sortiert; mehrdeutige Treffer werden abgelehnt.",
     browserMatchOptions: "Optionen zum Elementabgleich",
@@ -179,7 +180,7 @@ export default {
 
     groupSummaryReviewEnabled: 'Gruppenzusammenfassungen mit JEV prüfen',
     groupSummaryDisabled: 'Deaktiviert; Zusammenfassungen bleiben unverändert.',
-    groupSummaryReady: 'Für Zusammenfassungen dieses Profils aktiviert.',
+    groupSummaryReady: "Für Gruppenzusammenfassungen aktiviert.",
     groupSummaryReviewMinConfidence: 'Konfidenz der Zusammenfassungsprüfung',
     groupSummaryReviewMinConfidenceHint: 'Mindestkonfidenz zum Melden eines Qualitätsproblems.',
     groupSummaryReviewTimeout: 'Zeitbudget der Zusammenfassungsprüfung (ms)',
@@ -221,12 +222,14 @@ export default {
     memoryMinConfidenceHint: "0,5–1, Standard: 0,8. Bei Unsicherheit bleibt der ursprüngliche Schreibablauf erhalten.",
     memoryTimeout: "Gesamtes Speicherzeitlimit (ms)",
     memoryTimeoutHint: "100–30000 ms; empfohlen: 3000. Gesamtlimit je Abruf oder Schreibstapel; zusätzlich gilt das Verbindungszeitlimit je Anfrage.",
+    personMemoryEnabled: "JEV für den Speicher des persönlichen Assistenten verwenden",
+    personMemoryHint: "Der Speicher bleibt Ihrem Konto zugeordnet. Diese Optionen sind unabhängig vom Ekko-Speicher.",
     "ekkoMemoryEnabled": "JEV für den Ekko-Speicher verwenden",
-    "description": "Gemeinsame Choice-, Score- und Noul-Auswertungen. Die Einstellungen gelten für das ausgewählte Profile.",
+    description: "Globale JEV-Verbindung und Funktionen für alle Profile.",
     "timeout": "Zeitlimit (ms)",
     "keyHint": "Leer lassen, um den gespeicherten Schlüssel zu behalten",
     "testSaved": "Gespeicherte Konfiguration testen",
-    "deleteConfirm": "JEV-Konfiguration und API-Schlüssel dieses Profile löschen?",
+    deleteConfirm: "Globale JEV-Konfiguration und API-Schlüssel löschen?",
     "baseUrl": "API-Adresse",
     "apiKey": "API-Schlüssel",
     "keyPlaceholder": "TypeSafe-API-Schlüssel eingeben",
@@ -234,7 +237,7 @@ export default {
     "testSuccess": "Verbindung erfolgreich · Modell: {model} · {duration} ms",
     "errors": {
       "invalid_request": "Ungültige Eingabe. Prüfen Sie die Konfiguration oder Anfrageparameter.",
-      "not_configured": "Konfigurieren und speichern Sie zuerst einen API-Schlüssel für dieses Profil.",
+      not_configured: "Zuerst den globalen JEV-API-Schlüssel konfigurieren und speichern.",
       "timeout": "Die JEV-Anfrage hat das Zeitlimit überschritten. Versuchen Sie es erneut oder erhöhen Sie das Zeitlimit.",
       "cancelled": "Die JEV-Anfrage wurde abgebrochen.",
       "auth_failed": "TypeSafe-Authentifizierung fehlgeschlagen. Prüfen Sie den API-Schlüssel und seine Berechtigungen.",
@@ -243,7 +246,7 @@ export default {
       "endpoint_not_found": "JEV-Endpunkt nicht gefunden (HTTP 404). Prüfen Sie die API-Basis-URL einschließlich des Gateway-Pfadpräfixes.",
       "request_failed": "Verbindung zu JEV fehlgeschlagen. Prüfen Sie API-Adresse und Netzwerk.",
       "settings_failed": "JEV-Einstellungen konnten nicht gelesen oder gespeichert werden. Prüfen Sie das Studio-Datenverzeichnis.",
-      "forbidden": "Sie haben keinen Zugriff auf dieses Profil.",
+      forbidden: "Sie dürfen die globalen JEV-Einstellungen nicht verwalten.",
       "unavailable": "Der Vorgang konnte nicht abgeschlossen werden. Prüfen Sie die Studio-Verbindung und versuchen Sie es erneut."
     }
   },

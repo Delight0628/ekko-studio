@@ -6,6 +6,8 @@ import type { PersonTaskOrigin } from '../modules/studio/contracts/person'
 import type { PersonChatAgentOptions } from '../modules/studio/public/person-runtime'
 import { personBudgetedClient } from './person-model-context'
 import { estimatePersonContext } from '../modules/studio/services/person/context-estimate'
+import { getPersonJevRuntimeConfig } from '../modules/studio/public/jev'
+import { logger } from '../modules/studio/public/logging'
 
 export function createPersonAgent(options: PersonChatAgentOptions) {
   let originMessages: PersonTaskOrigin['messages'] = []
@@ -72,6 +74,14 @@ export function createPersonAgent(options: PersonChatAgentOptions) {
     requestBoundaryInterrupt: (request: AgentRuntimeBoundaryInterruptRequest) => runtime.requestBoundaryInterrupt(request),
     estimateContext: (input: AgentRuntimeRunInput) => runtime.estimateContext(isolated(input)),
     run: async (input: AgentRuntimeRunInput) => {
+      options.beforeRequest?.()
+      input.signal?.throwIfAborted()
+      try {
+        runtime.jev.configure(await getPersonJevRuntimeConfig())
+      } catch {
+        runtime.jev.configure(false)
+        logger.warn('[person] JEV settings unavailable; memory enhancement is disabled for this run')
+      }
       options.beforeRequest?.()
       input.signal?.throwIfAborted()
       memoryWritable = Boolean(input.memoryInput?.messages.some(message => typeof message === 'string' || message.role === 'user'))

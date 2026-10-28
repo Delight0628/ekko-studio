@@ -35,13 +35,12 @@ function harness(profile = 'default') {
 beforeEach(async () => {
   vi.clearAllMocks()
   vi.stubGlobal('fetch', vi.fn(async () => Response.json(response)))
-  await saveJevSettings('default', { apiKey: 'key', groupMessageRoutingEnabled: true, groupMessageRoutingMode: 'suggest' })
+  await saveJevSettings({ apiKey: 'key', groupMessageRoutingEnabled: true, groupMessageRoutingMode: 'suggest' })
 })
 afterEach(async () => {
   services.splice(0).forEach(service => (service as any).sidecar.close())
   vi.unstubAllGlobals()
-  await deleteJevSettings('default')
-  await deleteJevSettings('other')
+  await deleteJevSettings()
 })
 
 describe('group JEV message routing', () => {
@@ -55,7 +54,7 @@ describe('group JEV message routing', () => {
   })
 
   it.each(['provider-error', 'timeout', 'invalid-result', 'cancelled'])('logs a bounded diagnostic for %s without creating a decision', async fault => {
-    await saveJevSettings('default', { groupMessageRoutingTimeoutMs: 100 })
+    await saveJevSettings({ groupMessageRoutingTimeoutMs: 100 })
     let release!: (response: Response) => void
     vi.stubGlobal('fetch', vi.fn(() => {
       if (fault === 'provider-error') return Promise.resolve(new Response('private provider body', { status: 503 }))
@@ -91,15 +90,20 @@ describe('group JEV message routing', () => {
     expect(logger.warn).not.toHaveBeenCalled()
   })
   it('applies auto routing through the guarded storage port', async () => {
-    await saveJevSettings('default', { groupMessageRoutingMode: 'auto' })
+    await saveJevSettings({ groupMessageRoutingMode: 'auto' })
     const h = harness(); h.start(); await idle(h.service)
     expect(h.decisions[0]).toMatchObject({ status: 'queued', queueId: 'q1' })
     expect(h.claim).toHaveBeenCalledTimes(1)
   })
-  it.each(['disabled', 'no-key', 'other-profile', 'mentions', 'no-candidates'])('makes zero requests for %s', async mode => {
-    if (mode === 'disabled') await saveJevSettings('default', { groupMessageRoutingEnabled: false })
-    if (mode === 'no-key') { await deleteJevSettings('default'); await saveJevSettings('default', { groupMessageRoutingEnabled: true }) }
-    const h = harness(mode === 'other-profile' ? 'other' : 'default')
+  it('uses global JEV settings for a different room Profile', async () => {
+    const h = harness('other'); h.start(); await idle(h.service)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(h.decisions[0]).toMatchObject({ status: 'suggested', targetAgentId: 'agent-1' })
+  })
+  it.each(['disabled', 'no-key', 'mentions', 'no-candidates'])('makes zero requests for %s', async mode => {
+    if (mode === 'disabled') await saveJevSettings({ groupMessageRoutingEnabled: false })
+    if (mode === 'no-key') { await deleteJevSettings(); await saveJevSettings({ groupMessageRoutingEnabled: true }) }
+    const h = harness()
     h.service.schedule({ ...h.message, mentions: mode === 'mentions' ? [{ type: 'agent' }] : [] }, mode === 'no-candidates' ? [] : candidates)
     await idle(h.service)
     expect(fetch).not.toHaveBeenCalled()
@@ -107,14 +111,14 @@ describe('group JEV message routing', () => {
     expect(logger.warn).not.toHaveBeenCalled()
   })
   it.each(['disabled', 'mode', 'credential', 'message', 'profile'])('does not apply a late result after changing %s', async change => {
-    await saveJevSettings('default', { groupMessageRoutingMode: 'auto' })
+    await saveJevSettings({ groupMessageRoutingMode: 'auto' })
     let release!: (response: Response) => void
     vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(resolve => { release = resolve })))
     const h = harness(); h.start()
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
-    if (change === 'disabled') await saveJevSettings('default', { groupMessageRoutingEnabled: false })
-    if (change === 'mode') await saveJevSettings('default', { groupMessageRoutingMode: 'suggest' })
-    if (change === 'credential') await saveJevSettings('default', { apiKey: 'rotated' })
+    if (change === 'disabled') await saveJevSettings({ groupMessageRoutingEnabled: false })
+    if (change === 'mode') await saveJevSettings({ groupMessageRoutingMode: 'suggest' })
+    if (change === 'credential') await saveJevSettings({ apiKey: 'rotated' })
     if (change === 'message') h.message.content = 'Cancel this task'
     if (change === 'profile') h.room.summaryProfile = 'other'
     release(Response.json(response)); await idle(h.service)
@@ -122,7 +126,7 @@ describe('group JEV message routing', () => {
     expect(h.claim).not.toHaveBeenCalled()
   })
   it.each(['missing-handoff', 'missing-loop', 'invalid-noul', 'invalid-confidence', 'unknown-target', 'wrong-type', 'provider-error'])('preserves the baseline for %s', async fault => {
-    await saveJevSettings('default', { groupMessageRoutingMode: 'auto' })
+    await saveJevSettings({ groupMessageRoutingMode: 'auto' })
     const body: any = structuredClone(response)
     if (fault === 'missing-handoff') delete body.answers.handoff_complete
     if (fault === 'missing-loop') delete body.answers.repeated_loop
@@ -136,7 +140,7 @@ describe('group JEV message routing', () => {
     expect(h.decisions).toEqual([])
   })
   it('discards a late provider response after the cumulative timeout', async () => {
-    await saveJevSettings('default', { groupMessageRoutingMode: 'auto', groupMessageRoutingTimeoutMs: 100 })
+    await saveJevSettings({ groupMessageRoutingMode: 'auto', groupMessageRoutingTimeoutMs: 100 })
     let release!: (response: Response) => void
     vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(resolve => { release = resolve })))
     const h = harness(); h.start()

@@ -86,7 +86,7 @@ const tagMappings = {
   'modules/studio/routes/chat-webhooks.ts': { name: 'Chat Webhooks', description: 'Cross-agent Chat Run webhook endpoint management' },
   'modules/studio/routes/tts.ts': { name: 'TTS', description: 'Text-to-speech generation and settings' },
   'modules/studio/routes/stt.ts': { name: 'STT', description: 'Speech-to-text transcription and settings' },
-  'modules/studio/routes/jev.ts': { name: 'JEV', description: 'Profile-scoped TypeSafe JEV configuration and shared Choice, Score, Noul evaluations' },
+  'modules/studio/routes/jev.ts': { name: 'JEV', description: 'Global TypeSafe JEV configuration and shared Choice, Score, Noul evaluations' },
   'modules/studio/routes/media.ts': { name: 'Media', description: 'Media generation endpoints' },
   'modules/studio/routes/performance-monitor.ts': { name: 'Performance', description: 'Runtime performance monitoring' },
   'modules/studio/routes/petdex.ts': { name: 'Petdex', description: 'Desktop pet catalog and assets' },
@@ -1487,6 +1487,16 @@ for (const [path, methods] of Object.entries(openapi.paths)) {
 
 // JEV accepts named heterogeneous questions and never returns its stored API key.
 const jevSettingsProperties = {
+  personMemoryEnabled: { type: 'boolean', default: false },
+  personMemoryKindRoutingEnabled: { type: 'boolean', default: true },
+  personMemoryRelevanceFilterEnabled: { type: 'boolean', default: true },
+  personMemoryRerankEnabled: { type: 'boolean', default: true },
+  personMemoryWriteReviewEnabled: { type: 'boolean', default: true },
+  personMemoryCandidateLimit: { type: 'integer', default: 20, minimum: 1, maximum: 50 },
+  personMemoryRecallMinConfidence: { type: 'number', default: 0.5, minimum: 0.5, maximum: 1 },
+  personMemoryFilterMinConfidence: { type: 'number', default: 0.8, minimum: 0.5, maximum: 1 },
+  personMemoryMinConfidence: { type: 'number', default: 0.8, minimum: 0.5, maximum: 1 },
+  personMemoryTimeoutMs: { type: 'integer', default: 3000, minimum: 100, maximum: 30000 },
   ekkoComputerUseMatchEnabled: { type: 'boolean', default: false },
   ekkoComputerUseMatchCandidateLimit: { type: 'integer', default: 20, minimum: 1, maximum: 50 },
   ekkoComputerUseMatchMinConfidence: { type: 'number', default: 0.8, minimum: 0.5, maximum: 1 },
@@ -1515,7 +1525,8 @@ openapi.components.schemas.JevError = {
 for (const [path, methods] of Object.entries(openapi.paths)) {
   if (!path.startsWith('/api/studio/jev/')) continue
   for (const [method, operation] of Object.entries(methods)) {
-    operation.parameters = [{ name: 'X-Hermes-Profile', in: 'header', required: true, schema: { type: 'string' }, description: 'Authorized Profile; never changes the global active Profile.' }]
+    operation.parameters = []
+    operation.description = 'Uses the shared global JEV configuration, independent of model Profile. Configuration writes and connection tests require super administrator privileges.'
     if (path.endsWith('/settings')) {
       operation.responses['200'] = { description: 'Non-secret JEV settings', content: { 'application/json': { schema: jevSettingsSchema } } }
       if (method === 'put') operation.requestBody = { required: true, content: { 'application/json': { schema: {
@@ -1539,7 +1550,7 @@ for (const [path, methods] of Object.entries(openapi.paths)) {
           } },
         },
       } } } }
-      operation.responses['200'] = { description: 'Advisory, Profile-gated assessment of supplied snapshot evidence. Never executes actions or changes their completion status.', content: { 'application/json': { schema: {
+      operation.responses['200'] = { description: 'Advisory, globally configured assessment of supplied snapshot evidence. Never executes actions or changes their completion status.', content: { 'application/json': { schema: {
         type: 'object', required: ['tabId', 'snapshotId', 'status'], properties: {
           tabId: { type: 'string' }, snapshotId: { type: 'string' },
           status: { type: 'string', enum: intent === 'target' ? ['matched', 'no_match', 'skipped', 'unavailable'] : ['met', 'not_met', 'unknown', 'skipped', 'unavailable'] },

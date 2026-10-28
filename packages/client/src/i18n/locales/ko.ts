@@ -123,8 +123,9 @@ export default {
     "openFailed": "권한 설정을 열 수 없습니다. 시스템 설정 → 개인정보 보호 및 보안을 직접 여세요."
   },
   jev: {
+    globalReadonlyHint: "최고 관리자만 전역 JEV 설정을 변경하거나 테스트할 수 있습니다.",
     computerUseAutomation: "Ekko 컴퓨터 제어",
-    computerUseAutomationHint: "다음 Ekko 실행부터 이 프로필의 JEV 연결을 사용합니다. 접근성 레이블과 컨트롤 상태만 보내며 입력값과 이미지는 제외합니다. 실패하면 원래 결과를 유지합니다.",
+    computerUseAutomationHint: "다음 Ekko 실행부터 전역 JEV 연결을 사용합니다. 접근성 레이블과 컨트롤 상태만 보내며 입력값과 이미지는 제외합니다. 실패하면 원래 결과를 유지합니다.",
     computerUseMatchEnabled: "데스크톱 요소 매칭",
     computerUseMatchHint: "새 창 관찰에서 지정한 대상에 맞는 기존 요소 토큰을 제안합니다. 클릭하지 않습니다.",
     computerUseMatchCandidateLimit: "데스크톱 매칭 후보 수",
@@ -136,7 +137,7 @@ export default {
     computerUseVerifyTimeoutMs: "데스크톱 검증 제한 시간(ms)",
 
     browserAutomation: "내장 브라우저 자동화",
-    browserAutomationHint: "이 프로필에 저장된 JEV 연결을 사용하며 다음 판단부터 적용됩니다. 화면의 레이블을 JEV에 보내지만 입력값은 제외합니다. 비활성화, 서비스 오류 또는 불확실한 판단 시 기존 흐름을 유지합니다.",
+    browserAutomationHint: "저장된 전역 JEV 연결을 사용하며 다음 판단부터 적용됩니다. 화면의 레이블을 JEV에 보내지만 입력값은 제외합니다. 비활성화, 서비스 오류 또는 불확실한 판단 시 기존 흐름을 유지합니다.",
     browserMatchEnabled: "JEV 요소 매칭",
     browserMatchHint: "대상 설명을 바탕으로 실제 스냅샷 참조를 추천합니다. 전체 스냅샷의 상호작용 가능한 요소를 관련성순으로 정렬한 후 후보 한도를 적용하며, 모호한 경우 추천하지 않습니다.",
     browserMatchOptions: "요소 매칭 옵션",
@@ -179,7 +180,7 @@ export default {
 
     groupSummaryReviewEnabled: 'JEV로 그룹 요약 검토',
     groupSummaryDisabled: '비활성화됨. 기존 요약 동작을 유지합니다.',
-    groupSummaryReady: '이 프로필로 생성한 요약에 활성화되었습니다.',
+    groupSummaryReady: "그룹 요약에 활성화되었습니다.",
     groupSummaryReviewMinConfidence: '요약 검토 신뢰도',
     groupSummaryReviewMinConfidenceHint: '품질 문제를 보고할 최소 신뢰도입니다.',
     groupSummaryReviewTimeout: '요약 검토 시간 예산(ms)',
@@ -221,12 +222,14 @@ export default {
     memoryMinConfidenceHint: "0.5–1, 기본값 0.8. 검토가 불확실하면 기존 기록 흐름을 유지합니다.",
     memoryTimeout: "메모리 강화 총 대기 시간(ms)",
     memoryTimeoutHint: "100–30000, 권장값: 3000. 검색 또는 일괄 쓰기별 총 한도이며 각 요청에는 연결 시간 제한도 적용됩니다.",
+    personMemoryEnabled: "개인 비서 메모리에 JEV 사용",
+    personMemoryHint: "메모리는 계정에 유지되며 Ekko 메모리 설정과 별도로 구성됩니다.",
     "ekkoMemoryEnabled": "Ekko 메모리에 JEV 사용",
-    "description": "모듈에서 Choice, Score, Noul 판단을 호출합니다. 설정은 선택한 Profile에 적용됩니다.",
+    description: "모든 Profile이 공유하는 전역 JEV 연결 및 기능 설정입니다.",
     "timeout": "시간 제한(밀리초)",
     "keyHint": "비워 두면 저장된 키 유지",
     "testSaved": "저장된 설정 테스트",
-    "deleteConfirm": "이 Profile의 JEV 설정과 API 키를 삭제할까요?",
+    deleteConfirm: "전역 JEV 설정과 API 키를 삭제할까요?",
     "baseUrl": "API 주소",
     "apiKey": "API 키",
     "keyPlaceholder": "TypeSafe API 키 입력",
@@ -234,7 +237,7 @@ export default {
     "testSuccess": "연결 성공 · 모델: {model} · 소요 시간: {duration}밀리초",
     "errors": {
       "invalid_request": "입력이 올바르지 않습니다. 설정 또는 요청 매개변수를 확인하세요.",
-      "not_configured": "먼저 이 프로필의 API 키를 설정하고 저장하세요.",
+      not_configured: "먼저 전역 JEV API 키를 설정하고 저장하세요.",
       "timeout": "JEV 요청 시간이 초과되었습니다. 다시 시도하거나 제한 시간을 늘리세요.",
       "cancelled": "JEV 요청이 취소되었습니다.",
       "auth_failed": "TypeSafe 인증에 실패했습니다. API 키와 권한을 확인하세요.",
@@ -243,7 +246,7 @@ export default {
       "endpoint_not_found": "JEV 엔드포인트를 찾을 수 없습니다(HTTP 404). API 기본 URL에 게이트웨이 경로 접두사가 포함되어 있는지 확인하세요.",
       "request_failed": "JEV에 연결할 수 없습니다. API 주소와 네트워크를 확인하세요.",
       "settings_failed": "JEV 설정을 읽거나 저장할 수 없습니다. Studio 데이터 디렉터리를 확인하세요.",
-      "forbidden": "이 프로필에 접근할 권한이 없습니다.",
+      forbidden: "전역 JEV 설정을 관리할 권한이 없습니다.",
       "unavailable": "작업을 완료하지 못했습니다. Studio 연결을 확인한 후 다시 시도하세요."
     }
   },
