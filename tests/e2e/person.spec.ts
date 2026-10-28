@@ -42,12 +42,18 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true, custo
       return route.fulfill({ json: { cleared: true } })
     }
     if (path.endsWith('/tasks/task1/chat')) {
-      if (req.method() === 'POST') { state.tasks[0].running = true; state.tasks[0].status = 'open'; state.tasks[0].execution_state = 'queued'; state.tasks[0].execution_id = 'execution2'; state.tasks[0].revision++ }
-      return route.fulfill({ json: { task: state.tasks[0], session: { ...state.session, id: 'person-task-task1', title: state.tasks[0].title } } })
+      if (req.method() === 'POST') {
+        if (body.expected_revision !== state.tasks[0].revision) return route.fulfill({ status: 409, json: { error: 'Task changed' } })
+        state.pending ||= []
+        state.pending.push({ id: `followup${state.pending.length + 1}`, input: body.input })
+        if (!state.tasks[0].running) { state.tasks[0].execution_state = 'queued'; state.tasks[0].execution_id = 'execution2' }
+        state.tasks[0].running = true; state.tasks[0].status = 'open'; state.tasks[0].revision++
+      }
+      return route.fulfill({ json: { pending: state.pending || [], task: state.tasks[0], session: { ...state.session, id: 'person-task-task1', title: state.tasks[0].title } } })
     }
     if (path.endsWith('/tasks/apply')) {
       if (body.expected_revision !== state.tasks[0].revision || (body.action === 'stop' && body.execution_id !== state.tasks[0].execution_id)) return route.fulfill({ status: 409, json: { error: 'Execution changed' } })
-      if (body.action === 'stop') state.tasks[0].execution_state = 'stopping'
+      if (body.action === 'stop') { state.tasks[0].execution_state = 'stopping'; state.pending = [] }
       else state.tasks[0].status = body.action === 'close' ? 'closed' : 'open'
       state.tasks[0].revision++
       return route.fulfill({ json: { task: state.tasks[0] } })
@@ -786,7 +792,7 @@ test('opens a hidden task in a right drawer, continues it and restores the Perso
   const dialog = page.locator('.person-task-chat')
   await expect(dialog.getByText('Saved report code LIME-42.', { exact: true })).toBeVisible()
   await expect(dialog.locator('.input-settings-button')).toHaveCount(0)
-  await expect(dialog.locator('.message.tool, .tool-run-card')).toHaveCount(0)
+  await expect(dialog.locator('.message.tool')).toBeVisible()
   await expect(dialog.locator('.assistant-message-author .message-author-name')).toHaveText('Ekko')
   await expect(page.locator('.n-modal')).toHaveCount(0)
   const bounds = await dialog.boundingBox()
@@ -804,7 +810,7 @@ test('opens a hidden task in a right drawer, continues it and restores the Perso
   expect(await emitted(page, 'run')).toEqual([])
   await emit(page, 'run.started', { session_id: 'person-task-task1', run_id: 'task-followup' })
   await emit(page, 'tool.started', { session_id: 'person-task-task1', run_id: 'task-followup', tool_call_id: 'read-report', tool: 'read_file', arguments: {} })
-  await expect(dialog.locator('.tool-call-name')).toHaveCount(0)
+  await expect(dialog.locator('.tool-call-name').filter({ hasText: 'read_file' })).toBeVisible()
   await emit(page, 'tool.completed', { session_id: 'person-task-task1', run_id: 'task-followup', tool_call_id: 'read-report', tool: 'read_file', output: 'LIME-42' })
   await emit(page, 'message.delta', { session_id: 'person-task-task1', run_id: 'task-followup', delta: 'Your code was LIME-42.' })
   await expect(dialog.getByText('Your code was LIME-42.', { exact: true })).toBeVisible()
@@ -917,8 +923,45 @@ test('refreshes a stale stop without automatically cancelling a newer execution'
   expect(operations.filter(op => op.path.endsWith('/tasks/apply')).at(-1).body).toMatchObject({ execution_id: 'execution2', expected_revision: 2 })
 })
 
+for (const mode of ['light', 'dark'] as const) {
+  test(`queues follow-ups in the running task drawer and preserves them on reopen in ${mode}`, async ({ page }) => {
+    const { state, operations } = await setup(page, mode)
+    if (mode === 'dark') await page.setViewportSize({ width: 390, height: 844 })
+    await page.addInitScript(() => {
+      (window as any).__PW_CHAT_SOCKET_RESUMES__['person-task-task1'] = { session_id: 'person-task-task1', messages: [], isWorking: true, events: [] }
+    })
+    await page.goto('/#/person')
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+    const open = () => page.getByRole('button', { name: 'View in conversation: Check report', exact: true }).click()
+    await open()
+    const drawer = page.locator('.person-task-chat')
+    await drawer.locator('.input-textarea').fill('Wait for CI, then merge if all checks pass.')
+    await drawer.getByRole('button', { name: 'Send', exact: true }).click()
+    await expect(drawer.locator('.task-chat-queue')).toContainText('Wait for CI, then merge if all checks pass.')
+    await expect(drawer.locator('.input-textarea')).toHaveValue('')
+    expect(state.tasks[0].execution_id).toBe('execution1')
+    await page.keyboard.press('Escape'); await expect(drawer).toHaveCount(0)
+    await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+    await open()
+    await expect(drawer.locator('.task-chat-queue')).toContainText('1 follow-up(s) queued')
+    await drawer.locator('.input-textarea').fill('Send me the merge result too.')
+    await drawer.locator('.input-textarea').press('Enter')
+    await expect(drawer.locator('.task-chat-queue li')).toHaveCount(2)
+    expect(operations.filter(op => op.path.endsWith('/tasks/task1/chat') && op.body).map(op => op.body.expected_revision)).toEqual([0, 1])
+    await page.mouse.move(2, 2)
+    await page.evaluate(async () => { await Promise.all(document.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {}))) })
+    await page.screenshot({ path: `/tmp/person-task-followups-${mode}.png` })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await drawer.getByRole('button', { name: 'Stop task', exact: true }).click()
+    await expect(drawer.locator('.task-chat-queue')).toHaveCount(0)
+    expect(operations.filter(op => op.path.endsWith('/tasks/apply')).at(-1).body.execution_id).toBe('execution1')
+    expect(await emitted(page, 'run')).toEqual([])
+    expect(await emitted(page, 'abort')).toEqual([])
+  })
+}
+
 for (const executionState of ['running', 'queued', 'waiting_user'] as const) {
-  test(`stops ${executionState} Person work from the composer with a saved draft`, async ({ page }) => {
+  test(`stops ${executionState} Person work with a saved follow-up draft`, async ({ page }) => {
     const { state, operations } = await setup(page, executionState === 'queued' ? 'dark' : 'light', false)
     state.tasks[0].execution_state = executionState
     if (executionState !== 'running') await page.setViewportSize({ width: 390, height: 844 })
@@ -931,16 +974,18 @@ for (const executionState of ['running', 'queued', 'waiting_user'] as const) {
     const drawer = page.locator('.person-task-chat')
     const composer = drawer.locator('.input-textarea')
     await composer.fill('Keep this follow-up draft')
-    const stop = drawer.locator('.input-actions').getByRole('button', { name: 'Stop', exact: true })
-    await expect(stop).toBeEnabled()
-    await composer.press('Enter')
-    expect(operations.filter(op => op.path.endsWith('/tasks/task1/chat') && op.body)).toHaveLength(0)
+    await expect(drawer.getByRole('button', { name: 'Send', exact: true })).toBeEnabled()
+    const headerStop = drawer.getByRole('button', { name: 'Stop task', exact: true })
+    await expect(headerStop).toBeEnabled()
     await page.mouse.move(2, 940)
         await page.evaluate(async () => { await Promise.all(document.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {}))) })
     await page.screenshot({ path: `/tmp/person-composer-stop-${executionState}.png` })
-    await stop.click()
+    await headerStop.click()
+    const stop = drawer.locator('.input-actions').getByRole('button', { name: 'Stop', exact: true })
     await expect(stop).toBeDisabled()
     await expect(stop).toHaveAttribute('aria-busy', 'true')
+    await composer.press('Enter')
+    expect(operations.filter(op => op.path.endsWith('/tasks/task1/chat') && op.body)).toHaveLength(0)
     await expect(drawer.getByRole('button', { name: 'Stopping', exact: true })).toBeDisabled()
     await expect(composer).toHaveValue('Keep this follow-up draft')
     expect(operations.filter(op => op.path.endsWith('/tasks/apply')).map(op => op.body)).toEqual([

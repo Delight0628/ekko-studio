@@ -243,6 +243,28 @@ describe('ChatInput draft persistence', () => {
     expect(submit).toHaveBeenCalledWith('Continue with this later', expect.arrayContaining([expect.objectContaining({ name: 'notes.txt' })]))
   })
 
+  it('sends task follow-ups while active and retains Stop when empty or awaiting acknowledgement', async () => {
+    const request = vi.fn()
+    const submit = vi.fn().mockResolvedValue(true)
+    const stopControl = { active: true, pending: false, allowSend: true, request }
+    const wrapper = mountForSession('person-task-1', {}, {}, { submit, stopControl })
+    const button = wrapper.get('.send-button')
+    expect(button.attributes('aria-label')).toBe('Stop')
+    await wrapper.get('textarea').setValue('Add this to the same task')
+    expect(button.attributes('aria-label')).toBe('Send')
+    await button.trigger('click'); await flushPromises()
+    expect(submit).toHaveBeenCalledWith('Add this to the same task', undefined)
+    expect(request).not.toHaveBeenCalled()
+    expect(button.attributes('aria-label')).toBe('Stop')
+    await wrapper.get('textarea').setValue('Keep this draft while stopping')
+    await wrapper.setProps({ sendDisabled: true, stopControl: { ...stopControl, pending: true } })
+    expect(button.attributes('aria-label')).toBe('Stop')
+    expect((button.element as HTMLButtonElement).disabled).toBe(true)
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter' })
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('Keep this draft while stopping')
+  })
+
   it('uses the global draft native effort choices without changing the active conversation', async () => {
     const onEffortChange = vi.fn()
     const wrapper = mountForSession('existing', { reasoningEffort: 'low' }, {}, {

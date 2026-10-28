@@ -23,7 +23,7 @@ export function personRequest<T>(path = '', body?: unknown, method = 'POST', sig
   return request<T>(`/api/studio/person${path}`, body === undefined ? { signal } : { method, body: JSON.stringify(body), signal })
 }
 export function personTaskCanStop(task?: PersonTask | null) {
-  return !!task?.execution_id && ['queued','starting','running','waiting_person','waiting_user','waiting_approval','stopping'].includes(task.execution_state)
+  return !!task?.execution_id && ['pending','queued','starting','running','waiting_person','waiting_user','waiting_approval','stopping'].includes(task.execution_state)
 }
 export function stopPersonTask(task: PersonTask, signal?: AbortSignal) {
   return personRequest<{ task: PersonTask }>('/tasks/apply', { action: 'stop', task_id: task.id,

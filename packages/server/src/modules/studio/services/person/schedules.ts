@@ -62,7 +62,7 @@ export function tickPersonSchedules(now = Date.now()) {
       if (!claimed.changes) return
       const id = randomUUID()
       let state = 'skipped'; let execution: string | null = null
-      const active = db.prepare("SELECT id FROM person_executions WHERE task_id=? AND state IN ('queued','starting','stopping','running','waiting_person','waiting_user','waiting_approval')").get(schedule.task_id)
+      const active = db.prepare("SELECT id FROM person_executions WHERE task_id=? AND state IN ('pending','queued','starting','stopping','running','waiting_person','waiting_user','waiting_approval')").get(schedule.task_id)
       const task = getPersonTask(schedule.owner_user_id, schedule.task_id)
       const recent = now - schedule.next_at <= (schedule.misfire === 'run_latest' ? 86400_000 : 60_000)
       if (!active && recent && task.status === 'open') {

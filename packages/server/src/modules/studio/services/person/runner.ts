@@ -3,7 +3,7 @@ import { personRuntime } from '../../public/person-runtime'
 import { personError } from '../../contracts/person'
 import type { PersonExecution, PersonInteraction } from '../../contracts/person'
 import { personDb, personTransaction, personSettings, getPersonExecution, getPersonTask, setPersonExecution, personEvent,
-  addPersonInteraction, answerPersonInteraction } from '../../repositories/person-store'
+  addPersonInteraction, answerPersonInteraction, promotePersonFollowups } from '../../repositories/person-store'
 import { personUser, validatePersonSelection } from './catalog'
 import { runPersonModel } from './model'
 import { personTools, personTool } from './tools'
@@ -135,8 +135,9 @@ async function execute(run: PersonExecution, abort: AbortController) {
     personTransaction(() => {
       setPersonExecution(current(run), 'finished', { output })
       const scheduled = personDb().prepare("SELECT id FROM person_schedules WHERE task_id=? AND state IN ('active','paused')").get(task.id)
+      const pending = getPersonTask(userId, task.id).pending_count
       personDb().prepare("UPDATE session_tasks SET status=?,completion_evidence=?,completed_at=?,updated_at=?,revision=revision+1 WHERE id=?")
-        .run(scheduled ? 'open' : 'completed', output.slice(0,2000), scheduled ? null : Date.now(), Date.now(), task.id)
+        .run(scheduled || pending ? 'open' : 'completed', output.slice(0,2000), scheduled || pending ? null : Date.now(), Date.now(), task.id)
       if (run.occurrence_id) personDb().prepare("UPDATE person_occurrences SET state='finished' WHERE id=?").run(run.occurrence_id)
     })
   } catch (error) {
@@ -155,6 +156,7 @@ export async function tickPersonWork() {
   ticking = true
   try {
     await deliverPersonResults()
+    promotePersonFollowups()
     tickPersonSchedules()
     const db = personDb()
     const stopping = db.prepare("SELECT * FROM person_executions WHERE state='stopping' LIMIT 30").all() as unknown as PersonExecution[]

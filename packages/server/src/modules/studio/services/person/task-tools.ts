@@ -3,17 +3,18 @@ import type { PersonTask, PersonTaskOrigin } from '../../contracts/person'
 import { personError } from '../../contracts/person'
 import { getPersonTask, listAssignablePersonGoals, listPersonTasks, taskPersonExecutions } from '../../repositories/person-store'
 import { applyPersonTask } from './tasks'
+import { continuePersonTask } from './task-chat'
 import type { PersonTool } from './model'
 
 type Field = { type: 'string' | 'boolean' | 'integer' | ['string', 'null']; maxLength?: number; minLength?: number; minimum?: number; enum?: string[]; description?: string }
-type Action = 'adopt' | 'update' | 'start' | 'stop' | 'close' | 'reopen'
-type Snapshot = Pick<PersonTask, 'id' | 'title' | 'summary' | 'status' | 'revision' | 'execution_id' | 'execution_state' | 'running'>
+type Action = 'adopt' | 'update' | 'start' | 'continue' | 'stop' | 'close' | 'reopen'
+type Snapshot = Pick<PersonTask, 'id' | 'title' | 'summary' | 'status' | 'revision' | 'execution_id' | 'execution_state' | 'running' | 'pending_count'>
 type Reference = { task: Snapshot; assignable: boolean; expiresAt: number }
 const text = (maxLength: number): Field => ({ type: 'string', minLength: 1, maxLength })
 const actionFields: Record<Action, string[]> = {
-  adopt: ['goal', 'agent_id', 'start'], update: ['goal'], start: [], stop: [], close: [], reopen: [],
+  adopt: ['goal', 'agent_id', 'start'], update: ['goal'], continue: ['message'], start: [], stop: [], close: [], reopen: [],
 }
-const actionRequired: Partial<Record<Action, string[]>> = { adopt: ['goal'], update: ['goal'] }
+const actionRequired: Partial<Record<Action, string[]>> = { adopt: ['goal'], update: ['goal'], continue: ['message'] }
 const queryAgain = 'Call bot_tasks_query again and reconsider the action using its current task_ref and allowed_actions.'
 const listAgain = 'List tasks with bot_tasks_query {"search":"","offset":0}, or put keywords in search. Omit task_id; never guess all/recent/0. For details, copy an exact id from the list.'
 
@@ -36,8 +37,9 @@ function failure(code: string, message: string, recovery: string, taskId?: strin
 }
 function actions(task: Snapshot, assignable = false): Action[] {
   if (assignable) return ['adopt']
-  if (task.running) return task.execution_id && ['queued','starting','running','waiting_person','waiting_user','waiting_approval','stopping'].includes(task.execution_state || '') ? ['stop'] : []
-  return task.status === 'open' ? ['update', 'start', 'close'] : task.status === 'closed' ? ['reopen'] : ['reopen', 'close']
+  if (task.execution_state === 'stopping') return ['stop']
+  if (task.running) return task.execution_id && ['pending','queued','starting','running','waiting_person','waiting_user','waiting_approval'].includes(task.execution_state || '') ? ['continue', 'stop'] : ['continue']
+  return task.status === 'open' ? ['update', 'start', 'continue', 'close'] : task.status === 'closed' ? ['reopen'] : ['continue', 'reopen', 'close']
 }
 
 /** One instance per Person main turn. References never grant ownership or outlive this toolset. */
@@ -48,7 +50,7 @@ export function personTaskTools(userId: number): PersonTool[] {
   const ttl = 10 * 60_000
   const expose = (task: Snapshot, assignable = false) => {
     const snapshot: Snapshot = { id: task.id, title: task.title, summary: task.summary.slice(0, 500), status: task.status,
-      revision: task.revision, execution_id: task.execution_id || null, execution_state: task.execution_state || 'idle', running: Boolean(task.running) }
+      revision: task.revision, execution_id: task.execution_id || null, execution_state: task.execution_state || 'idle', running: Boolean(task.running), pending_count: task.pending_count || 0 }
     for (const [ref, value] of references) if (value.expiresAt <= Date.now()) references.delete(ref)
     let ref = [...references].find(([, value]) => value.assignable === assignable && JSON.stringify(value.task) === JSON.stringify(snapshot))?.[0]
     if (!ref) {
@@ -68,7 +70,9 @@ export function personTaskTools(userId: number): PersonTool[] {
     if (previous) return { ...await previous as object, replayed: true }
     if (requests.size >= 128) return failure('TURN_LIMIT', 'Too many task operations in this turn', 'Continue in a new user turn.')
     const pending = (async () => {
-      const result = await applyPersonTask(userId, { ...normalized, idempotency_key: `${namespace}:${key}` }, undefined, origin)
+      const result = normalized.action === 'continue'
+        ? await continuePersonTask(userId, String(normalized.task_id), { input: [{ type: 'text', text: normalized.message }], expected_revision: normalized.expected_revision, expected_execution_id: normalized.expected_execution_id, idempotency_key: `${namespace}:${key}` }, origin)
+        : await applyPersonTask(userId, { ...normalized, idempotency_key: `${namespace}:${key}` }, undefined, origin)
       return { ok: true, task: expose(result.task), ...(result.execution ? { execution: { id: result.execution.id, state: result.execution.state } } : {}) }
     })()
     requests.set(key, pending)
@@ -105,8 +109,8 @@ export function personTaskTools(userId: number): PersonTool[] {
   const create = define('bot_task_create', 'Create new background work. Supply all requirements in goal; choose agent_id from bot_agents_list. Starts immediately unless start=false. Identical requests within this turn are deduplicated by the host. Use bot_task_control to operate existing work.', {
     title: text(200), goal: text(8000), agent_id: text(100), start: { type: 'boolean' },
   }, ['title', 'goal'], (args, origin) => execute({ action: 'create', ...args }, origin))
-  const control = define('bot_task_control', 'Control an existing task using a task_ref from bot_tasks_query in this turn and one of its allowed_actions. The host binds the queried version, execution and retry identity. adopt/update require goal; adopt may also select agent_id and start. All tasks use the selected Person workspace. Adopt only on an explicit user request. Stop leaves future schedules unchanged; stopping means requested, so query before claiming stopped. Reopen completed/closed work before starting it. After a stale-reference error, query and reconsider; never guess internal IDs or versions.', {
-    task_ref: text(100), action: { ...text(30), enum: Object.keys(actionFields), description: 'start resumes the saved requirements unchanged; update changes requirements only when the user requests a change. reopen changes status without starting work.' }, goal: { ...text(8000), description: 'Required for adopt/update only. Do not rewrite the saved goal merely to resume work.' }, agent_id: text(100), start: { type: 'boolean' },
+  const control = define('bot_task_control', 'Control existing work with a current task_ref and allowed_actions from bot_tasks_query. continue sends message to the SAME task, agent and conversation; running work queues it for the next turn. Use it for follow-ups, never create a replacement. adopt/update require goal; adopt requires explicit user intent. Stop cancels queued follow-ups, not future schedules; query before claiming stopped. Reopen closed work before continuing. After stale references, query and reconsider. Versions, execution and retry identity are host-managed.', {
+    task_ref: text(100), action: { ...text(30), enum: Object.keys(actionFields), description: 'start runs saved requirements; continue adds a turn; update changes requirements; reopen changes status only.' }, goal: { ...text(8000), description: 'Required for adopt/update only.' }, message: { ...text(32000), description: 'Required for continue: complete user follow-up with relevant context.' }, agent_id: text(100), start: { type: 'boolean' },
   }, ['task_ref', 'action'], async (args, origin) => {
     const action = args.action as Action
     if (Object.keys(args).some(key => !['task_ref', 'action', ...actionFields[action]].includes(key))) throw personError(`Unsupported fields for ${action}`)

@@ -473,7 +473,7 @@ describe('Person account-owned tasks and runtime', () => {
     expect(store.personInteractions(1)).toEqual([])
     expect(db.prepare('SELECT answered_by FROM person_interactions').get()).toMatchObject({ answered_by: 'person' })
   })
-  it.each(['queued','starting','running','waiting_person','waiting_user','waiting_approval','stopping'])('locks task mutations while %s', async state => {
+  it.each(['pending','queued','starting','running','waiting_person','waiting_user','waiting_approval','stopping'])('locks task mutations while %s', async state => {
     const { task, execution } = await create()
     db.prepare('UPDATE person_executions SET state=? WHERE id=?').run(state, execution.id)
     for (const action of ['close','reopen','update','start']) {
@@ -645,7 +645,7 @@ describe('Person account-owned tasks and runtime', () => {
     // A retry reports the original stop receipt; it must not stop the new run.
     expect(await call('bot_task_control', stop)).toMatchObject({ replayed: true, execution: stopped.execution })
     expect(store.getPersonExecution(1, started.execution.id).state).toBe('queued')
-    expect((await call('bot_tasks_query', { task_id: created.task.id })).task.allowed_actions).toEqual(['stop'])
+    expect((await call('bot_tasks_query', { task_id: created.task.id })).task.allowed_actions).toEqual(['continue', 'stop'])
   })
   it('rejects injected host fields, invalid actions and missing requirements before side effects', async () => {
     const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
@@ -882,7 +882,6 @@ it('continues in the same hidden task session and delivers every turn to Person 
   expect(next.execution.session_id).toBe(execution.session_id)
   expect(next.execution.id).not.toBe(execution.id)
   expect(await continuePersonTask(1, task.id, request)).toEqual(next)
-  await expect(continuePersonTask(1, task.id, { ...request, expected_revision: next.task.revision, idempotency_key: 'busy' })).rejects.toThrow('running')
   await runner.tickPersonWork(); await wait(next.execution.id, 'finished')
   expect(vi.mocked(runtime.execute).mock.calls[0][0].displayInput).toBe('Write 42 into result.txt')
   expect(vi.mocked(runtime.execute).mock.calls[1][0]).toMatchObject({ sessionId: execution.session_id, prompt: input, displayInput: undefined })
@@ -891,6 +890,89 @@ it('continues in the same hidden task session and delivers every turn to Person 
   expect(vi.mocked(runtime.deliver).mock.calls[1][0]).toMatchObject({ origin: { sessionId: 'person-main-1' }, executionId: next.execution.id })
   const { listSessions } = await import('../../packages/server/src/modules/studio/repositories/session-store')
   expect(listSessions().some((s: any) => s.id.startsWith('person-task-'))).toBe(false)
+})
+
+it.each([true, false])('queues same-task follow-ups in order exactly once after initial success=%s', async initialSuccess => {
+  const { continuePersonTask, personTaskChat } = await import('../../packages/server/src/modules/studio/services/person/task-chat')
+  const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
+  const { ensurePersonSession } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
+  await ensurePersonSession(1)
+  const complete: ((result: { ok: boolean; output: string }) => void)[] = []
+  runtime.execute = vi.fn(input => { input.onEvent('run.started', {}); return new Promise(resolve => complete.push(resolve)) })
+  const { task, execution } = await create()
+  await runner.tickPersonWork(); await wait(execution.id, 'running')
+  const tools = personTools(1, 'main')
+  const origin = { sessionId: 'person-main-1', runId: 'followup-main', messages: [{ role: 'user' as const, content: 'Wait for CI, then merge.' }] }
+  const call = (name: string, args: Record<string, unknown>) => tools.find(t => t.name === name)!.execute(args, origin) as Promise<any>
+  const snapshot = await call('bot_tasks_query', { task_id: task.id })
+  expect(snapshot.task.allowed_actions).toContain('continue')
+  const args = { task_ref: snapshot.task.task_ref, action: 'continue', message: 'Wait for CI, then merge only if every check passes.' }
+  const [next, duplicate] = await Promise.all([call('bot_task_control', args), call('bot_task_control', args)])
+  expect(next).toMatchObject({ ok: true, task: { id: task.id, execution_id: execution.id, pending_count: 1 }, execution: { state: 'pending' } })
+  expect(duplicate).toMatchObject({ replayed: true, execution: next.execution })
+  expect(JSON.parse(String(db.prepare('SELECT origin_json FROM person_deliveries WHERE execution_id=?').get(next.execution.id)?.origin_json))).toEqual(origin)
+  expect(store.getPersonTask(1, task.id).requirements_revision).toBe(task.requirements_revision)
+  const input = [{ type: 'text', text: 'Also include this report' }, { type: 'file', name: 'report.txt', path: '/tmp/report.txt' }]
+  const request = { input, expected_revision: store.getPersonTask(1, task.id).revision, idempotency_key: 'detail-followup' }
+  const last: any = await continuePersonTask(1, task.id, request)
+  expect(await continuePersonTask(1, task.id, request)).toEqual(last)
+  expect((await personTaskChat(1, task.id)).pending.map(item => item.input)).toEqual([[{ type: 'text', text: args.message }], input])
+  await runner.tickPersonWork()
+  expect(runtime.execute).toHaveBeenCalledTimes(1)
+  complete[0]({ ok: initialSuccess, output: 'Found the PR' }); await wait(execution.id, initialSuccess ? 'finished' : 'failed')
+  expect(store.getPersonTask(1, task.id).status).toBe('open')
+  await runner.tickPersonWork(); await wait(next.execution.id, 'running')
+  expect(vi.mocked(runtime.execute).mock.calls[1][0]).toMatchObject({ sessionId: execution.session_id, prompt: [{ type: 'text', text: args.message }] })
+  expect(store.getPersonExecution(1, last.execution.id).state).toBe('pending')
+  complete[1]({ ok: true, output: 'CI passed' }); await wait(next.execution.id, 'finished')
+  await runner.tickPersonWork(); await wait(last.execution.id, 'running')
+  expect(vi.mocked(runtime.execute).mock.calls[2][0]).toMatchObject({ sessionId: execution.session_id, prompt: input })
+  complete[2]({ ok: true, output: 'Included report' }); await wait(last.execution.id, 'finished')
+  expect(store.getPersonTask(1, task.id)).toMatchObject({ status: 'completed', pending_count: 0 })
+  expect(store.listPersonTasks(1)).toHaveLength(1)
+  await runner.tickPersonWork(); expect(runtime.execute).toHaveBeenCalledTimes(3)
+  expect(vi.mocked(runtime.deliver).mock.calls.map(([delivery]) => delivery.executionId)).toEqual([execution.id, next.execution.id, last.execution.id])
+})
+
+it.each(['queued', 'running', 'waiting_user'])('stopping %s work cancels every pending follow-up and its delivery', async state => {
+  const { continuePersonTask } = await import('../../packages/server/src/modules/studio/services/person/task-chat')
+  const { task, execution } = await create()
+  db.prepare('UPDATE person_executions SET state=? WHERE id=?').run(state, execution.id)
+  const next: any = await continuePersonTask(1, task.id, { input: [{ type: 'text', text: 'Follow up' }], expected_revision: task.revision, idempotency_key: 'followup' })
+  expect(next.execution.state).toBe('pending')
+  const current = store.getPersonTask(1, task.id)
+  await tasks.applyPersonTask(1, { action: 'stop', task_id: task.id, execution_id: current.execution_id, expected_revision: current.revision, idempotency_key: 'stop-all' })
+  await vi.waitFor(() => expect(store.getPersonExecution(1, execution.id).state).toBe('interrupted'))
+  expect(store.getPersonExecution(1, next.execution.id).state).toBe('interrupted')
+  expect(db.prepare('SELECT state FROM person_deliveries WHERE execution_id=?').get(next.execution.id)?.state).toBe('cancelled')
+  await runner.tickPersonWork(); expect(runtime.execute).not.toHaveBeenCalled()
+})
+
+it('rejects stale executions, stopping tasks and full queues without accepting extra turns', async () => {
+  const { continuePersonTask } = await import('../../packages/server/src/modules/studio/services/person/task-chat')
+  const { task, execution } = await create()
+  const request = { input: [{ type: 'text', text: 'Follow up' }], expected_revision: task.revision, idempotency_key: 'stale-followup', expected_execution_id: 'old-run' }
+  await expect(continuePersonTask(1, task.id, request)).rejects.toThrow('Execution changed')
+  db.prepare("UPDATE person_executions SET state='stopping' WHERE id=?").run(execution.id)
+  await expect(continuePersonTask(1, task.id, { ...request, expected_execution_id: execution.id })).rejects.toThrow('stopping')
+  db.prepare("UPDATE person_executions SET state='queued' WHERE id=?").run(execution.id)
+  for (let i = 0; i < 20; i++) await continuePersonTask(1, task.id, { ...request, expected_execution_id: execution.id, expected_revision: i, idempotency_key: `queued-${i}` })
+  await expect(continuePersonTask(1, task.id, { ...request, expected_execution_id: execution.id, expected_revision: 20 })).rejects.toThrow('queue is full')
+  expect(store.getPersonTask(1, task.id)).toMatchObject({ revision: 20, pending_count: 20 })
+})
+
+it('recovers pending turns in FIFO order without invalidating the active execution', async () => {
+  const { continuePersonTask } = await import('../../packages/server/src/modules/studio/services/person/task-chat')
+  const { task, execution } = await create()
+  const next: any = await continuePersonTask(1, task.id, { input: [{ type: 'text', text: 'Continue after restart' }], expected_revision: task.revision, idempotency_key: 'recovery' })
+  store.promotePersonFollowups()
+  expect(store.getPersonExecution(1, next.execution.id).state).toBe('pending')
+  db.prepare("UPDATE person_executions SET state='failed' WHERE id=?").run(execution.id)
+  expect(store.personTaskRunning(task.id)).toBe(true)
+  const { personHasPendingWork } = await import('../../packages/server/src/modules/studio/repositories/person-history-store')
+  expect(personHasPendingWork(1)).toBe(true)
+  await runner.tickPersonWork(); await wait(next.execution.id, 'finished')
+  expect(vi.mocked(runtime.execute).mock.calls[0][0].sessionId).toBe(execution.session_id)
 })
 
 it('requires reopening closed tasks and rejects stale, unauthorized or invalid chat turns', async () => {
@@ -1252,7 +1334,7 @@ it('atomically clears only Person history and tasks, retaining memory, preferenc
   expect(sessions.getSessionDetail('person-main-1')?.messages).toHaveLength(1)
 })
 
-it.each(['queued','starting','running','waiting_person','waiting_user','waiting_approval','stopping','pending_delivery','queued_delivery','main_reply'])('rejects clearing while %s without removing records', async state => {
+it.each(['pending','queued','starting','running','waiting_person','waiting_user','waiting_approval','stopping','pending_delivery','queued_delivery','main_reply'])('rejects clearing while %s without removing records', async state => {
   const { ensurePersonSession } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
   const { clearPerson } = await import('../../packages/server/src/modules/studio/services/person/history')
   const { personSnapshot } = await import('../../packages/server/src/modules/studio/services/person/service')

@@ -53,7 +53,7 @@ const props = withDefaults(defineProps<{
   nativeEffortChoices?: NativeEffortChoice[]
   stopDisabled?: boolean
   /** Task hosts can supply their own lifecycle and cancellation transport. */
-  stopControl?: { active: boolean; pending: boolean; request: () => Promise<void> | void }
+  stopControl?: { active: boolean; pending: boolean; allowSend?: boolean; request: () => Promise<void> | void }
   sendDisabled?: boolean
   submit?: (text: string, attachments?: Attachment[]) => Promise<boolean>
 }>(), {
@@ -637,7 +637,7 @@ watch(
 )
 
 const canSend = computed(() => inputText.value.trim().length > 0 || attachments.value.length > 0)
-const sendButtonIsStop = computed(() => props.stopControl ? props.stopControl.active : !props.draft && chatStore.isStreaming && !canSend.value)
+const sendButtonIsStop = computed(() => props.stopControl ? props.stopControl.active && (props.stopControl.pending || !props.stopControl.allowSend || !canSend.value) : !props.draft && chatStore.isStreaming && !canSend.value)
 const stopPending = computed(() => props.stopControl ? props.stopControl.pending : chatStore.isAborting)
 
 function scrollCommandIntoView() {

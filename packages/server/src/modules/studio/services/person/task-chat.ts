@@ -1,7 +1,8 @@
 import { personError, personRevision, personText } from '../../contracts/person'
 import type { ContentBlock } from '../../contracts/runs/session'
+import type { PersonExecution, PersonTask, PersonTaskOrigin } from '../../contracts/person'
 import { personTaskSessionId } from '../../contracts/person-session'
-import { getPersonTask, personDb, personOperation, personTaskRunning, enqueuePersonExecution, replayPersonOperation } from '../../repositories/person-store'
+import { getPersonTask, personDb, personOperation, personTaskRunning, enqueuePersonExecution, replayPersonOperation, pendingPersonInputs } from '../../repositories/person-store'
 import { createSession, getSession } from '../../repositories/session-store'
 import { personUpdated } from '../../repositories/person-updates'
 import { personUser, validatePersonSelection } from './catalog'
@@ -30,7 +31,7 @@ export async function personTaskChat(userId: number, taskId: string) {
     profile: selection.profile, provider: selection.provider, model: selection.model,
     reasoning_effort: selection.reasoningEffort, workspace: task.workspace, push_enabled: false })
   const { session } = ownedPersonTaskSession(userId, id)
-  return { task: { ...getPersonTask(userId, taskId), running: personTaskRunning(taskId) }, session }
+  return { task: { ...getPersonTask(userId, taskId), running: personTaskRunning(taskId) }, session, pending: pendingPersonInputs(userId, taskId) }
 }
 
 function chatInput(value: unknown): ContentBlock[] {
@@ -46,25 +47,26 @@ function chatInput(value: unknown): ContentBlock[] {
 }
 
 /** New turns still use the durable background runner and its original Person callback. */
-export async function continuePersonTask(userId: number, taskId: string, body: Record<string, unknown>) {
+export async function continuePersonTask(userId: number, taskId: string, body: Record<string, unknown>, origin?: PersonTaskOrigin) {
   const request = { ...body, task_id: taskId }
   const key = `task-chat:${personText(body.idempotency_key, 'idempotency_key', 200)}`
   const task = getPersonTask(userId, taskId)
   await validatePersonSelection(userId, JSON.parse(task.selection_json))
-  const replay = replayPersonOperation(userId, key, request)
+  const replay = replayPersonOperation<{ task: PersonTask; execution: PersonExecution; pending: ReturnType<typeof pendingPersonInputs> }>(userId, key, request)
   if (replay !== undefined) return replay
   const input = chatInput(body.input)
   const result = personOperation(userId, key, request, () => {
     const current = getPersonTask(userId, taskId)
     if (current.revision !== personRevision(body.expected_revision)) throw personError('Task changed; query it again', 409)
-    if (personTaskRunning(taskId)) throw personError('Task is running; wait for it to finish', 409)
+    if (current.execution_state === 'stopping') throw personError('Task is stopping; wait for acknowledgement', 409)
+    if (Object.hasOwn(body, 'expected_execution_id') && body.expected_execution_id !== (current.execution_id || null)) throw personError('Execution changed; query the task again', 409)
     if (current.status === 'closed') throw personError('Reopen the task before continuing', 409)
-    personDb().prepare("UPDATE session_tasks SET status='open',completion_evidence='',completed_at=NULL,revision=revision+1,requirements_revision=requirements_revision+1,updated_at=? WHERE id=?")
+    personDb().prepare("UPDATE session_tasks SET status='open',completion_evidence='',completed_at=NULL,revision=revision+1,updated_at=? WHERE id=?")
       .run(Date.now(), taskId)
-    savePersonTaskOrigin(userId, taskId)
+    savePersonTaskOrigin(userId, taskId, origin)
     const next = getPersonTask(userId, taskId)
-    const execution = enqueuePersonExecution(next, null, input)
-    return { task: { ...getPersonTask(userId, taskId), running: true }, execution }
+    const execution = enqueuePersonExecution(next, null, input, true)
+    return { task: { ...getPersonTask(userId, taskId), running: true }, execution, pending: pendingPersonInputs(userId, taskId) }
   })
   personUpdated(userId)
   return result

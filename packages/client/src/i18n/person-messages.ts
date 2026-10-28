@@ -1,5 +1,6 @@
 export const personMessages = {
   "en": {
+    "followupsQueued": "{count} follow-up(s) queued; sent after the current turn ends.",
     "backgroundTasks": "Background tasks",
     "title": "Personal assistant",
     "stopTask": "Stop task",
@@ -42,6 +43,7 @@ export const personMessages = {
     "deny": "Deny",
     "states": {
       "idle": "Idle",
+      "pending": "Queued",
       "queued": "Queued",
       "starting": "Starting",
       "stopping": "Stopping",
@@ -123,6 +125,7 @@ export const personMessages = {
     "compressionDisabled": "Automatic compression is disabled in global settings. Model context limits still apply.",
   },
   "zh": {
+    "followupsQueued": "已排队 {count} 条补充消息，当前轮结束后继续。",
     "backgroundTasks": "后台任务",
     "title": "个人助理",
     "stopTask": "停止任务",
@@ -165,6 +168,7 @@ export const personMessages = {
     "deny": "拒绝",
     "states": {
       "idle": "未启动",
+      "pending": "排队中",
       "queued": "排队中",
       "starting": "启动中",
       "stopping": "停止中",
@@ -246,6 +250,7 @@ export const personMessages = {
     "compressionDisabled": "全局设置已关闭自动压缩，仍受模型上下文上限约束。",
   },
   "zh-TW": {
+    "followupsQueued": "已排隊 {count} 則補充訊息，目前回合結束後繼續。",
     "backgroundTasks": "背景任務",
     "title": "個人助理",
     "stopTask": "停止任務",
@@ -288,6 +293,7 @@ export const personMessages = {
     "deny": "拒絕",
     "states": {
       "idle": "未啟動",
+      "pending": "排隊中",
       "queued": "排隊中",
       "starting": "啟動中",
       "stopping": "停止中",
@@ -369,6 +375,7 @@ export const personMessages = {
     "compressionDisabled": "全域設定已關閉自動壓縮，仍受模型上下文上限限制。",
   },
   "ja": {
+    "followupsQueued": "追加メッセージ {count} 件待機中。現在のターン終了後に送信します。",
     "backgroundTasks": "バックグラウンドタスク",
     "title": "パーソナルアシスタント",
     "stopTask": "タスクを停止",
@@ -411,6 +418,7 @@ export const personMessages = {
     "deny": "拒否",
     "states": {
       "idle": "未開始",
+      "pending": "待機中",
       "queued": "待機中",
       "starting": "起動中",
       "stopping": "停止中",
@@ -492,6 +500,7 @@ export const personMessages = {
     "compressionDisabled": "全体設定で自動圧縮が無効です。モデルのコンテキスト上限は適用されます。",
   },
   "ko": {
+    "followupsQueued": "추가 메시지 {count}개가 대기 중입니다. 현재 응답이 끝나면 전송됩니다.",
     "backgroundTasks": "백그라운드 작업",
     "title": "개인 비서",
     "stopTask": "작업 중지",
@@ -534,6 +543,7 @@ export const personMessages = {
     "deny": "거부",
     "states": {
       "idle": "미시작",
+      "pending": "대기 중",
       "queued": "대기 중",
       "starting": "시작 중",
       "stopping": "중지 중",
@@ -615,6 +625,7 @@ export const personMessages = {
     "compressionDisabled": "전역 설정에서 자동 압축이 꺼져 있습니다. 모델 컨텍스트 한도는 계속 적용됩니다.",
   },
   "fr": {
+    "followupsQueued": "{count} message(s) en attente, envoyés après le tour en cours.",
     "backgroundTasks": "Tâches en arrière-plan",
     "title": "Assistant personnel",
     "stopTask": "Arrêter la tâche",
@@ -657,6 +668,7 @@ export const personMessages = {
     "deny": "Refuser",
     "states": {
       "idle": "Inactif",
+      "pending": "En attente",
       "queued": "En attente",
       "starting": "Démarrage",
       "stopping": "Arrêt en cours",
@@ -738,6 +750,7 @@ export const personMessages = {
     "compressionDisabled": "La compression automatique est désactivée dans les paramètres globaux. Les limites du modèle restent applicables.",
   },
   "es": {
+    "followupsQueued": "{count} mensaje(s) en cola; se enviarán al terminar el turno actual.",
     "backgroundTasks": "Tareas en segundo plano",
     "title": "Asistente personal",
     "stopTask": "Detener tarea",
@@ -780,6 +793,7 @@ export const personMessages = {
     "deny": "Denegar",
     "states": {
       "idle": "Inactivo",
+      "pending": "En cola",
       "queued": "En cola",
       "starting": "Iniciando",
       "stopping": "Deteniendo",
@@ -861,6 +875,7 @@ export const personMessages = {
     "compressionDisabled": "La compresión automática está desactivada en los ajustes globales. Se mantienen los límites del modelo.",
   },
   "de": {
+    "followupsQueued": "{count} Folgenachricht(en) warten; Versand nach der aktuellen Runde.",
     "backgroundTasks": "Hintergrundaufgaben",
     "title": "Persönlicher Assistent",
     "stopTask": "Aufgabe stoppen",
@@ -903,6 +918,7 @@ export const personMessages = {
     "deny": "Ablehnen",
     "states": {
       "idle": "Inaktiv",
+      "pending": "Warteschlange",
       "queued": "Warteschlange",
       "starting": "Startet",
       "stopping": "Wird gestoppt",
@@ -984,6 +1000,7 @@ export const personMessages = {
     "compressionDisabled": "Automatische Komprimierung ist global deaktiviert. Die Kontextgrenzen des Modells gelten weiterhin.",
   },
   "pt": {
+    "followupsQueued": "{count} mensagem(ns) na fila; envio após o turno atual.",
     "backgroundTasks": "Tarefas em segundo plano",
     "title": "Assistente pessoal",
     "stopTask": "Parar tarefa",
@@ -1026,6 +1043,7 @@ export const personMessages = {
     "deny": "Negar",
     "states": {
       "idle": "Inativo",
+      "pending": "Na fila",
       "queued": "Na fila",
       "starting": "Iniciando",
       "stopping": "Parando",
@@ -1107,6 +1125,7 @@ export const personMessages = {
     "compressionDisabled": "A compressão automática está desativada nos ajustes globais. Os limites do modelo continuam valendo.",
   },
   "ru": {
+    "followupsQueued": "Сообщений в очереди: {count}. Будут отправлены после текущего ответа.",
     "backgroundTasks": "Фоновые задачи",
     "title": "Личный помощник",
     "stopTask": "Остановить задачу",
@@ -1149,6 +1168,7 @@ export const personMessages = {
     "deny": "Отклонить",
     "states": {
       "idle": "Не запущено",
+      "pending": "В очереди",
       "queued": "В очереди",
       "starting": "Запуск",
       "stopping": "Остановка",
@@ -1230,6 +1250,7 @@ export const personMessages = {
     "compressionDisabled": "Автоматическое сжатие отключено в общих настройках. Ограничения контекста модели сохраняются.",
   },
   "ar": {
+    "followupsQueued": "{count} رسالة متابعة في الانتظار؛ تُرسل بعد انتهاء الرد الحالي.",
     "backgroundTasks": "المهام في الخلفية",
     "title": "المساعد الشخصي",
     "stopTask": "إيقاف المهمة",
@@ -1272,6 +1293,7 @@ export const personMessages = {
     "deny": "رفض",
     "states": {
       "idle": "لم يبدأ",
+      "pending": "في الانتظار",
       "queued": "في الانتظار",
       "starting": "يبدأ",
       "stopping": "يتوقف",
@@ -1353,6 +1375,7 @@ export const personMessages = {
     "compressionDisabled": "الضغط التلقائي معطل في الإعدادات العامة. تظل حدود سياق النموذج سارية.",
   },
   "tr": {
+    "followupsQueued": "{count} takip mesajı sırada; mevcut tur bitince gönderilecek.",
     "backgroundTasks": "Arka plan görevleri",
     "title": "Kişisel asistan",
     "stopTask": "Görevi durdur",
@@ -1395,6 +1418,7 @@ export const personMessages = {
     "deny": "Reddet",
     "states": {
       "idle": "Boşta",
+      "pending": "Sırada",
       "queued": "Sırada",
       "starting": "Başlıyor",
       "stopping": "Durduruluyor",

@@ -58,10 +58,12 @@ export function savePersonSettings(userId: number, settings: PersonSettings, rev
     return personSettings(userId)
   })
 }
+const executionOrder = "CASE WHEN state IN ('finished','failed','interrupted') THEN 2 WHEN state='pending' THEN 1 ELSE 0 END,created_at DESC,rowid DESC"
 const taskExecutionColumns = `
-  (SELECT id FROM person_executions e WHERE e.task_id=t.id ORDER BY created_at DESC,rowid DESC LIMIT 1) AS execution_id,
-  COALESCE((SELECT state FROM person_executions e WHERE e.task_id=t.id ORDER BY created_at DESC,rowid DESC LIMIT 1),'idle') AS execution_state,
-  EXISTS(SELECT 1 FROM person_executions e WHERE e.task_id=t.id AND e.state IN ('queued','starting','running','stopping','waiting_person','waiting_user','waiting_approval'))
+  (SELECT id FROM person_executions e WHERE e.task_id=t.id ORDER BY ${executionOrder} LIMIT 1) AS execution_id,
+  COALESCE((SELECT state FROM person_executions e WHERE e.task_id=t.id ORDER BY ${executionOrder} LIMIT 1),'idle') AS execution_state,
+  (SELECT COUNT(*) FROM person_executions e WHERE e.task_id=t.id AND e.state='pending') AS pending_count,
+  EXISTS(SELECT 1 FROM person_executions e WHERE e.task_id=t.id AND e.state IN ('pending','queued','starting','running','stopping','waiting_person','waiting_user','waiting_approval'))
     OR EXISTS(SELECT 1 FROM person_deliveries d JOIN person_executions e ON e.id=d.execution_id WHERE e.task_id=t.id AND d.state IN ('pending','queued')) AS running`
 export function getPersonTask(userId: number, id: string): PersonTask {
   const task = personDb().prepare(`SELECT t.*, ${taskExecutionColumns} FROM session_tasks t WHERE id=? AND owner_user_id=? AND bot_id=?`).get(id, userId, `person:${userId}`) as unknown as PersonTask | undefined
@@ -86,16 +88,31 @@ export function updatePersonTask(userId: number, id: string, revision: number, r
   if (!changed.changes) throw personError('Task changed or is closed', 409)
   return getPersonTask(userId, id)
 }
-export function enqueuePersonExecution(task: PersonTask, occurrence: string | null = null, input?: import('../contracts/runs/session').ContentBlock[]): PersonExecution {
+export function enqueuePersonExecution(task: PersonTask, occurrence: string | null = null, input?: import('../contracts/runs/session').ContentBlock[], followup = false): PersonExecution {
   if (task.status !== 'open') throw personError('Task must be open', 409)
   const id = randomUUID(); const now = Date.now()
-  const active = personDb().prepare("SELECT id FROM person_executions WHERE task_id=? AND state IN ('queued','starting','stopping','running','waiting_person','waiting_user','waiting_approval')").get(task.id)
-  if (active) throw personError('Task already has an active execution', 409)
+  const active = personDb().prepare("SELECT id FROM person_executions WHERE task_id=? AND state IN ('pending','queued','starting','stopping','running','waiting_person','waiting_user','waiting_approval')").get(task.id)
+  if (active && !followup) throw personError('Task already has an active execution', 409)
+  if (Number(task.pending_count) >= 20) throw personError('Task follow-up queue is full', 409)
   personDb().prepare(`INSERT INTO person_executions(id,task_id,owner_user_id,requirements_revision,state,session_id,selection_json,created_at,updated_at,occurrence_id,input_json)
-    VALUES (?,?,?,?,'queued',?,?,?,?,?,?)`).run(id, task.id, task.owner_user_id, task.requirements_revision, `person-task-${task.id}`, task.selection_json, now, now, occurrence, input ? JSON.stringify(input) : '')
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(id, task.id, task.owner_user_id, task.requirements_revision, active ? 'pending' : 'queued', `person-task-${task.id}`, task.selection_json, now, now, occurrence, input ? JSON.stringify(input) : '')
   personDb().prepare(`INSERT INTO person_deliveries(execution_id,owner_user_id,origin_json,updated_at)
     SELECT ?,owner_user_id,origin_json,? FROM person_task_origins WHERE task_id=?`).run(id, now, task.id)
   return getPersonExecution(task.owner_user_id, id)
+}
+/** Pending turns are durable but never compete with the active runtime lease. */
+export function promotePersonFollowups() {
+  personDb().prepare(`UPDATE person_executions SET state='queued',updated_at=? WHERE id IN (
+    SELECT e.id FROM person_executions e JOIN session_tasks t ON t.id=e.task_id
+    WHERE e.state='pending' AND t.status='open' AND e.requirements_revision=t.requirements_revision
+    AND e.rowid=(SELECT p.rowid FROM person_executions p WHERE p.task_id=e.task_id AND p.state='pending' ORDER BY created_at,rowid LIMIT 1)
+    AND NOT EXISTS(SELECT 1 FROM person_executions a WHERE a.task_id=e.task_id AND a.state IN ('queued','starting','stopping','running','waiting_person','waiting_user','waiting_approval'))
+  )`).run(Date.now())
+}
+export function pendingPersonInputs(userId: number, taskId: string) {
+  getPersonTask(userId, taskId)
+  return (personDb().prepare("SELECT id,input_json FROM person_executions WHERE owner_user_id=? AND task_id=? AND state IN ('pending','queued') AND input_json!='' ORDER BY created_at,rowid").all(userId, taskId) as { id: string; input_json: string }[])
+    .map(row => ({ id: row.id, input: JSON.parse(row.input_json) as import('../contracts/runs/session').ContentBlock[] }))
 }
 export function getPersonExecution(userId: number, id: string): PersonExecution {
   const row = personDb().prepare('SELECT * FROM person_executions WHERE id=? AND owner_user_id=?').get(id, userId) as unknown as PersonExecution | undefined
@@ -177,6 +194,6 @@ export function personBackgroundPendingCount(sessionId: string, reportingExecuti
 }
 export function personTaskRunning(taskId: string): boolean {
   return !!personDb().prepare(`SELECT 1 FROM person_executions e WHERE e.task_id=? AND
-    (e.state IN ('queued','starting','running','stopping','waiting_person','waiting_user','waiting_approval')
+    (e.state IN ('pending','queued','starting','running','stopping','waiting_person','waiting_user','waiting_approval')
       OR EXISTS(SELECT 1 FROM person_deliveries d WHERE d.execution_id=e.id AND d.state IN ('pending','queued'))) LIMIT 1`).get(taskId)
 }
