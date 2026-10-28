@@ -274,7 +274,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
       </template>
       <template #default>
             <SessionListItem v-for="session in sidebarSessions" :key="session.id" :session="session" :active="session.id === selectedSessionId" :pinned="false" :can-delete="!pending"
-              :show-profile="false" :streaming="chatStore.isSessionLive(session.id)" :to="router.resolve({ name: 'hermes.person', query: { session: session.id } }).href"
+              single-line :show-profile="false" :streaming="chatStore.isSessionLive(session.id)" :to="router.resolve({ name: 'hermes.person', query: { session: session.id } }).href"
               :delete-confirm-text="t('person.deleteConversationConfirm')" @select="selectConversation(session.id)" @delete="deleteConversation(session.id)" />
             <NButton v-if="nextOffset !== null" quaternary block @click="loadConversations(nextOffset!)">{{ t('person.older') }}</NButton>
       </template>

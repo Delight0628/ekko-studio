@@ -22,6 +22,7 @@ const props = withDefaults(defineProps<{
   selectable?: boolean
   selected?: boolean
   showProfile?: boolean
+  singleLine?: boolean
   categoryLabel?: string
   to?: string
   interceptModifiedNavigation?: boolean
@@ -109,7 +110,7 @@ onUnmounted(() => {
   <component
     :is="selectable || !to ? 'button' : 'a'"
     class="session-item"
-    :class="{ active, 'batch-mode': selectable, 'missing-models': profileModelsMissing }"
+    :class="{ active, 'batch-mode': selectable, 'missing-models': profileModelsMissing, 'session-item--single-line': singleLine }"
     :aria-current="active ? 'page' : undefined"
     :href="!selectable ? to : undefined"
     :type="selectable || !to ? 'button' : undefined"
@@ -399,6 +400,23 @@ onUnmounted(() => {
   min-width: 0;
   margin-top: 3px;
   padding: calc(3px * var(--spacing-scale, 1)) 0;
+}
+
+.session-item--single-line .session-item-content {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--spacing-scale, 1));
+}
+
+.session-item--single-line .session-item-title-row {
+  flex: 1;
+}
+
+.session-item--single-line .session-item-agent-row {
+  order: -1;
+  flex: 0 0 auto;
+  margin-top: 0;
+  padding: 0;
 }
 
 .session-item-agent-logo-wrap {

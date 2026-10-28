@@ -1571,7 +1571,33 @@ test('Person search uses the shared search dialog and only requests assistant co
 
 for (const [mode, wallpaper] of [['light', false], ['dark', true]] as const) {
 test(`Person uses the same desktop and mobile sidebar layout as single chat in ${mode}`, async ({ page }) => {
-  await setup(page, mode, wallpaper, false)
+  const { state } = await setup(page, mode, wallpaper, false)
+  state.session.title = '旅行计划与工作安排：需要保持时间完整显示的长会话名称'
+  async function expectSingleLineSession() {
+    const row = page.locator('.person-sidebar .session-item')
+    const layout = await row.evaluate(el => {
+      const avatar = el.querySelector('.session-item-agent-logo')!.getBoundingClientRect()
+      const title = el.querySelector<HTMLElement>('.session-item-title')!
+      const name = title.getBoundingClientRect()
+      const time = el.querySelector('.session-item-time')!.getBoundingClientRect()
+      return {
+        avatarBeforeName: avatar.right < name.left,
+        nameBeforeTime: name.right < time.left,
+        avatarCenter: avatar.y + avatar.height / 2,
+        nameCenter: name.y + name.height / 2,
+        timeCenter: time.y + time.height / 2,
+        nameTruncated: title.scrollWidth > title.clientWidth,
+        fitsRow: time.right <= el.getBoundingClientRect().right && el.scrollWidth <= el.clientWidth,
+      }
+    })
+    expect(layout.avatarBeforeName).toBe(true)
+    expect(layout.nameBeforeTime).toBe(true)
+    expect(Math.abs(layout.avatarCenter - layout.nameCenter)).toBeLessThan(1)
+    expect(Math.abs(layout.avatarCenter - layout.timeCenter)).toBeLessThan(1)
+    expect(layout.nameTruncated).toBe(true)
+    expect(layout.fitsRow).toBe(true)
+    await expect(row.locator('.session-item-time')).not.toBeEmpty()
+  }
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/#/hermes/chat')
   const chatSidebar = page.locator('.chat-panel > .session-list')
@@ -1594,6 +1620,7 @@ test(`Person uses the same desktop and mobile sidebar layout as single chat in $
     listPadding: getComputedStyle(el.querySelector('.session-items')!).padding,
     background: getComputedStyle(el).backgroundColor,
   }))
+  await expectSingleLineSession()
   await page.screenshot({ path: `/tmp/sidebar-person-desktop-${mode}.png`, animations: 'disabled' })
   expect(person).toEqual(desktop)
   expect((await page.locator('.studio-page-header .person-title').boundingBox())!.x).toBe(chatTitleX)
@@ -1618,6 +1645,7 @@ test(`Person uses the same desktop and mobile sidebar layout as single chat in $
   await expect(drawer).toHaveCSS('width', '351px')
   await expect.poll(async () => (await sidebar.boundingBox())?.x).toBe(65)
   await expect(page.locator('.page-sidebar-account-btn')).toHaveCount(1)
+  await expectSingleLineSession()
   await page.screenshot({ path: `/tmp/sidebar-person-mobile-${mode}.png`, animations: 'disabled' })
   await sidebar.getByRole('button', { name: 'Search', exact: true }).click()
   await expect(page.locator('.session-search-modal')).toBeVisible()
