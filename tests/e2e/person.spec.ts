@@ -24,6 +24,9 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true, custo
       if (req.method() === 'POST') {
         const session = { ...state.session, id: `person-main-new-${operations.length}`, title: body.title, history_revision: 0 }
         state.conversations.unshift(session)
+        await page.evaluate(sessionId => {
+          (window as any).__PW_CHAT_SOCKET_RESUMES__[sessionId] = { session_id: sessionId, messages: [], isWorking: false, events: [] }
+        }, session.id)
         return route.fulfill({ json: session })
       }
       const query = new URL(req.url()).searchParams.get('search')?.toLowerCase() || ''
@@ -617,7 +620,7 @@ for (const mode of ['light', 'dark'] as const) {
     await page.screenshot({ path: `/tmp/person-animation-${mode}-mobile.png`, animations: 'disabled' })
     await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.emitted.some((event: any) => event.event === 'person.activity'))).toBe(true)
     await page.getByRole('link', { name: 'Your account assistant', exact: true }).click()
-    await expect(page.locator('.studio-mobile-drawer')).not.toBeVisible()
+    await expect(page.locator('.studio-mobile-drawer .person-sidebar .session-item')).toBeVisible()
   })
 }
 
@@ -1565,6 +1568,121 @@ test('Person search uses the shared search dialog and only requests assistant co
   await expect(page.locator('.person-title')).toHaveText('旅行')
   expect(operations.filter(operation => operation.path.endsWith('/conversations')).length).toBeGreaterThan(1)
 })
+
+for (const [mode, wallpaper] of [['light', false], ['dark', true]] as const) {
+test(`Person uses the same desktop and mobile sidebar layout as single chat in ${mode}`, async ({ page }) => {
+  await setup(page, mode, wallpaper, false)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/#/hermes/chat')
+  const chatSidebar = page.locator('.chat-panel > .session-list')
+  await expect(chatSidebar.locator('.page-sidebar-top')).toBeVisible()
+  const chatTitleX = (await page.locator('.studio-page-header .header-session-title').boundingBox())!.x
+  const desktop = await chatSidebar.evaluate(el => ({
+    width: el.getBoundingClientRect().width,
+    headerPadding: getComputedStyle(el.querySelector('.page-sidebar-top')!).padding,
+    listPadding: getComputedStyle(el.querySelector('.session-items')!).padding,
+    background: getComputedStyle(el).backgroundColor,
+  }))
+  await page.screenshot({ path: `/tmp/sidebar-single-chat-desktop-${mode}.png`, animations: 'disabled' })
+  await page.getByRole('link', { name: 'Your account assistant', exact: true }).click()
+  const sidebar = page.locator('.person-sidebar')
+  await expect(sidebar.locator('.session-item')).toBeVisible()
+  await expect(page.locator('.person-compose .input-textarea')).toBeVisible()
+  const person = await sidebar.evaluate(el => ({
+    width: el.getBoundingClientRect().width,
+    headerPadding: getComputedStyle(el.querySelector('.page-sidebar-top')!).padding,
+    listPadding: getComputedStyle(el.querySelector('.session-items')!).padding,
+    background: getComputedStyle(el).backgroundColor,
+  }))
+  await page.screenshot({ path: `/tmp/sidebar-person-desktop-${mode}.png`, animations: 'disabled' })
+  expect(person).toEqual(desktop)
+  expect((await page.locator('.studio-page-header .person-title').boundingBox())!.x).toBe(chatTitleX)
+  const toggle = page.getByRole('button', { name: 'Collapse menu', exact: true })
+  await toggle.click()
+  await expect.poll(async () => (await sidebar.boundingBox())?.width).toBe(0)
+  await expect(page.locator('.studio-page-header .header-sidebar-control')).toHaveAttribute('class', /--collapsed/)
+  await page.getByRole('button', { name: 'Expand menu', exact: true }).click()
+  await expect.poll(async () => (await sidebar.boundingBox())?.width).toBe(desktop.width)
+  await page.getByRole('separator', { name: 'Resize sidebar' }).focus()
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(sidebar).toHaveCSS('width', `${desktop.width + 40}px`)
+  await expect(page.locator('.header-sidebar-control')).toHaveCSS('width', `${desktop.width + 40}px`)
+  await page.reload()
+  await expect(sidebar).toHaveCSS('width', `${desktop.width + 40}px`)
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Menu', exact: true }).click()
+  const drawer = page.locator('.studio-mobile-drawer')
+  await expect(drawer.locator('.person-sidebar .session-item')).toBeVisible()
+  await expect(drawer.getByRole('button', { name: 'Close', exact: true })).toHaveCount(1)
+  await expect(drawer).toHaveCSS('width', '351px')
+  await expect.poll(async () => (await sidebar.boundingBox())?.x).toBe(65)
+  await expect(page.locator('.page-sidebar-account-btn')).toHaveCount(1)
+  await page.screenshot({ path: `/tmp/sidebar-person-mobile-${mode}.png`, animations: 'disabled' })
+  await sidebar.getByRole('button', { name: 'Search', exact: true }).click()
+  await expect(page.locator('.session-search-modal')).toBeVisible()
+  await expect(drawer).not.toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Menu', exact: true }).click()
+  await drawer.getByRole('link', { name: 'Chat', exact: true }).click()
+  await expect(drawer.locator('.session-list .session-items')).toBeVisible()
+  await expect(drawer.getByRole('button', { name: 'Close', exact: true })).toHaveCount(1)
+  await page.screenshot({ path: `/tmp/sidebar-single-chat-mobile-${mode}.png`, animations: 'disabled' })
+  await drawer.getByRole('link', { name: 'Your account assistant', exact: true }).click()
+  await expect(drawer.locator('.person-sidebar .session-item')).toBeVisible()
+  await expect(drawer).toBeVisible()
+  await sidebar.getByRole('button', { name: 'New conversation', exact: true }).click()
+  await expect(drawer).not.toBeVisible()
+  const naming = page.getByRole('dialog').filter({ has: page.getByRole('textbox', { name: 'Conversation name' }) })
+  await expect(naming).toBeVisible()
+  await naming.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.getByRole('button', { name: 'Menu', exact: true }).click()
+  await drawer.locator('.person-sidebar .session-item').click()
+  await expect(drawer).not.toBeVisible()
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(sidebar).toHaveCSS('width', `${desktop.width + 40}px`)
+  await expect(page.locator('.page-sidebar-account-btn')).toHaveCount(1)
+})
+}
+
+for (const mode of ['light', 'dark'] as const) {
+  test(`Person sidebar follows regional appearance and reset in ${mode}`, async ({ page }) => {
+    await setup(page, mode, true, false)
+    const sidebar = page.locator('.person-sidebar')
+    async function open() { await page.goto('/#/person'); await expect(page.locator('.person-compose .input-textarea')).toBeVisible() }
+    await open()
+    const original = await sidebar.evaluate(el => getComputedStyle(el).backgroundColor)
+    await page.goto('/#/hermes/theme')
+    await page.getByTestId('theme-global-backgroundColor').fill('#223344')
+    await page.getByTestId('theme-global-opacity').fill('0.4')
+    await page.getByTestId('theme-global-opacity').dispatchEvent('change')
+    await open()
+    await expect(sidebar).toHaveCSS('background-color', 'rgba(34, 51, 68, 0.4)')
+    await page.goto('/#/hermes/theme')
+    await page.getByTestId('theme-scope').selectOption('sidebar')
+    await page.getByTestId('theme-sidebar-backgroundColor').fill('#336699')
+    await page.getByTestId('theme-sidebar-opacity').fill('0')
+    await page.getByTestId('theme-sidebar-opacity').dispatchEvent('change')
+    await page.getByTestId('theme-sidebar-blur').fill('4')
+    await page.getByTestId('theme-sidebar-blur').dispatchEvent('change')
+    await open()
+    await expect(sidebar).toHaveCSS('background-color', 'rgba(51, 102, 153, 0)')
+    await expect(sidebar).toHaveCSS('opacity', '1')
+    await expect(sidebar).toHaveCSS('backdrop-filter', /blur\(4px\)/)
+    await page.screenshot({ path: `/tmp/sidebar-person-theme-${mode}.png`, animations: 'disabled' })
+    await page.goto('/#/hermes/theme')
+    await page.getByRole('button', { name: 'Restore defaults', exact: true }).click()
+    await open()
+    await expect(sidebar).toHaveCSS('background-color', original)
+    await page.goto('/#/hermes/theme')
+    await page.getByRole('button', { name: 'Remove', exact: true }).click()
+    await page.goto('/#/hermes/chat')
+    await expect(page.locator('.chat-panel > .session-list')).toBeVisible()
+    const preset = await page.locator('.chat-panel > .session-list').evaluate(el => getComputedStyle(el).backgroundColor)
+    await open()
+    await expect(sidebar).toHaveCSS('background-color', preset)
+  })
+}
 
 test('Person shows an empty state after deleting its last conversation and creates through the naming dialog on mobile', async ({ page }) => {
   const { state } = await setup(page, 'dark', false, false)

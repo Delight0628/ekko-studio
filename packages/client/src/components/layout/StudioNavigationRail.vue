@@ -37,7 +37,7 @@ const activeKey = computed(() => {
 })
 const mobileNavigation = useMobileNavigation()
 function handleNavigate(key: string) {
-  if (mobileNavigation && ['person', 'connections', 'agents', 'models', 'usage', 'apiRelay'].includes(key)) {
+  if (mobileNavigation && ['connections', 'agents', 'models', 'usage', 'apiRelay'].includes(key)) {
     mobileNavigation.open.value = false
   }
 }

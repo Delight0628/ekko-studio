@@ -637,6 +637,7 @@ useKeyboard();
     :deep(.header-title),
     :deep(h1),
     :deep(.header-session-title),
+    :deep(.person-title),
     :deep(.header-workflow-title),
     :deep(.room-title-text) {
       font-size: calc(var(--font-size-base, 14px) * 13 / 14);
@@ -772,6 +773,7 @@ useKeyboard();
   :deep(.ekko-config-sidebar),
   :deep(.coding-agent-config-sidebar),
   :deep(.chat-panel > .session-list),
+  :deep(.person-layout > .person-sidebar),
   :deep(.history-panel > .page-loading-content > .session-list),
   :deep(.group-chat-panel > .room-sidebar),
   :deep(.agent-avatar-rail),
@@ -877,6 +879,7 @@ useKeyboard();
   }
 
   :deep(.chat-panel > .session-list > .page-sidebar-top),
+  :deep(.person-layout > .person-sidebar > .page-sidebar-top),
   :deep(.history-panel > .page-loading-content > .session-list > .page-sidebar-top),
   :deep(.workflow-view > .page-loading-content > .workflow-sidebar > .page-sidebar-top),
   :deep(.group-chat-panel > .room-sidebar > .sidebar-header) {
@@ -925,6 +928,7 @@ useKeyboard();
   }
 
   :deep(.chat-panel > .session-list > .page-sidebar-top),
+  :deep(.person-layout > .person-sidebar > .page-sidebar-top),
   :deep(.history-panel > .page-loading-content > .session-list > .page-sidebar-top),
   :deep(.workflow-view > .page-loading-content > .workflow-sidebar > .page-sidebar-top),
   :deep(.group-chat-panel > .room-sidebar > .sidebar-header) {

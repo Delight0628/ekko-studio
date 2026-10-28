@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/hermes/app'
-import PageSidebar from '@/components/layout/PageSidebar.vue'
+import SessionListSidebar from '@/components/hermes/chat/SessionListSidebar.vue'
 import PageSidebarNav from '@/components/layout/PageSidebarNav.vue'
-import PageSidebarFooter from '@/components/layout/PageSidebarFooter.vue'
-import SidebarResizeHandle from '@/components/layout/SidebarResizeHandle.vue'
 import HeaderSidebarToggle from '@/components/layout/HeaderSidebarToggle.vue'
 import SessionListItem from '@/components/hermes/chat/SessionListItem.vue'
 import { usePageSidebarState } from '@/composables/usePageSidebar'
@@ -55,6 +53,10 @@ const showCreate = ref(false)
 const conversationName = ref('')
 const creating = ref(false)
 const sidebarSessions = computed(() => conversations.value.map(mapHermesSession))
+function openCreateConversation() {
+  if (isMobile.value) showSessions.value = false
+  showCreate.value = true
+}
 let conversationRequestSequence = 0
 async function loadConversations(offset = 0) {
   const request = ++conversationRequestSequence
@@ -260,28 +262,30 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
 
 <template>
   <div class="person-layout">
-    <PageSidebar>
-      <aside class="session-list person-sidebar" :class="{ collapsed: !showSessions }">
-        <SidebarResizeHandle />
-        <template v-if="showSessions">
-          <div class="person-sidebar-top"><PageSidebarNav active="person" :primary-label="t('person.newConversation')" @primary="showCreate = true">
-            <template #actions><NButton v-if="isMobile" quaternary circle size="small" :aria-label="t('common.close')" @click="showSessions = false">×</NButton></template>
-          </PageSidebarNav></div>
-          <div class="person-conversations" :aria-label="t('person.conversations')">
+    <SessionListSidebar class="person-sidebar" :expanded="showSessions" :aria-label="t('person.conversations')">
+      <template #header>
+        <PageSidebarNav active="person" :primary-label="t('person.newConversation')" @primary="openCreateConversation">
+          <template #actions>
+            <button v-if="isMobile" class="session-close-btn" type="button" :aria-label="t('common.close')" @click="showSessions = false">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m18 6-12 12M6 6l12 12" /></svg>
+            </button>
+          </template>
+        </PageSidebarNav>
+      </template>
+      <template #default>
             <SessionListItem v-for="session in sidebarSessions" :key="session.id" :session="session" :active="session.id === selectedSessionId" :pinned="false" :can-delete="!pending"
               :show-profile="false" :streaming="chatStore.isSessionLive(session.id)" :to="router.resolve({ name: 'hermes.person', query: { session: session.id } }).href"
               :delete-confirm-text="t('person.deleteConversationConfirm')" @select="selectConversation(session.id)" @delete="deleteConversation(session.id)" />
             <NButton v-if="nextOffset !== null" quaternary block @click="loadConversations(nextOffset!)">{{ t('person.older') }}</NButton>
-          </div>
-          <PageSidebarFooter />
-        </template>
-      </aside>
-    </PageSidebar>
+      </template>
+    </SessionListSidebar>
   <PageLoading :show="initializing || chatStore.isLoadingMessages" initial-only class="person-view">
     <PageHeader>
-      <HeaderSidebarToggle :expanded="showSessions" @toggle="showSessions = !showSessions" />
       <header class="person-header">
-        <span class="person-title">{{ data?.session?.title || t('person.title') }}</span>
+        <div class="header-left">
+          <HeaderSidebarToggle class="header-sidebar-toggle" :expanded="showSessions" @toggle="showSessions = !showSessions" />
+          <span class="person-title">{{ data?.session?.title || t('person.title') }}</span>
+        </div>
         <div class="person-header-actions">
           <NTooltip trigger="hover">
             <template #trigger><NButton quaternary circle size="small" :aria-label="t('person.tasks')" :aria-expanded="showTasks" :disabled="!data?.session" @click="openPanel('tasks')"><SessionTaskIcon :size="17" /></NButton></template>
@@ -323,7 +327,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
         </div>
       </NModal>
       <MessageList v-if="data.session" :user-label="t('person.you')" hide-tool-calls />
-      <NEmpty v-if="!data.session" class="person-empty" :description="t('person.noConversations')"><template #extra><NButton type="primary" @click="showCreate = true">{{ t('person.newConversation') }}</NButton></template></NEmpty>
+      <NEmpty v-if="!data.session" class="person-empty" :description="t('person.noConversations')"><template #extra><NButton type="primary" @click="openCreateConversation">{{ t('person.newConversation') }}</NButton></template></NEmpty>
       <div v-if="data.session" class="person-compose">
         <button v-if="needsAgentSetup" type="button" class="person-model-hint" @click="openPanel('agents')">{{ t('person.agentSetupTitle') }} · {{ t('person.configureAgents') }}</button>
         <button v-if="!currentModel" type="button" class="person-model-hint" @click="openModels">{{ t('person.defaultUnavailable') }}</button>
@@ -386,14 +390,10 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
 <style scoped lang="scss">
 @use '@/styles/variables' as *;
 .person-layout { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; position: relative; }
-.person-sidebar { position: relative; width: $sidebar-width; min-height: 0; display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden; border-inline-end: var(--border-width, 1px) solid $border-color; }
-.person-sidebar.collapsed { width: 0; border: 0; }
-.person-sidebar-top { padding: 12px; }
-.person-conversations { flex: 1; min-height: 0; overflow: auto; padding: 0 12px; }
 .person-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-@media (max-width: 768px) { .person-sidebar { position: absolute; inset: 0 auto 0 0; z-index: 120; } }
 .person-view { flex: 1; display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; color: $text-primary; background: var(--card-container-bg, var(--bg-main-surface)); }
 .person-header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding: calc(21px * var(--spacing-scale, 1)) calc(20px * var(--spacing-scale, 1)); border-bottom: var(--border-width, 1px) solid $border-color; }
+.header-left { display: flex; align-items: center; gap: calc(8px * var(--spacing-scale, 1)); overflow: hidden; flex: 1; min-width: 0; }
 .person-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(var(--font-size-base, 14px) * 16 / 14); font-weight: 600; }
 .person-header-actions { display: flex; flex-shrink: 0; align-items: center; gap: 4px; }
 .person-workspace-shortcuts { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }

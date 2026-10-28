@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { agentMetadata, isNativeCodingAgent, isGlobalOnlyCodingAgent } from '@/utils/agent-catalog'
-import PageSidebar from "@/components/layout/PageSidebar.vue"
-import SidebarResizeHandle from "@/components/layout/SidebarResizeHandle.vue"
+import SessionListSidebar from "./SessionListSidebar.vue"
 import { usePageSidebarState } from "@/composables/usePageSidebar"
 import { usePageLoadingTask } from '@/composables/usePageLoading'
 import { useCodingAgentModels } from '@/composables/useCodingAgentModels'
@@ -70,7 +69,6 @@ import { buildVisibleSessionCategoryGroups, partitionRecentSessions } from "./se
 import { buildSessionCategoryMenuChildren, resolveRecentSessionCategoryLabel } from "./session-category-menu";
 import { buildActiveSessionMenuOptions, buildSessionContextMenuOptions } from "./session-menu-options";
 import PageSidebarNav from "@/components/layout/PageSidebarNav.vue";
-import PageSidebarFooter from "@/components/layout/PageSidebarFooter.vue";
 import { getStoredUserId, isStoredSuperAdmin } from "@/api/client";
 import { loadNewChatFormPreferences, saveNewChatFormPreferences } from "@/utils/new-chat-form-preferences";
 import { useDefaultWorkspace } from "@/composables/useDefaultWorkspace";
@@ -2493,14 +2491,12 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
 
 <template>
   <div class="chat-panel" :class="{ 'chat-panel--standalone': standalone }">
-    <PageSidebar>
-    <aside
+    <SessionListSidebar
       v-if="hasPageSidebar"
-      class="session-list"
-      :class="{ collapsed: !showSessions, 'session-list--navigation': contentMode !== 'chat' }"
+      :expanded="showSessions"
+      :navigation="contentMode !== 'chat'"
     >
-      <SidebarResizeHandle />
-      <div v-if="showSessions" class="page-sidebar-top">
+      <template #header>
         <PageSidebarNav
           :active="contentMode === 'connections' ? 'connections' : contentMode === 'agents' ? 'agents' : contentMode === 'models' ? 'models' : chatStore.runtimeMode === 'global_agent' ? 'global' : 'chat'"
           :primary-label="t('chat.newChat')"
@@ -2599,8 +2595,8 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
             </NButton>
           </div>
         </div>
-      </div>
-      <div v-if="contentMode === 'chat' && showSessions" class="session-items">
+      </template>
+      <template #default>
         <div
           v-if="chatStore.isLoadingSessions && chatStore.sessions.length === 0"
           class="session-loading"
@@ -2779,10 +2775,8 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
             />
           </template>
         </template>
-      </div>
-      <PageSidebarFooter v-if="showSessions" />
-    </aside>
-    </PageSidebar>
+      </template>
+    </SessionListSidebar>
 
     <NDropdown
       :key="contextMenuCategoriesKey"
@@ -3440,54 +3434,6 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   background-color: var(--theme-card-bg, $bg-card);
 }
 
-.session-list {
-  position: relative;
-  width: $sidebar-width;
-  min-height: 0;
-  align-self: stretch;
-  margin: 0;
-  background: var(--theme-sidebar-bg, $bg-sidebar-surface);
-  border-inline-end: var(--border-width, 1px) solid $border-color;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  transition:
-    width $transition-normal,
-    opacity $transition-normal;
-  overflow: hidden;
-
-  &--navigation .page-sidebar-top {
-    flex: 1;
-    overflow-y: auto;
-  }
-
-  &.collapsed {
-    width: 0;
-    margin-inline-start: 0;
-    margin-inline-end: 0;
-    border: none;
-    box-shadow: none;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  @media (max-width: $breakpoint-mobile) {
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    height: auto;
-    margin: 0;
-    z-index: 120;
-    width: $sidebar-width;
-
-    &.collapsed {
-      transform: translateX(-100%);
-      opacity: 0;
-    }
-  }
-}
-
 @media (max-width: $breakpoint-mobile) {
   .session-backdrop {
     position: absolute;
@@ -3503,11 +3449,6 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
       pointer-events: auto;
     }
   }
-}
-
-.page-sidebar-top {
-  flex-shrink: 0;
-  padding: calc(12px * var(--spacing-scale, 1));
 }
 
 .page-sidebar-tabs {
@@ -3580,24 +3521,6 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
     justify-content: center;
     height: 22px;
     min-height: 22px;
-  }
-}
-
-.session-close-btn {
-  display: inline-flex;
-  border: none;
-  background: none;
-  cursor: pointer;
-  color: $text-secondary;
-  padding: calc(4px * var(--spacing-scale, 1));
-  border-radius: $radius-sm;
-  height: 22px;
-  min-height: 22px;
-  align-items: center;
-  justify-content: center;
-
-  &:hover {
-    background: rgba($accent-primary, 0.06);
   }
 }
 
@@ -3864,12 +3787,6 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
     cursor: default;
     opacity: 0.55;
   }
-}
-
-.session-items {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0 calc(6px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1));
 }
 
 .session-loading,
