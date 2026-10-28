@@ -3,7 +3,7 @@ import { agentMetadata, isNativeCodingAgent, isGlobalOnlyCodingAgent } from '@/u
 import SessionListSidebar from "./SessionListSidebar.vue"
 import SessionSelectionToolbar from "./SessionSelectionToolbar.vue"
 import { usePageSidebarState } from "@/composables/usePageSidebar"
-import { usePageLoadingTask } from '@/composables/usePageLoading'
+import { usePageLoadingState, usePageLoadingTask } from '@/composables/usePageLoading'
 import { useCodingAgentModels } from '@/composables/useCodingAgentModels'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import HeaderSidebarToggle from '@/components/layout/HeaderSidebarToggle.vue'
@@ -843,6 +843,13 @@ const headerTitle = computed(() =>
 );
 
 const showNewChatPage = ref(false);
+const pageLoading = usePageLoadingState();
+const isEmptySingleChat = computed(() =>
+  props.contentMode === "chat" && currentMode.value === "chat"
+  && chatStore.runtimeMode === "default" && route.name === "hermes.chat"
+  && !pageLoading.value && chatStore.sessionsLoaded && !chatStore.isLoadingSessions
+  && !chatStore.activeSessionId && chatStore.sessions.length === 0,
+);
 const showNewChatSettings = ref(false);
 const showNewChatCategory = ref(false);
 const newChatCategoryTriggerRef = ref<InstanceType<typeof NButton> | null>(null);
@@ -904,7 +911,7 @@ function closeNewChatPage() {
 }
 
 function cancelNewChatPage() {
-  if (newChatLoading.value) return;
+  if (newChatLoading.value || isEmptySingleChat.value) return;
   closeNewChatPage();
   showToolPanel.value = newChatPreviousToolPanel.value;
 }
@@ -1372,7 +1379,7 @@ async function loadNewChatModels(sequence: number) {
   }
 }
 
-async function openNewChatPage() {
+async function openNewChatPage(options: { preserveSidebar?: boolean } = {}) {
   if (newChatLoading.value) return;
   if (props.contentMode !== "chat") await router.push({ name: "hermes.chat" });
   const previousToolPanel = showNewChatPage.value ? newChatPreviousToolPanel.value : showToolPanel.value;
@@ -1409,7 +1416,7 @@ async function openNewChatPage() {
   newChatModelsLoading.value = !newChatModelCatalogKnown.value;
   if (!saved) syncNewChatModelSelection();
   restoringNewChatForm = false;
-  if (isMobile.value) showSessions.value = false;
+  if (isMobile.value && !options.preserveSidebar) showSessions.value = false;
   showNewChatPage.value = true;
   void initWorkspaceComposable().then(() => {
     if (isCurrentNewChatOptionsLoad(sequence) && !saved && !newChatWorkspace.value) {
@@ -1740,6 +1747,7 @@ async function handleDeleteSession(id: string) {
 }
 
 async function syncSessionRouteAfterDeletion() {
+  if (isMobile.value && !chatStore.activeSessionId && chatStore.sessions.length === 0) showSessions.value = false;
   const routeId = router.currentRoute.value.params.sessionId;
   if (!routeId || chatStore.sessions.some(session => session.id === routeId)) return;
   await router.replace(chatStore.activeSessionId ? {
@@ -2491,6 +2499,12 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
   if (selection.provider === 'moa') void selectSessionMoaPreset(selection.model);
   else void selectSessionModel(selection.model, selection.provider);
 }
+
+// Wait for route cleanup and session loading before opening the empty state;
+// explicit session links may still be resolving outside the sidebar list.
+watch([isEmptySingleChat, () => route.fullPath], ([empty]) => {
+  if (empty && !showNewChatPage.value) void openNewChatPage({ preserveSidebar: true });
+}, { immediate: true, flush: "post" });
 </script>
 
 <template>
@@ -3124,7 +3138,7 @@ function handleSessionModelSelect(selection: { model: string; provider: string }
                       :aria-label="t('chat.workspace')" :aria-expanded="showWorkspaceModal && workspaceIsDraft" @click="openNewChatWorkspace">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
                     </NButton>
-                    <DshSessionPresetSelect v-if="newChatAgent === 'dsh'" v-model="newChatAgentPreset" v-model:show="showNewChatPresetMode"
+                    <DshSessionPresetSelect v-if="newChatAgent === 'dsh'" :key="newChatComposerRevision" v-model="newChatAgentPreset" v-model:show="showNewChatPresetMode"
                       compact :disabled="newChatLoading" @valid="newChatPresetReady = $event" />
                     <NButton quaternary circle size="small" class="new-chat-config-icon" :disabled="newChatLoading" :title="t('chat.newChatSettings')"
                       :aria-label="t('chat.newChatSettings')" :aria-expanded="showNewChatSettings" @click="showNewChatSettings = true">
