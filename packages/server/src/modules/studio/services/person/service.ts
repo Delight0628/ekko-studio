@@ -9,19 +9,24 @@ import { isAbsolute, join } from 'node:path'
 import { getWebUiHome } from '../../public/config'
 import { ensureDirectory, normalizeDirectoryTarget } from '../workspace/directory'
 import { personHasPendingWork } from '../../repositories/person-history-store'
+import { listPersonFlows } from '../../repositories/person-stage-store'
 
 export async function personSnapshot(userId: number, sessionId = '') {
   personUser(userId)
   const session = sessionId ? await ensurePersonSession(userId, sessionId) : { ...await effectivePersonSettings(userId), session: null }
   const busy = personChatBusy(userId, sessionId || undefined)
   return { ...session, tasks: sessionId ? listPersonTasks(userId, '', 0, { sessionId, limit: 100 }) : [], memories: await personMemories(userId),
+    flows:sessionId ? listPersonFlows(userId,sessionId) : [],
     schedules: sessionId ? listPersonSchedules(userId, sessionId) : [], interactions: personInteractions(userId), busy,
     history_revision: session.session?.history_revision ?? 0, can_clear: !!session.session && !busy && !personHasPendingWork(userId, sessionId) }
 }
 export async function configurePerson(userId: number, input: Record<string, unknown>) {
-  if (personChatBusy(userId)) throw personError('Wait for the current reply before changing settings', 409)
+  const sessionId = input.session_id === undefined ? undefined : personText(input.session_id, 'session_id', 100)
+  const sharedChange = ['workspace', 'timezone', 'agents', 'compressionThreshold', 'maxSteps', 'maxConcurrentTasks'].some(key => input[key] !== undefined)
+  const busySession = sharedChange ? undefined : sessionId
+  const old = personSettings(userId, sessionId)
+  if (personChatBusy(userId, busySession)) throw personError('Wait for the current reply before changing settings', 409)
   if (input.contextTokens !== undefined) throw personError('Context capacity follows the selected model; set compressionThreshold instead')
-  const old = personSettings(userId)
   const settings = { ...old.settings }
   if (input.workspace !== undefined) {
     if (personHasPendingWork(userId)) throw personError('Wait for Person tasks and result delivery before changing workspace', 409)
@@ -56,13 +61,15 @@ export async function configurePerson(userId: number, input: Record<string, unkn
       settings[key] = Number(value)
     }
   }
-  if (personChatBusy(userId)) throw personError('Wait for the current reply before changing settings', 409)
+  if (personChatBusy(userId, busySession)) throw personError('Wait for the current reply before changing settings', 409)
   if (input.workspace !== undefined && personHasPendingWork(userId)) throw personError('Wait for Person tasks and result delivery before changing workspace', 409)
   const workspace = input.workspace !== undefined ? settings.workspace || join(getWebUiHome(), 'person', String(userId), 'workspace') : undefined
-  return effectivePersonSettings(userId, savePersonSettings(userId, settings, personRevision(input.expected_revision), workspace))
+  return effectivePersonSettings(userId, savePersonSettings(userId, settings, personRevision(input.expected_revision), workspace, sessionId))
 }
 // Service facade for the thin HTTP controller.
 export { withPersonTaskReturns } from '../../repositories/person-return-store'
 export { listPersonTasks, taskPersonExecutions, personEvents } from '../../repositories/person-store'
 
 export { requirePersonSession } from '../../repositories/person-session-store'
+
+export { getPersonFlow, listPersonFlows } from '../../repositories/person-stage-store'

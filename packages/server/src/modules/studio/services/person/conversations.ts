@@ -9,6 +9,7 @@ import { effectivePersonSettings, personUser } from './catalog'
 import { ensurePersonSession } from './chat-agent'
 import { personWorkspace } from './workspace'
 import { stopPersonSessionTasks } from './tasks'
+import { stopPersonSessionFlows } from './stage-flows'
 
 export function personConversations(userId: number, query = '', offset = 0) {
   personUser(userId)
@@ -36,6 +37,7 @@ export async function deletePersonConversation(userId: number, sessionId: string
   if (session.history_revision !== revision) throw Object.assign(new Error('Conversation changed; reload and retry'), { status: 409 })
   const release = beginPersonSessionDeletion(userId, sessionId)
   try {
+    await stopPersonSessionFlows(userId,sessionId)
     const server = getChatRunServer()
     await server?.abortSession?.(sessionId, 'Person conversation deleted', { waitForTermination: true })
     await stopPersonSessionTasks(userId, sessionId)

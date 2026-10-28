@@ -8,6 +8,7 @@ import { requirePersonSession } from '../../repositories/person-session-store'
 import type { PersonTool } from './model'
 import { personFlowSummary, personRequirements } from '../../contracts/person-flow'
 import { personDeliveryCurrent } from './delivery'
+import { assertPersonStage, personTaskStage } from '../../repositories/person-stage-store'
 
 type Field = { type: 'string' | 'boolean' | 'integer' | 'array' | ['string', 'null']; maxLength?: number; minLength?: number; minimum?: number; enum?: string[]; description?: string; maxItems?: number; items?: { type: 'object'; properties: Record<string, Field>; required: string[]; additionalProperties: false } }
 type Action = 'adopt' | 'update' | 'start' | 'continue' | 'stop' | 'close' | 'reopen' | 'advance'
@@ -18,11 +19,6 @@ const actionFields: Record<Action, string[]> = {
   adopt: ['goal', 'agent_id', 'start', 'session_id'], update: ['goal'], continue: ['message'], start: [], stop: [], close: [], reopen: [], advance: ['message'],
 }
 const actionRequired: Partial<Record<Action, string[]>> = { adopt: ['goal'], update: ['goal'], continue: ['message'], advance: ['message'] }
-const flowFields: Record<string, Field> = {
-  return_expectation: { ...text(4000), description: 'Saved instructions for the receiving role after execution.' },
-  next_steps: { type: 'array', maxItems: 12, description: 'Remaining stages in order, fixed by the first planner.', items: { type: 'object', additionalProperties: false,
-    properties: { session_id: text(100), goal: text(8000), return_expectation: text(4000) }, required: ['session_id','goal','return_expectation'] } },
-}
 const queryAgain = 'Call bot_tasks_query again and reconsider the action using its current task_ref and allowed_actions.'
 const listAgain = 'List tasks with bot_tasks_query {"search":"","offset":0}, or put keywords in search. Omit task_id; never guess all/recent/0. For details, copy an exact id from the list.'
 
@@ -50,7 +46,7 @@ function validate(input: Record<string, unknown>, fields: Record<string, Field>,
 function failure(code: string, message: string, recovery: string, taskId?: string) {
   return { ok: false as const, error: { code, message, recovery, ...(taskId ? { query: { task_id: taskId } } : {}) } }
 }
-function actions(task: Snapshot, assignable = false, sessionId = ''): Action[] {
+function actions(task: Snapshot, assignable = false, sessionId = '', staged = false): Action[] {
   if (assignable) return ['adopt']
   const requirements = task.requirements_json ? personRequirements({ requirements_json: task.requirements_json }) : undefined
   if (requirements?.flow) {
@@ -63,6 +59,7 @@ function actions(task: Snapshot, assignable = false, sessionId = ''): Action[] {
     if (!requirements.flow.completed && !task.running && task.status === 'open') return ['update', 'start', 'continue', 'stop', 'close']
   }
   if (task.execution_state === 'stopping') return ['stop']
+  if (staged && task.status !== 'closed' && !task.pending_count && ['finished','failed','interrupted'].includes(task.execution_state || '')) return ['continue','close']
   if (task.running) return task.execution_id && ['pending','queued','starting','running','waiting_person','waiting_user','waiting_approval'].includes(task.execution_state || '') ? ['continue', 'stop'] : ['continue']
   return task.status === 'open' ? ['update', 'start', 'continue', 'close'] : task.status === 'closed' ? ['reopen'] : ['continue', 'reopen', 'close']
 }
@@ -85,10 +82,18 @@ export function personTaskTools(userId: number, currentSessionId: string): Perso
     }
     const { revision: _revision, running: _running, requirements_json: _requirements, ...visible } = snapshot
     const context = _requirements ? personFlowSummary({ requirements_json: _requirements }) : undefined
-    return { ...visible, ...context, ...(context ? { return_expectation: context.return_expectation.slice(0,400) } : {}), task_ref: ref, allowed_actions: actions(snapshot, assignable, currentSessionId) }
+    const stage = assignable ? undefined : personTaskStage(userId,task.id)
+    return { ...visible, ...context, ...(stage ? { stage } : {}), ...(context ? { return_expectation: context.return_expectation.slice(0,400) } : {}), task_ref: ref, allowed_actions: actions(snapshot, assignable, currentSessionId,!!stage) }
   }
   const execute = async (input: Record<string, unknown>, origin?: PersonTaskOrigin) => {
     origin ||= { sessionId: currentSessionId, runId: '', messages: [] }
+    if (origin.stage) {
+      assertPersonStage(userId,origin.stage,currentSessionId)
+      if (input.action !== 'create') {
+        const linked = personTaskStage(userId,String(input.task_id))
+        if (linked?.stageId !== origin.stage.stageId) throw personError('This stage may only control its own subtasks',403)
+      }
+    }
     // Stable ordering gives exact retries the same durable idempotency key, even
     // when a model reorders fields or the service committed before a transport error.
     const normalized = Object.fromEntries(Object.entries(input).sort(([a], [b]) => a.localeCompare(b)))
@@ -105,7 +110,8 @@ export function personTaskTools(userId: number, currentSessionId: string): Perso
       const result = normalized.action === 'continue'
         ? await continuePersonTask(userId, String(normalized.task_id), { input: [{ type: 'text', text: normalized.message }], expected_revision: normalized.expected_revision, expected_execution_id: normalized.expected_execution_id, idempotency_key: `${namespace}:${key}` }, origin)
         : await applyPersonTask(userId, { ...normalized, idempotency_key: `${namespace}:${key}` }, undefined, origin)
-      return { ok: true, task: expose(result.task), ...(result.execution ? { execution: { id: result.execution.id, state: result.execution.state } } : {}) }
+      return { ok: true, task: expose(result.task), ...(result.execution ? { execution: { id: result.execution.id, state: result.execution.state },
+        ...(['create','adopt','start','continue'].includes(String(normalized.action)) ? { instruction:'Worker accepted. End this turn and wait for its automatic result callback, which resumes the remaining user-requested handoffs. Queued is normal: do not poll, stop, replace or duplicate this work.' } : {}) } : {}) }
     })()
     requests.set(key, pending)
     try { return await pending } catch (error) { requests.delete(key); throw error }
@@ -118,6 +124,7 @@ export function personTaskTools(userId: number, currentSessionId: string): Perso
         const status = (error as { status?: number }).status
         const message = error instanceof Error ? error.message : 'Task operation failed'
         const taskId = references.get(String(args.task_ref))?.task.id
+        if ((error as { code?: string }).code === 'ROLE_HANDOFF_REQUIRED') return failure('ROLE_HANDOFF_REQUIRED', message, 'Use bot_flow_create with one stage for the target session_id. The recipient replies directly or chooses its own Agent; do not create a worker to relay a message.')
         if (status === 409 || status === 404) return failure(status === 404 ? 'TASK_UNAVAILABLE' : 'STALE_TASK', message, name === 'bot_tasks_query' ? listAgain : queryAgain, taskId)
         if (status === 400) return failure('INVALID_ARGUMENT', message, 'Correct the arguments using this tool schema; do not supply host-managed fields.')
         if (status === 403) return failure('ACCESS_DENIED', message, 'This operation is not authorized; do not retry with another task reference.')
@@ -125,7 +132,7 @@ export function personTaskTools(userId: number, currentSessionId: string): Perso
       }
     },
   })
-  const query = define('bot_tasks_query', 'List/search tasks; omit task_id for lists, use an exact returned ID for details. Use fresh task_ref and allowed_actions. assignable=true lists adoptable goals.', {
+  const query = define('bot_tasks_query', 'List/search tasks; exact task_id for details. Use fresh task_ref/allowed_actions. assignable=true lists adoptable goals.', {
     session_id: { ...text(100), description: 'Conversation filter.' },
     task_id: { ...text(100), type: ['string', 'null'], minLength: 0 }, search: { ...text(200), minLength: 0 }, offset: { type: 'integer', minimum: 0 }, assignable: { type: 'boolean' },
   }, [], async args => {
@@ -140,11 +147,11 @@ export function personTaskTools(userId: number, currentSessionId: string): Perso
     const tasks = listPersonTasks(userId, String(args.search || ''), offset, { limit: 11, sessionId: args.session_id ? requirePersonSession(userId, String(args.session_id)).id : undefined })
     return { tasks: tasks.slice(0, 10).map(task => expose(task)), next_offset: tasks.length > 10 ? offset + 10 : null }
   })
-  const create = define('bot_task_create', 'Create work; choose agent_id from bot_agents_list. Starts unless start=false. Plan all next_steps now; the host fixes creator and route. Retries are deduplicated.', {
-    session_id: text(100), title: text(200), goal: text(8000), agent_id: text(100), start: { type: 'boolean' }, ...flowFields,
+  const create = define('bot_task_create', 'Background execution for THIS role only, never message forwarding. agent_id from bot_agents_list. Starts unless start=false. Other roles: bot_flow_create.', {
+    session_id: { ...text(100), description: 'Omit; only the current conversation is allowed.' }, title: text(200), goal: text(8000), agent_id: text(100), start: { type: 'boolean' },
   }, ['title', 'goal'], (args, origin) => execute({ action: 'create', session_id: currentSessionId, ...args }, origin))
-  const control = define('bot_task_control', 'Use fresh task_ref/allowed_actions. advance follows the saved route or completes; continue keeps task/Agent/owner. Only its creator reopens a stopped flow. Query stale references again.', {
-    task_ref: text(100), action: { ...text(30), enum: Object.keys(actionFields) }, session_id: { ...text(100), description: 'Adopt only; advance cannot choose a destination.' }, goal: { ...text(8000), description: 'Adopt/update only.' }, message: { ...text(32000), description: 'continue: follow-up; advance: outcome and artifacts (max 4000).' }, agent_id: text(100), start: { type: 'boolean' },
+  const control = define('bot_task_control', 'Use fresh task_ref/allowed_actions. advance follows legacy route; continue preserves Agent/owner. Only creator reopens stopped legacy flows.', {
+    task_ref: text(100), action: { ...text(30), enum: Object.keys(actionFields) }, session_id: { ...text(100), description: 'Adopt only, current conversation only.' }, goal: { ...text(8000), description: 'Adopt/update only.' }, message: { ...text(32000), description: 'continue: follow-up; advance: outcome and artifacts (max 4000).' }, agent_id: text(100), start: { type: 'boolean' },
   }, ['task_ref', 'action'], async (args, origin) => {
     const action = args.action as Action
     if (Object.keys(args).some(key => !['task_ref', 'action', ...actionFields[action]].includes(key))) throw personError(`Unsupported fields for ${action}`)
@@ -152,7 +159,7 @@ export function personTaskTools(userId: number, currentSessionId: string): Perso
     const reference = references.get(String(args.task_ref))
     if (!reference || reference.expiresAt <= Date.now()) return failure('INVALID_TASK_REF', 'Task reference is unknown or expired', queryAgain)
     const { task, assignable } = reference
-    if (!actions(task, assignable, currentSessionId).includes(action)) return failure('ACTION_NOT_ALLOWED', 'Action is unavailable for the queried task state', queryAgain, task.id)
+    if (!actions(task, assignable, currentSessionId,!!personTaskStage(userId,task.id)).includes(action)) return failure('ACTION_NOT_ALLOWED', 'Action is unavailable for the queried task state', queryAgain, task.id)
     const { task_ref: _ref, ...intent } = args
     return execute({ ...(action === 'adopt' ? { session_id: currentSessionId } : {}), ...intent, task_id: task.id, expected_revision: task.revision,
       ...(!assignable ? { expected_execution_id: task.execution_id || null } : {}),

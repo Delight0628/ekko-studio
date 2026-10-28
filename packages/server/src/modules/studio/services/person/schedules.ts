@@ -4,6 +4,7 @@ import type { PersonSchedule } from '../../contracts/person'
 import { personDb, personTransaction, getPersonTask, enqueuePersonExecution, listPersonSchedules, personOperation } from '../../repositories/person-store'
 import { requirePersonSession } from '../../repositories/person-session-store'
 import { nextWorkflowScheduleAt } from '../workflow/schedule'
+import { personTaskStage } from '../../repositories/person-stage-store'
 import { personRequirements } from '../../contracts/person-flow'
 
 export function applyPersonSchedule(userId: number, input: Record<string, unknown>) {
@@ -12,7 +13,7 @@ export function applyPersonSchedule(userId: number, input: Record<string, unknow
     const db = personDb(); const now = Date.now()
     if (input.action === 'create') {
       const task = getPersonTask(userId, personText(input.task_id, 'task_id', 100))
-      if (personRequirements(task).flow) throw personError('Flow stages are advanced explicitly; schedules are not supported')
+      if (personRequirements(task).flow || personTaskStage(userId,task.id)) throw personError('Flow stages are advanced explicitly; schedules are not supported')
       requirePersonSession(userId, task.session_id)
       if (task.status !== 'open') throw personError('Task must be open')
       const timezone = personText(input.timezone, 'timezone', 100)

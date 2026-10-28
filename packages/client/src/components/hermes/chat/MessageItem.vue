@@ -49,6 +49,8 @@ const JSON_TRUNCATED_KEY = "__truncated__";
 
 const props = withDefaults(defineProps<{
   message: Message
+  hideRunUsage?: boolean
+  hideReasoning?: boolean
   highlight?: boolean
   headingIdPrefix?: string
   showForkAction?: boolean
@@ -1003,7 +1005,7 @@ onBeforeUnmount(() => {
           class="tool-details-expand"
         >
           <div class="tool-details" @click="handleToolDetailClick">
-            <div v-if="message.reasoning?.trim()" class="tool-detail-section">
+            <div v-if="!hideReasoning && message.reasoning?.trim()" class="tool-detail-section">
               <div class="tool-detail-label">{{ t("chat.thinkingLabel") }}</div>
               <div class="tool-detail-reasoning">
                 <MarkdownRenderer :content="message.reasoning" />
@@ -1116,7 +1118,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div
-              v-if="hasThinking"
+              v-if="!hideReasoning && hasThinking"
               class="thinking-block"
               :class="{ expanded: thinkingExpanded }"
             >
@@ -1223,13 +1225,13 @@ onBeforeUnmount(() => {
 
             <!-- Render assistant message content -->
             <MarkdownRenderer
-              v-if="message.role === 'assistant' && message.content && !parsedThinking.body"
+              v-if="message.role === 'assistant' && message.content && !parsedThinking.body && !(hideReasoning && hasThinking)"
               :content="message.content"
               :heading-id-prefix="effectiveHeadingIdPrefix"
             />
 
             <PersonTaskReturnCard v-if="message.personTaskReturn && !message.isStreaming" :result="message.personTaskReturn" />
-            <RunUsageCard v-if="message.runUsage && !message.isStreaming" :usage="message.runUsage" />
+            <RunUsageCard v-if="!hideRunUsage && message.runUsage && !message.isStreaming" :usage="message.runUsage" />
 
             <ToolChangeCard
               v-for="change in workspaceChanges"

@@ -6,6 +6,8 @@ import { respondToEkkoToolApproval } from '../../packages/server/src/modules/ekk
 import { respondToEkkoClarification } from '../../packages/server/src/modules/ekko/services/clarifications'
 import * as runUsageStore from '../../packages/server/src/modules/studio/repositories/run-usage-store'
 
+const finishPersonStageTurnMock = vi.hoisted(() => vi.fn())
+vi.mock('../../packages/server/src/modules/studio/services/person/stage-flows', () => ({ finishPersonStageTurn:finishPersonStageTurnMock }))
 const createPersonChatAgentMock = vi.hoisted(() => vi.fn())
 vi.mock('../../packages/server/src/modules/studio/services/person/chat-agent', () => ({ createPersonChatAgent: createPersonChatAgentMock }))
 vi.mock('../../packages/server/src/modules/studio/repositories/person-store', () => ({ personBackgroundPendingCount: vi.fn(() => 0) }))
@@ -261,6 +263,25 @@ describe('ekko-agent context usage events', () => {
     expect(createPersonChatAgentMock).toHaveBeenCalledWith(7, 'person-main-7', 'execution-7')
     expect(agentRunMock).toHaveBeenCalledOnce()
     expect(events.map(e => e.event)).not.toContain('run.failed')
+  })
+
+  it('saves only the new stage reply before advancing the flow through a trusted continuation', async () => {
+    const { handleEkkoAgentRun } = await import('../../packages/server/src/modules/studio/services/chat-run/handle-ekko-agent-run')
+    const { nsp, socket, sessionMap, events } = makeHarness()
+    ;(socket as any).data = { user: { id: 7 } }
+    getSessionMock.mockReturnValue({ ...getSessionMock(), id: 'person-main-7', studio_user_id: '7' })
+    const stage = {flowId:'flow-7',stageId:'stage-7',generation:0,deliveryId:'delivery-7'}
+    createPersonChatAgentMock.mockResolvedValue({ personStageContext:stage,run:agentRunMock, estimateContext:agentEstimateContextMock, sessionWorkspaceDirectory:()=>'/tmp/person-workspace' })
+    agentRunMock.mockResolvedValueOnce({runId:'stage-run',output:{role:'assistant',content:'意气风发',finishReason:'stop'},steps:[],messages:[],events:[]})
+    finishPersonStageTurnMock.mockImplementationOnce(() => {
+      expect(addMessageMock).toHaveBeenCalledWith(expect.objectContaining({role:'assistant',content:'意气风发'}))
+    })
+    const callback={...continuationContext('person-stage:delivery-7'),runtime:'ekko' as const}
+    await handleEkkoAgentRun(nsp as any,socket as any,{session_id:'person-main-7',input:'Continue from 一心一意',displayInput:null,coding_agent_id:'ekko-agent',background_delegation_id:callback.subagentId,onEvent:(event,payload)=>events.push({event,payload})},'default',sessionMap,vi.fn(()=>false),true,callback)
+    expect(createPersonChatAgentMock).toHaveBeenCalledWith(7,'person-main-7',undefined,'delivery-7')
+    expect(addMessageMock.mock.calls.some(([m])=>m.role==='user')).toBe(false)
+    expect(finishPersonStageTurnMock).toHaveBeenCalledWith(7,stage,'stage-run','1',true)
+    expect(events.some(e=>e.event==='run.failed')).toBe(false)
   })
 
   it('binds native goal reads/writes to this live turn and rejects changed profile/history or finished runs', async () => {

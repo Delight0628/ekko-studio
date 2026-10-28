@@ -22,6 +22,7 @@ export interface PersonTaskOrigin {
   runId: string
   messages: AgentMessage[]
   returnExecutionId?: string
+  stage?: import('./person-stage').PersonStageContext
 }
 export interface PersonSettings {
   workspace: string

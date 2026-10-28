@@ -1,6 +1,8 @@
 import { studioModelReasoningEffort } from '../../public/model-reasoning-effort'
 import { personBackgroundPendingCount } from '../../repositories/person-store'
 import { isPersonSession, isPrivatePersonSession } from '../../contracts/person-session'
+import { finishPersonStageTurn } from '../person/stage-flows'
+import type { PersonStageContext } from '../../contracts/person-stage'
 import { createPersonChatAgent } from '../person/chat-agent'
 import { studioSessionAccount } from '../../contracts/runs/usage'
 import { completeRunUsage } from '../../repositories/run-usage-store'
@@ -503,7 +505,13 @@ export async function handleEkkoAgentRun(
     && backgroundContinuationContext.subagentId === data.background_delegation_id
     && data.background_delegation_id?.startsWith('person-result:')
     ? data.background_delegation_id.slice('person-result:'.length) : undefined
-  const agent = isPersonSession(sessionId) ? await createPersonChatAgent(Number(authenticatedUserId), sessionId, personReturnId) : getGlobalEkkoAgent(profile)
+  const personStageDeliveryId = isPersonSession(sessionId) && backgroundContinuationContext?.runtime === 'ekko'
+    && backgroundContinuationContext.subagentId === data.background_delegation_id && data.background_delegation_id?.startsWith('person-stage:')
+    ? data.background_delegation_id.slice('person-stage:'.length) : undefined
+  const agent = isPersonSession(sessionId) ? personStageDeliveryId
+    ? await createPersonChatAgent(Number(authenticatedUserId),sessionId,undefined,personStageDeliveryId)
+    : await createPersonChatAgent(Number(authenticatedUserId), sessionId, personReturnId) : getGlobalEkkoAgent(profile)
+  const personStageContext = 'personStageContext' in agent ? agent.personStageContext as PersonStageContext : undefined
   state.ekkoBoundaryInterrupt = agent.requestBoundaryInterrupt
     ? (expectedRunId: string) => agent.requestBoundaryInterrupt({ sessionId, expectedRunId }) : undefined
   const workspace = selectWorkspace(
@@ -536,6 +544,9 @@ export async function handleEkkoAgentRun(
         : 'builtin_agent'
   const emit = (event: string, payload: any) => {
     const tagged = { ...payload, session_id: sessionId }
+    if (personStageContext && (event === 'run.completed' || event === 'run.failed')) {
+      finishPersonStageTurn(Number(authenticatedUserId),personStageContext,String(payload.run_id || ''),payload.message_id || payload.run_usage?.assistantMessageId,event === 'run.completed')
+    }
     if (!isPrivatePersonSession(sessionId)) observeRunChatPetEvent(profile, event, tagged)
     data.onEvent?.(event, tagged)
     appendStateEvent(state, event, tagged)
@@ -1633,7 +1644,7 @@ export async function handleEkkoAgentRun(
           role: 'assistant',
           content: assistantText,
           timestamp: Math.floor(Date.now() / 1000),
-          finish_reason: result.output.finishReason || null,
+          finish_reason: result.output.finishReason || (personStageContext ? 'stop' : null),
           reasoning: assistantReasoning || null,
           reasoning_details: reasoningDetails,
           reasoning_content: assistantReasoning || null,

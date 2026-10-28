@@ -9,6 +9,8 @@ import { PERSON_ANIMATIONS } from '@/utils/chat-agent-avatar'
 const props = withDefaults(defineProps<{
   reasoning?: string | null
   reasoningId?: string | number | null
+  hideReasoning?: boolean
+  activityLabel?: string
   elapsed: string
   agent?: ChatAgentAvatar
   deploymentSessionId?: string
@@ -89,11 +91,12 @@ onBeforeUnmount(() => cancelAnimationFrame(scrollFrame))
         :class="isPerson ? 'thinking-avatar--person' : isEkko ? 'thinking-avatar--animated' : 'thinking-avatar--logo'"
       >
       <div class="thinking-status-copy">
-        <span class="thinking-status-label">{{ t('chat.thinkingInProgress') }}</span>
+        <span class="thinking-status-label">{{ activityLabel || t('chat.thinkingInProgress') }}</span>
         <span class="thinking-status-time">{{ elapsed }}</span>
       </div>
     </div>
     <div
+      v-if="!hideReasoning"
       class="live-reasoning-detail"
       :class="{ 'is-empty': !reasoningLine }"
       :data-reasoning-id="reasoningId"

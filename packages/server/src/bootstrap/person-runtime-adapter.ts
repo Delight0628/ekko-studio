@@ -44,6 +44,11 @@ configurePersonRuntime({
     if (!server) throw new Error('Chat runtime unavailable')
     await server.deliverPersonResult(input)
   },
+  async deliverStage(input) {
+    const server = getChatRunServer()
+    if (!server) throw new Error('Chat runtime unavailable')
+    await server.deliverPersonStage(input)
+  },
   async answer(sessionId, id, response, approval) {
     return await getChatRunServer()?.respondPersonInteraction(sessionId, id, response, approval) || false
   },

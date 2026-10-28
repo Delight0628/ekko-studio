@@ -12,6 +12,8 @@ import { personExecutionModelCatalog } from '../services/person/agents'
 import { clearPerson } from '../services/person/history'
 import { personConversations, createPersonConversation, deletePersonConversation } from '../services/person/conversations'
 import { requirePersonSession } from '../services/person/service'
+import { controlPersonFlow, createPersonFlow } from '../services/person/stage-flows'
+import { getPersonFlow, listPersonFlows } from '../services/person/service'
 
 async function handle(ctx: Context, work: (id: number, body: Record<string, unknown>) => unknown) {
   ctx.set('Cache-Control', 'no-store')
@@ -33,6 +35,8 @@ export const modelCatalog = (ctx: Context) => handle(ctx, id => personModelCatal
 export const executionModelCatalog = (ctx: Context) => handle(ctx, id => personExecutionModelCatalog(id))
 export const tasks = (ctx: Context) => handle(ctx, (id, body) => ({ tasks: listPersonTasks(id, String(body.search || '').slice(0,200), Math.max(0, Number(body.offset) || 0), { sessionId: body.session_id ? requirePersonSession(id, String(body.session_id)).id : undefined, status: ['open','completed','closed'].includes(String(body.status)) ? String(body.status) : '', order: String(body.order || ''), limit: Number(body.limit) }) }))
 export const taskApply = (ctx: Context) => handle(ctx, (id, body) => applyPersonTask(id, body))
+export const flows = (ctx: Context) => handle(ctx,(id,body)=>({ flows:body.flow_id ? [getPersonFlow(id,personText(body.flow_id,'flow_id',100))] : listPersonFlows(id,String(body.session_id || ''),Math.max(0,Number(body.offset)||0)) }))
+export const flowApply = (ctx: Context) => handle(ctx,(id,body)=>body.action === 'create' ? createPersonFlow(id,body) : controlPersonFlow(id,body))
 export const taskChat = (ctx: Context) => handle(ctx, id => personTaskChat(id, ctx.params.id))
 export const taskContinue = (ctx: Context) => handle(ctx, (id, body) => continuePersonTask(id, ctx.params.id, body))
 export const executions = (ctx: Context) => handle(ctx, id => ({ executions: taskPersonExecutions(id, ctx.params.id) }))

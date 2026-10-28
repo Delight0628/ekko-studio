@@ -22,6 +22,7 @@ export function createPersonAgent(options: PersonChatAgentOptions) {
           choices: Array.isArray(args.choices) ? args.choices.map(String).slice(0, 5) : [], timeoutMs: 30 * 60_000 }) || '',
           instruction: 'Only an actual user response supplies a decision. An empty response is not approval.' }
       : await tool.execute(args, context.sessionId ? { sessionId: context.sessionId, runId: context.runId || '', messages: originMessages,
+        ...(options.stage ? { stage:options.stage } : {}),
         ...(options.returnExecutionId ? { returnExecutionId: options.returnExecutionId } : {}) } : undefined)
     const content = JSON.stringify(value)
     if (content.length > 18000) throw new Error('Tool result too large; request a smaller page')

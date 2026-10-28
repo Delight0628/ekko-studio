@@ -6,6 +6,8 @@ import { personDb, personTransaction } from './person-store'
 import { getSession } from './session-store'
 
 export function personHasPendingWork(userId: number, sessionId = ''): boolean {
+  if (personDb().prepare(`SELECT 1 FROM person_flows f JOIN person_stages s ON s.flow_id=f.id
+    WHERE f.owner_user_id=? AND f.state='active' AND (?='' OR s.session_id=? OR f.creator_session_id=?) LIMIT 1`).get(userId,sessionId,sessionId,sessionId)) return true
   return !!personDb().prepare(`SELECT 1 FROM person_executions e JOIN session_tasks t ON t.id=e.task_id WHERE e.owner_user_id=? AND (?='' OR t.session_id=?) AND
     (e.state IN ('pending','queued','starting','running','stopping','waiting_person','waiting_user','waiting_approval')
     OR EXISTS(SELECT 1 FROM person_deliveries d WHERE d.execution_id=e.id AND d.state IN ('pending','queued'))) LIMIT 1`).get(userId, sessionId, sessionId)
@@ -33,7 +35,7 @@ export function clearPersonHistory(userId: number, mainId: string, historyRevisi
       for (const table of ['person_task_returns', 'person_deliveries', 'person_events'])
         db.prepare(`DELETE FROM ${table} WHERE execution_id IN (SELECT id FROM person_executions WHERE task_id=?)`).run(task.id)
       db.prepare("DELETE FROM person_operations WHERE owner_user_id=? AND (json_extract(result_json,'$.task.id')=? OR json_extract(result_json,'$.task_id')=?)").run(userId, task.id, task.id)
-      for (const table of ['person_interactions', 'person_schedules', 'person_task_origins', 'person_executions'])
+      for (const table of ['person_interactions', 'person_schedules', 'person_task_origins', 'person_executions', 'person_stage_tasks'])
         db.prepare(`DELETE FROM ${table} WHERE task_id=?`).run(task.id)
     }
     for (const { id } of rows) {
@@ -42,7 +44,10 @@ export function clearPersonHistory(userId: number, mainId: string, historyRevisi
         'person_context_chunks', 'person_context_summaries', 'person_context_progress']) {
         db.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(id)
       }
-      if (remove || id !== mainId) db.prepare('DELETE FROM sessions WHERE id=?').run(id)
+      if (remove || id !== mainId) {
+        db.prepare('DELETE FROM person_conversation_settings WHERE session_id=?').run(id)
+        db.prepare('DELETE FROM sessions WHERE id=?').run(id)
+      }
     }
     if (!remove) db.prepare(`UPDATE sessions SET history_revision=history_revision+1,history_cleared_at=?,
       task_summary_revision=task_summary_revision+1,task_summary_updated_at=0,

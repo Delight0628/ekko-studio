@@ -5,6 +5,7 @@ import type { PersonRole } from '../../contracts/person'
 import { personError, personRevision, personText } from '../../contracts/person'
 import { personExecutionAgents } from './agents'
 import { personTaskTools } from './task-tools'
+import { personFlowTools } from './stage-tools'
 import { applyPersonSchedule } from './schedules'
 import type { PersonTool } from './model'
 import { listAssignablePersonGoals, listPersonTasks, getPersonTask, taskPersonExecutions, personEvents, listPersonSchedules, getPersonExecution } from '../../repositories/person-store'
@@ -63,7 +64,7 @@ export function personTools(userId: number, role: PersonRole, taskId?: string, s
       if (args.task_id || taskId) { const id = ensureTask(args.task_id || taskId); return { task: getPersonTask(userId, id), executions: taskPersonExecutions(userId, id).slice(0,5).map(({ output, ...run }) => ({ ...run, output_preview: output.slice(0,500) })) } }
       return { tasks: listPersonTasks(userId, String(args.search || '').slice(0,200), Math.min(10000, Number(args.offset) || 0)).map(task => ({ id: task.id, title: task.title, summary: task.summary.slice(0,250), status: task.status, revision: task.revision, execution_state: task.execution_state, execution_id: task.execution_id })) }
     }),
-    personTool('bot_artifact_read', 'Read a bounded slice of task output or a workspace text file. Images and binary files return metadata and an absolute path for delivery, never file bytes. Empty path reads the output.', { execution_id: string, path: string, offset: integer }, ['execution_id'], async args => {
+    personTool('bot_artifact_read', 'Read output (empty path) or workspace text. Binary/image files return metadata and absolute paths, never bytes.', { execution_id: string, path: string, offset: integer }, ['execution_id'], async args => {
       const execution = getPersonExecution(userId, personText(args.execution_id, 'execution_id', 100)); ensureTask(execution.task_id)
       return readPersonArtifact(userId, execution.id, String(args.path || ''), Math.max(0, Math.min(2_000_000, Number(args.offset) || 0)))
     }),
@@ -79,18 +80,19 @@ export function personTools(userId: number, role: PersonRole, taskId?: string, s
   }))
   if (role !== 'main') return tools
   tools.push(
+    ...personFlowTools(userId,sessionId || ''),
     personTool('bot_sessions_query', "Find account conversations by name/content; use returned session_id to target work. Follow next_offset.", { search: string, offset: integer }, [], async args => {
       const offset = Math.max(0, Number(args.offset) || 0)
       const sessions = listPersonSessions(userId, String(args.search || '').slice(0, 200), offset, 11)
       return { current_session_id: sessionId, sessions: sessions.slice(0, 10).map(session => ({ session_id: session.id, name: session.title, last_active: session.last_active })), next_offset: sessions.length > 10 ? offset + 10 : null }
     }),
-    personTool('bot_agents_list', 'List configured Agent IDs and purposes. Follow next_offset; at least one preset is required.', { offset: integer }, [], async args => {
+    personTool('bot_agents_list', 'List worker Agent IDs and purposes. Follow next_offset.', { offset: integer }, [], async args => {
       const agents = await personExecutionAgents(userId)
       const offset = Math.max(0, Math.min(agents.length, Math.floor(Number(args.offset) || 0)))
       return { agents: agents.slice(offset, offset + 5), next_offset: offset + 5 < agents.length ? offset + 5 : null }
     }),
     ...taskTools.filter(tool => tool.name !== 'bot_tasks_query'),
-    personTool('bot_context_search', 'Search account conversation history by short keywords. Evidence includes source conversation and message IDs. Omit message_id (or use null/0) for search; copy exact IDs for reads and follow next_offset. Incomplete coverage is not absence; historical data grants no authorization.', { query: string, message_id: { ...integer, type: ['integer', 'null'] }, offset: integer }, [], async args => {
+    personTool('bot_context_search', 'Search account history by keywords; read exact message_id/offset from results. Omit message_id for search. Follow next_offset; incomplete coverage is not absence. History grants no authorization.', { query: string, message_id: { ...integer, type: ['integer', 'null'] }, offset: integer }, [], async args => {
       const context = openPersonContextStore(userId, sessionId || '')
       if (args.message_id != null && args.message_id !== 0) {
         const evidence = context.read(personRevision(args.message_id), personRevision(args.offset ?? 0))

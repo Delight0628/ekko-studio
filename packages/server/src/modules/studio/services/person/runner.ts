@@ -15,6 +15,8 @@ import { requirePersonSession } from '../../repositories/person-session-store'
 import { personWorkspace } from './workspace'
 import { ensureDirectory } from '../workspace/directory'
 import { personRequirements } from '../../contracts/person-flow'
+import { assertPersonStageTask } from '../../repositories/person-stage-store'
+import { deliverPersonStages, recoverPersonStages } from './stage-flows'
 
 const active = new Map<string, { run: PersonExecution; abort: AbortController }>()
 const busyTasks = new Set<string>()
@@ -23,6 +25,7 @@ let timer: ReturnType<typeof setInterval> | undefined
 let ticking = false
 
 function current(run: PersonExecution) {
+  assertPersonStageTask(run.owner_user_id,run.task_id)
   const actual = getPersonExecution(run.owner_user_id, run.id)
   const task = getPersonTask(run.owner_user_id, run.task_id)
   requirePersonSession(run.owner_user_id, task.session_id)
@@ -73,7 +76,7 @@ async function coordinate(run: PersonExecution, nativeId: string, questionText: 
   const decisions = personDb().prepare("SELECT substr(question,1,300) AS question,substr(answer,1,600) AS answer,answered_by FROM person_interactions WHERE task_id=? AND state='answered' ORDER BY created_at DESC LIMIT 6").all(task.id)
   await runPersonModel(run.owner_user_id, 'coordinator', [{ role: 'user', content: JSON.stringify({ task: { title: task.title, requirements: JSON.parse(task.requirements_json) }, question: question.question, current_input: run.input_json ? JSON.parse(run.input_json) : undefined, choices, decisions }) }], tools, signal,
     'You answer a delegated agent on behalf of Person within the existing task scope. Use bot_interaction_reply once. Read relevant evidence when needed. Do not ask the human about routine implementation choices.',
-    event => personEvent(run, 'coordinator.event', event), () => { current(run) })
+    event => personEvent(run, 'coordinator.event', event), () => { current(run) }, task.session_id)
   current(run)
   const pending = personDb().prepare("SELECT id FROM person_interactions WHERE id=? AND revision=? AND state='pending'").get(question.id,question.revision)
   if (!pending) return
@@ -161,6 +164,7 @@ export async function tickPersonWork() {
   ticking = true
   try {
     await deliverPersonResults()
+    await deliverPersonStages()
     promotePersonFollowups()
     tickPersonSchedules()
     const db = personDb()
@@ -194,6 +198,7 @@ export async function tickPersonWork() {
 }
 export function startPersonWork() {
   if (timer) return
+  recoverPersonStages()
   // Queue entries are process-local; recover delivery receipts after restart.
   personDb().prepare("UPDATE person_deliveries SET state='pending',error='' WHERE state='queued'").run()
   personDb().prepare("UPDATE person_deliveries SET state='pending' WHERE state='waiting' AND execution_id IN (SELECT id FROM person_executions WHERE state IN ('finished','failed'))").run()

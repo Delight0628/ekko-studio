@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { initPersonContextTables } from './person-context-schema'
+import { initPersonStageTables } from './person-stage-schema'
 
 /** Person goals belong to a conversation; memory and configuration belong to the account. */
 export function initPersonTables(db: DatabaseSync): void {
@@ -7,6 +8,9 @@ export function initPersonTables(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_person_goals ON session_tasks(owner_user_id, bot_id, updated_at);
     CREATE TABLE IF NOT EXISTS person_accounts (
       user_id INTEGER PRIMARY KEY, settings_json TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS person_conversation_settings (
+      session_id TEXT PRIMARY KEY, owner_user_id INTEGER NOT NULL, settings_json TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS person_presence (
       user_id INTEGER PRIMARY KEY, last_activity_at INTEGER NOT NULL
@@ -69,6 +73,7 @@ export function initPersonTables(db: DatabaseSync): void {
     );
   `)
   initPersonContextTables(db)
+  initPersonStageTables(db)
   // Discard obsolete account-only tasks. There is no implicit reassignment or migration.
   if (db.prepare('PRAGMA table_info(session_tasks)').all().some(column => column.name === 'session_id')) {
     const obsolete = db.prepare("SELECT id FROM session_tasks WHERE owner_user_id IS NOT NULL AND bot_id LIKE 'person:%' AND session_id IS NULL").all()

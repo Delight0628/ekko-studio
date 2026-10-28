@@ -11,7 +11,7 @@ export function createPersonContext(userId: number, sessionId: string, budget: n
   return {
     assertCurrent: store.assertCurrent,
     summaryCache: store.summaries,
-    loadHistory(query: string): AgentMessage[] {
+    loadHistory(query: string, excludedMessageIds: ReadonlySet<number> = new Set()): AgentMessage[] {
       const found = store.search(query)
       if (!found.coverage.complete) queuePersonContextIndex(userId, sessionId)
       const recent = store.recent().reverse()
@@ -25,7 +25,7 @@ export function createPersonContext(userId: number, sessionId: string, budget: n
       // Interleave recent dialogue and search hits so either source can supply continuity.
       for (let i = 0; i < Math.max(recent.length, found.evidence.length); i++) {
         for (const evidence of [recent[i], found.evidence[i]]) {
-          if (!evidence || seen.has(`${evidence.id}:${evidence.offset}`)) continue
+          if (!evidence || excludedMessageIds.has(evidence.id) || seen.has(`${evidence.id}:${evidence.offset}`)) continue
           selected.push(evidence)
           if (Math.ceil(countTokens(packet()) * 1.15) > historyBudget) {
             selected.pop()

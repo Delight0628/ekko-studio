@@ -20,6 +20,7 @@ import SessionTasksDrawer from '@/components/hermes/tasks/SessionTasksDrawer.vue
 import PersonTaskChat from '@/components/hermes/person/PersonTaskChat.vue'
 import { personTaskNavigation } from '@/components/hermes/person/task-navigation'
 import PersonSchedulesPanel from '@/components/hermes/person/PersonSchedulesPanel.vue'
+import PersonFlowsPanel from '@/components/hermes/person/PersonFlowsPanel.vue'
 import PersonMemoryPanel from '@/components/hermes/person/PersonMemoryPanel.vue'
 import PersonPanelIcon from '@/components/hermes/person/PersonPanelIcon.vue'
 import { useTaskDrawerLayout } from '@/components/hermes/tasks/useTaskDrawerLayout'
@@ -37,7 +38,7 @@ import { useChatStore, mapHermesSession } from '@/stores/hermes/chat'
 import { useSettingsStore } from '@/stores/hermes/settings'
 import { usePersonPresenceStore } from '@/stores/hermes/person-presence'
 import type { AvailableModelGroup } from '@/api/hermes/system'
-import { personRequest, type PersonSnapshot, type PersonModelGroup, type PersonTask, type PersonSchedule, type PersonMemory } from '@/api/person'
+import { personRequest, type PersonSnapshot, type PersonModelGroup, type PersonTask, type PersonSchedule, type PersonMemory, type PersonFlow } from '@/api/person'
 
 const { t } = useI18n()
 const message = useMessage()
@@ -208,7 +209,6 @@ const pending = ref(false)
 const tab = ref('general')
 const showTasks = ref(false)
 const showPanel = ref(false)
-const showAgentSetup = ref(false)
 const showWorkspace = ref(false)
 const showClearConfirm = ref(false)
 const workspaceValue = ref<string | null>('')
@@ -234,7 +234,6 @@ const lifetime = new AbortController()
 const busy = computed(() => chatStore.isRunActive)
 const currentModel = computed(() => data.value?.settings.model)
 const needsAgentSetup = computed(() => !!data.value && !data.value.settings.agents.length)
-watch([needsAgentSetup, showPanel], ([needed, panelOpen]) => { showAgentSetup.value = needed && !panelOpen })
 const modelKey = (profile: string, provider: string) => JSON.stringify([profile, provider])
 const pickerProvider = computed(() => currentModel.value ? modelKey(currentModel.value.profile, currentModel.value.provider) : '')
 const pickerGroups = computed<AvailableModelGroup[]>(() => modelGroups.value.map(group => ({
@@ -263,6 +262,14 @@ async function refresh() {
     else if (!next.session && chatStore.activeSessionId?.startsWith('person-main-')) chatStore.clearActiveSession()
   } catch (e) { if (!disposed) { error.value = String(e); if ((e as { status?: number }).status === 404) { chatStore.forgetSession(selectedSessionId.value); await router.replace({ name: 'hermes.person' }) } } } finally { refreshing = false; if (refreshAgain && !disposed) { refreshAgain = false; void refresh() } }
 }
+function flowAction(flow: PersonFlow, action: 'stop' | 'resume') {
+  return act(() => personRequest('/flows/apply', { action, flow_id: flow.id, expected_revision: flow.revision, idempotency_key: crypto.randomUUID() }))
+}
+function openFlowResult(sessionId: string, messageId: number) {
+  showPanel.value = false
+  return router.push({ name: 'hermes.person', query: { session: sessionId, message: String(messageId) } })
+}
+function openFlowTask(taskId: string) { showPanel.value = false; chatTaskId.value = taskId }
 async function act(work: () => Promise<unknown>) {
   if (pending.value) return false
   pending.value = true; error.value = ''
@@ -311,21 +318,25 @@ async function openModels(event: MouseEvent) {
   finally { modelsLoading.value = false }
 }
 function saveSettings(patch: Record<string, unknown>) {
+  const sessionId = data.value?.session?.id
+  if (!sessionId) return Promise.resolve(false)
+  let revision = data.value!.revision
   let saved = false
   settingsWrites.value++
   error.value = ''
   settingsChain = settingsChain.then(async () => {
-    if (disposed || !data.value) return
-    const result = await personRequest<Pick<PersonSnapshot, 'settings' | 'revision' | 'inherits_global_model' | 'reasoning_efforts' | 'compression' | 'contextTokens'>>('/settings', { ...patch, expected_revision: data.value.revision }, 'PUT', lifetime.signal)
-    snapshotSequence++
-    if (!disposed && data.value) {
+    if (disposed) return
+    revision = data.value?.revision ?? revision
+    const result = await personRequest<Pick<PersonSnapshot, 'settings' | 'revision' | 'inherits_global_model' | 'reasoning_efforts' | 'compression' | 'contextTokens'>>('/settings', { ...patch, session_id: sessionId, expected_revision: revision }, 'PUT', lifetime.signal)
+    saved = true
+    if (!disposed && data.value?.session?.id === sessionId && selectedSessionId.value === sessionId) {
+      snapshotSequence++
       const model = result.settings.model
       data.value = { ...data.value, ...result, session: data.value.session ? { ...data.value.session,
         model: model?.model || '', provider: model?.provider || '', profile: model?.profile || data.value.session.profile,
         reasoning_effort: result.settings.reasoningEffort } : null }
       syncSession(data.value)
-      saved = true
-    }
+    } else if (!disposed) await refresh()
   }).catch(async e => { if (!disposed) { error.value = String(e); await refresh() } })
     .finally(() => { settingsWrites.value--; if (!settingsWrites.value) optimisticEffort.value = null })
   return settingsChain.then(() => saved)
@@ -433,12 +444,12 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
           <NButton v-for="entry in recentWorkspaces" :key="entry.path" size="tiny" :title="entry.path" @click="workspaceValue = entry.path">{{ folderName(entry.path) }}</NButton>
         </div>
       </NModal>
-      <MessageList v-if="data.session" :user-label="t('person.you')" hide-tool-calls />
+      <MessageList v-if="data.session" :user-label="t('person.you')" hide-tool-calls hide-run-usage hide-reasoning :activity-label="t('person.executing')" />
       <NEmpty v-if="!data.session" class="person-empty" :description="t('person.noConversations')"><template #extra><NButton type="primary" @click="openCreateConversation">{{ t('person.newConversation') }}</NButton></template></NEmpty>
       <div v-if="data.session" class="person-compose">
-        <button v-if="needsAgentSetup" type="button" class="person-model-hint" @click="openPanel('agents')">{{ t('person.agentSetupTitle') }} · {{ t('person.configureAgents') }}</button>
+        <button v-if="needsAgentSetup" type="button" class="person-model-hint" @click="openPanel('agents')">{{ t('person.configureAgents') }}</button>
         <button v-if="!currentModel" type="button" class="person-model-hint" @click="openModels">{{ t('person.defaultUnavailable') }}</button>
-        <ChatInput hide-settings managed-reasoning-effort :send-disabled="needsAgentSetup || !currentModel || pending || settingsWrites > 0"
+        <ChatInput hide-settings managed-reasoning-effort :send-disabled="!currentModel || pending || settingsWrites > 0"
           :model-label="modelLabel" :model-disabled="busy || settingsWrites > 0" :model-expanded="showModelPicker"
           :reasoning-effort="reasoningEffort" :reasoning-effort-disabled="busy || !currentModel"
           :default-effort-label="t('person.defaultEffort')"
@@ -465,6 +476,10 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
                 <template #tab><span class="workspace-tab"><PersonPanelIcon name="agents" :size="17" />{{ t('person.agentsTab') }}<span class="workspace-tab-count">{{ data.settings.agents.length }}</span></span></template>
                 <PersonAgentSettings :agents="data.settings.agents" :save-error="error" :saving="settingsWrites > 0" @save="saveSettings({ agents: JSON.parse(JSON.stringify($event)) })" />
               </NTabPane>
+              <NTabPane name="flows" :tab-props="{ role: 'tab', 'aria-selected': tab === 'flows' }">
+                <template #tab><span class="workspace-tab"><SessionTaskIcon :size="17" />{{ t('person.flows') }}</span></template>
+                <PersonFlowsPanel :flows="data.flows || []" :saving="pending" @action="flowAction" @open-result="openFlowResult" @open-task="openFlowTask" />
+              </NTabPane>
               <NTabPane name="schedules" :tab-props="{ role: 'tab', 'aria-selected': tab === 'schedules' }">
                 <template #tab><span class="workspace-tab"><PersonPanelIcon name="schedule" :size="17" />{{ t('person.schedules') }}<span class="workspace-tab-count">{{ data.schedules.length }}</span></span></template>
                 <PersonSchedulesPanel :schedules="data.schedules" :tasks="data.tasks" :timezone="data.settings.timezone" :saving="pending" :save="saveSchedule" @action="scheduleAction" />
@@ -477,12 +492,6 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
           </div>
         </NDrawerContent>
       </NDrawer>
-      <NModal v-model:show="showAgentSetup" preset="card" class="person-setup-dialog" :bordered="false" :closable="false" :content-style="{ padding: '0' }" :mask-closable="false" :close-on-esc="false" role="dialog" aria-modal="true" aria-labelledby="person-setup-title" aria-describedby="person-setup-hint">
-          <div class="person-setup-icon"><PersonPanelIcon name="agents" :size="28" /></div>
-          <h2 id="person-setup-title">{{ t('person.agentSetupTitle') }}</h2>
-          <p id="person-setup-hint">{{ t('person.agentSetupHint') }}</p>
-          <NButton type="primary" size="large" block @click="openPanel('agents')">{{ t('person.configureAgents') }}<template #icon><PersonPanelIcon name="settings" :size="18" /></template></NButton>
-      </NModal>
       <SessionTasksDrawer v-if="data.session" v-model:show="showTasks" person :person-session-id="data.session.id" @open-person-task="openTask" />
       <PersonTaskChat v-if="chatTaskId && data.session" :task-id="chatTaskId" :main-session-id="data.session.id" @close="chatTaskId = null; refresh()" />
     </template>
@@ -516,10 +525,6 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
 .person-compose { flex-shrink: 0; min-width: 0; }
 .person-model-hint { display: block; margin: 0 auto; border: 0; background: transparent; color: $accent-primary; cursor: pointer; font: inherit; font-size: 12px; padding: 8px; }
 .person-workspace { padding: 0 24px 28px; min-width: 0; }
-:global(.person-setup-dialog) { width: min(420px, calc(100vw - 32px)); box-sizing: border-box; padding: 32px; border: 1px solid $border-color; border-radius: var(--radius-container, 16px); color: $text-primary; }
-.person-setup-icon { display: grid; place-items: center; width: 56px; height: 56px; margin-bottom: 24px; border: 1px solid $border-color; border-radius: var(--radius-component, 12px); color: $accent-primary; }
-.person-setup-dialog h2 { margin: 0 0 12px; font-size: 23px; font-weight: 600; letter-spacing: -.4px; line-height: 1.4; }
-.person-setup-dialog p { margin: 0 0 28px; font-size: 14px; line-height: 1.8; color: $text-secondary; }
 .workspace-heading { display: flex; align-items: center; gap: 12px; font-size: 13px; font-weight: 400; color: $text-secondary; }
 .workspace-brand { font-size: 17px; font-weight: 600; letter-spacing: -.4px; color: $text-primary; }
 .workspace-divider { color: $text-muted; }

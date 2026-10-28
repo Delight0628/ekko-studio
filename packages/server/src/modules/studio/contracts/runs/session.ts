@@ -60,6 +60,7 @@ export interface SessionMessage {
 }
 
 export interface QueuedRun {
+  personStageDelivery?: { userId: number; deliveryId: string }
   /** Internal account-bound Person result delivery. */
   personDelivery?: { userId: number; executionId: string }
   /** Internal admission check, never serialized or supplied by the client. */

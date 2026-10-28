@@ -10,6 +10,7 @@ import { savePersonTaskOrigin } from './delivery'
 import { requirePersonSession } from '../../repositories/person-session-store'
 import { personRequirements } from '../../contracts/person-flow'
 import { assertPersonTaskActor } from './task-flow'
+import { assertPersonStage, assertPersonStageTask } from '../../repositories/person-stage-store'
 
 /** Hidden task conversations are account-owned, never shared by Profile. */
 export function ownedPersonTaskSession(userId: number | undefined, sessionId: string) {
@@ -59,6 +60,11 @@ export async function continuePersonTask(userId: number, taskId: string, body: R
   if (replay !== undefined) return replay
   const input = chatInput(body.input)
   const result = personOperation(userId, key, request, () => {
+    const stage = assertPersonStageTask(userId,taskId)
+    if (origin?.stage) {
+      assertPersonStage(userId,origin.stage,origin.sessionId)
+      if (stage?.stageId !== origin.stage.stageId) throw personError('This stage may only continue its own subtasks',403)
+    }
     const current = getPersonTask(userId, taskId)
     const requirements = personRequirements(current)
     if (requirements.flow) {

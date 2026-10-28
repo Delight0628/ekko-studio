@@ -13,6 +13,7 @@ import { savePersonTaskOrigin } from './delivery'
 import { requirePersonSession } from '../../repositories/person-session-store'
 import { personRequirements } from '../../contracts/person-flow'
 import { advancePersonFlow, assertPersonTaskActor, plannedPersonFlow, stopPersonFlow } from './task-flow'
+import { assertPersonStage, assertPersonStageTask, linkPersonStageTask, personTaskStage } from '../../repositories/person-stage-store'
 
 const running = new Map<string, AbortController>()
 const stopping = new Map<string, Promise<void>>()
@@ -70,6 +71,9 @@ export async function applyPersonTask(userId: number, input: Record<string, unkn
   if (boundTask && (input.task_id !== boundTask || action === 'create' || action === 'adopt')) throw personError('Task is outside this coordinator scope', 403)
   const targetSession = ['create', 'adopt'].includes(action) ? String(input.session_id || origin?.sessionId || '') : getPersonTask(userId, String(input.task_id)).session_id
   if (action !== 'stop') requirePersonSession(userId, targetSession)
+  if (origin && ['create','adopt'].includes(action) && targetSession !== origin.sessionId) {
+    throw Object.assign(personError('Background work must belong to the current role. Use bot_flow_create to hand off to another conversation.',403), { code:'ROLE_HANDOFF_REQUIRED' })
+  }
   const operationInput = ['create', 'adopt'].includes(action) ? { ...input, session_id: targetSession } : input
   const replay = replayPersonOperation<PersonTaskResult>(userId, `task:${key}`, operationInput)
   if (replay !== undefined) return replay
@@ -84,6 +88,12 @@ export async function applyPersonTask(userId: number, input: Record<string, unkn
   if (input.workspace && input.workspace !== taskWorkspace) throw personError('Task workspace is managed by Person settings')
   if (['create','adopt'].includes(action)) await ensureDirectory(taskWorkspace)
   const result = personOperation(userId, `task:${key}`, operationInput, () => {
+    if (origin?.stage) {
+      const { stage } = assertPersonStage(userId,origin.stage,origin.sessionId)
+      if (targetSession !== stage.session_id || ['adopt','advance'].includes(action)) throw personError('Stage workers must belong to the receiving role',403)
+      if (stage.completion_run_id) throw personError('Finish the prepared stage reply first',409)
+    }
+    if (!['create','adopt','stop'].includes(action)) assertPersonStageTask(userId,String(input.task_id))
     if (action !== 'stop') requirePersonSession(userId, targetSession)
     const plan = ['create','adopt'].includes(action) ? plannedPersonFlow(userId, input) : undefined
     if (action === 'adopt') {
@@ -96,6 +106,10 @@ export async function applyPersonTask(userId: number, input: Record<string, unkn
     }
     if (action === 'create') {
       const task = createPersonTask(userId, personText(input.title, 'title', 200), personText(input.goal, 'goal', 8000), selection!, taskWorkspace, targetSession)
+      if (origin?.stage) {
+        if (input.next_steps !== undefined || input.return_expectation !== undefined) throw personError('Use the current stage; nested worker flows are unavailable')
+        linkPersonStageTask(userId,task.id,origin.stage,targetSession)
+      }
       personDb().prepare('UPDATE session_tasks SET requirements_json=? WHERE id=?').run(JSON.stringify({ ...personRequirements(task), ...plan,
         creator_session_id: requirePersonSession(userId, origin?.sessionId || targetSession).id }), task.id)
       savePersonTaskOrigin(userId, task.id, origin)
@@ -119,7 +133,10 @@ export async function applyPersonTask(userId: number, input: Record<string, unkn
     }
     if (action === 'advance') return advancePersonFlow(task, input.message, origin)
     if (action === 'stop') return requestStop(userId, task.id, personText(input.execution_id, 'execution_id', 100))
-    if (personTaskRunning(task.id)) throw personError('Task is running; wait for it to finish', 409)
+    const closingReturnedStageChild = action === 'close' && personTaskStage(userId,task.id)
+      && ['finished','failed','interrupted'].includes(task.execution_state || '') && !task.pending_count
+      && !personDb().prepare("SELECT 1 FROM person_executions WHERE task_id=? AND state IN ('pending','queued','starting','running','stopping','waiting_person','waiting_user','waiting_approval')").get(task.id)
+    if (personTaskRunning(task.id) && !closingReturnedStageChild) throw personError('Task is running; wait for it to finish', 409)
     const db = personDb()
     if (action === 'reopen') {
       if (requirements.flow?.stopped) {

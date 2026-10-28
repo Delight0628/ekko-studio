@@ -253,7 +253,7 @@ describe('Person account-owned tasks and runtime', () => {
     expect(db.prepare("SELECT COUNT(*) AS n FROM messages WHERE session_id='person-main-1'").get()).toMatchObject({ n: 0 })
   })
 
-  it('requires a saved preset before chat or task creation and relocks after the last preset is removed', async () => {
+  it('allows direct chat without presets while background work still requires one', async () => {
     const { configurePerson, personSnapshot } = await import('../../packages/server/src/modules/studio/services/person/service')
     const { createPersonChatAgent } = await import('../../packages/server/src/modules/studio/services/person/chat-agent')
     const { personExecutionAgents } = await import('../../packages/server/src/modules/studio/services/person/agents')
@@ -262,17 +262,17 @@ describe('Person account-owned tasks and runtime', () => {
     runtime.chatAgent = vi.fn(async () => ({} as any))
     expect(await personSnapshot(1, 'person-main-1')).toMatchObject({ session: { id: 'person-main-1' }, settings: { agents: [], model: selection } })
     expect(await personExecutionAgents(1)).toEqual([])
-    await expect(createPersonChatAgent(1, 'person-main-1')).rejects.toMatchObject({ status: 409 })
+    await expect(createPersonChatAgent(1, 'person-main-1')).resolves.toEqual({})
     await expect(create()).rejects.toThrow('Configure at least one Agent preset')
-    expect(runtime.chatAgent).not.toHaveBeenCalled()
+    expect(runtime.chatAgent).toHaveBeenCalledTimes(1)
     expect(store.listPersonTasks(1)).toEqual([])
     await configurePerson(1, { agents, expected_revision: 0 })
     await expect(createPersonChatAgent(1, 'person-main-1')).resolves.toEqual({})
-    expect(runtime.chatAgent).toHaveBeenCalledTimes(1)
+    expect(runtime.chatAgent).toHaveBeenCalledTimes(2)
     await configurePerson(1, { agents: [], expected_revision: 1 })
-    await expect(createPersonChatAgent(1, 'person-main-1')).rejects.toThrow('Configure at least one Agent preset')
+    await expect(createPersonChatAgent(1, 'person-main-1')).resolves.toEqual({})
     expect(await personExecutionAgents(1)).toEqual([])
-    expect(runtime.chatAgent).toHaveBeenCalledTimes(1)
+    expect(runtime.chatAgent).toHaveBeenCalledTimes(3)
   })
 
   it('reuses a hidden owned session and preserves ordinary history', async () => {
@@ -1375,6 +1375,7 @@ describe('Person multi-conversation ownership', () => {
     const line = prompt.split('\n').find(value => value.startsWith('Account conversations: '))!
     const entries = JSON.parse(line.slice('Account conversations: '.length)) as Array<{ id: string; title: string | null; current?: boolean }>
     expect(entries.filter(entry => entry.current)).toHaveLength(1)
+    expect(prompt).toContain('The current:true role is YOU: requests naming it are your work.')
     return { prompt, currentId: entries.find(entry => entry.current)!.id, directory: entries.map(({ id, title }) => ({ id, title })) }
   }
 
@@ -1470,7 +1471,7 @@ describe('Person multi-conversation ownership', () => {
     await expect(createPersonConversation(1, '  ')).rejects.toThrow('conversation name')
   })
 
-  it('routes work requested from A into B and returns initial, continued and scheduled results only to B', async () => {
+  it('keeps existing B workers and scheduled results in B when followed up from A', async () => {
     const { createPersonConversation } = await import('../../packages/server/src/modules/studio/services/person/conversations')
     const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
     const { continuePersonTask } = await import('../../packages/server/src/modules/studio/services/person/task-chat')
@@ -1481,7 +1482,8 @@ describe('Person multi-conversation ownership', () => {
     const toolset = personTools(1, 'main', undefined, a.id)
     const sessions: any = await toolset.find(tool => tool.name === 'bot_sessions_query')!.execute({ search: 'B' })
     expect(sessions.sessions).toContainEqual(expect.objectContaining({ session_id: b.id, name: 'B' }))
-    const created: any = await toolset.find(tool => tool.name === 'bot_task_create')!.execute({ title: 'B report', goal: 'Create report', session_id: b.id }, origin)
+    const bTools = personTools(1, 'main', undefined, b.id)
+    const created: any = await bTools.find(tool => tool.name === 'bot_task_create')!.execute({ title: 'B report', goal: 'Create report' }, {sessionId:b.id,runId:'from-B',messages:[]})
     const task = store.getPersonTask(1, created.task.id)
     expect(task.session_id).toBe(b.id)
     await runner.tickPersonWork(); await wait(created.execution.id, 'finished')
@@ -1578,7 +1580,7 @@ it('discards obsolete account-only tasks without migrating their executions into
   expect(store.personSettings(1).settings.agents).toHaveLength(1)
 })
 
-describe('Person planned role flow', () => {
+describe('legacy Person planned role flow', () => {
   async function fixture() {
     const { createPersonConversation } = await import('../../packages/server/src/modules/studio/services/person/conversations')
     const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
@@ -1589,10 +1591,13 @@ describe('Person planned role flow', () => {
       return (name: string, args: Record<string, unknown>) => tools.find(tool => tool.name === name)!.execute(args, origin) as Promise<any>
     }
     const boss = role('person-main-1')
-    const created = await boss('bot_task_create', { session_id: b.id, title: '多角色页面任务', goal: '生成页面文案', return_expectation: '检查措辞，通过后推进。',
+    const legacy = await tasks.applyPersonTask(1, { action:'create',idempotency_key:crypto.randomUUID(), session_id: b.id, title: '多角色页面任务', goal: '生成页面文案', return_expectation: '检查措辞，通过后推进。',
       next_steps: [{ session_id: c.id, goal: '将已审核文案实现为页面', return_expectation: '检查实现并移交汇总。' },
         { session_id: 'person-main-1', goal: '整理最终成果', return_expectation: '向用户汇总完成结果。' }] })
-    expect(created.ok).toBe(true)
+    // Seed the original creator of an already persisted legacy flow.
+    db.prepare('UPDATE session_tasks SET requirements_json=? WHERE id=?').run(JSON.stringify({...JSON.parse(legacy.task.requirements_json),creator_session_id:'person-main-1'}),legacy.task.id)
+    legacy.task=store.getPersonTask(1,legacy.task.id)
+    const created = {ok:true,...legacy,task:{...legacy.task,task_ref:`${legacy.task.id}:${legacy.task.revision}`}}
     return { b, c, boss, role, created }
   }
 
