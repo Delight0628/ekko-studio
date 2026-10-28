@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { expectNewChatEffectsMoving } from './new-chat-helpers'
-import { authenticate, mockChatSocket, mockHermesApi, TEST_ACCESS_KEY } from './fixtures'
+import { authenticate, mockChatSocket, mockExistingHermesChat, mockHermesApi, TEST_ACCESS_KEY } from './fixtures'
 
 type DesktopPlatform = 'darwin' | 'linux' | 'win32'
 type DesktopWindowKind = 'main' | 'chat'
@@ -521,7 +521,7 @@ test('keeps the chat tool drawer unchanged in LTR and mirrors its resize seam in
   await installDesktopBridge(page, 'darwin', true)
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   await mockChatSocket(page)
-  await mockHermesApi(page)
+  await mockExistingHermesChat(page)
   await page.goto('/#/hermes/chat')
 
   await page.locator('.header-tool-toggle').click()
@@ -579,7 +579,7 @@ test('shows the mobile file tree from the inline start edge in LTR and RTL', asy
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   await page.addInitScript(() => window.localStorage.setItem('hermes_locale', 'en'))
   await mockChatSocket(page)
-  await mockHermesApi(page)
+  await mockExistingHermesChat(page)
   await page.goto('/#/hermes/chat')
 
   await expect(page.locator('html')).toHaveAttribute('dir', 'ltr')
@@ -605,7 +605,7 @@ test('allows creating a tab at capacity and displays the replacement state', asy
   await installDesktopBridge(page, 'darwin', true, 'main', 12)
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   await mockChatSocket(page)
-  await mockHermesApi(page)
+  await mockExistingHermesChat(page)
   await page.goto('/#/hermes/chat')
   await page.locator('.header-tool-toggle').click()
   const panel = page.locator('.chat-tool-panel')
@@ -627,7 +627,7 @@ test('embeds the desktop browser beside workspace and terminal', async ({ page }
   await installDesktopBridge(page, 'darwin', true)
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   await mockChatSocket(page)
-  await mockHermesApi(page)
+  await mockExistingHermesChat(page)
   await page.goto('/#/hermes/chat')
 
   await page.locator('.header-tool-toggle').click()
@@ -775,7 +775,7 @@ async function openAnnotationPanel(page: Page) {
   await installDesktopBridge(page, 'darwin', true)
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   await mockChatSocket(page)
-  await mockHermesApi(page)
+  await mockExistingHermesChat(page)
   await page.goto('/#/hermes/chat')
   await page.locator('.header-tool-toggle').click()
   const panel = page.locator('.chat-tool-panel')
@@ -903,7 +903,7 @@ test('remote device browser keeps sharing off if the Desktop grant is unavailabl
   await installDesktopBridge(page, 'win32', true)
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   await mockChatSocket(page)
-  await mockHermesApi(page)
+  await mockExistingHermesChat(page)
   await page.addInitScript(() => {
     const desktop = (window as any).hermesDesktop
     desktop.remoteMode = true
@@ -928,7 +928,7 @@ test('remote device browser is shared automatically without a consent control', 
   await installDesktopBridge(page, 'win32', true)
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   await mockChatSocket(page)
-  await mockHermesApi(page)
+  await mockExistingHermesChat(page)
   await page.addInitScript(() => {
     const desktop = (window as any).hermesDesktop
     desktop.remoteMode = true
@@ -957,7 +957,7 @@ for (const brightness of ['light', 'dark'] as const) {
     await authenticate(page, TEST_ACCESS_KEY, 'research')
     await page.addInitScript(() => localStorage.setItem('hermes_locale', 'en'))
     await mockChatSocket(page)
-    await mockHermesApi(page, { theme: { brightness } })
+    await mockExistingHermesChat(page, { theme: { brightness } })
     await page.goto('/#/hermes/chat')
     await page.locator('.header-tool-toggle').click()
     const panel = page.locator('.chat-tool-panel')
@@ -1086,7 +1086,7 @@ test('recent downloads show five records, retain total active count and close wi
   await authenticate(page, TEST_ACCESS_KEY, 'research')
   await page.addInitScript(() => localStorage.setItem('hermes_locale', 'en'))
   await mockChatSocket(page)
-  await mockHermesApi(page, { theme: { background: { name: 'theme-background.png', mime: 'image/png', updatedAt: 101 } } })
+  await mockExistingHermesChat(page, { theme: { background: { name: 'theme-background.png', mime: 'image/png', updatedAt: 101 } } })
   await page.goto('/#/hermes/chat')
   await page.locator('.header-tool-toggle').click()
   const panel = page.locator('.chat-tool-panel')

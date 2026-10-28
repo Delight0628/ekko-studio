@@ -46,7 +46,13 @@ export function createPersonAgent(options: PersonChatAgentOptions) {
       definition.parameters = {
         type: 'object', properties: { operations }, required: ['operations'], additionalProperties: false,
       }
-      definition.description += ' In Person, use only the operations array. Evidence is bound automatically to the current user message; omit sourceMessageIds and never copy historical transcript IDs into memory writes.'
+      // Keep the native field constraints below; avoid repeating their itemized
+      // kind list and advertising the unsupported legacy shape in a small model.
+      definition.description = 'Apply authorized durable memory changes in one atomic operations batch; invalid items roll back the whole batch. A done=true result is final: do not repeat it. '
+        + 'Create requires a controlled kind and writable scope; itemized kinds require a stable itemKey. The server generates keys and noops or replaces existing slots; never submit keys. '
+        + 'For update/supersede/expire/delete, search/get current targetId and expectedRevision first. Use valuePatch/unsetValueFields for object edits. '
+        + 'Save only durable user evidence, not transient requests or retraction history. Forget exact invalidated memory when no replacement remains. '
+        + 'Evidence binds automatically to the current user input; omit sourceMessageIds and never use historical transcript IDs.'
     }
     registry.register({ definition, concurrency: tool.concurrency, async execute(args, context) {
       options.beforeRequest?.()

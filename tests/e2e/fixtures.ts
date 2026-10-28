@@ -166,6 +166,24 @@ function recordRequest(request: Request): MockedRequest {
   }
 }
 
+// Tests for an active Hermes conversation must not depend on the empty-page
+// composer or its remembered Agent/profile settings.
+export async function mockExistingHermesChat(page: Page, options: Omit<MockHermesApiOptions, 'sessions'> = {}) {
+  const session = {
+    id: 'existing-hermes-chat', title: 'Existing Hermes conversation', source: 'cli', agent: 'hermes',
+    profile: options.initialProfileName ?? 'research',
+    model: 'test-model', provider: 'test-provider', started_at: 1_800_000_000, message_count: 0,
+  }
+  await page.addInitScript(id => {
+    const target = window as any
+    target.__PW_CHAT_SOCKET_RESUMES__ = {
+      ...target.__PW_CHAT_SOCKET_RESUMES__,
+      [id]: { session_id: id, messages: [], isWorking: false, events: [] },
+    }
+  }, session.id)
+  return mockHermesApi(page, { ...options, sessions: [session] })
+}
+
 export async function mockHermesApi(page: Page, options: MockHermesApiOptions = {}) {
   const requests: MockedRequest[] = []
   const unexpectedRequests: MockedRequest[] = []

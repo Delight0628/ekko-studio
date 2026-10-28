@@ -1116,7 +1116,9 @@ it('uses the complete native memory toolset within the minimum Person budget', a
   expect(requests).toHaveLength(1)
   expect(requests[0].tools.map((t:any)=>t.name)).toContain('memory_write')
   expect(JSON.stringify(requests[0].messages)).toContain('用户的名字是 ekko')
-  expect(Math.ceil(countTextTokens(JSON.stringify({ messages: requests[0].messages, tools: requests[0].tools })) * 1.15) + 2048 + 1024).toBeLessThanOrEqual(8000)
+  // Leave room for variable IDs, timestamps and host paths, rather than passing
+  // only when their tokenization happens to fit within a few tokens of the cap.
+  expect(Math.ceil(countTextTokens(JSON.stringify({ messages: requests[0].messages, tools: requests[0].tools })) * 1.15) + 2048 + 1024).toBeLessThanOrEqual(8000 - 128)
 })
 
 it('resumes a saved task through Responses list, history search and control without exhausting steps', async () => {
