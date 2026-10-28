@@ -2472,18 +2472,9 @@ function createChatState(scopedSessionId?: string) {
     const target = sessions.value.find(s => s.id === sessionId)
     const ok = await deleteSessionApi(sessionId, target?.profile)
     if (!ok) return false
-    setBackgroundPending(sessionId, 0)
-    sessions.value = sessions.value.filter(s => s.id !== sessionId)
-    clearMessageReference(sessionId)
-    setAbortState(sessionId, null)
-    if (activeSessionId.value === sessionId) {
-      if (sessions.value.length > 0) {
-        await switchSession(sessions.value[0].id)
-      } else {
-        const session = createSession()
-        switchSession(session.id)
-      }
-    }
+    const wasActive = activeSessionId.value === sessionId
+    forgetSession(sessionId)
+    if (wasActive && sessions.value.length > 0) await switchSession(sessions.value[0].id)
     return true
   }
 

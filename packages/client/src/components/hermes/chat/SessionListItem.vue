@@ -70,7 +70,8 @@ function onTouchStart(e: TouchEvent) {
   }, 500)
 }
 
-function onTouchEnd() {
+function onTouchEnd(event?: TouchEvent) {
+  if (longPressTriggered.value) event?.preventDefault()
   if (longPressTimer) {
     clearTimeout(longPressTimer)
     longPressTimer = null
@@ -118,6 +119,7 @@ onUnmounted(() => {
     @contextmenu="emit('contextmenu', $event)"
     @touchstart="onTouchStart"
     @touchend="onTouchEnd"
+    @touchcancel="onTouchEnd"
     @touchmove="onTouchMove"
   >
     <div v-if="selectable" class="session-item-checkbox">
@@ -223,7 +225,8 @@ onUnmounted(() => {
   pointer-events: auto;
 }
 
-.session-item:focus-within .session-item-delete {
+.session-item:focus-visible .session-item-delete,
+.session-item:has(:focus-visible) .session-item-delete {
   opacity: 1;
   pointer-events: auto;
 }
@@ -335,7 +338,7 @@ onUnmounted(() => {
   background: rgba(var(--error-rgb), 0.1);
 }
 
-@media (hover: none) {
+@media (max-width: 768px) and (hover: none) {
   .session-item-delete {
     opacity: 0.5;
     pointer-events: auto;

@@ -1065,6 +1065,21 @@ describe('chat store reasoning/tool boundaries', () => {
     expect(store.abortState).toEqual(expect.objectContaining({ aborting: true }))
   })
 
+  it('deletes the last active session without creating a replacement', async () => {
+    const store = useChatStore()
+    const session = makeSession()
+    store.sessions = [session]
+    store.activeSessionId = session.id
+    store.activeSession = session
+
+    await expect(store.deleteSession(session.id)).resolves.toBe(true)
+
+    expect(store.sessions).toEqual([])
+    expect(store.activeSessionId).toBeNull()
+    expect(store.activeSession).toBeNull()
+    expect(sessionsApi.deleteSession).toHaveBeenCalledWith(session.id, undefined)
+  })
+
   it('keeps a session in the local list when server deletion fails', async () => {
     const store = useChatStore()
     const session = makeSession()
