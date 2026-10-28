@@ -389,6 +389,27 @@ describe('user auth tables and middleware', () => {
     }
   })
 
+  it.each(['single', 'batch'])('uses Person lifecycle cleanup for owner deletion through the generic %s session endpoint', async kind => {
+    const { users } = await initUsers()
+    const owner = users.bootstrapDefaultSuperAdmin('admin', '123456')!
+    const sessions = await import('../../packages/server/src/modules/studio/repositories/session-store')
+    const store = await import('../../packages/server/src/modules/studio/repositories/person-store')
+    const sid = 'person-main-remove'
+    sessions.createSession({ id: sid, user_id: owner.id, studio_user_id: owner.id, source: 'builtin_agent', agent: 'ekko-agent', profile: 'default' })
+    sessions.createSession({ id: 'person-main-keep', user_id: owner.id, studio_user_id: owner.id, source: 'builtin_agent', agent: 'ekko-agent', profile: 'default' })
+    const selection = { runtime: 'ekko', mode: 'scoped' as const, profile: 'default', provider: 'p', model: 'm' }
+    const task = store.createPersonTask(owner.id, 'Remove', 'Work', selection, '/tmp', sid)
+    const kept = store.createPersonTask(owner.id, 'Keep', 'Work', selection, '/tmp', 'person-main-keep')
+    const controller = await import('../../packages/server/src/modules/studio/controllers/sessions')
+    const ctx = { params: { id: sid }, state: { user: owner }, request: { body: { ids: [sid] } }, query: {} } as any
+    if (kind === 'single') await controller.remove(ctx)
+    else await controller.batchRemove(ctx)
+    expect(ctx.body.ok).toBe(true)
+    expect(sessions.getSession(sid)).toBeNull()
+    expect(() => store.getPersonTask(owner.id, task.id)).toThrow('not found')
+    expect(store.getPersonTask(owner.id, kept.id)).toBeTruthy()
+  })
+
   it('only allows owner-authenticated reads of hidden task sessions, never generic mutations', async () => {
     const { users, auth } = await initUsers()
     const owner = users.bootstrapDefaultSuperAdmin('admin', '123456')!
@@ -396,7 +417,8 @@ describe('user auth tables and middleware', () => {
     const other = users.findUserByUsername('other')!
     const { createPersonTask } = await import('../../packages/server/src/modules/studio/repositories/person-store')
     const { createSession } = await import('../../packages/server/src/modules/studio/repositories/session-store')
-    const task = createPersonTask(owner.id, 'Owned task', 'Run privately', { runtime: 'ekko', mode: 'scoped', profile: 'default', provider: 'p', model: 'm' }, '/tmp')
+    createSession({ id: `person-main-${owner.id}`, user_id: owner.id, studio_user_id: owner.id, source: 'builtin_agent', profile: 'default' })
+    const task = createPersonTask(owner.id, 'Owned task', 'Run privately', { runtime: 'ekko', mode: 'scoped', profile: 'default', provider: 'p', model: 'm' }, '/tmp', `person-main-${owner.id}`)
     const id = `person-task-${task.id}`
     createSession({ id, user_id: owner.id, studio_user_id: owner.id, source: 'builtin_agent', profile: 'default' })
     for (const [user, method, suffix, allowed] of [[owner,'GET','',true], [owner,'GET','/context',true], [other,'GET','',false], [owner,'DELETE','',false], [owner,'POST','/messages/batch-delete',false], [owner,'GET','/share-models',false]] as const) {

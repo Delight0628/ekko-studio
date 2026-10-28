@@ -1452,6 +1452,11 @@ export async function remove(ctx: any) {
   const sessionId = ctx.params.id
   const existing = localGetSession(sessionId)
   if (denySessionAccess(ctx, existing)) return
+  if (isPersonSession(sessionId) && existing) {
+    const { deletePersonConversation } = await import('../services/person/conversations')
+    ctx.body = { ok: true, ...await deletePersonConversation(ctx.state.user.id, sessionId, existing.history_revision) }
+    return
+  }
   const hermesProfile = requestedProfile(ctx) || existing?.profile || getActiveProfileName()
   const providerAgentSession = isProviderAgentSession(existing)
   if (providerAgentSession) stopCodingAgentSessionRun(sessionId, { reportClosed: false })
@@ -1515,6 +1520,17 @@ export async function batchRemove(ctx: any) {
     if (isPrivatePersonSession(id) && !ownsPersonSession(ctx.state?.user?.id, existing)) {
       results.failed++
       results.errors.push({ id, error: 'Session not found' })
+      continue
+    }
+    if (isPersonSession(id) && existing) {
+      try {
+        const { deletePersonConversation } = await import('../services/person/conversations')
+        await deletePersonConversation(ctx.state.user.id, id, existing.history_revision)
+        results.deleted++
+      } catch (error) {
+        results.failed++
+        results.errors.push({ id, error: error instanceof Error ? error.message : String(error) })
+      }
       continue
     }
     const targetProfile = target.profile || existing?.profile

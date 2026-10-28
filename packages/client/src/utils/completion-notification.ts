@@ -57,7 +57,7 @@ function isBrowserNotificationSecureContext(): boolean {
 }
 
 function safeHermesClickUrl(value?: string): string | undefined {
-  if (!value || (value !== '/person' && !value.startsWith('/hermes/')) || value.includes('..') || value.includes('\\')) return undefined
+  if (!value || (value !== '/person' && !value.startsWith('/person?') && !value.startsWith('/hermes/')) || value.includes('..') || value.includes('\\')) return undefined
   return value
 }
 

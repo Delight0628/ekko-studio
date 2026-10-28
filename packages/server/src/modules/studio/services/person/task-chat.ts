@@ -7,6 +7,7 @@ import { createSession, getSession } from '../../repositories/session-store'
 import { personUpdated } from '../../repositories/person-updates'
 import { personUser, validatePersonSelection } from './catalog'
 import { savePersonTaskOrigin } from './delivery'
+import { requirePersonSession } from '../../repositories/person-session-store'
 
 /** Hidden task conversations are account-owned, never shared by Profile. */
 export function ownedPersonTaskSession(userId: number | undefined, sessionId: string) {
@@ -57,6 +58,7 @@ export async function continuePersonTask(userId: number, taskId: string, body: R
   const input = chatInput(body.input)
   const result = personOperation(userId, key, request, () => {
     const current = getPersonTask(userId, taskId)
+    requirePersonSession(userId, current.session_id)
     if (current.revision !== personRevision(body.expected_revision)) throw personError('Task changed; query it again', 409)
     if (current.execution_state === 'stopping') throw personError('Task is stopping; wait for acknowledgement', 409)
     if (Object.hasOwn(body, 'expected_execution_id') && body.expected_execution_id !== (current.execution_id || null)) throw personError('Execution changed; query the task again', 409)

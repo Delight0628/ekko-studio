@@ -1,3 +1,4 @@
+import { personSessionIds } from '../repositories/person-session-store'
 import type { PersonResultDelivery } from '../public/person-runtime'
 import { personUser } from '../services/person/catalog'
 import { personBackgroundPendingCount } from '../repositories/person-store'
@@ -6,7 +7,7 @@ import { onPersonUpdated, personUpdated } from '../repositories/person-updates'
 import { personChatInteraction, answerPersonChatInteraction } from '../services/person/chat-interactions'
 import { ownedPersonTaskSession } from '../services/person/task-chat'
 import { answerPersonTaskInteraction } from '../services/person/chat-interactions'
-import { isPersonSession, isPrivatePersonSession, ownsPersonSession, personSessionId, personNotificationRoom } from '../contracts/person-session'
+import { isPersonSession, isPrivatePersonSession, ownsPersonSession, personNotificationRoom } from '../contracts/person-session'
 import { foregroundNotification, foregroundNotificationPreview } from '../services/chat-run/foreground-notification'
 import { chatCompletionText } from '../services/notifications/chat-completion-text'
 import { ensurePersonSession } from '../services/person/chat-agent'
@@ -465,7 +466,7 @@ export class ChatRunSocket {
   private closing = false
   private stopUsageUpdates: () => void
   private stopPersonUpdates: () => void
-  private personQuestions = new Map<number, ReturnType<typeof personChatInteraction>>()
+  private personQuestions = new Map<string, ReturnType<typeof personChatInteraction>>()
 
   constructor(private readonly io: Server) {
     this.nsp = io.of('/chat-run')
@@ -489,19 +490,21 @@ export class ChatRunSocket {
   }
 
   private syncPersonInteraction(userId: number) {
-    const sid = personSessionId(userId)
-    if (this.closing || !getSession(sid)) return
-    this.nsp.to(`session:${sid}`).emit('person.updated', { session_id: sid })
-    if (this.isSessionRunning(sid)) return
-    const before = this.personQuestions.get(userId)
-    const next = personChatInteraction(userId)
-    if (JSON.stringify(before) === JSON.stringify(next)) return
-    if (before) {
-      const event = before.event.replace('.requested', '.resolved')
-      this.emitExternalEvent(sid, event, { ...before.data, event, resolved: true, reason: 'response' })
+    if (this.closing) return
+    for (const sid of personSessionIds(userId)) {
+      this.nsp.to(`session:${sid}`).emit('person.updated', { session_id: sid })
+      if (this.isSessionRunning(sid)) continue
+      const before = this.personQuestions.get(sid)
+      const next = personChatInteraction(userId, sid)
+      if (JSON.stringify(before) === JSON.stringify(next)) continue
+      if (before) {
+        const event = before.event.replace('.requested', '.resolved')
+        this.emitExternalEvent(sid, event, { ...before.data, event, resolved: true, reason: 'response' })
+      }
+      this.personQuestions.set(sid, next)
+      if (next) this.emitExternalEvent(sid, next.event, next.data)
     }
-    this.personQuestions.set(userId, next)
-    if (next) this.emitExternalEvent(sid, next.event, next.data)
+    this.nsp.to(personNotificationRoom(userId)).emit('person.updated', { account_id: userId })
   }
 
   isSessionRunning(sessionId: string) { return !!this.sessionMap.get(sessionId)?.isWorking }
@@ -1030,7 +1033,7 @@ export class ChatRunSocket {
         runProfile = resolveRunProfile(data.session_id, data.profile)
         if (isPersonSession(data.session_id)) {
           requirePersonAgents(socketUser!.id)
-          const { session, settings } = await ensurePersonSession(socketUser!.id)
+          const { session, settings } = await ensurePersonSession(socketUser!.id, data.session_id!)
           if (!settings.model) throw new Error('No available Person model')
           // Only input/queue identity comes from the client. Agent policy and resources are server-owned.
           data = { session_id: session.id, input: data.input, queue_id: data.queue_id,
@@ -1347,7 +1350,7 @@ export class ChatRunSocket {
       }
       if (isPersonSession(data.session_id) && data.approval_id.startsWith('person-interaction:')) {
         try {
-          await answerPersonChatInteraction(socketUser!.id, data.approval_id, data.choice || '', true)
+          await answerPersonChatInteraction(socketUser!.id, data.approval_id, data.choice || '', true, data.session_id!)
           this.syncPersonInteraction(socketUser!.id)
         } catch (error) {
           socket.emit('approval.resolved', { event: 'approval.resolved', session_id: data.session_id, approval_id: data.approval_id, resolved: false, error: String(error) })
@@ -1433,7 +1436,7 @@ export class ChatRunSocket {
       }
       if (isPersonSession(data.session_id) && data.clarify_id.startsWith('person-interaction:')) {
         try {
-          await answerPersonChatInteraction(socketUser!.id, data.clarify_id, data.response || '', false)
+          await answerPersonChatInteraction(socketUser!.id, data.clarify_id, data.response || '', false, data.session_id!)
           this.syncPersonInteraction(socketUser!.id)
         } catch (error) {
           socket.emit('clarify.resolved', { event: 'clarify.resolved', session_id: data.session_id, clarify_id: data.clarify_id, resolved: false, error: String(error) })
@@ -1740,7 +1743,7 @@ export class ChatRunSocket {
       const userId = socket.data?.user?.id
       if (!ownsPersonSession(userId, getSession(data.session_id!))) throw new Error('Session not found')
       requirePersonAgents(userId)
-      const { settings } = await ensurePersonSession(userId)
+      const { settings } = await ensurePersonSession(userId, data.session_id!)
       if (!settings.model) throw new Error('No available Person model')
       data = { session_id: data.session_id, input: data.input, queue_id: data.queue_id, onEvent: data.onEvent,
         ...(backgroundContinuationContext ? { background_delegation_id: data.background_delegation_id, autonomous: true,
@@ -1921,7 +1924,7 @@ export class ChatRunSocket {
         data.onEvent?.(event, payload)
         this.emitPendingInteraction(profile, event, payload)
         if (isPersonSession(data.session_id) && ['run.completed','run.failed','abort.completed'].includes(event)) {
-          this.personQuestions.delete(Number(socket.data.user?.id))
+          this.personQuestions.delete(data.session_id!)
           personUpdated(Number(socket.data.user?.id))
         }
       }
@@ -2273,8 +2276,8 @@ export class ChatRunSocket {
       ? state.events
       : (state.events || []).filter(evt => evt?.event === 'run.reattach_failed')
     if (isPersonSession(sid) && !state.isWorking) {
-      const question = personChatInteraction(Number(socket.data.user.id))
-      this.personQuestions.set(Number(socket.data.user.id), question)
+      const question = personChatInteraction(Number(socket.data.user.id), sid)
+      this.personQuestions.set(sid, question)
       if (question && !resumeEvents.some(entry => entry.data?.approval_id === question.data.approval_id && entry.data?.clarify_id === question.data.clarify_id)) resumeEvents.push(question)
     }
     const sessionDetail = getSessionMetadata(sid)
@@ -3078,6 +3081,7 @@ export class ChatRunSocket {
   async disposeSession(sessionId: string): Promise<void> {
     const sid = String(sessionId || '').trim()
     if (!sid) return
+    this.personQuestions.delete(sid)
     for (const [requestId, pending] of this.pendingMobileLocations.entries()) {
       if (pending.sessionId !== sid) continue
       this.finishMobileLocationRequest(requestId, {

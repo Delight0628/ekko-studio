@@ -185,11 +185,12 @@ describe('Hermes schema initialization', () => {
       db.exec("UPDATE session_tasks SET status='open' WHERE id='task'")
       const { createSession } = await import('../../packages/server/src/modules/studio/repositories/session-store')
       createSession({ id: 'chat', profile: 'default', studio_user_id: '1', source: 'builtin_agent' })
+      createSession({ id: 'person-main-owner', profile: 'default', studio_user_id: '1', source: 'builtin_agent' })
       const { createPersonTask, adoptPersonGoal } = await import('../../packages/server/src/modules/studio/repositories/person-store')
       const selection = { runtime: 'ekko', mode: 'scoped' as const, profile: 'default', provider: 'test', model: 'test' }
-      expect(createPersonTask(1, 'New goal', 'New work', selection, '/tmp')).toMatchObject({ owner_user_id: 1, status: 'open' })
-      expect(adoptPersonGoal(1, 'task', 200, selection, '/tmp', 'Continue work')).toMatchObject({ id: 'task', owner_user_id: 1 })
-      expect(db.prepare("SELECT session_id,source_message_id,extra_tag FROM session_tasks WHERE id='task'").get()).toEqual({ session_id: null, source_message_id: null, extra_tag: 'custom' })
+      expect(createPersonTask(1, 'New goal', 'New work', selection, '/tmp', 'person-main-owner')).toMatchObject({ owner_user_id: 1, status: 'open' })
+      expect(adoptPersonGoal(1, 'task', 200, selection, '/tmp', 'Continue work', 'person-main-owner')).toMatchObject({ id: 'task', owner_user_id: 1 })
+      expect(db.prepare("SELECT session_id,source_message_id,extra_tag FROM session_tasks WHERE id='task'").get()).toEqual({ session_id: 'person-main-owner', source_message_id: null, extra_tag: 'custom' })
     },
   )
 

@@ -18,6 +18,7 @@ import { PersonPresenceSocketServer } from '../../packages/server/src/modules/st
 beforeEach(() => {
   state.db = new DatabaseSync(':memory:'); state.busy.clear(); state.revoked.clear(); clearPersonPresenceRuntime()
   state.db.exec('CREATE TABLE session_tasks(id TEXT PRIMARY KEY,owner_user_id INTEGER,bot_id TEXT,updated_at INTEGER)')
+  state.db.exec("CREATE TABLE sessions(id TEXT PRIMARY KEY,studio_user_id TEXT); INSERT INTO sessions VALUES ('person-main-1','1'),('person-main-2','2')")
   initPersonTables(state.db)
 })
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); clearPersonPresenceRuntime(); state.db?.close(); state.db = null })
@@ -217,4 +218,20 @@ it('synchronizes two real Socket.IO devices across Profiles, isolates accounts, 
     presence.close()
     await new Promise<void>(resolve => io.close(() => resolve()))
   }
+})
+
+
+it('keeps concurrent named conversations independent while aggregating account presence', () => {
+  state.db!.exec("INSERT INTO sessions VALUES('person-main-second-conversation','1')")
+  state.busy.add('person-main-1'); state.busy.add('person-main-second-conversation')
+  observePersonPresenceEvent('person-main-1', 'run.started', { run_id: 'A' })
+  observePersonPresenceEvent('person-main-second-conversation', 'run.started', { run_id: 'B' })
+  observePersonPresenceEvent('person-main-second-conversation', 'tool.started', { run_id: 'B', tool_call_id: 'b-tool' })
+  expect(personPresenceSnapshot(1).state).toBe('searching')
+  observePersonPresenceEvent('person-main-1', 'abort.completed', { run_id: 'A' })
+  state.busy.delete('person-main-1')
+  expect(personPresenceSnapshot(1).state).toBe('searching')
+  observePersonPresenceEvent('person-main-second-conversation', 'tool.completed', { run_id: 'B', tool_call_id: 'b-tool' })
+  expect(personPresenceSnapshot(1).state).toBe('thinking')
+  expect(personPresenceSnapshot(2).state).toBe('idle')
 })

@@ -11,6 +11,7 @@ import { acknowledgePersonStop, personRunSignal, releasePersonRun } from './task
 import { tickPersonSchedules } from './schedules'
 import { deliverPersonResults, readyPersonDelivery } from './delivery'
 import { logger } from '../../public/logging'
+import { requirePersonSession } from '../../repositories/person-session-store'
 import { personWorkspace } from './workspace'
 import { ensureDirectory } from '../workspace/directory'
 
@@ -23,6 +24,7 @@ let ticking = false
 function current(run: PersonExecution) {
   const actual = getPersonExecution(run.owner_user_id, run.id)
   const task = getPersonTask(run.owner_user_id, run.task_id)
+  requirePersonSession(run.owner_user_id, task.session_id)
   if (actual.generation !== run.generation || ['stopping','interrupted','failed','finished'].includes(actual.state)
     || task.status !== 'open' || task.requirements_revision !== run.requirements_revision) throw personError('Execution is no longer current', 409)
   return actual
@@ -143,9 +145,9 @@ async function execute(run: PersonExecution, abort: AbortController) {
   } catch (error) {
     try { setPersonExecution(current(run), 'failed', { error: error instanceof Error ? error.message : 'Task failed' }) } catch { /* cancellation wins */ }
   } finally {
-    const latest = getPersonExecution(userId, run.id)
-    if (['failed','finished','interrupted'].includes(latest.state)) personDb().prepare("UPDATE person_interactions SET state='expired',revision=revision+1 WHERE execution_id=? AND state='pending'").run(run.id)
-    if (['failed','finished'].includes(latest.state)) readyPersonDelivery(latest)
+    const latest = personDb().prepare('SELECT * FROM person_executions WHERE owner_user_id=? AND id=?').get(userId, run.id) as unknown as PersonExecution | undefined
+    if (latest && ['failed','finished','interrupted'].includes(latest.state)) personDb().prepare("UPDATE person_interactions SET state='expired',revision=revision+1 WHERE execution_id=? AND state='pending'").run(run.id)
+    if (latest && ['failed','finished'].includes(latest.state)) readyPersonDelivery(latest)
     personUpdated(userId)
     clearInterval(heartbeat); active.delete(run.id); busyTasks.delete(run.task_id); releasePersonRun(run.id)
   }

@@ -10,7 +10,7 @@ import { onPersonUpdated } from '@/api/studio/chat'
 import { useTaskDrawerLayout } from './useTaskDrawerLayout'
 import { chatSessionAgentAvatar } from '@/utils/chat-agent-avatar'
 
-const props = defineProps<{ show: boolean; person?: boolean }>()
+const props = defineProps<{ show: boolean; person?: boolean; personSessionId?: string }>()
 const emit = defineEmits<{ 'update:show': [show: boolean]; 'open-person-task': [task: PersonTask] }>()
 const route = useRoute()
 const router = useRouter()
@@ -133,11 +133,11 @@ function rowStatus(task: TaskRow) {
 }
 function openTask(task: TaskRow) { if (task.personTask) emit('open-person-task', task.personTask) }
 async function loadPersonTasks(query: { search: string; status: string; order: string }) {
-  const result = await personRequest<{ tasks: PersonTask[] }>('/tasks/query', { ...query, limit: 100 })
+  const result = await personRequest<{ tasks: PersonTask[] }>('/tasks/query', { ...query, session_id: props.personSessionId, limit: 100 })
   return { total: result.tasks.length, tasks: result.tasks.map(task => {
     const selection = JSON.parse(task.selection_json || '{}')
     return { id: task.id, title: task.title, summary: task.summary, status: task.status as SessionTaskStatus,
-      updated_at: task.updated_at || Date.now(), message_id: null, session_id: '', session_title: 'Person',
+      updated_at: task.updated_at || Date.now(), message_id: null, session_id: task.session_id, session_title: task.session_title || 'zhezhe',
       profile: selection.profile || 'default', source: selection.runtime === 'ekko' ? 'builtin_agent' : 'coding_agent',
       agent: selection.runtime === 'ekko' ? 'ekko-agent' : selection.runtime || 'ekko-agent', personTask: task }
   }) }
@@ -154,7 +154,7 @@ watch(search, () => {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(() => { if (props.show) void updateQuery({ taskSearch: search.value.trim() || undefined }) }, 200)
 })
-watch([() => props.show, () => route.query.taskSearch, () => route.query.taskStatus, () => route.query.taskOrder, () => route.query.taskPage], () => {
+watch([() => props.show, () => props.personSessionId, () => route.query.taskSearch, () => route.query.taskStatus, () => route.query.taskOrder, () => route.query.taskPage], () => {
   requestSequence++
   const value = typeof route.query.taskSearch === 'string' ? route.query.taskSearch : ''
   if (search.value.trim() !== value) search.value = value

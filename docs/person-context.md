@@ -1,5 +1,15 @@
 # Person context assembly
 
+## Conversations and routing
+
+Person conversations have independent generated `person-main-<uuid>` IDs and user-supplied names. The sidebar reuses single-chat navigation, list rows and search UI. Its search endpoint reads only the authenticated account's Person conversation names and messages; ordinary chats and task worker sessions are excluded. Creating a conversation never derives its ID from the account. An empty account shows a naming action instead of creating a fixed conversation implicitly.
+
+Memory, Agent presets and execution settings remain account-scoped. Main requests include the current conversation identity; `bot_sessions_query` discovers other owned conversations. History search covers the account's Person conversations and carries each original's conversation ID and name. Recent dialogue remains local to the current conversation. One account-wide message boundary is captured before the current input is persisted, and edits/deletion of any captured source fence subsequent tools and requests. Indexing retains a 64-chunk bound across sources per pass.
+
+Every Person task has a required owning `session_tasks.session_id`. New work defaults to the current conversation and accepts an explicit owned `session_id` for cross-conversation assignment. Continuing a task preserves its task, runtime conversation and owner. The task's owning conversation is authoritative for initial, continued and scheduled result delivery, even when another conversation supplied the instruction. Durable questions and completion links also target that conversation. Task and schedule drawers are filtered to the selected conversation.
+
+Deleting a conversation blocks new dispatch into it, cancels its schedules and result deliveries, interrupts queued/follow-up work and waits for active native workers and the main run to stop. Its messages, tasks, worker sessions, execution records, questions, schedules, return cards and derived context are then removed together. Shared memory, presets, workspace files and other conversations remain. A failed native stop leaves the conversation present so deletion can be retried. There is no legacy task reassignment: obsolete account-only tasks without an owning conversation are discarded at initialization.
+
 Person main chats use their own bounded history loader. Ordinary single chats,
 Person worker sessions and the shared `sessions` / `messages` schemas retain
 their existing behavior. The only shared run-path change skips the ordinary
@@ -134,8 +144,7 @@ It omits the model-supplied `sourceMessageIds` field: the host binds the current
 user input automatically. History's transcript IDs are a different namespace from
 native memory evidence IDs. Explicit unsupported IDs still fail native validation;
 the adapter never rewrites a rejected citation into an accepted one.
-The optional JEV enhancements remain disabled in this Person runtime; no Profile
-JEV configuration or credentials are implicitly inherited.
+Optional Person memory JEV enhancements use their independently configured global Person switches and default to disabled; model Profile changes do not select another memory store.
 
 Only the current host-provided user evidence is captured for memory writes.
 Retrieved history and background callbacks cannot become fresh user evidence;

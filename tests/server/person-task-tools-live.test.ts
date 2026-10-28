@@ -18,7 +18,7 @@ it.skipIf(process.env.PERSON_TASK_TOOLS_LIVE !== '1')('compares task intents and
   const config = await resolveEkkoProviderRuntimeConfig(selection)
   const { providerConfig } = resolveModelProviderConfigs({ ...config, provider: selection.provider, model: selection.model })
   const client = createModelClient(providerConfig, { fetch: createEkkoAuthorizedProviderFetch({ ...selection, accessToken: config.apiKey }) })
-  const variant = personTools(1, 'main').some(tool => tool.name === 'bot_task_control') ? 'refs' : 'baseline'
+  const variant = personTools(1, 'main', undefined, 'person-main-1').some(tool => tool.name === 'bot_task_control') ? 'refs' : 'baseline'
   const records: any[] = [], failures: any[] = []
   const cases = [
     { name: 'create', input: '新建一个后台任务，计算 123 加 456 的结果。立即开始。', state: 'idle', status: 'open', expected: ['create'] },
@@ -61,7 +61,7 @@ it.skipIf(process.env.PERSON_TASK_TOOLS_LIVE !== '1')('compares task intents and
         receipts.set(args.idempotency_key, structuredClone(result))
         return result as any
       })
-      const tools = personTools(1, 'main').map(tool => ['bot_tasks_query', 'bot_task_create', 'bot_task_control', 'bot_task_apply'].includes(tool.name) ? tool : ({ ...tool, async execute() {
+      const tools = personTools(1, 'main', undefined, 'person-main-1').map(tool => ['bot_tasks_query', 'bot_task_create', 'bot_task_control', 'bot_task_apply'].includes(tool.name) ? tool : ({ ...tool, async execute() {
         if (tool.name === 'bot_agents_list') return { agents: [{ id: 'worker', name: 'Configured worker', selection }], next_offset: null }
         if (tool.name === 'bot_schedules_query' || tool.name === 'bot_execution_events') return []
         if (tool.name === 'bot_artifact_read') return { content: '', next_offset: null }

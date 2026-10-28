@@ -1,5 +1,5 @@
 import { personUpdated } from './person-updates'
-import { personSessionId } from '../contracts/person-session'
+import { requirePersonSession } from './person-session-store'
 import { recordPersonOutcome } from './person-presence-store'
 import { createHash, randomUUID } from 'node:crypto'
 import { getDb } from '../infrastructure/database'
@@ -51,8 +51,8 @@ export function savePersonSettings(userId: number, settings: PersonSettings, rev
     if (workspace) {
       personDb().prepare('UPDATE session_tasks SET workspace=? WHERE owner_user_id=? AND bot_id=?').run(workspace, userId, `person:${userId}`)
       personDb().prepare(`UPDATE sessions SET workspace=? WHERE CAST(studio_user_id AS TEXT)=? AND
-        (id=? OR id IN (SELECT 'person-task-' || id FROM session_tasks WHERE owner_user_id=? AND bot_id=?))`)
-        .run(workspace, String(userId), personSessionId(userId), userId, `person:${userId}`)
+        (id LIKE 'person-main-%' OR id IN (SELECT 'person-task-' || id FROM session_tasks WHERE owner_user_id=? AND bot_id=?))`)
+        .run(workspace, String(userId), userId, `person:${userId}`)
     }
     personUpdated(userId)
     return personSettings(userId)
@@ -60,6 +60,7 @@ export function savePersonSettings(userId: number, settings: PersonSettings, rev
 }
 const executionOrder = "CASE WHEN state IN ('finished','failed','interrupted') THEN 2 WHEN state='pending' THEN 1 ELSE 0 END,created_at DESC,rowid DESC"
 const taskExecutionColumns = `
+  (SELECT title FROM sessions s WHERE s.id=t.session_id) AS session_title,
   (SELECT id FROM person_executions e WHERE e.task_id=t.id ORDER BY ${executionOrder} LIMIT 1) AS execution_id,
   COALESCE((SELECT state FROM person_executions e WHERE e.task_id=t.id ORDER BY ${executionOrder} LIMIT 1),'idle') AS execution_state,
   (SELECT COUNT(*) FROM person_executions e WHERE e.task_id=t.id AND e.state='pending') AS pending_count,
@@ -70,15 +71,16 @@ export function getPersonTask(userId: number, id: string): PersonTask {
   if (!task) throw personError('Task not found', 404)
   return task
 }
-export function listPersonTasks(userId: number, search = '', offset = 0, options: { status?: string; order?: string; limit?: number } = {}): PersonTask[] {
+export function listPersonTasks(userId: number, search = '', offset = 0, options: { status?: string; order?: string; limit?: number; sessionId?: string } = {}): PersonTask[] {
   return personDb().prepare(`SELECT t.*, ${taskExecutionColumns}
     FROM session_tasks t WHERE owner_user_id=? AND bot_id=? AND (instr(lower(title),lower(?))>0 OR instr(lower(summary),lower(?))>0)
-    AND (?='' OR status=?) ORDER BY updated_at ${options.order === 'oldest' ? 'ASC' : 'DESC'},id LIMIT ? OFFSET ?`).all(userId, `person:${userId}`, search, search, options.status || '', options.status || '', Math.max(1, Math.min(100, Number(options.limit) || 20)), offset) as unknown as PersonTask[]
+    AND (?='' OR t.session_id=?) AND (?='' OR status=?) ORDER BY updated_at ${options.order === 'oldest' ? 'ASC' : 'DESC'},id LIMIT ? OFFSET ?`).all(userId, `person:${userId}`, search, search, options.sessionId || '', options.sessionId || '', options.status || '', options.status || '', Math.max(1, Math.min(100, Number(options.limit) || 20)), offset) as unknown as PersonTask[]
 }
-export function createPersonTask(userId: number, title: string, requirements: string, selection: PersonSelection, workspace: string): PersonTask {
+export function createPersonTask(userId: number, title: string, requirements: string, selection: PersonSelection, workspace: string, sessionId: string): PersonTask {
+  requirePersonSession(userId, sessionId)
   const db = personDb(); const id = randomUUID(); const now = Date.now()
-  db.prepare(`INSERT INTO session_tasks(id,title,summary,owner_user_id,bot_id,requirements_json,selection_json,workspace,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(id, title, requirements.slice(0,1000), userId, `person:${userId}`, JSON.stringify({ goal: requirements }), JSON.stringify(selection), workspace, now, now)
+  db.prepare(`INSERT INTO session_tasks(id,session_id,title,summary,owner_user_id,bot_id,requirements_json,selection_json,workspace,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(id, sessionId, title, requirements.slice(0,1000), userId, `person:${userId}`, JSON.stringify({ goal: requirements }), JSON.stringify(selection), workspace, now, now)
   return getPersonTask(userId, id)
 }
 export function updatePersonTask(userId: number, id: string, revision: number, requirements: string) {
@@ -89,6 +91,7 @@ export function updatePersonTask(userId: number, id: string, revision: number, r
   return getPersonTask(userId, id)
 }
 export function enqueuePersonExecution(task: PersonTask, occurrence: string | null = null, input?: import('../contracts/runs/session').ContentBlock[], followup = false): PersonExecution {
+  requirePersonSession(task.owner_user_id, task.session_id)
   if (task.status !== 'open') throw personError('Task must be open', 409)
   const id = randomUUID(); const now = Date.now()
   const active = personDb().prepare("SELECT id FROM person_executions WHERE task_id=? AND state IN ('pending','queued','starting','stopping','running','waiting_person','waiting_user','waiting_approval')").get(task.id)
@@ -160,8 +163,8 @@ export function answerPersonInteraction(userId: number, id: string, revision: nu
   personUpdated(userId)
   return { ...question, answer, answered_by: actor, revision: revision + 1, state: 'answered' }
 }
-export function listPersonSchedules(userId: number): PersonSchedule[] {
-  return personDb().prepare('SELECT * FROM person_schedules WHERE owner_user_id=? ORDER BY created_at DESC LIMIT 50').all(userId) as unknown as PersonSchedule[]
+export function listPersonSchedules(userId: number, sessionId = ''): PersonSchedule[] {
+  return personDb().prepare("SELECT p.* FROM person_schedules p JOIN session_tasks t ON t.id=p.task_id WHERE p.owner_user_id=? AND (?='' OR t.session_id=?) ORDER BY p.created_at DESC LIMIT 50").all(userId, sessionId, sessionId) as unknown as PersonSchedule[]
 }
 
 /** Existing goals with recorded account ownership can be assigned to Person without making a duplicate. */
@@ -171,10 +174,11 @@ export function listAssignablePersonGoals(userId: number, search = '') {
     AND (instr(lower(t.title),lower(?))>0 OR instr(lower(t.summary),lower(?))>0)
     ORDER BY t.updated_at DESC LIMIT 10`).all(String(userId), search, search)
 }
-export function adoptPersonGoal(userId: number, id: string, revision: number, selection: PersonSelection, workspace: string, goal: string) {
+export function adoptPersonGoal(userId: number, id: string, revision: number, selection: PersonSelection, workspace: string, goal: string, sessionId: string) {
+  requirePersonSession(userId, sessionId)
   const original = personDb().prepare(`SELECT t.*,s.profile FROM session_tasks t JOIN sessions s ON s.id=t.session_id WHERE s.id NOT LIKE 'person-task-%' AND s.id NOT LIKE 'person-main-%' AND t.id=? AND CAST(s.studio_user_id AS TEXT)=? AND t.owner_user_id IS NULL AND t.status='open'`).get(id,String(userId)) as Record<string, any> | undefined
   if (!original || original.updated_at !== revision) throw personError('Goal is unavailable or changed',409)
-  personDb().prepare(`UPDATE session_tasks SET session_id=NULL,source_message_id=NULL,evidence_message_id=NULL,owner_user_id=?,bot_id=?,requirements_json=?,selection_json=?,workspace=?,revision=revision+1,requirements_revision=requirements_revision+1,updated_at=? WHERE id=?`).run(userId,`person:${userId}`,JSON.stringify({goal,origin:{session_id:original.session_id,source_message_id:original.source_message_id,summary:original.summary}}),JSON.stringify(selection),workspace,Date.now(),id)
+  personDb().prepare(`UPDATE session_tasks SET session_id=?,source_message_id=NULL,evidence_message_id=NULL,owner_user_id=?,bot_id=?,requirements_json=?,selection_json=?,workspace=?,revision=revision+1,requirements_revision=requirements_revision+1,updated_at=? WHERE id=?`).run(sessionId,userId,`person:${userId}`,JSON.stringify({goal,origin:{session_id:original.session_id,source_message_id:original.source_message_id,summary:original.summary}}),JSON.stringify(selection),workspace,Date.now(),id)
   personDb().prepare('UPDATE sessions SET task_summary_revision=task_summary_revision+1,task_summary_updated_at=? WHERE id=?').run(Date.now(),original.session_id)
   return getPersonTask(userId,id)
 }

@@ -118,7 +118,7 @@ describe('chat store error handling - #1644', () => {
     const event={event:'person.run.completed',session_id:'person-main-1',notification_id:'main-run',output:'Report ready'}
     chatApi.globalPendingHandler?.(event);chatApi.globalPendingHandler?.(event)
     expect(completionNotification).toHaveBeenCalledTimes(1)
-    expect(completionNotification).toHaveBeenCalledWith(expect.objectContaining({title:'zhezhe',body:'Report ready',clickUrl:'/person'}))
+    expect(completionNotification).toHaveBeenCalledWith(expect.objectContaining({title:'zhezhe',body:'Report ready',clickUrl:'/person?session=person-main-1'}))
   })
 
   it('answers a Person prompt on its chat transport while another runtime is selected',()=>{

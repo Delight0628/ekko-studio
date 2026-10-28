@@ -19276,7 +19276,17 @@
           "404": {
             "description": "Not found"
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected owned conversation; omitted returns shared settings with session=null and creates no conversation."
+          }
+        ]
       }
     },
     "/api/studio/person/agent-models": {
@@ -19337,7 +19347,7 @@
           "Person"
         ],
         "summary": "Clear Person chat history and tasks",
-        "description": "Clear only the authenticated account Person chat history, tasks, hidden task conversations, related execution records and schedules atomically. Running replies/tasks and pending deliveries return 409; expected_history_revision must match the Person snapshot. Preserves memories, settings, usage ledger and workspace files. Broadcasts cleared conversation state to connected views.",
+        "description": "Clear only the specified owned Person conversation, its tasks, hidden worker conversations, execution records and schedules atomically. Running replies/tasks and pending deliveries return 409; expected_history_revision must match the Person snapshot. Preserves memories, settings, usage ledger and workspace files. Broadcasts cleared conversation state to connected views.",
         "operationId": "clear",
         "security": [
           {
@@ -19358,6 +19368,152 @@
             "description": "Person is busy, has pending results, or the history revision changed"
           }
         },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "session_id": {
+                    "type": "string",
+                    "description": "Owning Person conversation ID. Required for new work; continuations preserve the existing task conversation."
+                  },
+                  "expected_history_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "session_id",
+                  "expected_history_revision"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/person/conversations": {
+      "get": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Get conversations",
+        "description": "GET /api/studio/person/conversations",
+        "operationId": "conversations",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Search owned Person conversation names and message contents only."
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Create conversations",
+        "description": "Create an account-owned, user-named conversation with a generated session ID. Memory and Agent presets remain shared across the account.",
+        "operationId": "conversationCreate",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studio/person/conversations/{id}": {
+      "delete": {
+        "tags": [
+          "Person"
+        ],
+        "summary": "Delete :id",
+        "description": "Delete the owned conversation and its task graph after stopping main and worker executions. Cancels schedules and callbacks; waits for native stop acknowledgement. Keeps account memory, settings, workspace files and other conversations. No data migration or task reassignment.",
+        "operationId": "conversationDelete",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -19683,7 +19839,7 @@
                   "agents": {
                     "type": "array",
                     "maxItems": 20,
-                    "description": "Execution presets; an empty list inherits Person provider/model through Ekko Agent",
+                    "description": "Account-shared execution presets; at least one saved preset is required to chat or dispatch tasks",
                     "items": {
                       "type": "object",
                       "required": [
@@ -19838,6 +19994,10 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "session_id": {
+                    "type": "string",
+                    "description": "Owning Person conversation ID. Required for new work; continuations preserve the existing task conversation."
+                  },
                   "action": {
                     "type": "string",
                     "enum": [
@@ -19926,6 +20086,10 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "session_id": {
+                    "type": "string",
+                    "description": "Owning Person conversation ID. Required for new work; continuations preserve the existing task conversation."
+                  },
                   "search": {
                     "type": "string"
                   },
@@ -20002,7 +20166,7 @@
           "Person"
         ],
         "summary": "Create chat",
-        "description": "Continue an idle, non-closed task in the same hidden worker session through the durable background runner. Completed tasks reopen automatically on new input. Running tasks, pending result delivery and stale revisions return 409. Completion wakes the original Person main session again.",
+        "description": "Continue a non-closed task in its existing hidden worker session. Running work queues follow-ups durably in FIFO order; completed tasks reopen. Stopping, stale revisions and a full queue return 409. Results return to the task-owning Person conversation, including cross-conversation instructions.",
         "operationId": "taskContinue",
         "security": [
           {

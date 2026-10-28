@@ -19,7 +19,7 @@ export function personBudgetedClient(client: ModelClient, input: PersonModelCall
   const check = (request: ModelRequest) => {
     input.beforeRequest?.()
     input.signal.throwIfAborted()
-    if (overBudget(request)) throw new Error('Person context budget exceeded; narrow the task or choose a model with a larger context window')
+    if (overBudget(request)) throw new Error(`Person context budget exceeded: estimated ${estimatePersonContext(request).contextTokens} input + ${(request.maxTokens || 2048) + 1024} reserved > ${budget}; narrow the task or choose a model with a larger context window`)
   }
   const summarize = async (messages: AgentMessage[], reasoningEffort: ModelRequest['reasoningEffort']): Promise<string> => {
     const key = createHash('sha256').update(JSON.stringify(['person-checkpoint-v5', input.selection, reasoningEffort, sourceData(messages)])).digest('hex')

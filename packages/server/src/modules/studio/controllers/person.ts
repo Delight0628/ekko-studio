@@ -10,6 +10,8 @@ import { replyPersonQuestion } from '../services/person/runner'
 import { listPersonTasks, taskPersonExecutions, personEvents } from '../services/person/service'
 import { personExecutionModelCatalog } from '../services/person/agents'
 import { clearPerson } from '../services/person/history'
+import { personConversations, createPersonConversation, deletePersonConversation } from '../services/person/conversations'
+import { requirePersonSession } from '../services/person/service'
 
 async function handle(ctx: Context, work: (id: number, body: Record<string, unknown>) => unknown) {
   ctx.set('Cache-Control', 'no-store')
@@ -23,13 +25,13 @@ async function handle(ctx: Context, work: (id: number, body: Record<string, unkn
     ctx.status = status; ctx.body = { error: status < 500 && error instanceof Error ? error.message : 'Person operation failed' }
   }
 }
-export const snapshot = (ctx: Context) => handle(ctx, id => personSnapshot(id))
+export const snapshot = (ctx: Context) => handle(ctx, id => personSnapshot(id, String(ctx.query.session_id || '')))
 export const clear = (ctx: Context) => handle(ctx, (id, body) => clearPerson(id, body))
 export const settings = (ctx: Context) => handle(ctx, (id, body) => configurePerson(id, body))
 export const capabilities = (ctx: Context) => handle(ctx, id => ({ agents: personCapabilities(id), native_allowed: personUser(id).role === 'super_admin' }))
 export const modelCatalog = (ctx: Context) => handle(ctx, id => personModelCatalog(id))
 export const executionModelCatalog = (ctx: Context) => handle(ctx, id => personExecutionModelCatalog(id))
-export const tasks = (ctx: Context) => handle(ctx, (id, body) => ({ tasks: listPersonTasks(id, String(body.search || '').slice(0,200), Math.max(0, Number(body.offset) || 0), { status: ['open','completed','closed'].includes(String(body.status)) ? String(body.status) : '', order: String(body.order || ''), limit: Number(body.limit) }) }))
+export const tasks = (ctx: Context) => handle(ctx, (id, body) => ({ tasks: listPersonTasks(id, String(body.search || '').slice(0,200), Math.max(0, Number(body.offset) || 0), { sessionId: body.session_id ? requirePersonSession(id, String(body.session_id)).id : undefined, status: ['open','completed','closed'].includes(String(body.status)) ? String(body.status) : '', order: String(body.order || ''), limit: Number(body.limit) }) }))
 export const taskApply = (ctx: Context) => handle(ctx, (id, body) => applyPersonTask(id, body))
 export const taskChat = (ctx: Context) => handle(ctx, id => personTaskChat(id, ctx.params.id))
 export const taskContinue = (ctx: Context) => handle(ctx, (id, body) => continuePersonTask(id, ctx.params.id, body))
@@ -41,3 +43,7 @@ export const memory = (ctx: Context) => handle(ctx, (id, body) => {
   if (body.forget !== true) throw personError('Save or correct memories through the Person conversation.')
   return forgetPersonMemory(id, personText(body.id, 'id', 100), personRevision(body.expected_revision))
 })
+
+export const conversations = (ctx: Context) => handle(ctx, id => personConversations(id, String(ctx.query.search || ''), Math.max(0, Number(ctx.query.offset) || 0)))
+export const conversationCreate = (ctx: Context) => handle(ctx, (id, body) => createPersonConversation(id, body.title))
+export const conversationDelete = (ctx: Context) => handle(ctx, (id, body) => deletePersonConversation(id, ctx.params.id, body.expected_history_revision))

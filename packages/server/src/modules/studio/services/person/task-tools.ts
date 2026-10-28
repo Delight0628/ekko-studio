@@ -4,15 +4,16 @@ import { personError } from '../../contracts/person'
 import { getPersonTask, listAssignablePersonGoals, listPersonTasks, taskPersonExecutions } from '../../repositories/person-store'
 import { applyPersonTask } from './tasks'
 import { continuePersonTask } from './task-chat'
+import { requirePersonSession } from '../../repositories/person-session-store'
 import type { PersonTool } from './model'
 
 type Field = { type: 'string' | 'boolean' | 'integer' | ['string', 'null']; maxLength?: number; minLength?: number; minimum?: number; enum?: string[]; description?: string }
 type Action = 'adopt' | 'update' | 'start' | 'continue' | 'stop' | 'close' | 'reopen'
-type Snapshot = Pick<PersonTask, 'id' | 'title' | 'summary' | 'status' | 'revision' | 'execution_id' | 'execution_state' | 'running' | 'pending_count'>
+type Snapshot = Pick<PersonTask, 'id' | 'session_id' | 'session_title' | 'title' | 'summary' | 'status' | 'revision' | 'execution_id' | 'execution_state' | 'running' | 'pending_count'>
 type Reference = { task: Snapshot; assignable: boolean; expiresAt: number }
 const text = (maxLength: number): Field => ({ type: 'string', minLength: 1, maxLength })
 const actionFields: Record<Action, string[]> = {
-  adopt: ['goal', 'agent_id', 'start'], update: ['goal'], continue: ['message'], start: [], stop: [], close: [], reopen: [],
+  adopt: ['goal', 'agent_id', 'start', 'session_id'], update: ['goal'], continue: ['message'], start: [], stop: [], close: [], reopen: [],
 }
 const actionRequired: Partial<Record<Action, string[]>> = { adopt: ['goal'], update: ['goal'], continue: ['message'] }
 const queryAgain = 'Call bot_tasks_query again and reconsider the action using its current task_ref and allowed_actions.'
@@ -43,13 +44,13 @@ function actions(task: Snapshot, assignable = false): Action[] {
 }
 
 /** One instance per Person main turn. References never grant ownership or outlive this toolset. */
-export function personTaskTools(userId: number): PersonTool[] {
+export function personTaskTools(userId: number, currentSessionId: string): PersonTool[] {
   const namespace = randomUUID()
   const references = new Map<string, Reference>()
   const requests = new Map<string, Promise<unknown>>()
   const ttl = 10 * 60_000
   const expose = (task: Snapshot, assignable = false) => {
-    const snapshot: Snapshot = { id: task.id, title: task.title, summary: task.summary.slice(0, 500), status: task.status,
+    const snapshot: Snapshot = { id: task.id, session_id: task.session_id, session_title: task.session_title, title: task.title, summary: task.summary.slice(0, 500), status: task.status,
       revision: task.revision, execution_id: task.execution_id || null, execution_state: task.execution_state || 'idle', running: Boolean(task.running), pending_count: task.pending_count || 0 }
     for (const [ref, value] of references) if (value.expiresAt <= Date.now()) references.delete(ref)
     let ref = [...references].find(([, value]) => value.assignable === assignable && JSON.stringify(value.task) === JSON.stringify(snapshot))?.[0]
@@ -94,6 +95,7 @@ export function personTaskTools(userId: number): PersonTool[] {
     },
   })
   const query = define('bot_tasks_query', 'List/search current tasks; omit task_id or use null/empty unless reading an exact id returned here. Never invent IDs such as all/recent/0. Use current task_ref and allowed_actions for control. assignable=true discovers account-owned goals for explicit adoption.', {
+    session_id: { ...text(100), description: 'Optional conversation ID from bot_sessions_query to filter tasks.' },
     task_id: { ...text(100), type: ['string', 'null'], minLength: 0 }, search: { ...text(200), minLength: 0 }, offset: { type: 'integer', minimum: 0 }, assignable: { type: 'boolean' },
   }, [], async args => {
     if (args.assignable) return { tasks: (listAssignablePersonGoals(userId, String(args.search || '')) as Snapshot[]).map(task => expose(task, true)) }
@@ -103,14 +105,14 @@ export function personTaskTools(userId: number): PersonTool[] {
       return { task: { ...expose(task), goal: JSON.parse(task.requirements_json).goal }, executions: taskPersonExecutions(userId, task.id).slice(0, 5).map(run => ({ id: run.id, state: run.state, output_preview: run.output.slice(0, 500) })) }
     }
     const offset = Number(args.offset) || 0
-    const tasks = listPersonTasks(userId, String(args.search || ''), offset, { limit: 11 })
+    const tasks = listPersonTasks(userId, String(args.search || ''), offset, { limit: 11, sessionId: args.session_id ? requirePersonSession(userId, String(args.session_id)).id : undefined })
     return { tasks: tasks.slice(0, 10).map(task => expose(task)), next_offset: tasks.length > 10 ? offset + 10 : null }
   })
   const create = define('bot_task_create', 'Create new background work. Supply all requirements in goal; choose agent_id from bot_agents_list. Starts immediately unless start=false. Identical requests within this turn are deduplicated by the host. Use bot_task_control to operate existing work.', {
-    title: text(200), goal: text(8000), agent_id: text(100), start: { type: 'boolean' },
-  }, ['title', 'goal'], (args, origin) => execute({ action: 'create', ...args }, origin))
-  const control = define('bot_task_control', 'Control existing work with a current task_ref and allowed_actions from bot_tasks_query. continue sends message to the SAME task, agent and conversation; running work queues it for the next turn. Use it for follow-ups, never create a replacement. adopt/update require goal; adopt requires explicit user intent. Stop cancels queued follow-ups, not future schedules; query before claiming stopped. Reopen closed work before continuing. After stale references, query and reconsider. Versions, execution and retry identity are host-managed.', {
-    task_ref: text(100), action: { ...text(30), enum: Object.keys(actionFields), description: 'start runs saved requirements; continue adds a turn; update changes requirements; reopen changes status only.' }, goal: { ...text(8000), description: 'Required for adopt/update only.' }, message: { ...text(32000), description: 'Required for continue: complete user follow-up with relevant context.' }, agent_id: text(100), start: { type: 'boolean' },
+    session_id: { ...text(100), description: 'Owning conversation ID from bot_sessions_query. Defaults to the current conversation. Always use the user-specified conversation.' }, title: text(200), goal: text(8000), agent_id: text(100), start: { type: 'boolean' },
+  }, ['title', 'goal'], (args, origin) => execute({ action: 'create', session_id: currentSessionId, ...args }, origin))
+  const control = define('bot_task_control', 'Operate existing work using a fresh task_ref and allowed_actions. continue adds a turn to the same task, Agent and conversation, queueing behind running work. adopt needs explicit user intent; adopt/update need goal. Stop cancels follow-ups but preserves schedules; query to confirm interruption. Reopen closed work first. On stale references, query and reconsider. Host manages versions and retries.', {
+    task_ref: text(100), action: { ...text(30), enum: Object.keys(actionFields), description: 'start runs saved requirements; continue adds a turn; update changes requirements; reopen changes status only.' }, session_id: { ...text(100), description: 'Target conversation for adopt only; existing tasks keep their conversation.' }, goal: { ...text(8000), description: 'Required for adopt/update only.' }, message: { ...text(32000), description: 'Required for continue: complete user follow-up with relevant context.' }, agent_id: text(100), start: { type: 'boolean' },
   }, ['task_ref', 'action'], async (args, origin) => {
     const action = args.action as Action
     if (Object.keys(args).some(key => !['task_ref', 'action', ...actionFields[action]].includes(key))) throw personError(`Unsupported fields for ${action}`)
@@ -120,14 +122,10 @@ export function personTaskTools(userId: number): PersonTool[] {
     const { task, assignable } = reference
     if (!actions(task, assignable).includes(action)) return failure('ACTION_NOT_ALLOWED', 'Action is unavailable for the queried task state', queryAgain, task.id)
     const { task_ref: _ref, ...intent } = args
-    return execute({ ...intent, task_id: task.id, expected_revision: task.revision,
+    return execute({ ...(action === 'adopt' ? { session_id: currentSessionId } : {}), ...intent, task_id: task.id, expected_revision: task.revision,
       ...(!assignable ? { expected_execution_id: task.execution_id || null } : {}),
       ...(action === 'stop' ? { execution_id: task.execution_id } : {}),
     }, origin)
   })
-  control.parameters!.anyOf = Object.entries(actionFields).map(([action, fields]) => ({
-    properties: Object.fromEntries(['task_ref', 'action', ...fields].map(key => [key, key === 'action' ? { enum: [action] } : {}])),
-    required: actionRequired[action as Action] || [], additionalProperties: false,
-  }))
   return [query, create, control]
 }

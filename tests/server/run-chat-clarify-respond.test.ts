@@ -1,3 +1,4 @@
+vi.mock('../../packages/server/src/modules/studio/repositories/person-session-store', () => ({ personSessionIds: (userId: number) => userId === 1 ? ['person-main-1'] : [] }))
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const personDeliveryCurrentMock = vi.hoisted(() => vi.fn(() => true))
@@ -207,7 +208,7 @@ describe('ChatRunSocket clarify responses', { timeout: 15_000 }, () => {
     const server = new ChatRunSocket(io as any)
     ;(server as any).sessionMap.set(sid, { isWorking: true, events: [] })
     ;(server as any).syncPersonInteraction(1)
-    expect(namespaceEmit.mock.calls.map(call => call[0])).toEqual(['person.updated'])
+    expect(namespaceEmit.mock.calls.map(call => call[0])).toEqual(['person.updated', 'person.updated'])
     ;(server as any).sessionMap.get(sid).isWorking = false
     ;(server as any).syncPersonInteraction(1)
     expect(namespaceEmit).toHaveBeenCalledWith('clarify.requested', expect.objectContaining({ session_id: sid, durable: true }))

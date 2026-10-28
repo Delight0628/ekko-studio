@@ -1187,7 +1187,7 @@ function applySessionTokenUsage(session: Session, usage: {
   }
 }
 
-function mapHermesSession(s: SessionSummary): Session {
+export function mapHermesSession(s: SessionSummary): Session {
   const codingAgentId = agentToCodingAgentId(s.agent)
   const isCodingAgentSession = s.source === 'coding_agent' || Boolean(codingAgentId)
   const codingAgentMode = isBuiltinEkkoSession(s) ? 'scoped' : isCodingAgentSession
@@ -2456,6 +2456,16 @@ function createChatState(scopedSessionId?: string) {
       if (shouldClearRuntimeCredentials) clearCodingAgentRuntimeCredentials(activeTarget)
     }
     return true
+  }
+
+  function forgetSession(sessionId: string) {
+    setBackgroundPending(sessionId, 0)
+    clearMessageReference(sessionId)
+    clearSessionCompletedUnread(sessionId)
+    setAbortState(sessionId, null)
+    setCompressionState(sessionId, null)
+    sessions.value = sessions.value.filter(session => session.id !== sessionId)
+    if (activeSessionId.value === sessionId) clearActiveSession()
   }
 
   async function deleteSession(sessionId: string): Promise<boolean> {
@@ -5346,7 +5356,7 @@ function createChatState(scopedSessionId?: string) {
       if (announcedPersonRuns.size > 1000) announcedPersonRuns.delete(announcedPersonRuns.values().next().value!)
       if (useSettingsStore().display.notify_on_complete) void showCompletionNotification({
         title: 'zhezhe', body: truncateNotificationText(evt.output || '', 140),
-        icon: chatSessionAgentAvatar({ id: sid }).src, tag: `hermes-person-${evt.notification_id}`, clickUrl: '/person',
+        icon: chatSessionAgentAvatar({ id: sid }).src, tag: `hermes-person-${evt.notification_id}`, clickUrl: `/person?session=${encodeURIComponent(sid)}`,
       })
       return
     }
@@ -5741,6 +5751,8 @@ function createChatState(scopedSessionId?: string) {
     newCliSession,
     switchSession,
     ensureSessionLoaded,
+    forgetSession,
+    clearActiveSession,
     loadOlderMessages,
     switchSessionModel,
     addOrUpdateSession,

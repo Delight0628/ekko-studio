@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { personError, personText, personRevision } from '../../contracts/person'
 import type { PersonSchedule } from '../../contracts/person'
 import { personDb, personTransaction, getPersonTask, enqueuePersonExecution, listPersonSchedules, personOperation } from '../../repositories/person-store'
+import { requirePersonSession } from '../../repositories/person-session-store'
 import { nextWorkflowScheduleAt } from '../workflow/schedule'
 
 export function applyPersonSchedule(userId: number, input: Record<string, unknown>) {
@@ -10,6 +11,7 @@ export function applyPersonSchedule(userId: number, input: Record<string, unknow
     const db = personDb(); const now = Date.now()
     if (input.action === 'create') {
       const task = getPersonTask(userId, personText(input.task_id, 'task_id', 100))
+      requirePersonSession(userId, task.session_id)
       if (task.status !== 'open') throw personError('Task must be open')
       const timezone = personText(input.timezone, 'timezone', 100)
       new Intl.DateTimeFormat('en-US', { timeZone: timezone })
@@ -26,6 +28,7 @@ export function applyPersonSchedule(userId: number, input: Record<string, unknow
     const id = personText(input.schedule_id, 'schedule_id', 100)
     const schedule = db.prepare('SELECT * FROM person_schedules WHERE id=? AND owner_user_id=?').get(id, userId) as unknown as PersonSchedule | undefined
     if (!schedule) throw personError('Schedule not found', 404)
+    requirePersonSession(userId, getPersonTask(userId, schedule.task_id).session_id)
     if (input.action === 'update') {
       if (getPersonTask(userId, schedule.task_id).status !== 'open') throw personError('Task must be open',409)
       if (schedule.state === 'cancelled') throw personError('Schedule is cancelled', 409)

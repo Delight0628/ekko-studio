@@ -35,7 +35,7 @@ async function refresh() {
     return true
   } catch (e) { if (!lifetime.signal.aborted) error.value = String(e); return false }
 }
-const stopUpdates = onPersonUpdated(event => { if (event.session_id === props.mainSessionId && ready.value) void refresh() })
+const stopUpdates = onPersonUpdated(event => { if ((!event.session_id || event.session_id === props.mainSessionId) && ready.value) void refresh() })
 onMounted(async () => {
   if (!await refresh() || !session.value) return
   store.ensureSessionLoaded(session.value)

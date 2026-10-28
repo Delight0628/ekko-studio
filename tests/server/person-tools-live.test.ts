@@ -36,7 +36,7 @@ it.skipIf(process.env.PERSON_TOOLS_LIVE !== '1')('replays name, repository and r
         expect(args.idempotency_key).toEqual(expect.any(String))
         return { task: { ...task, revision: 8, execution_state: 'queued', execution_id: 'fixture-new', running: true }, execution: { id: 'fixture-new', state: 'queued' } } as any
       })
-      const tools = personTools(1, 'main').map(tool => ['bot_tasks_query', 'bot_task_create', 'bot_task_control'].includes(tool.name) ? tool : ({ ...tool, async execute() {
+      const tools = personTools(1, 'main', undefined, 'person-main-1').map(tool => ['bot_tasks_query', 'bot_task_create', 'bot_task_control'].includes(tool.name) ? tool : ({ ...tool, async execute() {
         if (tool.name === 'bot_agents_list') return { agents: [{ id: 'worker', name: 'Configured worker', selection }], next_offset: null }
         throw new Error(`Unexpected fixture tool: ${tool.name}`)
       } }))

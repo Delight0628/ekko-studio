@@ -5,7 +5,6 @@ import { SqliteMemoryStore } from '../../../../../../ekko-agent/src/memory/store
 import { createMemoryTools } from '../../../../../../ekko-agent/src/memory/tools'
 import type { MemoryRuntimeIdentity } from '../../../../../../ekko-agent/src/memory/types'
 import { getWebUiHome } from '../../public/config'
-import { personSessionId } from '../../contracts/person-session'
 import { personError } from '../../contracts/person'
 import { personUser } from './catalog'
 import { personUpdated } from '../../repositories/person-updates'
@@ -13,7 +12,7 @@ import { personUpdated } from '../../repositories/person-updates'
 const stores = new Map<string, { service: MemoryService; store: SqliteMemoryStore }>()
 
 /** One physical store per account; model Profiles never select the memory owner. */
-export function personMemory(userId: number) {
+export function personMemory(userId: number, sessionId = `person-memory-${userId}`) {
   if (!Number.isSafeInteger(userId) || userId < 1) throw personError('Invalid account', 403)
   personUser(userId)
   const path = join(getWebUiHome(), 'person', String(userId), 'memory.db')
@@ -24,7 +23,7 @@ export function personMemory(userId: number) {
     stores.set(path, memory)
   }
   const identity: MemoryRuntimeIdentity = {
-    sessionId: personSessionId(userId), profileId: `person:${userId}`,
+    sessionId, profileId: `person:${userId}`,
     origin: { host: 'ekko-studio', namespace: 'person', contextId: String(userId) },
     recallScopes: [{ type: 'profile' }], writeScopes: [{ type: 'profile' }], defaultWriteScope: { type: 'profile' },
   }

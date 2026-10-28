@@ -307,7 +307,7 @@ async function submitWorkflowApproval(action: Extract<GlobalPendingAction, { kin
 function openPendingSource(action: GlobalPendingAction) {
   if (action.kind === 'chat-approval' || action.kind === 'chat-clarify') {
     const sessionId = action.pending.sessionId
-    if (sessionId.startsWith('person-main-')) { void router.push('/person'); return }
+    if (sessionId.startsWith('person-main-')) { void router.push({ name: 'hermes.person', query: { session: sessionId } }); return }
     const session = chatStore.sessions.find(item => item.id === sessionId)
     void router.push({
       name: session?.source === 'global_agent' ? 'hermes.globalAgentSession' : 'hermes.session',
@@ -336,7 +336,7 @@ function systemNotificationCopy(action: GlobalPendingAction): { title: string; b
 function pendingSourceClickUrl(action: GlobalPendingAction): string {
   const profileQuery = `?profile=${encodeURIComponent(action.profile)}`
   if (action.kind === 'chat-approval' || action.kind === 'chat-clarify') {
-    if (action.pending.sessionId.startsWith('person-main-')) return '/person'
+    if (action.pending.sessionId.startsWith('person-main-')) return `/person?session=${encodeURIComponent(action.pending.sessionId)}`
     const sessionId = encodeURIComponent(action.pending.sessionId)
     const session = chatStore.sessions.find(item => item.id === action.pending.sessionId)
     return session?.source === 'global_agent'

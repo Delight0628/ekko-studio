@@ -1,6 +1,6 @@
 import type { PersonExecution, PersonTaskOrigin } from '../../contracts/person'
 import { personError } from '../../contracts/person'
-import { personSessionId, ownsPersonSession } from '../../contracts/person-session'
+import { ownsPersonSession } from '../../contracts/person-session'
 import { getSession, getSessionDetail } from '../../repositories/session-store'
 import { personDb, getPersonExecution, getPersonTask } from '../../repositories/person-store'
 import { personUpdated } from '../../repositories/person-updates'
@@ -8,10 +8,11 @@ import { personRuntime } from '../../public/person-runtime'
 import { personUser } from './catalog'
 
 export function savePersonTaskOrigin(userId: number, taskId: string, supplied?: PersonTaskOrigin) {
-  const sessionId = personSessionId(userId)
-  if (supplied && (supplied.sessionId !== sessionId || !ownsPersonSession(userId, getSession(sessionId)))) throw personError('Invalid background task origin', 403)
+  const sessionId = getPersonTask(userId, taskId).session_id
+  if (!ownsPersonSession(userId, getSession(sessionId))) throw personError('Task conversation not found', 404)
+  if (supplied && !ownsPersonSession(userId, getSession(supplied.sessionId))) throw personError('Invalid background task origin', 403)
   // UI actions and schedules use a bounded snapshot of the same account conversation.
-  const origin: PersonTaskOrigin = supplied || { sessionId, runId: '', messages: (getSessionDetail(sessionId)?.messages || [])
+  const origin: PersonTaskOrigin = supplied ? { ...supplied, sessionId } : { sessionId, runId: '', messages: (getSessionDetail(sessionId)?.messages || [])
     .filter(message => ['user','assistant'].includes(message.role) && !message.tool_calls?.length)
     .slice(-20).map(message => ({ role: message.role as 'user' | 'assistant', content: String(message.content || '').slice(0,6000) })) }
   personDb().prepare('INSERT INTO person_task_origins VALUES (?,?,?) ON CONFLICT(task_id) DO UPDATE SET origin_json=excluded.origin_json')
@@ -33,7 +34,7 @@ export function cancelPersonDelivery(userId: number, executionId: string) {
 export function personDeliveryCurrent(userId: number, executionId: string) {
   const run = getPersonExecution(userId, executionId)
   const task = getPersonTask(userId, run.task_id)
-  return ['finished','failed'].includes(run.state) && task.status !== 'closed' && task.requirements_revision === run.requirements_revision
+  return ownsPersonSession(userId, getSession(task.session_id)) && ['finished','failed'].includes(run.state) && task.status !== 'closed' && task.requirements_revision === run.requirements_revision
 }
 export async function deliverPersonResults() {
   const db = personDb()
@@ -47,6 +48,10 @@ export async function deliverPersonResults() {
     const run = getPersonExecution(row.owner_user_id, row.execution_id)
     const task = getPersonTask(row.owner_user_id, run.task_id)
     const origin = JSON.parse(row.origin_json) as PersonTaskOrigin
+    if (origin.sessionId !== task.session_id) {
+      db.prepare("UPDATE person_deliveries SET state='cancelled' WHERE execution_id=?").run(run.id)
+      continue
+    }
     // Deleting the source conversation must not recreate it or replay private history.
     if (!ownsPersonSession(row.owner_user_id, getSession(origin.sessionId))) {
       db.prepare("UPDATE person_deliveries SET state='cancelled' WHERE execution_id=?").run(run.id)

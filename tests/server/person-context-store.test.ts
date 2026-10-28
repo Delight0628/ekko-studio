@@ -10,10 +10,10 @@ function add(session: string, content: string, role = 'user', finish = 'stop') {
 function open(user = 1) { return openPersonContextStore(user, `person-main-${user}`, db) }
 beforeEach(() => {
   db = new DatabaseSync(':memory:')
-  db.exec(`CREATE TABLE sessions(id TEXT PRIMARY KEY,studio_user_id TEXT,history_revision INTEGER DEFAULT 0);
+  db.exec(`CREATE TABLE sessions(id TEXT PRIMARY KEY,studio_user_id TEXT,history_revision INTEGER DEFAULT 0,title TEXT DEFAULT 'Conversation');
     CREATE TABLE messages(id INTEGER PRIMARY KEY,session_id TEXT,role TEXT,content TEXT,timestamp INTEGER,finish_reason TEXT);
     CREATE INDEX idx_messages_session_id ON messages(session_id);
-    INSERT INTO sessions VALUES('person-main-1','1',0),('person-main-2','2',0),('ordinary','1',0);`)
+    INSERT INTO sessions(id,studio_user_id,history_revision) VALUES('person-main-1','1',0),('person-main-2','2',0),('ordinary','1',0);`)
   initPersonContextTables(db)
 })
 afterEach(() => db.close())
@@ -134,4 +134,22 @@ describe('Person derived context store', () => {
     elapsed.sort((a,b)=>a-b)
     console.info(JSON.stringify({person_context_scale:{messages:100000,indexedMs,batches,p95SearchAndRecentMs:elapsed[18],maxEvidence:6,maxRecent:8}}))
   },30000)
+})
+
+
+it('recalls another owned conversation with source identity while keeping recent dialogue local and excluding other accounts', () => {
+  db.exec("INSERT INTO sessions(id,studio_user_id,title) VALUES('person-main-B','1','Travel B')")
+  const own = add('person-main-1', 'Local conversation A')
+  const shared = add('person-main-B', 'Travel B receipt SHARED-73')
+  add('person-main-2', 'Travel B receipt PRIVATE-73')
+  const store = open()
+  const found = store.search('SHARED-73')
+  expect(found.evidence).toContainEqual(expect.objectContaining({ id: shared, session_id: 'person-main-B', session_title: 'Travel B' }))
+  expect(store.recent().map(row => row.id)).toEqual([own])
+  expect(store.search('PRIVATE-73').evidence).toEqual([])
+  expect(store.read(shared)?.session_id).toBe('person-main-B')
+  const future = add('person-main-B', 'Travel B future receipt')
+  expect(store.read(future)).toBeUndefined()
+  db.exec("UPDATE sessions SET history_revision=history_revision+1 WHERE id='person-main-B'")
+  expect(() => store.read(shared)).toThrow('history changed')
 })

@@ -10,6 +10,7 @@ import { ensureDirectory } from '../workspace/directory'
 import { validatePersonSelection } from './catalog'
 import { selectPersonExecutionAgent } from './agents'
 import { savePersonTaskOrigin } from './delivery'
+import { requirePersonSession } from '../../repositories/person-session-store'
 
 const running = new Map<string, AbortController>()
 const stopping = new Map<string, Promise<void>>()
@@ -62,7 +63,10 @@ export async function applyPersonTask(userId: number, input: Record<string, unkn
   if (!['create','adopt','update','start','stop','close','reopen'].includes(action)) throw personError('Unsupported task action')
   const key = personText(input.idempotency_key, 'idempotency_key', 200)
   if (boundTask && (input.task_id !== boundTask || action === 'create' || action === 'adopt')) throw personError('Task is outside this coordinator scope', 403)
-  const replay = replayPersonOperation<PersonTaskResult>(userId, `task:${key}`, input)
+  const targetSession = ['create', 'adopt'].includes(action) ? String(input.session_id || origin?.sessionId || '') : getPersonTask(userId, String(input.task_id)).session_id
+  if (action !== 'stop') requirePersonSession(userId, targetSession)
+  const operationInput = ['create', 'adopt'].includes(action) ? { ...input, session_id: targetSession } : input
+  const replay = replayPersonOperation<PersonTaskResult>(userId, `task:${key}`, operationInput)
   if (replay !== undefined) return replay
   const selection = ['create','adopt'].includes(action) ? await selectPersonExecutionAgent(userId, input.agent_id) : null
   if (selection) await validatePersonSelection(userId, selection)
@@ -70,15 +74,16 @@ export async function applyPersonTask(userId: number, input: Record<string, unkn
   const taskWorkspace = personWorkspace(userId)
   if (input.workspace && input.workspace !== taskWorkspace) throw personError('Task workspace is managed by Person settings')
   if (['create','adopt'].includes(action)) await ensureDirectory(taskWorkspace)
-  const result = personOperation(userId, `task:${key}`, input, () => {
+  const result = personOperation(userId, `task:${key}`, operationInput, () => {
+    if (action !== 'stop') requirePersonSession(userId, targetSession)
     if (action === 'adopt') {
-      const task = adoptPersonGoal(userId, personText(input.task_id,'task_id',100),personRevision(input.expected_revision),selection!,taskWorkspace,personText(input.goal,'goal',8000))
+      const task = adoptPersonGoal(userId, personText(input.task_id,'task_id',100),personRevision(input.expected_revision),selection!,taskWorkspace,personText(input.goal,'goal',8000),targetSession)
       savePersonTaskOrigin(userId, task.id, origin)
       const execution = input.start === false ? undefined : enqueuePersonExecution(task)
       return { task: getPersonTask(userId, task.id), execution }
     }
     if (action === 'create') {
-      const task = createPersonTask(userId, personText(input.title, 'title', 200), personText(input.goal, 'goal', 8000), selection!, taskWorkspace)
+      const task = createPersonTask(userId, personText(input.title, 'title', 200), personText(input.goal, 'goal', 8000), selection!, taskWorkspace, targetSession)
       savePersonTaskOrigin(userId, task.id, origin)
       const execution = input.start === false ? undefined : enqueuePersonExecution(task)
       return { task: getPersonTask(userId, task.id), execution }
@@ -115,3 +120,22 @@ export async function applyPersonTask(userId: number, input: Record<string, unkn
   return result
 }
 export function personOperationKey() { return randomUUID() }
+
+/** Deletion cancels every occurrence and follow-up, and waits for native exit before removing records. */
+export async function stopPersonSessionTasks(userId: number, sessionId: string) {
+  const runs = personTransaction(() => {
+    personDb().prepare("UPDATE person_schedules SET state='cancelled',revision=revision+1 WHERE task_id IN (SELECT id FROM session_tasks WHERE owner_user_id=? AND session_id=?)").run(userId, sessionId)
+    personDb().prepare("UPDATE person_deliveries SET state='cancelled' WHERE execution_id IN (SELECT e.id FROM person_executions e JOIN session_tasks t ON t.id=e.task_id WHERE t.owner_user_id=? AND t.session_id=?)").run(userId, sessionId)
+    const tasks = personDb().prepare('SELECT id FROM session_tasks WHERE owner_user_id=? AND session_id=?').all(userId, sessionId)
+    const stopping: PersonExecution[] = []
+    for (const task of tasks) {
+      const current = getPersonTask(userId, String(task.id))
+      if (current.execution_id && ['pending','queued','starting','running','stopping','waiting_person','waiting_user','waiting_approval'].includes(current.execution_state || '')) {
+        const result = requestStop(userId, current.id, current.execution_id)
+        if (result.execution.state === 'stopping') stopping.push(result.execution)
+      }
+    }
+    return stopping
+  })
+  await Promise.all(runs.map(acknowledgePersonStop))
+}

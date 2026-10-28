@@ -12,11 +12,32 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true, custo
   const globalModel = { model: 'global-model', provider: 'provider', profile: 'default' }
   const state: any = { settings: { workspace: '', model: globalModel, reasoningEffort: 'low', timezone: 'UTC', compressionThreshold: null, maxSteps: 12, maxConcurrentTasks: 2, agents: [{ id: 'worker', name: 'Research assistant', description: 'Research and write reports', selection: { runtime: 'ekko', mode: 'scoped', profile: 'default', provider: 'provider', model: 'global-model', reasoningEffort: '' } }] }, contextTokens: 200000, compression: { enabled: true, threshold: 0.5, globalThreshold: 0.5 }, inherits_global_model: true, reasoning_efforts: ['none', 'low', 'high'], revision: 0, busy: false, history_revision: 0, can_clear: false, tasks: [{ id: 'task1', title: 'Check report', summary: 'Verify a report', status: 'open', revision: 0, execution_id: 'execution1', execution_state: 'running', running: true }], schedules: [], memories: [], interactions: [] }
   state.session = { id: 'person-main-1', source: 'builtin_agent', agent: 'ekko-agent', agent_preset: 'person', agent_mode: 'scoped', profile: 'default', title: 'Person', workspace: '/tmp/person/default', model: 'global-model', provider: 'provider', started_at: 1, ended_at: null, message_count: 0, tool_call_count: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, billing_provider: null, estimated_cost_usd: 0, actual_cost_usd: null, cost_status: '' }
+  state.conversations = [state.session]
+  state.conversationMessages = {}
+  state.tasks[0].session_id = state.session.id
   await page.addInitScript(() => { (window as any).__PW_CHAT_SOCKET_RESUMES__ = { 'person-main-1': { session_id: 'person-main-1', messages: [], isWorking: false, events: [] } } })
   const operations: any[] = []
   await page.route(/^https?:\/\/[^/]+\/api\/studio\/person(?:\/|\?|$)/, async route => {
     const req = route.request(); const path = new URL(req.url()).pathname; const body = req.postDataJSON()
     operations.push({ path, body, headers: req.headers() })
+    if (path.endsWith('/conversations')) {
+      if (req.method() === 'POST') {
+        const session = { ...state.session, id: `person-main-new-${operations.length}`, title: body.title, history_revision: 0 }
+        state.conversations.unshift(session)
+        return route.fulfill({ json: session })
+      }
+      const query = new URL(req.url()).searchParams.get('search')?.toLowerCase() || ''
+      const sessions = state.conversations.filter((session: any) => !query || session.title.toLowerCase().includes(query) || (state.conversationMessages[session.id] || []).some((message: any) => message.content.toLowerCase().includes(query)))
+      return route.fulfill({ json: { sessions, next_offset: null } })
+    }
+    if (path.includes('/conversations/') && req.method() === 'DELETE') {
+      const id = decodeURIComponent(path.split('/').at(-1)!)
+      state.conversations = state.conversations.filter((session: any) => session.id !== id)
+      const removedIds = new Set(state.tasks.filter((task: any) => task.session_id === id).map((task: any) => task.id))
+      state.tasks = state.tasks.filter((task: any) => !removedIds.has(task.id))
+      state.schedules = state.schedules.filter((schedule: any) => !removedIds.has(schedule.task_id))
+      return route.fulfill({ json: { deleted: true, session_id: id } })
+    }
     if (path.endsWith('/capabilities')) return route.fulfill({ json: { agents: [{ runtime: 'ekko', installed: true }, { runtime: 'codex', installed: true }], native_allowed: true } })
     if (path.endsWith('/models') || path.endsWith('/agent-models')) return route.fulfill({ json: { groups: [{ provider: 'provider', profile: 'default', label: 'My provider', models: ['global-model', 'fast-model'], model_meta: { 'global-model': { reasoning_efforts: ['none', 'low', 'high'] }, 'fast-model': { reasoning: false } } }] } })
     if (path.endsWith('/settings')) {
@@ -70,9 +91,13 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true, custo
       return route.fulfill({ json: {} })
     }
     if (path.endsWith('/memory')) { state.memories = state.memories.filter((m: any) => m.id !== body.id); return route.fulfill({ json: {} }) }
+    const requested = new URL(req.url()).searchParams.get('session_id')
+    const selected = requested ? state.conversations.find((session: any) => session.id === requested) : null
+    if (requested && !selected) return route.fulfill({ status: 404, json: { error: 'Conversation not found' } })
     state.can_clear = !state.busy && !state.tasks.some((task: any) => task.running)
     state.session.model = state.settings.model?.model || ''; state.session.provider = state.settings.model?.provider || ''; state.session.reasoning_effort = state.settings.reasoningEffort
-    return route.fulfill({ json: state })
+    if (path.endsWith('/tasks/query')) return route.fulfill({ json: { tasks: state.tasks.filter((task: any) => !body.session_id || (task.session_id || state.session.id) === body.session_id) } })
+    return route.fulfill({ json: { ...state, session: selected, tasks: state.tasks.filter((task: any) => selected && (task.session_id || state.session.id) === selected.id), schedules: state.schedules.filter((schedule: any) => state.tasks.some((task: any) => task.id === schedule.task_id && (task.session_id || state.session.id) === selected?.id)) } })
   })
   return { state, operations }
 }
@@ -80,7 +105,7 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true, custo
 test('Person events use the existing global question notification and open the main window',async({page})=>{
   await setup(page,'light',false,false)
   await page.goto('/#/person')
-  await expect(page.locator('.person-title')).toHaveText('Personal assistant')
+  await expect(page.locator('.person-title')).toHaveText('Person')
   await page.getByRole('link',{name:'Chat',exact:true}).click()
   await expect(page).toHaveURL(/#\/hermes\/chat$/)
   await expect.poll(()=>page.evaluate(()=>(window as any).__PW_CHAT_SOCKET__?.allSockets?.some((socket:any)=>String(socket.url).endsWith('/chat-run')))).toBe(true)
@@ -92,8 +117,8 @@ test('Person events use the existing global question notification and open the m
   await expect(title).toBeVisible()
   await expect(page.getByText('Choose the report scope',{exact:true})).toBeVisible()
   await title.click()
-  await expect(page).toHaveURL(/#\/person$/)
-  await expect(page.locator('.person-title')).toHaveText('Personal assistant')
+  await expect(page).toHaveURL(/#\/person\?session=person-main-1$/)
+  await expect(page.locator('.person-title')).toHaveText('Person')
 })
 
 async function backgroundTaskCount(page: Page, count: number, state = 'searching') {
@@ -390,7 +415,8 @@ for (const { locale, title, width } of [
   { locale: 'ar', title: 'المساعد الشخصي', width: 390 },
 ]) {
   test(`localizes the assistant title and keeps zhezhe's identity in ${locale} at ${width}px`, async ({ page }) => {
-    await setup(page, 'light', false)
+    const { state } = await setup(page, 'light', false)
+    state.session.title = title
     await page.addInitScript(value => localStorage.setItem('hermes_locale', value), locale)
     await page.setViewportSize({ width, height: 844 })
     await page.goto('/#/person')
@@ -412,7 +438,7 @@ for (const mode of ['light', 'dark'] as const) {
     const { state, operations } = await setup(page, mode)
     await page.goto('/#/person')
     const input = page.getByPlaceholder('Type a message... (Enter to send, Shift+Enter for new line)')
-    await expect(page.locator('.person-title')).toHaveText('Personal assistant')
+    await expect(page.locator('.person-title')).toHaveText('Person')
     await expect(page.locator('.input-settings-button')).toHaveCount(0)
     await expect(page.locator('.input-model-button')).toHaveAttribute('aria-label', 'global-model')
     await expect(page.getByRole('heading', { name: 'Choose a model' })).toHaveCount(0)
@@ -1428,7 +1454,7 @@ for (const mode of ['light', 'dark'] as const) {
     await page.getByRole('button', { name: 'Confirm', exact: true }).click()
     await expect(page.getByText('Old Person conversation', { exact: true })).toHaveCount(0)
     await expect(page.getByText('Chat history and tasks cleared.', { exact: true })).toBeVisible()
-    expect(operations.filter(op => op.path.endsWith('/clear'))).toEqual([expect.objectContaining({ body: { expected_history_revision: 0 } })])
+    expect(operations.filter(op => op.path.endsWith('/clear'))).toEqual([expect.objectContaining({ body: { session_id: 'person-main-1', expected_history_revision: 0 } })])
     expect(state.tasks).toEqual([])
     expect(state.memories).toHaveLength(1)
     expect(state.settings.workspace).toBe('/workspace/person-shared')
@@ -1469,4 +1495,65 @@ test('Person preserves records when work starts after opening the clear confirma
   await expect(page.getByText('Keep the old conversation', { exact: true })).toBeVisible()
   expect(state.tasks).toHaveLength(1)
   expect(operations.filter(op => op.path.endsWith('/clear'))).toHaveLength(1)
+})
+
+
+for (const mode of ['light', 'dark'] as const) {
+  test(`Person creates named conversations, switches and deletes only the selected conversation in ${mode}`, async ({ page }) => {
+    const { state, operations } = await setup(page, mode, true, true)
+    state.tasks[0].running = false; state.tasks[0].execution_state = 'finished'
+    await page.goto('/#/person')
+    await expect(page.locator('.person-title')).toHaveText('Person')
+    await page.getByRole('button', { name: 'New conversation', exact: true }).click()
+    const dialog = page.getByRole('dialog').filter({ has: page.getByRole('textbox', { name: 'Conversation name' }) })
+    await dialog.getByRole('textbox', { name: 'Conversation name' }).fill('旅行计划')
+    await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+    await expect(page.locator('.person-title')).toHaveText('旅行计划')
+    const created = state.conversations.find((session: any) => session.title === '旅行计划')
+    expect(created.id).not.toBe(state.session.id)
+    await expect(page).toHaveURL(new RegExp(`session=${created.id}`))
+    await expect(dialog).not.toBeVisible()
+    await expect(page.locator('.person-compose .input-textarea')).toBeVisible()
+    await page.screenshot({ path: `/tmp/person-multi-session-${mode}.png`, animations: 'disabled' })
+    await page.locator('.person-sidebar .session-item').filter({ hasText: 'Person' }).click()
+    await expect(page.locator('.person-title')).toHaveText('Person')
+    const row = page.locator('.person-sidebar .session-item').filter({ hasText: '旅行计划' })
+    await row.hover(); await row.locator('.session-item-delete').click()
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click()
+    await expect(row).toHaveCount(0)
+    await expect(page.locator('.person-title')).toHaveText('Person')
+    expect(state.tasks.map((task: any) => task.id)).toEqual(['task1'])
+    expect(operations.some(operation => operation.path.endsWith(`/conversations/${created.id}`))).toBe(true)
+  })
+}
+
+test('Person search uses the shared search dialog and only requests assistant conversation content', async ({ page }) => {
+  const { state, operations } = await setup(page, 'light', false, false)
+  const other = { ...state.session, id: 'person-main-travel', title: '旅行' }
+  state.conversations.push(other)
+  state.conversationMessages[other.id] = [{ role: 'user', content: 'JAPAN-RECEIPT-73' }]
+  await page.goto('/#/person')
+  await expect(page.locator('.person-title')).toBeVisible()
+  await page.locator('.person-sidebar').getByRole('button', { name: 'Search', exact: true }).click()
+  const search = page.locator('.session-search-modal')
+  await expect(search.getByText('Search personal assistant conversations only.')).toBeVisible()
+  await search.locator('input').fill('JAPAN-RECEIPT-73')
+  await expect(search.locator('.result-item')).toHaveCount(1)
+  await search.locator('.result-item').click()
+  await expect(page.locator('.person-title')).toHaveText('旅行')
+  expect(operations.filter(operation => operation.path.endsWith('/conversations')).length).toBeGreaterThan(1)
+})
+
+test('Person shows an empty state after deleting its last conversation and creates through the naming dialog on mobile', async ({ page }) => {
+  const { state } = await setup(page, 'dark', false, false)
+  state.conversations = []; state.tasks = []
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/#/person')
+  await expect(page.getByText('Create a conversation to start chatting.')).toBeVisible()
+  await page.locator('.person-empty').getByRole('button', { name: 'New conversation' }).click()
+  await page.getByRole('textbox', { name: 'Conversation name' }).fill('移动会话')
+  await page.getByRole('button', { name: 'Create', exact: true }).click()
+  await expect(page.locator('.person-title')).toHaveText('移动会话')
+  await expect(page.locator('.input-textarea')).toBeVisible()
+  await page.screenshot({ path: '/tmp/person-multi-session-mobile.png', animations: 'disabled' })
 })

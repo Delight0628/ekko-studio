@@ -16,3 +16,7 @@ personRoutes.get('/api/studio/person/executions/:id/events', ctrl.events)
 personRoutes.post('/api/studio/person/schedules/apply', ctrl.schedules)
 personRoutes.post('/api/studio/person/interactions/:id/answer', ctrl.answer)
 personRoutes.post('/api/studio/person/memory', ctrl.memory)
+
+personRoutes.get('/api/studio/person/conversations', ctrl.conversations)
+personRoutes.post('/api/studio/person/conversations', ctrl.conversationCreate)
+personRoutes.delete('/api/studio/person/conversations/:id', ctrl.conversationDelete)
