@@ -302,7 +302,7 @@ test('Person general settings save independently, survive refresh and retain dra
   await expect(panel.getByRole('textbox', { name: 'Compression Threshold' })).toHaveValue('60')
   await save.click()
   await expect(panel.getByRole('status')).toHaveText('Settings saved')
-  expect(operations.filter(op => op.path.endsWith('/settings')).at(-1).body).toEqual({ compressionThreshold: 0.6, maxSteps: 20, maxConcurrentTasks: 3, timezone: 'Asia/Shanghai', expected_revision: 0 })
+  expect(operations.filter(op => op.path.endsWith('/settings')).at(-1).body).toEqual({ compressionThreshold: 0.6, maxSteps: 20, maxConcurrentTasks: 3, timezone: 'Asia/Shanghai', session_id: 'person-main-1', expected_revision: 0 })
   expect(state.settings.agents).toEqual(originalAgents)
   expect(state.settings.model.model).toBe('global-model')
   await page.reload()
@@ -330,7 +330,7 @@ test('Person general settings preserve edits on conflicts and prevent writes dur
   await expect(panel.getByRole('status')).toHaveText('Unsaved changes')
   await save.click()
   await expect(panel.getByRole('status')).toHaveText('Settings saved')
-  expect(operations.filter(op => op.path.endsWith('/settings')).at(-1).body).toEqual({ compressionThreshold: 0.65, expected_revision: 1 })
+  expect(operations.filter(op => op.path.endsWith('/settings')).at(-1).body).toEqual({ compressionThreshold: 0.65, session_id: 'person-main-1', expected_revision: 1 })
   await panel.getByRole('textbox', { name: 'Maximum steps per reply' }).fill('')
   await panel.getByRole('textbox', { name: 'Maximum steps per reply' }).press('Tab')
   await expect(save).toBeDisabled()
@@ -370,7 +370,7 @@ test('Person compression follows the interaction model and can restore the globa
   await expect(panel.getByRole('textbox', { name: 'Compression Threshold' })).toHaveValue('70')
   await expect(panel.getByRole('textbox', { name: 'Compression Threshold' })).toBeDisabled()
   await expect(panel).toContainText('89,600 tokens')
-  expect(operations.filter(op => op.path.endsWith('/settings')).at(-1).body).toEqual({ compressionThreshold: null, expected_revision: 2 })
+  expect(operations.filter(op => op.path.endsWith('/settings')).at(-1).body).toEqual({ compressionThreshold: null, session_id: 'person-main-1', expected_revision: 2 })
 })
 
 for (const mode of ['light', 'dark'] as const) {
