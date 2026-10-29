@@ -53,6 +53,7 @@ test('single chat covers its first load and keeps session switches uncovered', a
   await page.locator('.input-textarea').fill('Keep my draft')
   // Ordinary generation is independent of initial page readiness.
   await expect(page.locator('.chat-view')).toHaveAttribute('aria-busy', 'false')
+  const composer = await page.locator('.chat-main-content .input-textarea').elementHandle()
 
   await page.locator('.session-items').getByText('Next chat', { exact: true }).first().click()
   await page.waitForFunction(() => (window as any).__PW_CHAT_SOCKET__?.emitted.some((item: any) => item.event === 'resume' && item.payload.session_id === 'next-chat'))
@@ -65,6 +66,10 @@ test('single chat covers its first load and keeps session switches uncovered', a
   }))
   await expect(page.getByText('Next conversation loaded', { exact: true })).toBeVisible()
   await expect(page.locator('.chat-view > .page-loading-overlay')).toHaveCount(0)
+  const surface = page.locator('.chat-main-content')
+  await expect.poll(() => surface.evaluate(el => el.getAnimations().length)).toBe(1)
+  expect(await surface.evaluate(el => el.getAnimations()[0].effect!.getTiming())).toMatchObject({ duration: 1500, easing: 'ease' })
+  expect(await composer!.evaluate(el => el.isConnected)).toBe(true)
 })
 
 test('group chat covers initial room data and keeps failed or stale room switches uncovered', async ({ page }) => {
@@ -120,6 +125,16 @@ test('group chat covers initial room data and keeps failed or stale room switche
   await staleResponse
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
   await expect(page.locator('.room-title-text')).toHaveText('Room alpha')
+  await page.evaluate(() => { location.hash = '#/hermes/group-chat/room/beta' })
+  await expect(page.locator('.room-title-text')).toHaveText('Room beta')
+  const fade = await page.locator('.group-chat-surface').evaluate(el => {
+    const effect = el.getAnimations().find(animation => animation.playState !== 'finished')?.effect as KeyframeEffect
+    return { timing: effect.getTiming(), frames: effect.getKeyframes() }
+  })
+  expect(fade.timing.duration).toBe(1500)
+  // CSS animations expose the ease on each keyframe; WAAPI exposes it on timing.
+  expect([fade.timing.easing, ...fade.frames.map(frame => frame.easing)]).toContain('ease')
+  expect(fade.frames.map(frame => Number(frame.opacity))).toEqual([0, 1])
 })
 
 test('workflow waits for initial data and keeps its canvas uncovered when switching workflows', async ({ page }) => {

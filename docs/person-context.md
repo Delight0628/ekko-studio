@@ -4,6 +4,18 @@
 
 Person conversations have independent generated `person-main-<uuid>` IDs and user-supplied names. Single chat and Person share the `SessionListSidebar` container for sizing, collapse, scrolling, themed surfaces and mobile drawer placement, as well as navigation, list rows and search UI. On mobile, switching between Chat and Person keeps both navigation columns open; selecting a conversation, opening search or naming a new conversation closes the drawer. Its search endpoint reads only the authenticated account's Person conversation names and messages; ordinary chats and task worker sessions are excluded. Creating a conversation never derives its ID from the account. An empty account shows a naming action instead of creating a fixed conversation implicitly.
 
+The displayed transcript uses the same chat-store `switchSession` and `/chat-run`
+Socket.IO `resume` path as ordinary chat. Once the conversation summary is known,
+resume starts alongside the Person settings/task snapshot, including during page
+initialization. A new selection cancels the previous snapshot instead of waiting
+for it; stale results cannot overwrite the selected BOT. Message lists and
+composers stay mounted across switches. Both surfaces use `useChatSurfaceReveal`
+for the same 1.5-second ease fade after transcript readiness. Cached messages
+reveal immediately; a fresh resume response does not replay that fade. The
+animation never delays resume or replays on background refreshes. Reduced motion skips
+the fade. This UI history path is separate from the model-context history loader
+described below.
+
 Model selection and reasoning effort are stored only in `person_conversation_settings`, keyed by the owned session ID. Setting a model, changing effort or restoring the global model requires `session_id`; unscoped writes are rejected. Unconfigured conversations use the Studio global default, never another Person conversation's selection. Obsolete account model/effort/context-budget fields are discarded at initialization without migration; existing conversation settings and history remain intact.
 
 Memory, Agent presets and execution settings remain account-scoped. Each main turn includes the current conversation identity and the complete account-owned Person conversation directory (IDs and names), without search pagination. New turns reflect creation, renaming and deletion; conversations being deleted are excluded. Names are user-provided labels and do not define responsibilities, hierarchy or Agent bindings. `bot_sessions_query` remains available to search conversation content or refresh the directory during a turn. The directory is part of the system prompt and its context budget; it does not include message history. History search covers the account's Person conversations and carries each original's conversation ID and name. Recent dialogue remains local to the current conversation. One account-wide message boundary is captured before the current input is persisted, and edits/deletion of any captured source fence subsequent tools and requests. Indexing retains a 64-chunk bound across sources per pass.

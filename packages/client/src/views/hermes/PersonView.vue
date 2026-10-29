@@ -39,6 +39,7 @@ import { useDefaultWorkspace } from '@/composables/useDefaultWorkspace'
 import { useChatStore, mapHermesSession, type Attachment } from '@/stores/hermes/chat'
 import { useSettingsStore } from '@/stores/hermes/settings'
 import { useSessionReadState } from '@/composables/useSessionReadState'
+import { useChatSurfaceReveal } from '@/composables/useChatSurfaceReveal'
 import type { AvailableModelGroup } from '@/api/hermes/system'
 import { personRequest, type PersonSnapshot, type PersonModel, type PersonModelGroup, type PersonTask, type PersonSchedule, type PersonMemory, type PersonFlow } from '@/api/person'
 import { DEFAULT_PERSON_BOT_TYPE, personBot } from '../../../../shared/person-bots'
@@ -278,6 +279,9 @@ function confirmDeleteConversation() {
 }
 const data = ref<PersonSnapshot | null>(null)
 const initializing = ref(true)
+const chatSurface = ref<HTMLElement | null>(null)
+useChatSurfaceReveal(chatSurface, () => selectedSessionId.value, () => !initializing.value
+  && chatStore.activeSessionId === selectedSessionId.value && (!chatStore.isLoadingMessages || chatStore.messages.length > 0))
 const switchingConversation = computed(() => !isNewConversation.value && !!selectedSessionId.value
   && data.value?.session?.id !== selectedSessionId.value)
 const sessionStates = useSessionReadState(() => !initializing.value && !isNewConversation.value && !chatStore.isLoadingMessages
@@ -305,7 +309,7 @@ let settingsChain = Promise.resolve()
 const optimisticEffort = ref<string | null>(null)
 const { drawerWidth } = useTaskDrawerLayout()
 let bootstrapping = true
-let refreshing = false
+let snapshotRequest: { sequence: number; sessionId: string; controller: AbortController } | null = null
 let refreshAgain = false
 let deletingConversations = false
 let disposed = false
@@ -335,29 +339,34 @@ function openPanel(name: string) { if (name === 'tasks') { showTasks.value = tru
 async function refresh() {
   if (disposed) return
   // Deletion broadcasts before its HTTP response; wait until the route is updated.
-  if (refreshing || deletingConversations) { refreshAgain = true; return }
-  refreshing = true; refreshAgain = false
   const sequence = snapshotSequence
   const sessionId = selectedSessionId.value
+  if (deletingConversations || (snapshotRequest?.sequence === sequence && snapshotRequest.sessionId === sessionId)) {
+    refreshAgain = true; return
+  }
+  snapshotRequest?.controller.abort()
+  const request = { sequence, sessionId, controller: new AbortController() }
+  snapshotRequest = request; refreshAgain = false
+  const isCurrent = () => !disposed && snapshotRequest === request && sequence === snapshotSequence && sessionId === selectedSessionId.value
   try {
-    const next = await personRequest<PersonSnapshot>(sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '', undefined, 'GET', lifetime.signal)
-    if (disposed) return
-    if (sequence !== snapshotSequence || sessionId !== selectedSessionId.value) { refreshAgain = true; return }
+    const next = await personRequest<PersonSnapshot>(sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '', undefined, 'GET', request.controller.signal)
+    if (!isCurrent()) return
     data.value = next
     syncSession(next)
     if (next.session && (chatStore.activeSessionId !== next.session.id || (typeof route.query.message === 'string' && chatStore.focusMessageId !== route.query.message))) void chatStore.switchSession(next.session.id, typeof route.query.message === 'string' ? route.query.message : null).catch(e => { if (!disposed && sequence === snapshotSequence && sessionId === selectedSessionId.value) error.value = String(e) })
     else if (!next.session && chatStore.activeSessionId?.startsWith('person-main-')) chatStore.clearActiveSession()
   } catch (e) {
-    if (disposed) return
-    if (sequence !== snapshotSequence || sessionId !== selectedSessionId.value) { refreshAgain = true; return }
+    if (!isCurrent()) return
     if ((e as { status?: number }).status === 404 && sessionId) {
       error.value = ''
       chatStore.forgetSession(sessionId)
       await router.replace({ name: 'hermes.person' })
     } else error.value = String(e)
   } finally {
-    refreshing = false
-    if (refreshAgain && !disposed && !deletingConversations) void refresh()
+    if (snapshotRequest === request) {
+      snapshotRequest = null
+      if (refreshAgain && !disposed && !deletingConversations) void refresh()
+    }
   }
 }
 function flowAction(flow: PersonFlow, action: 'stop' | 'resume') {
@@ -473,32 +482,39 @@ watch(selectedSessionId, id => {
   if (!id) resetConversationDraft()
 })
 const stopPersonUpdates = onPersonUpdated(() => { void loadConversations().catch(() => {}); void refresh() })
+function resumeSelectedConversation() {
+  const sessionId = selectedSessionId.value
+  const focus = typeof route.query.message === 'string' ? route.query.message : null
+  const cached = conversations.value.find(session => session.id === sessionId)
+  if (!cached || (chatStore.activeSessionId === sessionId && chatStore.focusMessageId === focus)) return
+  const sequence = snapshotSequence
+  chatStore.ensureSessionLoaded(cached)
+  void chatStore.switchSession(sessionId, focus)
+    .catch(e => { if (!disposed && sequence === snapshotSequence) error.value = String(e) })
+}
 watch([selectedSessionId, () => route.query.message], async () => {
   if (bootstrapping) return
-  const sequence = ++snapshotSequence
+  snapshotSequence++
   chatTaskId.value = null; showTasks.value = false
   // Keep the shared message list and composer mounted, as ordinary chat does.
-  const sessionId = selectedSessionId.value
-  const cached = conversations.value.find(session => session.id === sessionId)
-  if (cached) {
-    chatStore.ensureSessionLoaded(cached)
-    void chatStore.switchSession(sessionId, typeof route.query.message === 'string' ? route.query.message : null)
-      .catch(e => { if (!disposed && sequence === snapshotSequence) error.value = String(e) })
-  }
+  resumeSelectedConversation()
   await refresh()
 })
 onMounted(async () => {
   try {
     chatStore.setRuntimeMode('default')
-    await Promise.all([settingsStore.fetchSettings(), loadConversations()])
-    if (!selectedSessionId.value && conversations.value.length) await router.replace({ name: 'hermes.person', query: { session: conversations.value[0].id } })
-    await nextTick()
-    bootstrapping = false
-    await refresh()
+    await Promise.all([settingsStore.fetchSettings(), loadConversations().then(async () => {
+      if (disposed) return
+      if (!selectedSessionId.value && conversations.value.length) await router.replace({ name: 'hermes.person', query: { session: conversations.value[0].id } })
+      await nextTick()
+      bootstrapping = false
+      resumeSelectedConversation()
+      await refresh()
+    })])
   } catch (e) { if (!disposed) error.value = String(e) }
   finally { bootstrapping = false; if (!disposed) initializing.value = false }
 })
-onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; personDeployment?.cancel(); lifetime.abort() })
+onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; personDeployment?.cancel(); snapshotRequest?.controller.abort(); lifetime.abort() })
 </script>
 
 <template>
@@ -597,7 +613,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; personDeployment?.
           <NButton v-for="entry in recentWorkspaces" :key="entry.path" size="tiny" :title="entry.path" @click="workspaceValue = entry.path">{{ folderName(entry.path) }}</NButton>
         </div>
       </NModal>
-      <template v-if="!isNewConversation">
+      <div v-if="!isNewConversation" ref="chatSurface" class="person-chat-surface">
       <div v-if="data.session" class="person-chat-messages">
       <PersonTaskActivity :count="sessionStates.backgroundCount(selectedSessionId)" :avatar="chatSessionAgentAvatar(chatStore.activeSession)" :expanded="showTasks" @open="openPanel('tasks')" />
       <MessageList v-if="data.session" :user-label="t('person.you')" hide-tool-calls hide-run-usage hide-reasoning :activity-label="t('person.executing')" />
@@ -611,7 +627,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; personDeployment?.
           :default-effort-label="t('person.defaultEffort')"
           :scoped-reasoning-efforts="data.reasoning_efforts" @update:reasoning-effort="selectEffort" @model-click="openModels" />
       </div>
-      </template>
+      </div>
       <ModelCascader v-model:show="showModelPicker" :groups="pickerGroups" :custom-models="{}" :display-name="displayModel"
         :provider="pickerProvider" :model="currentModel?.model" :loading="modelsLoading || settingsWrites > 0" :trigger-element="modelTrigger"
         :title="t('chat.setModelTitle')" @select="selectModel">
@@ -683,6 +699,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; personDeployment?.
 .person-workspace-shortcuts { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .person-alert { margin: 12px; width: auto; }
 .person-compose { flex-shrink: 0; min-width: 0; }
+.person-chat-surface { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 .person-chat-messages { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 .person-model-hint { display: block; margin: 0 auto; border: 0; background: transparent; color: $accent-primary; cursor: pointer; font: inherit; font-size: 12px; padding: 8px; }
 .person-workspace { padding: 0 24px 28px; min-width: 0; }

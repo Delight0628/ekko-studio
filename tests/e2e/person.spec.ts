@@ -186,8 +186,8 @@ for (const listState of ['existing', 'empty', 'unavailable']) {
   })
 }
 
-async function setupSessionModels(page: Page) {
-  const { state, operations } = await setup(page, 'light', false, false)
+async function setupSessionModels(page: Page, mode: 'light' | 'dark' = 'light') {
+  const { state, operations } = await setup(page, mode, mode === 'dark', mode === 'dark')
   const second = { ...state.session, id: 'person-main-second', title: 'Second' }
   state.conversations.push(second)
   await page.addInitScript(id => {
@@ -314,6 +314,111 @@ test('Person keeps its dialogue and composer mounted while switching conversatio
   await expect(page.locator('.person-view')).not.toHaveAttribute('inert')
   expect(await before!.evaluate(el => el.isConnected)).toBe(true)
   expect(await messages!.evaluate(el => el.isConnected)).toBe(true)
+})
+
+for (const mode of ['light', 'dark'] as const) {
+  test(`Person fades the resumed BOT transcript before its settings snapshot completes in ${mode}`, async ({ page }) => {
+    const { second } = await setupSessionModels(page, mode)
+    await page.addInitScript(id => {
+      (window as any).__PW_CHAT_SOCKET_RESUMES__[id].messages = [{ id: 2, role: 'assistant', content: 'The second BOT reply', timestamp: 1 }]
+    }, second.id)
+    await page.goto('/#/person?session=person-main-1')
+    await expect(page.locator('.person-view')).toHaveAttribute('aria-busy', 'false')
+    const input = await page.locator('.person-compose .input-textarea').elementHandle()
+    let release!: () => void
+    const snapshot = new Promise<void>(resolve => { release = resolve })
+    await page.route(`**/api/studio/person?session_id=${second.id}`, async route => { await snapshot; return route.fallback() })
+    try {
+      await page.locator('.person-sidebar .session-item').filter({ hasText: second.title }).click()
+      await expect(page.getByText('The second BOT reply', { exact: true })).toBeVisible()
+      await expect(page.locator('.person-view')).toHaveAttribute('inert', '')
+      const surface = page.locator('.person-chat-surface')
+      await expect.poll(() => surface.evaluate(el => el.getAnimations().length)).toBe(1)
+      const reveal = await surface.evaluate(el => {
+        const animation = el.getAnimations()[0]
+        animation.pause(); animation.currentTime = 750
+        return { timing: animation.effect!.getTiming(), keyframes: (animation.effect as KeyframeEffect).getKeyframes(), opacity: Number(getComputedStyle(el).opacity) }
+      })
+      expect(reveal.timing).toMatchObject({ duration: 1500, easing: 'ease' })
+      expect(reveal.keyframes.map(frame => Number(frame.opacity))).toEqual([0, 1])
+      expect(reveal.opacity).toBeGreaterThan(0)
+      expect(reveal.opacity).toBeLessThan(1)
+      expect(await input!.evaluate(el => el.isConnected)).toBe(true)
+      await page.screenshot({ path: `/tmp/studio-person-switch-fade-${mode}.png` })
+      await surface.evaluate(el => el.getAnimations()[0]?.finish())
+      expect(await page.evaluate(id => (window as any).__PW_CHAT_SOCKET__.emitted.filter((entry: any) => entry.event === 'resume' && entry.payload.session_id === id).length, second.id)).toBe(1)
+    } finally { release() }
+    await expect(page.locator('.person-view')).not.toHaveAttribute('inert')
+  })
+}
+
+test('Person starts resume while its initial snapshot is still loading', async ({ page }) => {
+  await setupSessionModels(page)
+  let release!: () => void
+  const snapshot = new Promise<void>(resolve => { release = resolve })
+  await page.route('**/api/studio/person?session_id=person-main-1', async route => { await snapshot; return route.fallback() })
+  await page.goto('/#/person?session=person-main-1')
+  try {
+    await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__?.emitted.some((entry: any) => entry.event === 'resume' && entry.payload.session_id === 'person-main-1') || false)).toBe(true)
+  } finally { release() }
+  await expect(page.locator('.person-compose .input-textarea')).toBeVisible()
+})
+
+test('Person fades cached BOT messages immediately without restarting on the fresh resume', async ({ page }) => {
+  const { second } = await setupSessionModels(page)
+  await page.addInitScript(id => {
+    (window as any).__PW_CHAT_SOCKET_RESUMES__[id].messages = [{ id: 2, role: 'assistant', content: 'Cached BOT reply', timestamp: 1 }]
+  }, second.id)
+  await page.goto('/#/person?session=person-main-1')
+  await expect(page.locator('.person-view')).toHaveAttribute('aria-busy', 'false')
+  const row = (title: string) => page.locator('.person-sidebar .session-item').filter({ hasText: title })
+  await row(second.title).click()
+  await expect(page.getByText('Cached BOT reply', { exact: true })).toBeVisible()
+  await row('Person').click()
+  await expect(page.locator('.person-title')).toHaveText('Person')
+  await page.evaluate(id => { delete (window as any).__PW_CHAT_SOCKET_RESUMES__[id] }, second.id)
+  await row(second.title).click()
+  await expect(page.getByText('Cached BOT reply', { exact: true })).toBeVisible()
+  const surface = page.locator('.person-chat-surface')
+  await expect.poll(() => surface.evaluate(el => el.getAnimations().length)).toBe(1)
+  await surface.evaluate(el => {
+    const animation = el.getAnimations()[0]
+    animation.pause(); animation.currentTime = 750
+    ;(window as any).__cachedBotReveal = animation
+  })
+  await page.evaluate(id => (window as any).__PW_CHAT_SOCKET__.latest.__trigger('resumed', {
+    session_id: id, isWorking: false, events: [], messages: [{ id: 2, role: 'assistant', content: 'Fresh BOT reply', timestamp: 1 }],
+  }), second.id)
+  await expect(page.getByText('Fresh BOT reply', { exact: true })).toBeVisible()
+  expect(await surface.evaluate(el => el.getAnimations()[0] === (window as any).__cachedBotReveal)).toBe(true)
+  await surface.evaluate(el => el.getAnimations()[0]?.finish())
+})
+
+test('Person reveals only the latest BOT during rapid switches and respects reduced motion', async ({ page }) => {
+  const { state, second, models } = await setupSessionModels(page)
+  const third = { ...second, id: 'person-main-third', title: 'Third' }
+  state.conversations.push(third)
+  models.set(third.id, structuredClone(models.get(second.id)!))
+  await page.addInitScript(id => {
+    (window as any).__PW_CHAT_SOCKET_RESUMES__[id] = { session_id: id, messages: [{ id: 3, role: 'assistant', content: 'The latest BOT reply', timestamp: 1 }], isWorking: false, events: [] }
+  }, third.id)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto('/#/person?session=person-main-1')
+  await expect(page.locator('.person-view')).toHaveAttribute('aria-busy', 'false')
+  let release!: () => void
+  const snapshot = new Promise<void>(resolve => { release = resolve })
+  await page.route(`**/api/studio/person?session_id=${second.id}`, async route => { await snapshot; return route.fallback() })
+  try {
+    await page.locator('.person-sidebar .session-item').filter({ hasText: second.title }).click()
+    await expect(page.locator('.person-view')).toHaveAttribute('inert', '')
+    await page.locator('.person-sidebar .session-item').filter({ hasText: third.title }).click()
+    await expect(page.locator('.person-title')).toHaveText(third.title)
+    await expect(page.locator('.person-view')).not.toHaveAttribute('inert')
+    await expect(page.getByText('The latest BOT reply', { exact: true })).toBeVisible()
+    expect(await page.locator('.person-chat-surface').evaluate(el => el.getAnimations().length)).toBe(0)
+  } finally { release() }
+  await expect(page.locator('.person-title')).toHaveText(third.title)
+  await expect(page.locator('.person-alert')).toHaveCount(0)
 })
 
 test('Person events use the existing global question notification and open the main window',async({page})=>{
