@@ -2128,6 +2128,39 @@ test('Person accumulates small wheel deltas without snapping back between wheel 
   await expect(selected).toHaveAttribute('data-bot', 'zhezhe')
 })
 
+async function expectPersonBotHit(page: Page, viewport: Locator) {
+  await expect.poll(() => viewport.evaluate(el => {
+    const middle = el.scrollLeft + el.clientWidth / 2
+    const slots = Array.from(el.querySelectorAll<HTMLElement>('.person-bot-slot'))
+    const closest = slots.reduce((best, slot) => Math.abs(slot.offsetLeft + slot.offsetWidth / 2 - middle)
+      < Math.abs(best.offsetLeft + best.offsetWidth / 2 - middle) ? slot : best)
+    return closest.querySelector('button')?.getAttribute('aria-pressed') === 'true'
+  })).toBe(true)
+  const selected = viewport.locator('[aria-pressed="true"]')
+  const botType = await selected.getAttribute('data-bot')
+  await expect(page.locator('#person-conversation-name')).toHaveValue(botType!)
+  await expect(selected.locator('img')).toHaveAttribute('src', PERSON_BOTS.find(bot => bot.type === botType)!.animations.idle)
+  await expect.poll(() => selected.locator('img').evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true)
+}
+
+for (const width of [1440, 390]) {
+  test(`Person keeps Bot hits and GIFs in sync after fast wheel bursts at ${width}px`, async ({ page }) => {
+    const { state } = await setup(page, 'light', false, false)
+    state.conversations = []
+    await page.setViewportSize({ width, height: 960 })
+    await page.goto('/#/person')
+    await expect(page.locator('.page-loading-overlay:visible')).toHaveCount(0)
+    const viewport = page.locator('.person-bot-viewport')
+    await viewport.hover()
+    for (const direction of [1, -1]) {
+      for (const delta of [3200, 1900, 720, 280, 73]) await page.mouse.wheel(direction * delta, 0)
+      // Check the settled hit without clicking the row or issuing another gesture.
+      await page.waitForTimeout(300)
+      await expectPersonBotHit(page, viewport)
+    }
+  })
+}
+
 for (const mode of ['light', 'dark'] as const) {
   test(`Person previews transparent Bot characters on interaction and creates the selected role in ${mode}`, async ({ page }) => {
     const { state, operations } = await setup(page, mode, mode === 'dark', mode === 'dark')
@@ -2261,13 +2294,27 @@ for (const mode of ['light', 'dark'] as const) {
       }
       await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
       await expect(selected).not.toHaveAttribute('data-bot', 'zhezhe')
-      let previousLeft = -Infinity
-      await expect.poll(async () => {
-        const left = await viewport.evaluate(el => el.scrollLeft)
-        const stable = Math.abs(left - previousLeft) < .5
-        previousLeft = left
-        return stable
-      }).toBe(true)
+      async function settleSwipe() {
+        let previousLeft = -Infinity, stable = 0
+        await expect.poll(async () => {
+          const left = await viewport.evaluate(el => el.scrollLeft)
+          stable = Math.abs(left - previousLeft) < .5 ? stable + 1 : 0
+          previousLeft = left
+          return stable
+        }).toBeGreaterThanOrEqual(3)
+        await expectPersonBotHit(mobile, viewport)
+      }
+      await settleSwipe()
+      for (const direction of [1, -1]) {
+        const startX = bounds.x + bounds.width * (direction === 1 ? .8 : .2)
+        await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: startX, y }] })
+        for (let i = 1; i <= 4; i++) {
+          await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: startX - direction * bounds.width * .65 * i / 4, y }] })
+          await mobile.waitForTimeout(8)
+        }
+        await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+        await settleSwipe()
+      }
       const next = await picker.locator('.person-bot-option').evaluateAll(buttons => buttons.findIndex(el => el.getAttribute('aria-pressed') === 'true') + 1)
       const neighbor = picker.locator('.person-bot-option').nth(next)
       const botType = await neighbor.getAttribute('data-bot')

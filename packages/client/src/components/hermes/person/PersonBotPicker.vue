@@ -64,7 +64,13 @@ function center(position: number, smooth = false) {
   clearTimeout(selectionTimer)
   el.scrollTo({ left: slot.offsetLeft + slot.offsetWidth / 2 - el.clientWidth / 2,
     behavior: smooth && !reducedMotion.value ? 'smooth' : 'instant' })
-  selectionTimer = setTimeout(finishScroll, smooth ? 1200 : 50)
+  selectionTimer = setTimeout(() => {
+    // A cancelled smooth scroll may never reach its target or fire scrollend.
+    const target = movingTo === null ? null : slots()[movingTo]
+    if (target && Math.abs(target.offsetLeft + target.offsetWidth / 2 - el.clientWidth / 2 - el.scrollLeft) > 1) userScrolling = true
+    movingTo = null
+    finishScroll()
+  }, smooth ? 1200 : 50)
 }
 
 async function syncSelection() {
@@ -88,7 +94,7 @@ function onScroll() {
   if (!el || props.disabled || movingTo !== null) return
   const all = slots()
   if (centeredWidth !== el.clientWidth || centeredSlotWidth !== all[0]?.offsetWidth) { void syncSelection(); return }
-  // Only user scrolling changes selection; layout and focus never snap the row back.
+  // Native inertia can continue after pointerup or an earlier scrollend.
   if (!userScrolling) return
   const middle = el.scrollLeft + el.clientWidth / 2
   let closest = 0, distance = Infinity
@@ -112,7 +118,6 @@ function finishScroll() {
   if (movingTo !== null && Math.abs(delta) > 1) return
   clearTimeout(selectionTimer)
   movingTo = null
-  userScrolling = false
   rebase(position)
 }
 
@@ -157,11 +162,16 @@ function stopDrag() {
   dragging.value = false
   if (viewport.value?.hasPointerCapture(id)) viewport.value.releasePointerCapture(id)
   if (moved) finishScroll()
-  else userScrolling = false
 }
 function onPointerUp(event: PointerEvent) {
   if (event.pointerId === pointer?.id) stopDrag()
-  else if (event.type === 'pointerup' && !pointer) userScrolling = false
+}
+
+function onOutsideInteraction(event: Event) {
+  if (!(event.target instanceof Node) || viewport.value?.contains(event.target)) return
+  userScrolling = false
+  movingTo = null
+  clearTimeout(selectionTimer)
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -189,6 +199,8 @@ onMounted(async () => {
   if (viewport.value) observer.observe(viewport.value)
   window.addEventListener('pointerup', onPointerUp, true)
   window.addEventListener('pointercancel', onPointerUp, true)
+  window.addEventListener('pointerdown', onOutsideInteraction, true)
+  window.addEventListener('focusin', onOutsideInteraction, true)
   window.addEventListener('blur', stopDrag)
   await syncSelection()
   if (!disposed) ready.value = true
@@ -202,6 +214,8 @@ onBeforeUnmount(() => {
   motionQuery?.removeEventListener('change', syncMotion)
   window.removeEventListener('pointerup', onPointerUp, true)
   window.removeEventListener('pointercancel', onPointerUp, true)
+  window.removeEventListener('pointerdown', onOutsideInteraction, true)
+  window.removeEventListener('focusin', onOutsideInteraction, true)
   window.removeEventListener('blur', stopDrag)
 })
 </script>
