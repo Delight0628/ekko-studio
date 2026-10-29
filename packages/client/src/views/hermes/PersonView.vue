@@ -221,6 +221,7 @@ async function saveConversationName() {
 }
 async function createDraftConversation(text?: string, attachments?: Attachment[]) {
   if (!newConversationName.value.trim() || creating.value || (!text?.trim() && !attachments?.length)) return false
+  if (!checkExecutionAgent()) return false
   personDeployment?.cancel()
   const deployment = prepareAgentDeployment(personLayout.value?.querySelector('.person-bot-option.selected img'), {
     imageSrc: deploymentUrl(personBot(newConversationBot.value)!.animations.done),
@@ -291,6 +292,7 @@ const pending = ref(false)
 const tab = ref('general')
 const showTasks = ref(false)
 const showPanel = ref(false)
+const showAgentSetup = ref(false)
 const showWorkspace = ref(false)
 const showClearConfirm = ref(false)
 const workspaceValue = ref<string | null>('')
@@ -322,7 +324,21 @@ const draftConfig = computed(() => ({ ...currentModel.value, agent: 'ekko-agent'
 const draftReasoningEfforts = computed(() => newConversationModel.value
   ? modelReasoningEfforts(pickerGroups.value, pickerProvider.value, newConversationModel.value.model)
   : draftDefaults.value?.reasoning_efforts ?? [])
-const needsAgentSetup = computed(() => !!data.value && !data.value.settings.agents.length)
+const needsAgentSetup = computed(() => !(isNewConversation.value ? draftDefaults.value : data.value)?.settings.agents.length)
+function checkExecutionAgent() {
+  if (!needsAgentSetup.value) return true
+  showAgentSetup.value = true
+  return false
+}
+async function sendMessage(text: string, attachments?: Attachment[]) {
+  if (!checkExecutionAgent()) return false
+  await chatStore.sendMessage(text, attachments)
+  return true
+}
+function configureAgents() {
+  showAgentSetup.value = false
+  openPanel('agents')
+}
 const modelKey = (profile: string, provider: string) => JSON.stringify([profile, provider])
 const pickerProvider = computed(() => currentModel.value ? modelKey(currentModel.value.profile, currentModel.value.provider) : '')
 const pickerGroups = computed<AvailableModelGroup[]>(() => modelGroups.value.map(group => ({
@@ -430,18 +446,22 @@ async function openModels(event: MouseEvent) {
   finally { modelsLoading.value = false }
 }
 function saveSettings(patch: Record<string, unknown>) {
-  const sessionId = data.value?.session?.id
-  if (!sessionId) return Promise.resolve(false)
-  let revision = data.value!.revision
+  const snapshot = isNewConversation.value ? draftDefaults.value : data.value
+  const sessionId = isNewConversation.value ? undefined : snapshot?.session?.id
+  if (!snapshot) return Promise.resolve(false)
+  let revision = snapshot.revision
   let saved = false
   settingsWrites.value++
   error.value = ''
   settingsChain = settingsChain.then(async () => {
     if (disposed) return
-    revision = data.value?.revision ?? revision
+    revision = (sessionId ? data.value : draftDefaults.value)?.revision ?? revision
     const result = await personRequest<Pick<PersonSnapshot, 'settings' | 'revision' | 'inherits_global_model' | 'reasoning_efforts' | 'compression' | 'contextTokens'>>('/settings', { ...patch, session_id: sessionId, expected_revision: revision }, 'PUT', lifetime.signal)
     saved = true
-    if (!disposed && data.value?.session?.id === sessionId && selectedSessionId.value === sessionId) {
+    if (!disposed && !sessionId) {
+      newConversationDefaults.value = { ...snapshot, ...result }
+      await refresh()
+    } else if (!disposed && data.value && data.value.session?.id === sessionId && selectedSessionId.value === sessionId) {
       snapshotSequence++
       const model = result.settings.model
       data.value = { ...data.value, ...result, session: data.value.session ? { ...data.value.session,
@@ -449,7 +469,13 @@ function saveSettings(patch: Record<string, unknown>) {
         reasoning_effort: result.settings.reasoningEffort } : null }
       syncSession(data.value)
     } else if (!disposed) await refresh()
-  }).catch(async e => { if (!disposed) { error.value = String(e); await refresh() } })
+  }).catch(async e => {
+    if (!disposed) {
+      error.value = String(e)
+      if (!sessionId) newConversationDefaults.value = await personRequest<PersonSnapshot>('', undefined, 'GET', lifetime.signal).catch(() => newConversationDefaults.value)
+      await refresh()
+    }
+  })
     .finally(() => { settingsWrites.value--; if (!settingsWrites.value) optimisticEffort.value = null })
   return settingsChain.then(() => saved)
 }
@@ -478,7 +504,7 @@ function saveSchedule(input: Record<string, unknown>) { return act(() => personR
 
 watch(busy, (running, wasRunning) => { if (wasRunning && !running) void refresh() })
 watch(selectedSessionId, id => {
-  optimisticEffort.value = null; showModelPicker.value = false
+  optimisticEffort.value = null; showModelPicker.value = false; showAgentSetup.value = false
   if (!id) resetConversationDraft()
 })
 const stopPersonUpdates = onPersonUpdated(() => { void loadConversations().catch(() => {}); void refresh() })
@@ -595,7 +621,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; personDeployment?.
           <span v-if="duplicateBotName" id="person-bot-name-error" class="person-name-error" role="alert">{{ t('person.botNameExists') }}</span>
         </div>
         <ChatInput draft hide-settings managed-reasoning-effort :persist-draft="false" :draft-config="draftConfig"
-          :send-disabled="!newConversationName.trim() || !currentModel || creating" :submit="createDraftConversation"
+          :send-disabled="!newConversationName.trim() || !currentModel || creating || settingsWrites > 0" :submit="createDraftConversation"
           :model-label="modelLabel" :model-disabled="draftLocked" :model-expanded="showModelPicker"
           :reasoning-effort="reasoningEffort" :reasoning-effort-disabled="draftLocked || !currentModel"
           :scoped-reasoning-efforts="draftReasoningEfforts" :default-effort-label="t('person.defaultEffort')"
@@ -619,15 +645,19 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; personDeployment?.
       <MessageList v-if="data.session" :user-label="t('person.you')" hide-tool-calls hide-run-usage hide-reasoning :activity-label="t('person.executing')" />
       </div>
       <div v-if="data.session" class="person-compose">
-        <button v-if="needsAgentSetup" type="button" class="person-model-hint" @click="openPanel('agents')">{{ t('person.configureAgents') }}</button>
         <button v-if="!currentModel" type="button" class="person-model-hint" @click="openModels">{{ t('person.defaultUnavailable') }}</button>
-        <ChatInput hide-settings managed-reasoning-effort :send-disabled="!currentModel || pending || settingsWrites > 0"
+        <ChatInput hide-settings managed-reasoning-effort :send-disabled="!currentModel || pending || settingsWrites > 0" :submit="sendMessage"
           :model-label="modelLabel" :model-disabled="busy || settingsWrites > 0" :model-expanded="showModelPicker"
           :reasoning-effort="reasoningEffort" :reasoning-effort-disabled="busy || !currentModel"
           :default-effort-label="t('person.defaultEffort')"
           :scoped-reasoning-efforts="data.reasoning_efforts" @update:reasoning-effort="selectEffort" @model-click="openModels" />
       </div>
       </div>
+      <NModal v-model:show="showAgentSetup" preset="dialog" :title="t('person.agentSetupTitle')" :aria-label="t('person.agentSetupTitle')"
+        :positive-text="t('person.configureAgents')" :negative-text="t('common.cancel')"
+        :closable="true" :close-on-esc="true" @positive-click="configureAgents">
+        {{ t('person.agentSetupHint') }}
+      </NModal>
       <ModelCascader v-model:show="showModelPicker" :groups="pickerGroups" :custom-models="{}" :display-name="displayModel"
         :provider="pickerProvider" :model="currentModel?.model" :loading="modelsLoading || settingsWrites > 0" :trigger-element="modelTrigger"
         :title="t('chat.setModelTitle')" @select="selectModel">
