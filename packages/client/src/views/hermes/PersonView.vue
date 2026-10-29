@@ -16,7 +16,7 @@ import PageLoading from '@/components/common/PageLoading.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import ChatInput from '@/components/hermes/chat/ChatInput.vue'
 import NewChatPage from '@/components/hermes/chat/NewChatPage.vue'
-import NewChatAgentCards from '@/components/hermes/chat/NewChatAgentCards.vue'
+import PersonBotPicker from '@/components/hermes/person/PersonBotPicker.vue'
 import MessageList from '@/components/hermes/chat/MessageList.vue'
 import SessionTasksDrawer from '@/components/hermes/tasks/SessionTasksDrawer.vue'
 import PersonTaskChat from '@/components/hermes/person/PersonTaskChat.vue'
@@ -41,9 +41,11 @@ import { useSettingsStore } from '@/stores/hermes/settings'
 import { usePersonPresenceStore } from '@/stores/hermes/person-presence'
 import type { AvailableModelGroup } from '@/api/hermes/system'
 import { personRequest, type PersonSnapshot, type PersonModel, type PersonModelGroup, type PersonTask, type PersonSchedule, type PersonMemory, type PersonFlow } from '@/api/person'
-import { PERSON_BOTS, DEFAULT_PERSON_BOT_TYPE, personBotNameKey } from '../../../../shared/person-bots'
-import { deploymentUrl } from '@/utils/deployment-url'
+import { DEFAULT_PERSON_BOT_TYPE, personBot } from '../../../../shared/person-bots'
 import { modelReasoningEfforts } from '@/utils/model-reasoning-effort'
+import { PERSON_AVATAR } from '@/utils/chat-agent-avatar'
+import { personBotLabel } from '@/utils/person-bot-label'
+import { prepareAgentDeployment, type AgentDeploymentController } from '@/components/hermes/chat/agentDeployment.mjs'
 
 const { t } = useI18n()
 const message = useMessage()
@@ -61,21 +63,27 @@ const showCreate = ref(false)
 const conversationName = ref('')
 const creating = ref(false)
 const showNewConversation = ref(false)
-const newConversationName = ref('')
+const newConversationName = ref(personBotLabel(personBot(DEFAULT_PERSON_BOT_TYPE)!))
 const newConversationBot = ref<string>(DEFAULT_PERSON_BOT_TYPE)
+const selectedBotName = computed(() => personBotLabel(personBot(newConversationBot.value)!))
+const personLayout = ref<HTMLElement>()
+let personDeployment: AgentDeploymentController | null = null
 const newConversationDefaults = ref<PersonSnapshot | null>(null)
 const newConversationModel = ref<PersonModel | null>(null)
 const newConversationEffort = ref('')
 const newConversationWorkspace = ref<string | null>(null)
-const conflictingBotName = ref('')
+const duplicateBotName = ref(false)
 const createdConversation = ref<SessionSummary | null>(null)
-const duplicateBotName = computed(() => {
-  const name = personBotNameKey(newConversationName.value)
-  return !!name && (name === conflictingBotName.value || conversations.value.some(session => session.id !== createdConversation.value?.id && personBotNameKey(session.title || '') === name))
-})
-watch(newConversationName, () => { conflictingBotName.value = '' })
+watch(newConversationName, () => { duplicateBotName.value = false })
 const draftLocked = computed(() => creating.value || !!createdConversation.value)
-const botOptions = PERSON_BOTS.map(bot => ({ value: bot.type, label: bot.name, avatar: deploymentUrl(bot.avatar) }))
+watch(selectedBotName, (name, previous) => {
+  if (!draftLocked.value && (!newConversationName.value.trim() || newConversationName.value === previous)) newConversationName.value = name
+})
+function selectDraftBot(type: string) {
+  if (draftLocked.value || !personBot(type)) return
+  newConversationBot.value = type
+  newConversationName.value = selectedBotName.value
+}
 const isNewConversation = computed(() => showNewConversation.value || (!!data.value && !data.value.session))
 const renameConversationId = ref<string | null>(null)
 const showConversationMenu = ref(false)
@@ -94,9 +102,9 @@ const conversationMenuOptions = computed(() => [
 ])
 const sidebarSessions = computed(() => conversations.value.map(mapHermesSession))
 function resetConversationDraft() {
-  newConversationName.value = ''; newConversationBot.value = DEFAULT_PERSON_BOT_TYPE
+  newConversationBot.value = DEFAULT_PERSON_BOT_TYPE; newConversationName.value = selectedBotName.value
   newConversationModel.value = null; newConversationEffort.value = ''
-  newConversationWorkspace.value = null; conflictingBotName.value = ''
+  newConversationWorkspace.value = null; duplicateBotName.value = false
   newConversationDefaults.value = null; createdConversation.value = null
 }
 async function openCreateConversation() {
@@ -210,25 +218,32 @@ async function saveConversationName() {
   finally { creating.value = false }
 }
 async function createDraftConversation(text?: string, attachments?: Attachment[]) {
-  if (!newConversationName.value.trim() || duplicateBotName.value || creating.value || (!text?.trim() && !attachments?.length)) return false
-  creating.value = true; error.value = ''
+  if (!newConversationName.value.trim() || creating.value || (!text?.trim() && !attachments?.length)) return false
+  personDeployment?.cancel()
+  const deployment = prepareAgentDeployment(personLayout.value?.querySelector('.person-bot-option.selected img'))
+  personDeployment = deployment
+  creating.value = true; error.value = ''; duplicateBotName.value = false
   try {
     const created = createdConversation.value ?? await personRequest<SessionSummary>('/conversations', {
       title: newConversationName.value.trim(), bot_type: newConversationBot.value,
       ...(newConversationModel.value ? { model: newConversationModel.value } : {}), reasoning_effort: newConversationEffort.value,
       ...(newConversationWorkspace.value !== null ? { workspace: newConversationWorkspace.value, expected_revision: draftDefaults.value?.revision } : {}),
-    })
+    }, 'POST', lifetime.signal)
     createdConversation.value = created
     chatStore.ensureSessionLoaded(created)
     await loadConversations()
     await selectConversation(created.id)
     await chatStore.switchSession(created.id)
-    if (text || attachments?.length) await chatStore.sendMessage(text || '', attachments)
+    if (disposed) { deployment?.cancel(); return false }
+    const sent = chatStore.sendMessage(text || '', attachments)
+    deployment?.start(created.id)
+    await sent
     createdConversation.value = null
     return true
   } catch (e) {
+    deployment?.cancel()
     if (!disposed) {
-      if ((e as { code?: string }).code === 'PERSON_BOT_NAME_EXISTS') conflictingBotName.value = personBotNameKey(newConversationName.value)
+      if ((e as { code?: string }).code === 'PERSON_BOT_NAME_EXISTS') duplicateBotName.value = true
       else {
         error.value = String(e)
         if ((e as { status?: number }).status === 409 && !createdConversation.value) {
@@ -468,11 +483,11 @@ onMounted(async () => {
   } catch (e) { if (!disposed) error.value = String(e) }
   finally { bootstrapping = false; if (!disposed) initializing.value = false }
 })
-onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() })
+onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; personDeployment?.cancel(); lifetime.abort() })
 </script>
 
 <template>
-  <div class="person-layout">
+  <div ref="personLayout" class="person-layout">
     <SessionListSidebar class="person-sidebar" :expanded="showSessions" :aria-label="t('person.conversations')">
       <template #header>
         <PageSidebarNav active="person" :primary-label="t('person.newConversation')" @primary="openCreateConversation">
@@ -494,7 +509,11 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
             <NButton v-if="nextOffset !== null" quaternary block @click="loadConversations(nextOffset!)">{{ t('person.older') }}</NButton>
       </template>
     </SessionListSidebar>
-  <PageLoading :show="initializing || (!isNewConversation && chatStore.isLoadingMessages)" initial-only class="person-view">
+  <PageLoading :show="initializing || (!isNewConversation && chatStore.isLoadingMessages)" initial-only class="person-view"
+    data-agent-deployment-surface :data-agent-deployment-session="selectedSessionId"
+    :data-agent-deployment-active="!isNewConversation && !!selectedSessionId"
+    :data-agent-deployment-status-session="selectedSessionId"
+    :data-agent-deployment-status="chatStore.isLoadingMessages || chatStore.activeSessionId !== selectedSessionId ? 'pending' : chatStore.isRunActive ? 'working' : 'settled'">
     <PageHeader>
       <header class="person-header">
         <div class="header-left">
@@ -530,7 +549,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
     <template v-if="data">
       <NewChatPage v-if="isNewConversation" :title="t('person.newConversation')" :subtitle="t('person.welcome')">
         <template #cards>
-          <NewChatAgentCards v-model:value="newConversationBot" :options="botOptions" :disabled="draftLocked" />
+          <PersonBotPicker :value="newConversationBot" :disabled="draftLocked" @update:value="selectDraftBot" />
         </template>
         <div class="person-new-name">
           <div class="person-new-name-input">
@@ -544,7 +563,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
           <span v-if="duplicateBotName" id="person-bot-name-error" class="person-name-error" role="alert">{{ t('person.botNameExists') }}</span>
         </div>
         <ChatInput draft hide-settings managed-reasoning-effort :persist-draft="false" :draft-config="draftConfig"
-          :send-disabled="!newConversationName.trim() || duplicateBotName || !currentModel || creating" :submit="createDraftConversation"
+          :send-disabled="!newConversationName.trim() || !currentModel || creating" :submit="createDraftConversation"
           :model-label="modelLabel" :model-disabled="draftLocked" :model-expanded="showModelPicker"
           :reasoning-effort="reasoningEffort" :reasoning-effort-disabled="draftLocked || !currentModel"
           :scoped-reasoning-efforts="draftReasoningEfforts" :default-effort-label="t('person.defaultEffort')"
@@ -584,7 +603,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
       </ModelCascader>
       <NDrawer v-model:show="showPanel" :width="drawerWidth" placement="right" :close-on-esc="true" class="person-workspace-drawer">
         <NDrawerContent closable :native-scrollbar="false" :body-content-style="{ padding: '0' }">
-          <template #header><div class="workspace-heading"><span class="workspace-brand">zhezhe</span><span class="workspace-divider">/</span><span>{{ t('person.title') }}</span></div></template>
+          <template #header><div class="workspace-heading"><span class="workspace-brand">{{ PERSON_AVATAR.label }}</span><span class="workspace-divider">/</span><span>{{ t('person.title') }}</span></div></template>
           <div class="person-workspace">
             <NAlert v-if="error && !['general', 'agents'].includes(tab)" class="workspace-error" type="error" closable @close="error = ''">{{ error }}</NAlert>
             <NTabs v-model:value="tab" type="line" size="large" animated>

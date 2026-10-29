@@ -78,6 +78,7 @@ function captureDeployment(source) {
   const hero = layer('agent-deployment-hero', { left: '0', top: '0', width: `${rect.width}px`, height: `${rect.height}px`,
     transformOrigin: '50% 50%', transformStyle: 'preserve-3d', willChange: 'transform,opacity' });
   const face = snapshotCard(source);
+  const imageOnly = face.tagName === 'IMG';
   hero.appendChild(face);
   const sweep = doc.createElement('div');
   Object.assign(sweep.style, { position: 'absolute', inset: '0', overflow: 'hidden', borderRadius: face.style.borderRadius,
@@ -219,7 +220,7 @@ function captureDeployment(source) {
     floor.style.transform = `scale(${.72 + .28 * clamp(elapsed / 480, 0, 1)}) rotate(${clamp((elapsed - 480) / 470, 0, 1) * 24}deg)`;
     const sweepProgress = clamp((elapsed - 520) / 430, 0, 1);
     sweep.style.transform = `translateX(${lerp(-145, 145, sweepProgress)}%)`;
-    sweep.style.opacity = String(Math.sin(sweepProgress * Math.PI) * .44);
+    sweep.style.opacity = imageOnly ? '0' : String(Math.sin(sweepProgress * Math.PI) * .44);
     const burst = clamp((elapsed - 950) / 350, 0, 1);
     wave.style.opacity = String(elapsed >= 950 ? .65 * (1 - burst) : 0);
     wave.style.transform = `scale(${lerp(.28, 1.28, easeOut(burst))})`;

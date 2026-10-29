@@ -8,7 +8,7 @@ import { useProfilesStore } from '@/stores/hermes/profiles'
 import ProfileAvatar from '@/components/hermes/profiles/ProfileAvatar.vue'
 import PinIcon from '@/components/common/PinIcon.vue'
 import { formatTimestampMs } from '@/shared/session-display'
-import { chatSessionAgentAvatar } from '@/utils/chat-agent-avatar'
+import { chatSessionAgentAvatar, personAvatarAnimation, personAvatarStyle } from '@/utils/chat-agent-avatar'
 import { resolveSessionNavigation } from './session-list-item-navigation'
 
 const props = withDefaults(defineProps<{
@@ -52,6 +52,7 @@ const profileModelsMissing = computed(() =>
 )
 const isGlobalAgentSession = computed(() => props.session.source === 'global_agent')
 const sessionAgentLogo = computed(() => chatSessionAgentAvatar(props.session))
+const isPersonSession = computed(() => !!personAvatarAnimation(sessionAgentLogo.value, 'idle'))
 
 let longPressTimer: ReturnType<typeof setTimeout> | null = null
 const longPressTriggered = ref(false)
@@ -147,9 +148,11 @@ onUnmounted(() => {
         <span class="session-item-time">{{ formatTimestampMs(session.createdAt) }}</span>
       </span>
       <span class="session-item-agent-row">
-        <span class="session-item-agent-logo-wrap" :class="{ streaming }">
+        <span class="session-item-agent-logo-wrap" :class="{ streaming, 'session-item-agent-logo-wrap--person': isPersonSession }">
           <img
             class="session-item-agent-logo"
+            :class="{ 'session-item-agent-logo--person': isPersonSession }"
+            :style="personAvatarStyle(sessionAgentLogo)"
             :src="sessionAgentLogo.src"
             :alt="sessionAgentLogo.label"
           >
@@ -196,7 +199,9 @@ onUnmounted(() => {
   </component>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
+@use '@/styles/person-avatar' as *;
+
 .session-item {
   position: relative;
   display: flex;
@@ -455,6 +460,18 @@ onUnmounted(() => {
   border: var(--border-width, 1px) solid #fff;
   border-radius: inherit;
   object-fit: cover;
+}
+
+.session-item-agent-logo--person {
+  @include person-avatar(18px);
+}
+
+.session-item-agent-logo-wrap--person {
+  border-radius: 4px;
+}
+
+.session-item-agent-logo-wrap--person.streaming::before {
+  content: none;
 }
 
 @keyframes rainbow-glow {

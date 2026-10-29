@@ -27,9 +27,9 @@ onBeforeUnmount(() => motionQuery?.removeEventListener('change', syncMotion))
     <div class="person-task-activity" role="status" aria-live="polite" aria-atomic="true">
       <Transition name="person-task-island" appear>
         <button v-if="count > 0 && !pageLoading" type="button" class="person-task-island" data-theme-surface="card"
-          :aria-label="`zhezhe · ${t('person.backgroundTasks')} · ${formattedCount}`" :aria-expanded="expanded" aria-haspopup="dialog" @click="emit('open')">
+          :aria-label="`${PERSON_AVATAR.label} · ${t('person.backgroundTasks')} · ${formattedCount}`" :aria-expanded="expanded" aria-haspopup="dialog" @click="emit('open')">
           <span class="person-task-island__avatar-slot" aria-hidden="true"><img class="person-task-island__avatar" :src="reducedMotion ? PERSON_AVATAR.src : PERSON_ANIMATIONS.searching" alt="" width="48" height="48" /></span>
-          <span class="person-task-island__label" aria-hidden="true"><strong>zhezhe</strong><span>{{ t('person.backgroundTasks') }}</span></span>
+          <span class="person-task-island__label" aria-hidden="true"><strong>{{ PERSON_AVATAR.label }}</strong><span>{{ t('person.backgroundTasks') }}</span></span>
           <span class="person-task-island__count" aria-hidden="true">{{ formattedCount }}</span>
           <svg class="person-task-island__chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
         </button>

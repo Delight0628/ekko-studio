@@ -1,5 +1,5 @@
 import { deploymentUrl } from '@/utils/deployment-url'
-import { chatSessionAgentAvatar } from '@/utils/chat-agent-avatar'
+import { chatSessionAgentAvatar, PERSON_AVATAR } from '@/utils/chat-agent-avatar'
 import { deleteSessionMessages, type MessageDeletionResult } from '@/api/studio/sessions'
 import { isNativeCodingAgent } from '@/utils/agent-catalog'
 import { historySessionSource, isBuiltinEkkoSession } from '@/utils/hermes/session-agent'
@@ -5356,7 +5356,7 @@ function createChatState(scopedSessionId?: string) {
       announcedPersonRuns.add(evt.notification_id)
       if (announcedPersonRuns.size > 1000) announcedPersonRuns.delete(announcedPersonRuns.values().next().value!)
       if (useSettingsStore().display.notify_on_complete) void showCompletionNotification({
-        title: 'zhezhe', body: truncateNotificationText(evt.output || '', 140),
+        title: PERSON_AVATAR.label, body: truncateNotificationText(evt.output || '', 140),
         icon: chatSessionAgentAvatar({ id: sid }).src, tag: `hermes-person-${evt.notification_id}`, clickUrl: `/person?session=${encodeURIComponent(sid)}`,
       })
       return

@@ -8,7 +8,7 @@ import { fetchSessionTasks, updateSessionTaskStatus, type SessionTaskListItem, t
 import { personRequest, personTaskCanStop, stopPersonTask, type PersonTask } from '@/api/person'
 import { onPersonUpdated } from '@/api/studio/chat'
 import { useTaskDrawerLayout } from './useTaskDrawerLayout'
-import { chatSessionAgentAvatar } from '@/utils/chat-agent-avatar'
+import { chatSessionAgentAvatar, PERSON_AVATAR } from '@/utils/chat-agent-avatar'
 
 const props = defineProps<{ show: boolean; person?: boolean; personSessionId?: string }>()
 const emit = defineEmits<{ 'update:show': [show: boolean]; 'open-person-task': [task: PersonTask] }>()
@@ -137,7 +137,7 @@ async function loadPersonTasks(query: { search: string; status: string; order: s
   return { total: result.tasks.length, tasks: result.tasks.map(task => {
     const selection = JSON.parse(task.selection_json || '{}')
     return { id: task.id, title: task.title, summary: task.summary, status: task.status as SessionTaskStatus,
-      updated_at: task.updated_at || Date.now(), message_id: null, session_id: task.session_id, session_title: task.session_title || 'zhezhe',
+      updated_at: task.updated_at || Date.now(), message_id: null, session_id: task.session_id, session_title: task.session_title || PERSON_AVATAR.label,
       profile: selection.profile || 'default', source: selection.runtime === 'hermes' ? 'api_server' : selection.runtime === 'ekko' ? 'builtin_agent' : 'coding_agent',
       agent: selection.runtime === 'ekko' ? 'ekko-agent' : selection.runtime || 'ekko-agent', personTask: task }
   }) }

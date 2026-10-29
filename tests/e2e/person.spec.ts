@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { authenticate, mockChatSocket, mockHermesApi } from './fixtures'
 import sharp from 'sharp'
-import { personBotNameKey } from '../../packages/shared/person-bots'
+import { PERSON_BOTS, personBotNameKey } from '../../packages/shared/person-bots'
 
 async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true, customAppearance = true) {
   await authenticate(page)
@@ -607,7 +607,7 @@ for (const { locale, title, width, executing } of [
     await page.setViewportSize({ width, height: 844 })
     await page.goto('/#/person')
     await expect(page.locator('.person-title')).toHaveText(title)
-    await expect(page.locator('.empty-logo--person')).toHaveAttribute('alt', 'zhezhe')
+    await expect(page.locator('.empty-logo--person')).toHaveAttribute('alt', locale.startsWith('zh') ? '折折' : 'zhezhe')
     await expect(page.locator('.input-settings-button')).toHaveCount(0)
     await expect(page.locator('.person-header-actions')).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -622,6 +622,70 @@ for (const { locale, title, width, executing } of [
     await expect(page.locator('.thinking-status-label')).toBeVisible()
     await expect(page.locator('.live-reasoning-detail')).toHaveCount(0)
     await page.screenshot({ path: `/tmp/person-executing-${locale}-${width}.png`, animations: 'disabled' })
+  })
+}
+
+async function expectPersonAvatarFraming(image: Locator, bot: typeof PERSON_BOTS[number], thinking = false) {
+  await expect.poll(() => image.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true)
+  const actual = await image.evaluate((el: HTMLImageElement, measureStill) => {
+    const position = getComputedStyle(el).objectPosition.match(/calc\([^)]*\)|[-\d.]+(?:%|px)/g) || []
+    const offsets = position.map(part => {
+      const pixels = part.match(/([+-]?)\s*([\d.]+)px/)
+      return pixels ? Number(pixels[2]) * (pixels[1] === '-' ? -1 : 1) : 0
+    })
+    let errorX = 0, errorY = 0
+    if (measureStill) {
+      const canvas = document.createElement('canvas'); canvas.width = el.naturalWidth; canvas.height = el.naturalHeight
+      const context = canvas.getContext('2d')!; context.drawImage(el, 0, 0)
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+      let left = canvas.width, right = -1, top = canvas.height, bottom = -1
+      for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+        if (pixels[(y * canvas.width + x) * 4 + 3] > 16) {
+          left = Math.min(left, x); right = Math.max(right, x)
+          top = Math.min(top, y); bottom = Math.max(bottom, y)
+        }
+      }
+      errorX = (left + right + 1) / 2 / canvas.width * el.clientWidth + offsets[0] - el.clientWidth / 2
+      errorY = (top + bottom + 1) / 2 / canvas.height * el.clientHeight + offsets[1] - el.clientHeight / 2
+    }
+    return { width: el.clientWidth, height: el.clientHeight, offsets, errorX, errorY }
+  }, !thinking && bot.type !== 'zhezhe')
+  const offset = thinking ? bot.thinkingOffset : bot.avatarOffset
+  expect(actual.offsets[0]).toBeCloseTo(offset.x * actual.width, 2)
+  expect(actual.offsets[1]).toBeCloseTo(offset.y * actual.height, 2)
+  expect(Math.abs(actual.errorX)).toBeLessThan(0.02)
+  expect(Math.abs(actual.errorY)).toBeLessThan(0.02)
+}
+
+for (const [mode, width] of [['light', 1440], ['dark', 390]] as const) {
+  test(`Person centers all static and working Bot avatars in ${mode} at ${width}px`, async ({ page }) => {
+    const { state } = await setup(page, mode, mode === 'dark')
+    state.conversations = PERSON_BOTS.map(bot => ({ ...state.session, id: `person-main-${bot.type}`, title: bot.type, bot_type: bot.type }))
+    await page.addInitScript(sessions => {
+      for (const [index, session] of sessions.entries()) (window as any).__PW_CHAT_SOCKET_RESUMES__[session.id] = {
+        session_id: session.id, messages: [{ id: 800 + index, role: 'assistant', content: `Hello from ${session.title}`, timestamp: 1 }], isWorking: false, events: [],
+      }
+    }, state.conversations)
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/#/person?session=person-main-zhezhe')
+    for (const bot of PERSON_BOTS) {
+      if (width < 768) await page.getByRole('button', { name: 'Menu', exact: true }).click()
+      const row = page.locator('.person-sidebar .session-item').filter({ hasText: bot.type })
+      await expectPersonAvatarFraming(row.locator('.session-item-agent-logo'), bot)
+      await row.click()
+      await expect(page.locator('.person-title')).toHaveText(bot.type)
+      const avatar = page.locator('.assistant-message-author .msg-avatar').first()
+      await expect(avatar).toHaveAttribute('src', bot.avatar)
+      await expectPersonAvatarFraming(avatar, bot)
+      await page.locator('.person-compose .input-textarea').fill('Check avatar framing')
+      await page.getByRole('button', { name: 'Send', exact: true }).click()
+      await emit(page, 'run.started', { session_id: `person-main-${bot.type}`, run_id: `framing-${bot.type}` })
+      await expect(page.locator('.thinking-avatar')).toHaveAttribute('src', bot.animations.thinking)
+      await expectPersonAvatarFraming(page.locator('.thinking-avatar'), bot, true)
+      if (bot.type === 'paidui') await page.screenshot({ path: `/tmp/studio-bot-framing/avatars-${mode}-${width}.png`, animations: 'disabled' })
+      await emit(page, 'run.completed', { session_id: `person-main-${bot.type}`, run_id: `framing-${bot.type}`, output: 'Checked' })
+      await expect(page.locator('.thinking-avatar')).toHaveCount(0)
+    }
   })
 }
 
@@ -789,7 +853,7 @@ test('Person displays a delivered screenshot while keeping the artifact tool hid
 })
 
 for (const mode of ['light', 'dark'] as const) {
-  test(`Person navigation follows account presence on desktop and mobile in ${mode}`, async ({ page }) => {
+  test(`Person navigation keeps the idle GIF across account events on desktop and mobile in ${mode}`, async ({ page }) => {
     await setup(page, mode, mode === 'dark')
     await page.goto('/#/person')
     const avatar = page.locator('.studio-navigation-rail__avatar:visible')
@@ -799,18 +863,18 @@ for (const mode of ['light', 'dark'] as const) {
         const socket = (window as any).__PW_CHAT_SOCKET__.allSockets.find((socket: any) => String(socket.url).endsWith('/person-presence'))
         socket.__trigger('person.presence', { state, lastActivityAt: 1, sleepAt: 600001 })
       }, state)
-      await expect(avatar).toHaveAttribute('src', `/person/${state}.gif`)
+      await expect(avatar).toHaveAttribute('src', '/person/idle.gif')
       await expect.poll(() => avatar.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
-      await page.screenshot({ path: `/tmp/person-animation-${mode}-${state}.png`, animations: 'disabled' })
     }
+    await page.screenshot({ path: `/tmp/person-navigation-${mode}-desktop.png`, animations: 'disabled' })
     await page.setViewportSize({ width: 390, height: 844 })
     await page.getByRole('button', { name: 'Menu', exact: true }).click()
     await expect(page.locator('.studio-mobile-drawer')).toBeVisible()
     await expect(avatar).toBeInViewport()
-    await expect(avatar).toHaveAttribute('src', '/person/sleeping.gif')
+    await expect(avatar).toHaveAttribute('src', '/person/idle.gif')
     await expect.poll(() => avatar.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
-    await page.screenshot({ path: `/tmp/person-animation-${mode}-mobile.png`, animations: 'disabled' })
-    await expect.poll(() => page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.emitted.some((event: any) => event.event === 'person.activity'))).toBe(true)
+    await page.screenshot({ path: `/tmp/person-navigation-${mode}-mobile.png`, animations: 'disabled' })
+    expect(await page.evaluate(() => (window as any).__PW_CHAT_SOCKET__.emitted.some((event: any) => event.event === 'person.activity'))).toBe(false)
     await page.getByRole('link', { name: 'Your account assistant', exact: true }).click()
     await expect(page.locator('.studio-mobile-drawer .person-sidebar .session-item')).toBeVisible()
   })
@@ -1673,7 +1737,214 @@ test('Person preserves records when work starts after opening the clear confirma
 })
 
 
+test('Person updates all character names with the interface language while retaining selection and scroll position', async ({ page }) => {
+  const { state } = await setup(page, 'light', false, false)
+  state.conversations = []
+  await page.goto('/#/person')
+  await expect(page.locator('.page-loading-overlay:visible')).toHaveCount(0)
+  const picker = page.locator('.person-bot-picker')
+  const viewport = picker.locator('.person-bot-viewport')
+  await viewport.hover()
+  await page.mouse.wheel(160, 0)
+  await expect(picker.locator('[aria-pressed="true"]')).toHaveAttribute('data-bot', 'xiaohe')
+  const left = await viewport.evaluate(el => el.scrollLeft)
+  for (const locale of ['en', 'zh', 'zh-TW', 'ja', 'ar', 'en']) {
+    await page.evaluate(async locale => {
+      const path = '/src/i18n/index.ts'
+      const { switchLocale } = await import(path)
+      await switchLocale(locale)
+    }, locale)
+    for (const bot of PERSON_BOTS) {
+      await expect(picker.getByRole('button', { name: locale.startsWith('zh') ? bot.name : bot.type, exact: true })).toHaveCount(1)
+    }
+    await expect(page.locator('#person-conversation-name')).toHaveValue(locale.startsWith('zh') ? '小鹤' : 'xiaohe')
+    await expect(picker.locator('[aria-pressed="true"]')).toHaveAttribute('data-bot', 'xiaohe')
+    expect(await viewport.evaluate(el => el.scrollLeft)).toBe(left)
+    if (locale === 'zh' || locale === 'en') await page.screenshot({ path: `/tmp/studio-bot-picker/carousel-locale-${locale}.png`, animations: 'disabled' })
+  }
+  await page.locator('#person-conversation-name').fill('My custom companion')
+  await page.evaluate(async () => { const path = '/src/i18n/index.ts'; await (await import(path)).switchLocale('zh') })
+  await expect(page.locator('#person-conversation-name')).toHaveValue('My custom companion')
+  await picker.getByRole('button', { name: '小鹤', exact: true }).click()
+  await expect(page.locator('#person-conversation-name')).toHaveValue('小鹤')
+})
+
+test('Person accumulates small wheel deltas without snapping back between wheel events', async ({ page }) => {
+  const { state } = await setup(page, 'light', false, false)
+  state.conversations = []
+  await page.goto('/#/person')
+  await expect(page.locator('.page-loading-overlay:visible')).toHaveCount(0)
+  const picker = page.locator('.person-bot-picker')
+  const viewport = picker.locator('.person-bot-viewport')
+  const selected = picker.locator('[aria-pressed="true"]')
+  await expect(selected).toHaveAttribute('data-bot', 'zhezhe')
+  await selected.hover()
+  const start = await viewport.evaluate(el => el.scrollLeft)
+  for (let i = 0; i < 10; i++) {
+    await page.mouse.wheel(0, 16)
+    await page.waitForTimeout(32)
+  }
+  expect(await viewport.evaluate(el => el.scrollLeft) - start).toBeGreaterThan(120)
+  await expect(selected).toHaveAttribute('data-bot', 'xiaohe')
+  const stopped = await viewport.evaluate(el => el.scrollLeft)
+  await page.waitForTimeout(400)
+  expect(await viewport.evaluate(el => el.scrollLeft)).toBe(stopped)
+  await page.mouse.move(0, 0)
+  const bounds = (await viewport.boundingBox())!
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + 100)
+  for (let i = 0; i < 10; i++) {
+    await page.mouse.wheel(-16, 0)
+    await page.waitForTimeout(32)
+  }
+  await expect(selected).toHaveAttribute('data-bot', 'zhezhe')
+})
+
 for (const mode of ['light', 'dark'] as const) {
+  test(`Person previews transparent Bot characters on interaction and creates the selected role in ${mode}`, async ({ page }) => {
+    const { state, operations } = await setup(page, mode, mode === 'dark', mode === 'dark')
+    await page.setViewportSize({ width: 1440, height: 1050 })
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.goto('/#/person')
+    await page.getByRole('button', { name: 'New BOT role', exact: true }).click()
+    await page.mouse.move(0, 0)
+    const picker = page.locator('.person-bot-picker')
+    await expect(picker.getByRole('button')).toHaveCount(PERSON_BOTS.length)
+    await expect(page.locator('.new-chat-page .agent-card')).toHaveCount(0)
+    for (const bot of PERSON_BOTS) {
+      const image = picker.getByRole('button', { name: bot.type, exact: true }).locator('img')
+      await expect(image).toHaveAttribute('src', bot.idleFrame)
+      await expect.poll(() => image.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true)
+      expect(await image.evaluate((image: HTMLImageElement) => {
+        const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1
+        const context = canvas.getContext('2d')!; context.drawImage(image, 0, 0)
+        return context.getImageData(0, 0, 1, 1).data[3]
+      })).toBe(0)
+    }
+    const crane = picker.getByRole('button', { name: 'xiaohe', exact: true })
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    await crane.hover()
+    await expect(crane.locator('img')).toHaveAttribute('src', '/person/xiaohe/idle.png')
+    await expect(crane).toHaveAttribute('aria-pressed', 'false')
+    expect(await crane.locator('img').evaluate(el => new DOMMatrix(getComputedStyle(el).transform).a)).toBe(1)
+    await page.mouse.move(0, 0)
+    await expect(crane.locator('img')).toHaveAttribute('src', '/person/xiaohe/idle.png')
+    await expect.poll(() => crane.locator('img').evaluate(el => new DOMMatrix(getComputedStyle(el).transform).a)).toBeLessThan(1.01)
+    await picker.getByRole('button', { name: 'zhezhe', exact: true }).focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(crane).toBeFocused()
+    await expect(crane).toHaveAttribute('aria-pressed', 'true')
+    await expect(crane.locator('img')).toHaveAttribute('src', '/person/xiaohe/idle.gif')
+    await expect.poll(() => crane.locator('img').evaluate(el => new DOMMatrix(getComputedStyle(el).transform).a)).toBeGreaterThan(1.2)
+    await page.keyboard.press('ArrowRight')
+    await expect(crane.locator('img')).toHaveAttribute('src', '/person/xiaohe/idle.png')
+    const viewport = picker.locator('.person-bot-viewport')
+    const selected = picker.locator('.person-bot-option[aria-pressed="true"]')
+    const centerError = () => viewport.evaluate(el => {
+      const button = el.querySelector<HTMLElement>('[aria-pressed="true"]')!, slot = button.parentElement!
+      return Math.abs(slot.offsetLeft + slot.offsetWidth / 2 - el.scrollLeft - el.clientWidth / 2)
+    })
+    await page.keyboard.press('Home')
+    await expect.poll(centerError).toBeLessThan(1)
+    const step = await viewport.evaluate(el => {
+      const slots = el.querySelectorAll<HTMLElement>('.person-bot-slot')
+      return slots[1].offsetLeft - slots[0].offsetLeft
+    })
+    const bounds = (await viewport.boundingBox())!
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + 8)
+    let index = 0
+    for (const direction of [1, -1]) {
+      for (let i = 0; i < PERSON_BOTS.length + 2; i++) {
+        index = (index + direction + PERSON_BOTS.length) % PERSON_BOTS.length
+        await page.mouse.wheel(direction === 1 ? step : 0, direction === -1 ? -step : 0)
+        await expect(selected).toHaveAttribute('data-bot', PERSON_BOTS[index].type)
+        await expect.poll(centerError).toBeLessThan(1)
+      }
+    }
+    // Dragging selects the role under the center and must not click the original role on release.
+    const beforeDrag = await selected.getAttribute('data-bot')
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + 100)
+    await page.mouse.down()
+    await page.mouse.move(bounds.x + bounds.width / 2 - step * 1.2, bounds.y + 100, { steps: 8 })
+    await page.mouse.up()
+    await expect(selected).not.toHaveAttribute('data-bot', beforeDrag!)
+    const stoppedLeft = await viewport.evaluate(el => el.scrollLeft)
+    await page.waitForTimeout(300)
+    expect(await viewport.evaluate(el => el.scrollLeft)).toBe(stoppedLeft)
+    expect(await centerError()).toBeGreaterThan(10)
+    const afterDrag = await selected.getAttribute('data-bot')
+    await page.mouse.move(0, 0)
+    await page.mouse.move(bounds.x + 20, bounds.y + 8)
+    await expect(selected).toHaveAttribute('data-bot', afterDrag!)
+    await selected.focus()
+    await page.keyboard.press('End')
+    await expect.poll(centerError).toBeLessThan(1)
+    const party = picker.getByRole('button', { name: 'paidui', exact: true })
+    await party.click()
+    await expect(party).toHaveAttribute('aria-pressed', 'true')
+    await expect(picker.getByRole('button', { name: 'zhezhe', exact: true })).toHaveAttribute('aria-pressed', 'false')
+    await page.locator('.new-chat-page').getByRole('textbox', { name: 'BOT name' }).fill('Party companion')
+    await page.mouse.move(0, 0)
+    await page.screenshot({ path: `/tmp/studio-bot-picker/carousel-${mode}-desktop.png`, animations: 'disabled' })
+    await page.setViewportSize({ width: 1180, height: 800 })
+    await expect(selected).toHaveAttribute('data-bot', 'paidui')
+    await expect.poll(centerError).toBeLessThan(1)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await party.hover()
+    await expect(party.locator('img')).toHaveAttribute('src', '/person/paidui/idle.png')
+    await page.locator('.new-chat-page .input-textarea').fill('Hello party')
+    await page.locator('.new-chat-page').getByRole('button', { name: 'Send', exact: true }).click()
+    await expect(page.locator('.person-title')).toHaveText('Party companion')
+    expect(state.conversations.find((session: any) => session.title === 'Party companion').bot_type).toBe('paidui')
+    expect(operations.filter(op => op.path.endsWith('/conversations') && op.body).at(-1).body.bot_type).toBe('paidui')
+    await page.reload()
+    await expect(page.locator('.empty-logo--person')).toHaveAttribute('alt', 'paidui')
+    await expect(page.locator('.empty-logo--person')).toHaveAttribute('src', '/person/paidui/idle.png')
+  })
+
+  test(`Person swipes looping Bot characters by touch without cards or page overflow in ${mode}`, async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+    const mobile = await context.newPage()
+    try {
+      const { state } = await setup(mobile, mode, mode === 'dark', mode === 'dark')
+      state.conversations = []
+      await mobile.goto('/#/person')
+      const picker = mobile.locator('.person-bot-picker')
+      const viewport = picker.locator('.person-bot-viewport')
+      const selected = picker.locator('.person-bot-option[aria-pressed="true"]')
+      await expect(selected).toHaveAttribute('data-bot', 'zhezhe')
+      await expect.poll(() => selected.locator('img').evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true)
+      await expect(mobile.locator('.page-loading-overlay:visible')).toHaveCount(0)
+      const bounds = (await viewport.boundingBox())!
+      const session = await context.newCDPSession(mobile)
+      const x = bounds.x + bounds.width * .75, y = bounds.y + 100
+      await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+      for (let i = 1; i <= 12; i++) {
+        await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x - bounds.width * .5 * i / 12, y }] })
+        await mobile.waitForTimeout(16)
+      }
+      await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      await expect(selected).not.toHaveAttribute('data-bot', 'zhezhe')
+      let previousLeft = -Infinity
+      await expect.poll(async () => {
+        const left = await viewport.evaluate(el => el.scrollLeft)
+        const stable = Math.abs(left - previousLeft) < .5
+        previousLeft = left
+        return stable
+      }).toBe(true)
+      const next = await picker.locator('.person-bot-option').evaluateAll(buttons => buttons.findIndex(el => el.getAttribute('aria-pressed') === 'true') + 1)
+      const neighbor = picker.locator('.person-bot-option').nth(next)
+      const botType = await neighbor.getAttribute('data-bot')
+      await neighbor.tap()
+      await expect(selected).toHaveAttribute('data-bot', botType!)
+      await expect(selected.locator('img')).toHaveAttribute('src', PERSON_BOTS.find(bot => bot.type === botType)!.animations.idle)
+      await mobile.getByRole('textbox', { name: 'BOT name' }).tap()
+      await mobile.getByRole('textbox', { name: 'BOT name' }).fill('Music companion')
+      expect(await picker.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+      expect(await mobile.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      await mobile.screenshot({ path: `/tmp/studio-bot-picker/carousel-${mode}-mobile.png`, animations: 'disabled' })
+    } finally { await context.close() }
+  })
+
   test(`Person creates named conversations, switches and deletes only the selected conversation in ${mode}`, async ({ page }) => {
     const { state, operations } = await setup(page, mode, true, true)
     state.tasks[0].running = false; state.tasks[0].execution_state = 'finished'
@@ -1709,6 +1980,78 @@ for (const mode of ['light', 'dark'] as const) {
   })
 }
 
+for (const locale of ['en', 'zh'] as const) for (const mobile of [false, true]) {
+  test(`Person fills the hit character name and deploys its transparent image (${locale}, ${mobile ? 'mobile' : 'desktop'})`, async ({ page }) => {
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(String(error)))
+    const { state, operations } = await setup(page, mobile ? 'dark' : 'light', mobile, mobile)
+    state.conversations = []
+    await page.addInitScript(locale => localStorage.setItem('hermes_locale', locale), locale)
+    await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 })
+    await page.goto('/#/person')
+    await expect(page.locator('.page-loading-overlay:visible')).toHaveCount(0)
+    const name = page.locator('#person-conversation-name')
+    await expect(name).toHaveValue(locale === 'zh' ? '折折' : 'zhezhe')
+    const picker = page.locator('.person-bot-picker')
+    await expect(picker.getByRole('button', { name: locale === 'zh' ? '折折' : 'zhezhe', exact: true })).toBeVisible()
+    const viewport = picker.locator('.person-bot-viewport')
+    const step = await viewport.evaluate(el => {
+      const slots = el.querySelectorAll<HTMLElement>('.person-bot-slot')
+      return slots[1].offsetLeft - slots[0].offsetLeft
+    })
+    await viewport.hover()
+    await page.mouse.wheel(-step, 0)
+    const selected = picker.locator('[aria-pressed="true"]')
+    await expect(selected).toHaveAttribute('data-bot', 'paidui')
+    await expect(name).toHaveValue(locale === 'zh' ? '派对' : 'paidui')
+    await expect.poll(() => selected.locator('img').evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true)
+    // Follow the same summoning and landing lifecycle as ordinary single chat.
+    await page.evaluate(() => {
+      const state = { frames: [] as any[], until: performance.now() + 5000 }
+      ;(window as any).personDeploymentFrames = state
+      const sample = () => {
+        const overlay = document.querySelector<HTMLElement>('.agent-deployment-overlay')
+        const hero = overlay?.querySelector<HTMLElement>('.agent-deployment-hero')
+        const target = document.querySelector<HTMLElement>('[data-agent-deployment-target]:not([data-agent-deployment-target=""])')
+        if (hero && target) {
+          const h = hero.getBoundingClientRect(), t = target.getBoundingClientRect()
+          state.frames.push({ phase: overlay!.dataset.phase, opacity: hero.style.opacity, targetOpacity: target.style.opacity,
+            dx: h.x + h.width / 2 - t.x - t.width / 2, dy: h.y + h.height / 2 - t.y - t.height / 2,
+            height: h.height, targetHeight: t.height })
+        }
+        if (performance.now() < state.until) requestAnimationFrame(sample)
+      }
+      requestAnimationFrame(sample)
+    })
+    await page.locator('.new-chat-page .input-textarea').fill('Hello from the selected character')
+    await page.locator('.new-chat-page').getByRole('button', { name: 'Send', exact: true }).click()
+    const overlay = page.locator('.agent-deployment-overlay')
+    await expect(overlay).toHaveCount(1)
+    await expect(overlay.locator('img.agent-deployment-card-face')).toHaveAttribute('src', '/person/paidui/idle.gif')
+    await expect(overlay.locator('img.agent-deployment-card-face')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(overlay.locator('.agent-card')).toHaveCount(0)
+    const created = state.conversations.find((session: any) => session.bot_type === 'paidui')
+    await expect(page).toHaveURL(new RegExp(`session=${created.id}`))
+    const target = page.locator(`[data-agent-deployment-target="${created.id}"]`)
+    await expect(target).toHaveAttribute('src', '/person/paidui/thinking.gif')
+    await expect(target).toHaveAttribute('data-agent-deployment-image', 'ready')
+    await page.waitForTimeout(650)
+    await page.screenshot({ path: `/tmp/studio-bot-picker/deployment-${locale}-${mobile ? 'mobile' : 'desktop'}.png` })
+    await expect(overlay).toHaveCount(0, { timeout: 5000 })
+    const frames = await page.evaluate(() => (window as any).personDeploymentFrames.frames)
+    expect(frames.some((frame: any) => frame.phase === 'landing' && frame.targetOpacity === '0')).toBe(true)
+    const landed = frames.find((frame: any) => frame.phase === 'landing' && frame.targetOpacity !== '0' && frame.opacity === '1')
+    expect(landed, JSON.stringify(frames.slice(-10))).toBeDefined()
+    expect(Math.abs(landed.dx)).toBeLessThan(1)
+    expect(Math.abs(landed.dy)).toBeLessThan(1)
+    expect(Math.abs(landed.height - landed.targetHeight)).toBeLessThan(1)
+    expect(await target.evaluate(el => (el as HTMLElement).style.opacity)).toBe('')
+    expect(operations.filter(op => op.path.endsWith('/conversations') && op.body)).toHaveLength(1)
+    await expect.poll(() => emitted(page, 'run')).toEqual([expect.objectContaining({ session_id: created.id, input: 'Hello from the selected character' })])
+    expect(errors).toEqual([])
+  })
+}
+
 test('Person drafts its name, model and first message without changing the current conversation, and retries a failed create', async ({ page }) => {
   const { state, operations } = await setup(page, 'light', false, false)
   state.tasks[0].running = false; state.tasks[0].execution_state = 'finished'
@@ -1718,6 +2061,9 @@ test('Person drafts its name, model and first message without changing the curre
   await page.getByRole('button', { name: 'New BOT role', exact: true }).click()
   const draft = page.locator('.new-chat-page')
   await draft.locator('.input-textarea').fill('Plan my trip')
+  await expect(draft.getByRole('textbox', { name: 'BOT name' })).toHaveValue('zhezhe')
+  await expect(draft.getByRole('button', { name: 'Send', exact: true })).toBeEnabled()
+  await draft.getByRole('textbox', { name: 'BOT name' }).fill('')
   await expect(draft.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
   await draft.getByRole('textbox', { name: 'BOT name' }).fill('旅行搭子')
   await expect(draft.getByPlaceholder('Enter BOT name')).toBeVisible()
@@ -1738,6 +2084,7 @@ test('Person drafts its name, model and first message without changing the curre
   state.failCreate = true
   await draft.getByRole('button', { name: 'Send', exact: true }).click()
   await expect(page.getByText('Creation unavailable', { exact: false })).toBeVisible()
+  await expect(page.locator('.agent-deployment-overlay')).toHaveCount(0)
   await expect(draft.locator('.input-textarea')).toHaveValue('Plan my trip')
   await expect(draft.getByRole('textbox', { name: 'BOT name' })).toHaveValue('旅行搭子')
   expect(state.conversations).toHaveLength(1)
@@ -1753,8 +2100,9 @@ test('Person drafts its name, model and first message without changing the curre
   await expect(page.locator('.person-compose .input-textarea')).toHaveValue('Keep the current draft')
 })
 
-test('Person keeps the first message on duplicate BOT names and creates once after correction', async ({ page }) => {
+test('Person checks duplicate BOT names only on send and keeps the first message for correction', async ({ page }) => {
   const { state, operations } = await setup(page, 'dark', true, true)
+  state.conversations.push({ ...state.session, id: 'person-main-default-bot', title: 'zhezhe' })
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#/person')
   await page.getByRole('button', { name: 'Menu', exact: true }).click()
@@ -1762,18 +2110,31 @@ test('Person keeps the first message on duplicate BOT names and creates once aft
   const draft = page.locator('.new-chat-page')
   const name = draft.getByRole('textbox', { name: 'BOT name' })
   const send = draft.getByRole('button', { name: 'Send', exact: true })
+  await expect(name).toHaveValue('zhezhe')
+  await expect(name).toHaveAttribute('aria-invalid', 'false')
+  await expect(draft.getByRole('alert')).toHaveCount(0)
   await draft.locator('.input-textarea').fill('Keep this first message')
   await name.fill(' ＰＥＲＳＯＮ ')
+  await expect(name).toHaveAttribute('aria-invalid', 'false')
+  await expect(draft.getByRole('alert')).toHaveCount(0)
+  await expect(send).toBeEnabled()
+  expect(operations.filter(operation => operation.path.endsWith('/conversations') && operation.body)).toHaveLength(0)
+  await send.click()
   await expect(name).toHaveAttribute('aria-invalid', 'true')
   await expect(draft.getByRole('alert')).toContainText('already exists')
-  await expect(send).toBeDisabled()
-  expect(operations.filter(operation => operation.path.endsWith('/conversations') && operation.body)).toHaveLength(0)
+  await expect(send).toBeEnabled()
+  expect(operations.filter(operation => operation.path.endsWith('/conversations') && operation.body)).toHaveLength(1)
+  await send.click()
+  await expect(draft.getByRole('alert')).toContainText('already exists')
+  await expect(send).toBeEnabled()
+  expect(operations.filter(operation => operation.path.endsWith('/conversations') && operation.body)).toHaveLength(2)
   state.conflictingBotName = 'Unlisted BOT'
   await name.fill('Unlisted BOT')
+  await expect(draft.getByRole('alert')).toHaveCount(0)
   await send.click()
   await expect(draft.getByRole('alert')).toContainText('already exists')
   await expect(draft.locator('.input-textarea')).toHaveValue('Keep this first message')
-  await expect(send).toBeDisabled()
+  await expect(send).toBeEnabled()
   await page.screenshot({ path: '/tmp/studio-bot-send-create/duplicate-dark-mobile.png', animations: 'disabled' })
   await name.fill('New helper')
   await expect(draft.getByRole('alert')).toHaveCount(0)

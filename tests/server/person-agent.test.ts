@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PERSON_BOTS } from '../../packages/shared/person-bots'
 import type { PersonRuntimePort } from '../../packages/server/src/modules/studio/public/person-runtime'
 
 let db: DatabaseSync
@@ -1739,6 +1740,17 @@ describe('Person multi-conversation ownership', () => {
     const task = await create()
     await expect(createPersonConversation(1, 'Pending task', { workspace: dir, expected_revision: old.revision + 1 })).rejects.toThrow('Wait for Person')
     expect(store.getPersonTask(1, task.task.id).workspace).toBe(workspace)
+  })
+
+  it('creates and reloads every supplied character without coupling its identity to the conversation name', async () => {
+    const { createPersonConversation, personConversations } = await import('../../packages/server/src/modules/studio/services/person/conversations')
+    const { personSnapshot } = await import('../../packages/server/src/modules/studio/services/person/service')
+    for (const bot of PERSON_BOTS) {
+      const created = await createPersonConversation(1, `My ${bot.type} companion`, { bot_type: bot.type })
+      expect(created.bot_type).toBe(bot.type)
+      expect((await personSnapshot(1, created.id)).session?.bot_type).toBe(bot.type)
+      expect(personConversations(1).sessions.find(session => session.id === created.id)?.bot_type).toBe(bot.type)
+    }
   })
 
   it('stores bot type separately from the name and isolates initial model settings', async () => {
