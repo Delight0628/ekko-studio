@@ -2101,13 +2101,19 @@ test('Person accumulates small wheel deltas without snapping back between wheel 
   const viewport = picker.locator('.person-bot-viewport')
   const selected = picker.locator('[aria-pressed="true"]')
   await expect(selected).toHaveAttribute('data-bot', 'zhezhe')
-  await selected.hover()
+  // Hover the viewport: hovering the child asks Playwright to scroll that
+  // button into view, which can move the carousel before the wheel gesture.
+  await viewport.hover()
+  await expect.poll(() => viewport.evaluate(el => {
+    const slot = el.querySelector<HTMLElement>('[aria-pressed="true"]')!.parentElement!
+    return Math.abs(slot.offsetLeft + slot.offsetWidth / 2 - el.scrollLeft - el.clientWidth / 2)
+  })).toBeLessThan(1)
   const start = await viewport.evaluate(el => el.scrollLeft)
   for (let i = 0; i < 10; i++) {
     await page.mouse.wheel(0, 16)
     await page.waitForTimeout(32)
   }
-  expect(await viewport.evaluate(el => el.scrollLeft) - start).toBeGreaterThan(120)
+  await expect.poll(async () => await viewport.evaluate(el => el.scrollLeft) - start).toBeCloseTo(160, 0)
   await expect(selected).toHaveAttribute('data-bot', 'xiaohe')
   const stopped = await viewport.evaluate(el => el.scrollLeft)
   await page.waitForTimeout(400)
@@ -2219,6 +2225,14 @@ for (const mode of ['light', 'dark'] as const) {
     await expect(page.locator('.person-title')).toHaveText('Party companion')
     expect(state.conversations.find((session: any) => session.title === 'Party companion').bot_type).toBe('paidui')
     expect(operations.filter(op => op.path.endsWith('/conversations') && op.body).at(-1).body.bot_type).toBe('paidui')
+    // Page-local resume fixtures disappear on reload. Confirm empty history for
+    // the created conversation before expecting its empty-state character.
+    const created = state.conversations.find((session: any) => session.title === 'Party companion')
+    await page.addInitScript(sessionId => {
+      (window as any).__PW_CHAT_SOCKET_RESUMES__[sessionId] = {
+        session_id: sessionId, messages: [], messageTotal: 0, isWorking: false, events: [],
+      }
+    }, created.id)
     await page.reload()
     await expect(page.locator('.empty-logo--person')).toHaveAttribute('alt', 'paidui')
     await expect(page.locator('.empty-logo--person')).toHaveAttribute('src', '/person/paidui/idle.png')
