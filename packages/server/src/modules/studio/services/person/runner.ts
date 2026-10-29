@@ -3,6 +3,7 @@ import { personRuntime } from '../../public/person-runtime'
 import { personError } from '../../contracts/person'
 import { personExecutionSessionId } from '../../contracts/person-session'
 import type { PersonExecution, PersonInteraction } from '../../contracts/person'
+import type { ContentBlock } from '../../contracts/runs/session'
 import { personDb, personTransaction, personSettings, getPersonExecution, getPersonTask, setPersonExecution, personEvent,
   addPersonInteraction, answerPersonInteraction, promotePersonFollowups } from '../../repositories/person-store'
 import { personUser, validatePersonSelection } from './catalog'
@@ -18,6 +19,7 @@ import { ensureDirectory } from '../workspace/directory'
 import { personRequirements } from '../../contracts/person-flow'
 import { assertPersonStageTask } from '../../repositories/person-stage-store'
 import { deliverPersonStages, recoverPersonStages } from './stage-flows'
+import { personTaskPrompt } from './task-prompt'
 
 const active = new Map<string, { run: PersonExecution; abort: AbortController }>()
 const busyTasks = new Set<string>()
@@ -109,12 +111,16 @@ async function execute(run: PersonExecution, abort: AbortController) {
     current(run)
     personDb().prepare('UPDATE session_tasks SET workspace=? WHERE id=?').run(workspace, task.id)
     personDb().prepare('UPDATE sessions SET workspace=? WHERE id=? AND CAST(studio_user_id AS TEXT)=?').run(workspace, run.session_id, String(userId))
-    const decisions = personDb().prepare("SELECT question,answer,answered_by FROM person_interactions WHERE execution_id IN (SELECT id FROM person_executions WHERE task_id=? AND session_id=?) AND state='answered' ORDER BY created_at DESC LIMIT 10").all(task.id,run.session_id)
+    const decisions = personDb().prepare("SELECT question,answer,answered_by FROM person_interactions WHERE execution_id IN (SELECT id FROM person_executions WHERE task_id=? AND session_id=?) AND state='answered' ORDER BY created_at DESC LIMIT 10").all(task.id,run.session_id) as unknown as Pick<PersonInteraction, 'question' | 'answer' | 'answered_by'>[]
     const requirements = personRequirements(task)
-    const prompt = run.input_json && run.session_id !== personExecutionSessionId(run.id) ? JSON.parse(run.input_json) : JSON.stringify({ title: task.title,
-      requirements: { goal: requirements.goal, ...(requirements.handoff ? { handoff: requirements.handoff } : {}) }, decisions, ...(run.input_json ? { input: JSON.parse(run.input_json) } : {}) })
+    const description = personTaskPrompt(task, decisions)
+    const input = run.input_json ? JSON.parse(run.input_json) as ContentBlock[] : undefined
+    // A new conversation needs its task brief; an existing one already has that context.
+    const prompt = input
+      ? run.session_id === personExecutionSessionId(run.id) ? [{ type: 'text' as const, text: description }, ...input] : input
+      : description
     current(run)
-    const result = await personRuntime().execute({ user: personUser(userId), selection, sessionId: run.session_id, workspace, prompt, displayInput: run.input_json ? undefined : String(JSON.parse(task.requirements_json).goal || task.summary), signal: abort.signal,
+    const result = await personRuntime().execute({ user: personUser(userId), selection, sessionId: run.session_id, workspace, prompt, displayInput: input ? undefined : description, signal: abort.signal,
       onEvent: (kind, payload) => {
         try {
           current(run)

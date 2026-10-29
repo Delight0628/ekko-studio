@@ -1105,13 +1105,38 @@ it('continues in the same hidden task session and delivers every turn to Person 
   expect(next.execution.id).not.toBe(execution.id)
   expect(await continuePersonTask(1, task.id, request)).toEqual(next)
   await runner.tickPersonWork(); await wait(next.execution.id, 'finished')
-  expect(vi.mocked(runtime.execute).mock.calls[0][0].displayInput).toBe('Write 42 into result.txt')
+  expect(vi.mocked(runtime.execute).mock.calls[0][0]).toMatchObject({
+    prompt: '# Compute result\n\nWrite 42 into result.txt',
+    displayInput: '# Compute result\n\nWrite 42 into result.txt',
+  })
   expect(vi.mocked(runtime.execute).mock.calls[1][0]).toMatchObject({ sessionId: execution.session_id, prompt: input, displayInput: undefined })
   await deliverPersonResults(); finishPersonDelivery(1, next.execution.id, true); await deliverPersonResults()
   expect(runtime.deliver).toHaveBeenCalledTimes(2)
   expect(vi.mocked(runtime.deliver).mock.calls[1][0]).toMatchObject({ origin: { sessionId: 'person-main-1' }, executionId: next.execution.id })
   const { listSessions } = await import('../../packages/server/src/modules/studio/repositories/session-store')
   expect(listSessions().some((s: any) => s.id.startsWith('person-task-'))).toBe(false)
+})
+
+it('includes task context and keeps attachments intact on the first and subsequent manual turns', async () => {
+  const { continuePersonTask } = await import('../../packages/server/src/modules/studio/services/person/task-chat')
+  const { task } = await create({ start: false })
+  const imagePath = join(dir, 'screenshot.png'), filePath = join(dir, 'notes.txt')
+  writeFileSync(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l5kAAAAASUVORK5CYII=', 'base64'))
+  writeFileSync(filePath, 'Use these notes')
+  const input = [
+    { type: 'text', text: 'Use the attached screenshot and notes' },
+    { type: 'image', path: imagePath, name: 'screenshot.png', media_type: 'image/png', context: 'Reference screenshot' },
+    { type: 'file', path: filePath, name: 'notes.txt', media_type: 'text/plain', context: 'Task notes' },
+  ]
+  const first = await continuePersonTask(1, task.id, { input, expected_revision: task.revision, idempotency_key: 'first-with-files' })
+  await runner.tickPersonWork(); await wait(first.execution.id, 'finished')
+  expect(vi.mocked(runtime.execute).mock.calls[0][0]).toMatchObject({
+    prompt: [{ type: 'text', text: '# Compute result\n\nWrite 42 into result.txt' }, ...input], displayInput: undefined,
+  })
+  expect(JSON.parse(store.getPersonExecution(1, first.execution.id).input_json!)).toEqual(input)
+  const next = await continuePersonTask(1, task.id, { input, expected_revision: store.getPersonTask(1, task.id).revision, idempotency_key: 'followup-with-files' })
+  await runner.tickPersonWork(); await wait(next.execution.id, 'finished')
+  expect(vi.mocked(runtime.execute).mock.calls[1][0]).toMatchObject({ sessionId: first.execution.session_id, prompt: input, displayInput: undefined })
 })
 
 it.each([true, false])('queues same-task follow-ups in order exactly once after initial success=%s', async initialSuccess => {
@@ -1941,9 +1966,12 @@ describe('legacy Person planned role flow', () => {
     expect(db.prepare("SELECT COUNT(*) AS n FROM person_events WHERE kind='flow.transferred'").get()?.n).toBe(2)
     const completed = store.getPersonTask(1, taskId)
     await expect(tasks.applyPersonTask(1, { action: 'advance', task_id: taskId, expected_revision: completed.revision, message: '再推进', idempotency_key: 'after-end' })).rejects.toThrow('Flow is stopped, complete or unavailable')
-    const secondPrompt = JSON.parse(String(vi.mocked(runtime.execute).mock.calls[1][0].prompt))
-    expect(secondPrompt.requirements).toMatchObject({ goal: '将已审核文案实现为页面', handoff: { message: expect.stringContaining('阶段 0') } })
-    expect(secondPrompt.requirements).not.toHaveProperty('flow')
+    const secondPrompt = vi.mocked(runtime.execute).mock.calls[1][0].prompt
+    expect(typeof secondPrompt).toBe('string')
+    expect(secondPrompt).toContain('将已审核文案实现为页面')
+    expect(secondPrompt).toContain('阶段 0')
+    expect(secondPrompt).toContain('Created result.txt with 42')
+    expect(secondPrompt).not.toContain('"flow"')
     const finalRole = role('person-main-1')
     const afterCompletion = await finalRole('bot_tasks_query', { task_id: taskId })
     const followup = await finalRole('bot_task_control', { action: 'continue', task_ref: afterCompletion.task.task_ref, message: '补充最终说明' })
@@ -2058,6 +2086,8 @@ describe('isolated scheduled worker conversations', () => {
     expect(getSession(second.session_id)?.agent_native_session_id).toBeFalsy()
     await runner.tickPersonWork(); await wait(second.id, 'finished')
     expect(vi.mocked(runtime.execute).mock.calls.slice(0, 2).map(([input]) => input.sessionId)).toEqual([first.session_id, second.session_id])
+    expect(vi.mocked(runtime.execute).mock.calls[0][0].prompt).toContain('Old question\n\nAnswer (user): First run answer')
+    expect(vi.mocked(runtime.execute).mock.calls[1][0].prompt).toBe('# Compute result\n\nWrite 42 into result.txt')
     expect(String(vi.mocked(runtime.execute).mock.calls[1][0].prompt)).not.toContain('First run answer')
     expect((await personTaskChat(1, task.id)).session?.id).toBe(second.session_id)
     expect((await personTaskChat(1, task.id, first.id)).session?.id).toBe(first.session_id)
