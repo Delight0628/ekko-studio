@@ -38,7 +38,7 @@ export const tasks = (ctx: Context) => handle(ctx, (id, body) => ({ tasks: listP
 export const taskApply = (ctx: Context) => handle(ctx, (id, body) => applyPersonTask(id, body))
 export const flows = (ctx: Context) => handle(ctx,(id,body)=>({ flows:body.flow_id ? [getPersonFlow(id,personText(body.flow_id,'flow_id',100))] : listPersonFlows(id,String(body.session_id || ''),Math.max(0,Number(body.offset)||0)) }))
 export const flowApply = (ctx: Context) => handle(ctx,(id,body)=>body.action === 'create' ? createPersonFlow(id,body) : controlPersonFlow(id,body))
-export const taskChat = (ctx: Context) => handle(ctx, id => personTaskChat(id, ctx.params.id))
+export const taskChat = (ctx: Context) => handle(ctx, id => personTaskChat(id, ctx.params.id, String(ctx.query.execution_id || '')))
 export const taskContinue = (ctx: Context) => handle(ctx, (id, body) => continuePersonTask(id, ctx.params.id, body))
 export const executions = (ctx: Context) => handle(ctx, id => ({ executions: taskPersonExecutions(id, ctx.params.id) }))
 export const events = (ctx: Context) => handle(ctx, id => ({ events: personEvents(id, ctx.params.id, Math.max(0, Number(ctx.query.after) || 0)) }))

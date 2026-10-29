@@ -322,7 +322,7 @@ describe('Person account-owned tasks and runtime', () => {
     }) as any
     await runner.tickPersonWork(); await wait(next.execution.id, 'finished')
     const scheduled = await create({ agent_id: 'worker', start: false })
-    await schedules.applyPersonSchedule(1, { action: 'create', task_id: scheduled.task.id, kind: 'cron', expression: '* * * * *', timezone: 'UTC', expected_revision: 0, idempotency_key: 'auto-schedule' })
+    await schedules.applyPersonSchedule(1, { action: 'create', mode: 'worker', task_id: scheduled.task.id, kind: 'cron', expression: '* * * * *', timezone: 'UTC', expected_revision: 0, idempotency_key: 'auto-schedule' })
     schedules.tickPersonSchedules(store.listPersonSchedules(1)[0].next_at)
     const occurrence = store.taskPersonExecutions(1, scheduled.task.id)[0]
     await runner.tickPersonWork(); await wait(occurrence.id, 'finished')
@@ -807,7 +807,7 @@ describe('Person account-owned tasks and runtime', () => {
   })
   it('stops only a scheduled occurrence while keeping its future schedule', async () => {
     const { task } = await create({ start: false })
-    await schedules.applyPersonSchedule(1, { action: 'create', task_id: task.id, kind: 'cron', expression: '* * * * *', timezone: 'UTC', expected_revision: 0, idempotency_key: 'schedule' })
+    await schedules.applyPersonSchedule(1, { action: 'create', mode: 'worker', task_id: task.id, kind: 'cron', expression: '* * * * *', timezone: 'UTC', expected_revision: 0, idempotency_key: 'schedule' })
     const schedule = store.listPersonSchedules(1)[0]
     schedules.tickPersonSchedules(schedule.next_at)
     const execution = store.taskPersonExecutions(1, task.id)[0]
@@ -1064,7 +1064,7 @@ describe('Person account-owned tasks and runtime', () => {
   })
   it('finishes a recurring occurrence while keeping future work open', async () => {
     const { task, execution } = await create()
-    schedules.applyPersonSchedule(1, { action: 'create', task_id: task.id, kind: 'cron', expression: '0 9 * * *', timezone: 'UTC', idempotency_key: 'recurring' })
+    schedules.applyPersonSchedule(1, { action: 'create', mode: 'worker', task_id: task.id, kind: 'cron', expression: '0 9 * * *', timezone: 'UTC', idempotency_key: 'recurring' })
     await runner.tickPersonWork(); await wait(execution.id, 'finished')
     expect(store.getPersonTask(1, task.id).status).toBe('open')
     expect(store.listPersonSchedules(1)[0].state).toBe('active')
@@ -1072,7 +1072,7 @@ describe('Person account-owned tasks and runtime', () => {
   })
   it('claims a due occurrence once, persists revisions and skips overlaps', async () => {
     const { task } = await create({ start: false }); const at = Date.now() + 60_000
-    const schedule = schedules.applyPersonSchedule(1, { action:'create', task_id:task.id, kind:'once', expression:new Date(at).toISOString(), timezone:'UTC', misfire:'run_latest', idempotency_key:'schedule' })
+    const schedule = schedules.applyPersonSchedule(1, { action:'create', mode: 'worker', task_id:task.id, kind:'once', expression:new Date(at).toISOString(), timezone:'UTC', misfire:'run_latest', idempotency_key:'schedule' })
     schedules.tickPersonSchedules(at); schedules.tickPersonSchedules(at)
     expect(store.taskPersonExecutions(1, task.id)).toHaveLength(1)
     expect(db.prepare('SELECT COUNT(*) AS n FROM person_occurrences').get()).toMatchObject({n:1})
@@ -1200,6 +1200,9 @@ it('recovers pending turns in FIFO order without invalidating the active executi
 it('requires reopening closed tasks and rejects stale, unauthorized or invalid chat turns', async () => {
   const { continuePersonTask, personTaskChat, ownedPersonTaskSession } = await import('../../packages/server/src/modules/studio/services/person/task-chat')
   const { task } = await create({ start: false })
+  expect((await personTaskChat(1, task.id)).session).toBeNull()
+  const initial = store.enqueuePersonExecution(task)
+  store.setPersonExecution(initial, 'finished')
   const chat = await personTaskChat(1, task.id)
   const request = { input: [{ type: 'text', text: 'Continue' }], expected_revision: 0, idempotency_key: 'continue' }
   await expect(continuePersonTask(2, task.id, request)).rejects.toThrow('not found')
@@ -1232,6 +1235,7 @@ it.each(['disabled', 'removed', 'uninstalled'])('reads completed task history wh
 it('keeps task history private after resource permission is revoked', async () => {
   const { personTaskChat, ownedPersonTaskSession } = await import('../../packages/server/src/modules/studio/services/person/task-chat')
   const task = store.createPersonTask(2, 'Private task', 'Read history', selection, dir, 'person-main-2')
+  store.enqueuePersonExecution(task)
   const chat = await personTaskChat(2, task.id)
   allowedProfiles = []
   await expect(personTaskChat(2, task.id)).rejects.toThrow('permission revoked')
@@ -1474,7 +1478,7 @@ it('uses one account workspace for creation, adoption, scheduled runs and follow
   await delivery.deliverPersonResults(); delivery.finishPersonDelivery(1, next.execution.id, true)
   expect(vi.mocked(runtime.execute).mock.calls[1][0]).toMatchObject({ sessionId: chat.session.id, workspace: nextWorkspace })
   const at = Date.now() + 60_000
-  schedules.applyPersonSchedule(1, { action: 'create', task_id: second.task.id, kind: 'once', expression: new Date(at).toISOString(), timezone: 'UTC', idempotency_key: 'workspace-schedule' })
+  schedules.applyPersonSchedule(1, { action: 'create', mode: 'worker', task_id: second.task.id, kind: 'once', expression: new Date(at).toISOString(), timezone: 'UTC', idempotency_key: 'workspace-schedule' })
   schedules.tickPersonSchedules(at)
   const occurrence = store.taskPersonExecutions(1, second.task.id)[0]
   await runner.tickPersonWork(); await wait(occurrence.id, 'finished')
@@ -1526,8 +1530,8 @@ it('atomically clears only Person history and tasks, retaining memory, preferenc
   store.personEvent(execution, 'run.finished', { output: 'Old result' })
   store.addPersonInteraction(1, execution, 'old-question', 'Old question', [])
   savePersonTaskReturn(1, execution.id, 'person-main-1', assistant)
-  const schedule = schedules.applyPersonSchedule(1, { action: 'create', task_id: task.id, kind: 'cron', expression: '0 9 * * *', timezone: 'UTC', idempotency_key: 'clear-schedule' })
-  db.prepare('INSERT INTO person_occurrences VALUES (?,?,?,?,?,?)').run('past-occurrence', schedule.id, 0, 1, 'finished', execution.id)
+  const schedule = schedules.applyPersonSchedule(1, { action: 'create', mode: 'worker', task_id: task.id, kind: 'cron', expression: '0 9 * * *', timezone: 'UTC', idempotency_key: 'clear-schedule' })
+  db.prepare('INSERT INTO person_occurrences(id,schedule_id,revision,scheduled_at,state,execution_id) VALUES (?,?,?,?,?,?)').run('past-occurrence', schedule.id, 0, 1, 'finished', execution.id)
   const file = join(dir, 'keep-result.txt'); writeFileSync(file, 'Keep the output file')
   const settingsBefore = store.personSettings(1)
   expect((await personSnapshot(1, 'person-main-1')).can_clear).toBe(true)
@@ -1793,7 +1797,7 @@ describe('Person multi-conversation ownership', () => {
     expect(vi.mocked(runtime.deliver).mock.calls.at(-1)![0].origin.sessionId).toBe(b.id)
     await tasks.applyPersonTask(1, { action: 'reopen', task_id: task.id, expected_revision: store.getPersonTask(1, task.id).revision, idempotency_key: 'multi-reopen' })
     const at = Date.now() + 120000
-    schedules.applyPersonSchedule(1, { action: 'create', task_id: task.id, kind: 'once', expression: new Date(at).toISOString(), timezone: 'UTC', idempotency_key: 'multi-schedule' })
+    schedules.applyPersonSchedule(1, { action: 'create', mode: 'worker', task_id: task.id, kind: 'once', expression: new Date(at).toISOString(), timezone: 'UTC', idempotency_key: 'multi-schedule' })
     schedules.tickPersonSchedules(at)
     const occurrence = store.taskPersonExecutions(1, task.id)[0]
     await runner.tickPersonWork(); await wait(occurrence.id, 'finished')
@@ -1817,7 +1821,7 @@ describe('Person multi-conversation ownership', () => {
     await account.service.write({ operation: 'create', kind: 'profile_name', identity: account.identity, reason: 'User name', node: { title: 'Name', content: 'User name: Ekko', valueJson: 'Ekko' } })
     const keep = await create({ session_id: a.id, start: false })
     const removed = await create({ session_id: b.id, start: false })
-    schedules.applyPersonSchedule(1, { action: 'create', task_id: removed.task.id, kind: 'cron', expression: '0 9 * * *', timezone: 'UTC', idempotency_key: 'delete-B-schedule' })
+    schedules.applyPersonSchedule(1, { action: 'create', mode: 'worker', task_id: removed.task.id, kind: 'cron', expression: '0 9 * * *', timezone: 'UTC', idempotency_key: 'delete-B-schedule' })
     await deletePersonConversation(1, b.id, getSession(b.id)!.history_revision)
     expect(getSession(b.id)).toBeNull()
     expect(getSession(a.id)).toBeTruthy()
@@ -1927,7 +1931,7 @@ describe('legacy Person planned role flow', () => {
       expect(store.getPersonExecution(1, executionId).output).toContain('result.txt')
       if (target) {
         expect(next.execution.id).not.toBe(executionId)
-        expect(store.getPersonExecution(1, next.execution.id).session_id).toBe(`person-task-${taskId}`)
+        expect(store.getPersonExecution(1, next.execution.id).session_id).toBe(`person-task-${next.execution.id}`)
         expect(JSON.parse(store.getPersonTask(1, taskId).requirements_json).handoff).toMatchObject({ execution_id: executionId, output: expect.stringContaining('result.txt') })
         executionId = next.execution.id
       }
@@ -2034,4 +2038,82 @@ describe('legacy Person planned role flow', () => {
     expect(advanced.task.session_id).toBe(c.id)
     expect(await tasks.applyPersonTask(1, request)).toEqual(advanced)
   })
+})
+
+describe('isolated scheduled worker conversations', () => {
+  it('starts each occurrence fresh and pins historical follow-ups to their own conversation', async () => {
+    const { personTaskChat, continuePersonTask, ownedPersonTaskSession } = await import('../../packages/server/src/modules/studio/services/person/task-chat')
+    const { addMessage, getSession } = await import('../../packages/server/src/modules/studio/repositories/session-store')
+    const { task } = await create({ start: false })
+    const schedule = schedules.applyPersonSchedule(1, { action: 'create', mode: 'worker', task_id: task.id, kind: 'cron', expression: '* * * * *', timezone: 'UTC', idempotency_key: 'isolated' })
+    schedules.tickPersonSchedules(schedule.next_at)
+    const first = store.taskPersonExecutions(1, task.id)[0]
+    addMessage({ session_id: first.session_id, role: 'assistant', content: 'First run only' })
+    const question = store.addPersonInteraction(1, first, 'old-question', 'Old question', [])
+    store.answerPersonInteraction(1, question.id, 0, 'First run answer', 'user')
+    await runner.tickPersonWork(); await wait(first.id, 'finished')
+    schedules.tickPersonSchedules(store.listPersonSchedules(1)[0].next_at)
+    const second = store.taskPersonExecutions(1, task.id)[0]
+    expect(second.session_id).not.toBe(first.session_id)
+    expect(getSession(second.session_id)?.agent_native_session_id).toBeFalsy()
+    await runner.tickPersonWork(); await wait(second.id, 'finished')
+    expect(vi.mocked(runtime.execute).mock.calls.slice(0, 2).map(([input]) => input.sessionId)).toEqual([first.session_id, second.session_id])
+    expect(String(vi.mocked(runtime.execute).mock.calls[1][0].prompt)).not.toContain('First run answer')
+    expect((await personTaskChat(1, task.id)).session?.id).toBe(second.session_id)
+    expect((await personTaskChat(1, task.id, first.id)).session?.id).toBe(first.session_id)
+    expect(store.listPersonTasks(1)).toHaveLength(1)
+    const current = store.getPersonTask(1, task.id)
+    const next = await continuePersonTask(1, task.id, { input: [{ type: 'text', text: 'Explain the first result' }], execution_id: first.id,
+      expected_execution_id: second.id, expected_revision: current.revision, idempotency_key: 'historical' })
+    expect(next.execution.session_id).toBe(first.session_id)
+    expect(ownedPersonTaskSession(1, first.session_id).task.id).toBe(task.id)
+    expect(() => ownedPersonTaskSession(2, first.session_id)).toThrow('not found')
+    await runner.tickPersonWork(); await wait(next.execution.id, 'finished')
+    expect(vi.mocked(runtime.execute).mock.calls.at(-1)![0].sessionId).toBe(first.session_id)
+    const other = await create({ start: false })
+    await expect(personTaskChat(1, other.task.id, first.id)).rejects.toThrow('not found')
+    await expect(continuePersonTask(1, other.task.id, { input: [{ type: 'text', text: 'Wrong task' }], execution_id: first.id,
+      expected_revision: other.task.revision, idempotency_key: 'foreign' })).rejects.toThrow('not found')
+  })
+
+  it('resolves a selected execution older than the recent page and rejects stale requirements on resume', async () => {
+    const { personTaskChat, continuePersonTask } = await import('../../packages/server/src/modules/studio/services/person/task-chat')
+    const { task } = await create({ start: false })
+    let first = ''
+    for (let index = 0; index < 22; index++) {
+      const run = store.enqueuePersonExecution(store.getPersonTask(1, task.id))
+      first ||= run.id
+      store.setPersonExecution(run, 'finished')
+    }
+    expect((await personTaskChat(1, task.id, first)).execution?.id).toBe(first)
+    const queued = store.enqueuePersonExecution(store.getPersonTask(1, task.id))
+    const followup = await continuePersonTask(1, task.id, { input: [{ type: 'text', text: 'Queued' }], expected_revision: 0, idempotency_key: 'queued-history' })
+    const activeChat = await personTaskChat(1, task.id)
+    expect(activeChat.executions.map(run => run.id)).toEqual(expect.arrayContaining([queued.id, followup.execution.id]))
+    store.setPersonExecution(queued, 'finished')
+    store.setPersonExecution(followup.execution, 'finished')
+    const changed = store.updatePersonTask(1, task.id, store.getPersonTask(1, task.id).revision, 'New goal')
+    await expect(continuePersonTask(1, task.id, { input: [{ type: 'text', text: 'Old context' }], execution_id: first,
+      expected_revision: changed.revision, idempotency_key: 'old-requirements' })).rejects.toThrow('requirements changed')
+  })
+})
+
+it('discards prelaunch worker-only schedules once while retaining task goals, conversations and account resources', async () => {
+  const { task } = await create({ start: false })
+  db.exec(`DROP TABLE person_occurrences; DROP TABLE person_schedules;
+    CREATE TABLE person_schedules(id TEXT PRIMARY KEY, owner_user_id INTEGER, task_id TEXT);
+    INSERT INTO person_schedules VALUES('old',1,'${task.id}');
+    CREATE TABLE person_occurrences(id TEXT PRIMARY KEY, schedule_id TEXT);
+    INSERT INTO person_occurrences VALUES('old-occurrence','old');
+    INSERT INTO person_operations VALUES(1,'schedule:old','old','{}');`)
+  const { initPersonTables } = await import('../../packages/server/src/modules/studio/infrastructure/database/person-schema')
+  initPersonTables(db)
+  expect(store.listPersonSchedules(1)).toHaveLength(0)
+  expect(db.prepare("SELECT * FROM person_operations WHERE operation_key='schedule:old'").get()).toBeUndefined()
+  expect(store.getPersonTask(1, task.id).title).toBe(task.title)
+  expect(store.personSettings(1).settings.agents).toHaveLength(1)
+  const saved = schedules.applyPersonSchedule(1, { action: 'create', mode: 'assistant', session_id: 'person-main-1', title: 'New schedule', goal: 'Reply directly',
+    kind: 'cron', expression: '* * * * *', timezone: 'UTC', idempotency_key: 'new-schema' })
+  initPersonTables(db)
+  expect(store.listPersonSchedules(1)[0].id).toBe(saved.id)
 })

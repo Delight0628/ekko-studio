@@ -272,8 +272,9 @@ const workspaceValue = ref<string | null>('')
 const workspaceDirectories = useDefaultWorkspace()
 const { defaultWorkspaces, recentWorkspaces } = workspaceDirectories
 const chatTaskId = ref<string | null>(null)
-function openTask(task: PersonTask) { showTasks.value = false; chatTaskId.value = task.id }
-provide(personTaskNavigation, taskId => { showTasks.value = false; chatTaskId.value = taskId })
+const chatExecutionId = ref<string>()
+function openTask(task: PersonTask) { showTasks.value = false; chatExecutionId.value = undefined; chatTaskId.value = task.id }
+provide(personTaskNavigation, (taskId, executionId) => { showTasks.value = false; chatExecutionId.value = executionId; chatTaskId.value = taskId })
 const showModelPicker = ref(false)
 const modelsLoading = ref(false)
 const modelTrigger = ref<HTMLElement | null>(null)
@@ -345,7 +346,7 @@ function openFlowResult(sessionId: string, messageId: number) {
   showPanel.value = false
   return router.push({ name: 'hermes.person', query: { session: sessionId, message: String(messageId) } })
 }
-function openFlowTask(taskId: string) { showPanel.value = false; chatTaskId.value = taskId }
+function openFlowTask(taskId: string) { showPanel.value = false; chatExecutionId.value = undefined; chatTaskId.value = taskId }
 async function act(work: () => Promise<unknown>) {
   if (pending.value) return false
   pending.value = true; error.value = ''
@@ -601,7 +602,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
               </NTabPane>
               <NTabPane name="schedules" :tab-props="{ role: 'tab', 'aria-selected': tab === 'schedules' }">
                 <template #tab><span class="workspace-tab"><PersonPanelIcon name="schedule" :size="17" />{{ t('person.schedules') }}<span class="workspace-tab-count">{{ data.schedules.length }}</span></span></template>
-                <PersonSchedulesPanel :schedules="data.schedules" :tasks="data.tasks" :timezone="data.settings.timezone" :saving="pending" :save="saveSchedule" @action="scheduleAction" />
+                <PersonSchedulesPanel :session-id="data.session?.id || ''" :schedules="data.schedules" :tasks="data.tasks" :timezone="data.settings.timezone" :saving="pending" :save="saveSchedule" @action="scheduleAction" />
               </NTabPane>
               <NTabPane name="memory" :tab-props="{ role: 'tab', 'aria-selected': tab === 'memory' }">
                 <template #tab><span class="workspace-tab"><PersonPanelIcon name="memory" :size="17" />{{ t('person.memory') }}<span class="workspace-tab-count">{{ data.memories.length }}</span></span></template>
@@ -612,7 +613,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
         </NDrawerContent>
       </NDrawer>
       <SessionTasksDrawer v-if="data.session" v-model:show="showTasks" person :person-session-id="data.session.id" @open-person-task="openTask" />
-      <PersonTaskChat v-if="chatTaskId && data.session" :task-id="chatTaskId" :main-session-id="data.session.id" @close="chatTaskId = null; refresh()" />
+      <PersonTaskChat v-if="chatTaskId && data.session" :key="`${chatTaskId}:${chatExecutionId || ''}`" :execution-id="chatExecutionId" :task-id="chatTaskId" :main-session-id="data.session.id" @close="chatTaskId = null; refresh()" />
     </template>
   </PageLoading>
     <NDropdown trigger="manual" placement="bottom-start" :show="showConversationMenu" :x="conversationMenuX" :y="conversationMenuY" :options="conversationMenuOptions"

@@ -5,12 +5,15 @@ import { NButton, NDatePicker, NInput, NSelect, NTag, NTimePicker } from 'naive-
 import type { PersonSchedule, PersonTask } from '@/api/person'
 import PersonPanelIcon from './PersonPanelIcon.vue'
 
-const props = defineProps<{ schedules: PersonSchedule[]; tasks: PersonTask[]; timezone: string; saving: boolean; save: (input: Record<string, unknown>) => Promise<boolean> }>()
+const props = defineProps<{ sessionId: string; schedules: PersonSchedule[]; tasks: PersonTask[]; timezone: string; saving: boolean; save: (input: Record<string, unknown>) => Promise<boolean> }>()
 const emit = defineEmits<{ action: [schedule: PersonSchedule, action: string] }>()
 const { t, locale } = useI18n()
 const editorOpen = ref(false)
 const editing = ref<PersonSchedule | null>(null)
 const taskId = ref<string | null>(null)
+const mode = ref<'assistant' | 'worker'>('assistant')
+const title = ref('')
+const goal = ref('')
 const kind = ref('cron')
 const cadence = ref('daily')
 const time = ref('09:00')
@@ -28,6 +31,7 @@ const expression = computed(() => {
 })
 function startEdit(schedule?: PersonSchedule) {
   editing.value = schedule || null
+  mode.value = schedule?.mode || 'assistant'; title.value = schedule?.title || ''; goal.value = schedule?.goal || ''
   taskId.value = schedule?.task_id || null
   zone.value = schedule?.timezone || props.timezone
   kind.value = schedule ? (/\s/.test(schedule.expression) ? 'cron' : 'once') : 'cron'
@@ -39,9 +43,10 @@ function startEdit(schedule?: PersonSchedule) {
   time.value = simple ? `${fields[1]!.padStart(2, '0')}:${fields[0]!.padStart(2, '0')}` : '09:00'
   editorOpen.value = true
 }
+const validTarget = computed(() => mode.value === 'worker' ? !!taskId.value : !!props.sessionId && !!title.value.trim() && !!goal.value.trim())
 async function submit() {
-  if (props.saving || !taskId.value || !expression.value || !zone.value.trim()) return
-  if (await props.save({ action: editing.value ? 'update' : 'create', task_id: taskId.value, schedule_id: editing.value?.id, expected_revision: editing.value?.revision,
+  if (props.saving || !validTarget.value || !expression.value || !zone.value.trim()) return
+  if (await props.save({ action: editing.value ? 'update' : 'create', mode: mode.value, ...(mode.value === 'worker' ? { task_id: taskId.value } : { session_id: props.sessionId, title: title.value, goal: goal.value }), schedule_id: editing.value?.id, expected_revision: editing.value?.revision,
     kind: kind.value, expression: expression.value, timezone: zone.value, misfire: 'run_latest', idempotency_key: crypto.randomUUID() })) editorOpen.value = false
 }
 function scheduleLabel(schedule: PersonSchedule) {
@@ -61,7 +66,12 @@ function nextDate(schedule: PersonSchedule) {
     <form v-if="editorOpen" class="panel-editor" data-theme-surface="card" @submit.prevent="submit">
       <div class="editor-heading"><span class="tile-icon"><PersonPanelIcon name="schedule" /></span><h3>{{ editing ? t('common.edit') : t('person.addSchedule') }}</h3></div>
       <div class="editor-fields">
-        <label class="field-wide">{{ t('person.tasks') }}<NSelect v-model:value="taskId" filterable :options="tasks" :disabled="saving || !!editing" :placeholder="t('person.tasks')" :aria-label="t('person.tasks')" /></label>
+        <label class="field-wide">{{ t('person.scheduleMode') }}<NSelect v-model:value="mode" :disabled="saving || !!editing" :options="[{ value: 'assistant', label: t('person.assistantSchedule') }, { value: 'worker', label: t('person.workerSchedule') }]" :aria-label="t('person.scheduleMode')" /></label>
+        <template v-if="mode === 'assistant'">
+          <label class="field-wide">{{ t('person.scheduleTitle') }}<NInput v-model:value="title" :maxlength="200" :disabled="saving" :input-props="{ 'aria-label': t('person.scheduleTitle') }" /></label>
+          <label class="field-wide">{{ t('person.scheduleGoal') }}<NInput v-model:value="goal" type="textarea" :maxlength="8000" :disabled="saving" :placeholder="t('person.assistantScheduleHint')" :input-props="{ 'aria-label': t('person.scheduleGoal') }" /></label>
+        </template>
+        <label v-else class="field-wide">{{ t('person.tasks') }}<NSelect v-model:value="taskId" filterable :options="tasks" :disabled="saving || !!editing" :placeholder="t('person.tasks')" :aria-label="t('person.tasks')" /></label>
         <label>{{ t('person.schedules') }}<NSelect v-model:value="kind" :disabled="saving" :options="[{ label: t('person.recurring'), value: 'cron' }, { label: t('person.once'), value: 'once' }]" :aria-label="t('person.schedules')" /></label>
         <label v-if="kind === 'cron'">{{ t('person.frequency') }}<NSelect v-model:value="cadence" :options="cadenceOptions" :disabled="saving" :aria-label="t('person.frequency')" /></label>
         <label v-if="kind === 'once'">{{ t('person.dateTime') }} · {{ localZone }}<NDatePicker v-model:value="date" type="datetime" clearable :disabled="saving" /></label>
@@ -69,14 +79,14 @@ function nextDate(schedule: PersonSchedule) {
         <label v-else>{{ t('person.expression') }}<NInput v-model:value="customExpression" :disabled="saving" :placeholder="t('person.cronHint')" :input-props="{ 'aria-label': t('person.expression') }" /></label>
         <label>{{ t('person.timezone') }}<NInput v-model:value="zone" :disabled="saving" :input-props="{ 'aria-label': t('person.timezone') }" /></label>
       </div>
-      <footer class="editor-actions"><NButton :disabled="saving" @click="editorOpen = false">{{ t('common.cancel') }}</NButton><NButton type="primary" attr-type="submit" :loading="saving" :disabled="!taskId || !expression || !zone.trim()">{{ t('common.save') }}</NButton></footer>
+      <footer class="editor-actions"><NButton :disabled="saving" @click="editorOpen = false">{{ t('common.cancel') }}</NButton><NButton type="primary" attr-type="submit" :loading="saving" :disabled="!validTarget || !expression || !zone.trim()">{{ t('common.save') }}</NButton></footer>
     </form>
     <div class="panel-toolbar"><span class="panel-count"><strong>{{ schedules.length }}</strong>{{ t('person.schedules') }}</span><span class="tile-meta">{{ t('person.states.active') }} · {{ schedules.filter(item => item.state === 'active').length }}</span></div>
     <div v-if="schedules.length" class="panel-grid">
       <article v-for="schedule in schedules" :key="schedule.id" class="panel-tile schedule-tile" data-theme-surface="card">
         <div class="tile-top"><span class="tile-icon"><PersonPanelIcon name="schedule" /></span><NTag :bordered="false" round size="small" :type="schedule.state === 'active' ? 'success' : 'default'">{{ t(`person.states.${schedule.state}`) }}</NTag></div>
-        <h3>{{ props.tasks.find(task => task.id === schedule.task_id)?.title || t('person.tasks') }}</h3>
-        <p class="schedule-frequency">{{ scheduleLabel(schedule) }}</p>
+        <h3>{{ schedule.title || props.tasks.find(task => task.id === schedule.task_id)?.title || t('person.tasks') }}</h3>
+        <p class="schedule-frequency">{{ t(schedule.mode === 'assistant' ? 'person.assistantSchedule' : 'person.workerSchedule') }} · {{ scheduleLabel(schedule) }}</p>
         <div class="schedule-next"><span class="tile-meta">{{ t('person.nextRun') }}</span><time>{{ nextDate(schedule) }}</time><span class="tile-meta">{{ schedule.timezone }}</span></div>
         <footer class="tile-footer"><NButton quaternary size="small" :disabled="saving || schedule.state === 'cancelled'" @click="startEdit(schedule)">{{ t('common.edit') }}</NButton><div class="tile-actions">
           <NButton v-if="schedule.state === 'active'" quaternary size="small" :disabled="saving" @click="emit('action', schedule, 'pause')">{{ t('person.pause') }}</NButton>

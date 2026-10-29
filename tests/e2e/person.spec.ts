@@ -106,7 +106,9 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true, custo
         if (!state.tasks[0].running) { state.tasks[0].execution_state = 'queued'; state.tasks[0].execution_id = 'execution2' }
         state.tasks[0].running = true; state.tasks[0].status = 'open'; state.tasks[0].revision++
       }
-      return route.fulfill({ json: { pending: state.pending || [], task: state.tasks[0], session: { ...state.session, id: 'person-task-task1', title: state.tasks[0].title } } })
+      const executions = state.executions || [{ id: state.tasks[0].execution_id || 'execution1', session_id: 'person-task-task1', state: state.tasks[0].execution_state, created_at: 1 }]
+      const execution = executions.find((run: any) => run.id === new URL(req.url()).searchParams.get('execution_id')) || executions[0]
+      return route.fulfill({ json: { pending: state.pending || [], task: state.tasks[0], executions, execution, session: { ...state.session, id: execution.session_id, title: state.tasks[0].title } } })
     }
     if (path.endsWith('/tasks/apply')) {
       if (body.expected_revision !== state.tasks[0].revision || (body.action === 'stop' && body.execution_id !== state.tasks[0].execution_id)) return route.fulfill({ status: 409, json: { error: 'Execution changed' } })
@@ -139,7 +141,7 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true, custo
     state.can_clear = !state.busy && !state.tasks.some((task: any) => task.running)
     state.session.model = state.settings.model?.model || ''; state.session.provider = state.settings.model?.provider || ''; state.session.reasoning_effort = state.settings.reasoningEffort
     if (path.endsWith('/tasks/query')) return route.fulfill({ json: { tasks: state.tasks.filter((task: any) => !body.session_id || (task.session_id || state.session.id) === body.session_id) } })
-    return route.fulfill({ json: { ...state, session: selected, tasks: state.tasks.filter((task: any) => selected && (task.session_id || state.session.id) === selected.id), schedules: state.schedules.filter((schedule: any) => state.tasks.some((task: any) => task.id === schedule.task_id && (task.session_id || state.session.id) === selected?.id)) } })
+    return route.fulfill({ json: { ...state, session: selected, tasks: state.tasks.filter((task: any) => selected && (task.session_id || state.session.id) === selected.id), schedules: state.schedules.filter((schedule: any) => schedule.session_id === selected?.id || state.tasks.some((task: any) => task.id === schedule.task_id && (task.session_id || state.session.id) === selected?.id)) } })
   })
   return { state, operations }
 }
@@ -1321,7 +1323,9 @@ test('Person schedule cards create, edit, pause, resume and cancel without losin
   const drawer = page.locator('.person-workspace-drawer')
   await expect(drawer.locator('.panel-empty')).toBeVisible()
   await drawer.getByRole('button', { name: 'New schedule', exact: true }).click()
-  await drawer.locator('.panel-editor .n-select').first().click()
+  await drawer.getByLabel('Execution mode', { exact: true }).click()
+  await page.locator('.n-base-select-option__content:visible').getByText('Run background task', { exact: true }).click()
+  await drawer.getByLabel('Tasks', { exact: true }).click()
   await page.locator('.n-base-select-option__content:visible').getByText('Check report', { exact: true }).click()
   await drawer.locator('.panel-editor').getByRole('button', { name: 'Save', exact: true }).click()
   await expect(drawer.locator('.schedule-tile')).toHaveCount(1)
@@ -1358,15 +1362,17 @@ test('Person schedule editor preserves weekday, custom and one-time expressions'
   await page.getByRole('tab', { name: /Schedules/ }).click()
   const drawer = page.locator('.person-workspace-drawer')
   await drawer.getByRole('button', { name: 'New schedule', exact: true }).click()
-  await drawer.locator('.panel-editor .n-select').first().click()
+  await drawer.getByLabel('Execution mode', { exact: true }).click()
+  await page.locator('.n-base-select-option__content:visible').getByText('Run background task', { exact: true }).click()
+  await drawer.getByLabel('Tasks', { exact: true }).click()
   await page.locator('.n-base-select-option__content:visible').getByText('Check report', { exact: true }).click()
-  await drawer.locator('.panel-editor .n-select').nth(2).click()
+  await drawer.locator('.panel-editor .n-select').nth(3).click()
   await page.locator('.n-base-select-option__content:visible').getByText('Weekdays', { exact: true }).click()
   await drawer.locator('.panel-editor').getByRole('button', { name: 'Save', exact: true }).click()
   await expect(drawer.locator('.schedule-tile')).toHaveCount(1)
   expect(state.schedules[0].expression).toBe('0 9 * * 1-5')
   await drawer.locator('.schedule-tile').getByRole('button', { name: 'Edit', exact: true }).click()
-  await drawer.locator('.panel-editor .n-select').nth(2).click()
+  await drawer.locator('.panel-editor .n-select').nth(3).click()
   await page.locator('.n-base-select-option__content:visible').getByText('Custom', { exact: true }).click()
   await drawer.getByRole('textbox', { name: 'Schedule expression', exact: true }).fill('15 10 * * 1,3,5')
   await drawer.locator('.panel-editor').getByRole('button', { name: 'Save', exact: true }).click()
@@ -1374,7 +1380,7 @@ test('Person schedule editor preserves weekday, custom and one-time expressions'
   expect(state.schedules[0].expression).toBe('15 10 * * 1,3,5')
   await drawer.locator('.schedule-tile').getByRole('button', { name: 'Edit', exact: true }).click()
   await expect(drawer.getByRole('textbox', { name: 'Schedule expression', exact: true })).toHaveValue('15 10 * * 1,3,5')
-  await drawer.locator('.panel-editor .n-select').nth(1).click()
+  await drawer.locator('.panel-editor .n-select').nth(2).click()
   await page.locator('.n-base-select-option__content:visible').getByText('Once', { exact: true }).click()
   const dateInput = drawer.locator('.n-date-picker input')
   await dateInput.fill('2099-12-01 09:30:00')
@@ -2353,3 +2359,54 @@ for (const width of [1440, 390]) {
     await expect(drawer).not.toBeVisible()
   })
 }
+
+for (const mode of ['light', 'dark'] as const) {
+  test(`schedules an assistant goal without a worker preset in ${mode}`, async ({ page }) => {
+    const { state, operations } = await setup(page, mode, mode === 'dark')
+    state.settings.agents = []; state.tasks = []
+    await page.goto('/#/person')
+    await page.locator('.person-header-actions').getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByRole('tab', { name: /Schedules/ }).click()
+    const drawer = page.locator('.person-workspace-drawer')
+    await drawer.getByRole('button', { name: 'New schedule', exact: true }).click()
+    await drawer.getByRole('textbox', { name: 'Schedule title', exact: true }).fill('Daily greeting')
+    await drawer.getByRole('textbox', { name: 'Scheduled goal', exact: true }).fill('Say good morning directly, without a background task')
+    await page.screenshot({ path: `/tmp/person-role-schedule-${mode}.png`, animations: 'disabled' })
+    await drawer.locator('.panel-editor').getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(drawer.locator('.schedule-tile')).toContainText('Daily greeting')
+    expect(operations.filter(op => op.path.endsWith('/schedules/apply')).at(-1).body).toMatchObject({ mode: 'assistant', session_id: 'person-main-1', goal: 'Say good morning directly, without a background task' })
+    expect(operations.some(op => op.path.endsWith('/tasks/apply'))).toBe(false)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await drawer.getByRole('button', { name: 'Edit', exact: true }).click()
+    await expect(drawer.getByRole('textbox', { name: 'Scheduled goal', exact: true })).toHaveValue('Say good morning directly, without a background task')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await page.screenshot({ path: `/tmp/person-role-schedule-${mode}-mobile.png`, animations: 'disabled' })
+  })
+}
+
+test('switches execution conversations and keeps a historical follow-up on the selected run', async ({ page }) => {
+  const { state, operations } = await setup(page, 'light', false)
+  Object.assign(state.tasks[0], { status: 'completed', running: false, execution_state: 'finished', execution_id: 'second' })
+  state.executions = [
+    { id: 'second', session_id: 'person-task-second', created_at: 2000, state: 'finished' },
+    { id: 'first', session_id: 'person-task-first', created_at: 1000, state: 'finished' },
+  ]
+  await page.addInitScript(() => {
+    for (const run of ['first', 'second']) (window as any).__PW_CHAT_SOCKET_RESUMES__[`person-task-${run}`] = {
+      session_id: `person-task-${run}`, messages: [{ id: run, role: 'assistant', content: `${run} occurrence result`, timestamp: 1 }], isWorking: false, events: [],
+    }
+  })
+  await page.goto('/#/person')
+  await page.getByRole('button', { name: 'Tasks', exact: true }).click()
+  await page.getByRole('button', { name: 'View in conversation: Check report', exact: true }).click()
+  const drawer = page.locator('.person-task-chat')
+  await expect(drawer.getByText('second occurrence result', { exact: true })).toBeVisible()
+  await drawer.getByLabel('Execution history', { exact: true }).click()
+  await page.locator('.n-base-select-option:visible').last().click()
+  await expect(drawer.getByText('first occurrence result', { exact: true })).toBeVisible()
+  await expect(drawer.getByText('second occurrence result', { exact: true })).toHaveCount(0)
+  await drawer.locator('.input-textarea').fill('Explain this occurrence')
+  await drawer.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect.poll(() => operations.filter(op => op.path.endsWith('/chat') && op.body?.input).at(-1)?.body).toMatchObject({ execution_id: 'first', expected_execution_id: 'second' })
+  await expect(drawer.getByText('first occurrence result', { exact: true })).toBeVisible()
+})

@@ -49,6 +49,21 @@ export function enqueuePersonStage(userId: number, stage: PersonStage, generatio
   personDb().prepare('INSERT OR IGNORE INTO person_stage_deliveries(id,owner_user_id,flow_id,stage_id,generation,updated_at) VALUES(?,?,?,?,?,?)')
     .run(randomUUID(), userId, stage.flow_id, stage.id, generation, Date.now())
 }
+
+/** A saved timer starts its own role turn, rather than a role handing off to itself.
+ * Caller owns the occurrence transaction. The usual stage lifecycle lets the role
+ * answer directly or wait for its optional workers before completing. */
+export function enqueuePersonScheduledStage(userId: number, sessionId: string, title: string, goal: string) {
+  requirePersonSession(userId, sessionId)
+  const db = personDb(), id = randomUUID(), now = Date.now()
+  db.prepare('INSERT INTO person_flows(id,owner_user_id,creator_session_id,title,goal,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
+    .run(id, userId, sessionId, title, goal, now, now)
+  db.prepare("INSERT INTO person_stages(id,flow_id,position,session_id,goal,return_expectation,state) VALUES(?,?,0,?,?,?,'active')")
+    .run(randomUUID(), id, sessionId, goal, 'Complete the saved scheduled goal and report the new result. Use a background worker only when needed.')
+  const flow = getPersonFlow(userId, id)
+  enqueuePersonStage(userId, flow.stages[0], flow.generation)
+  return id
+}
 export function getPersonStageDelivery(userId: number, id: string): PersonStageDelivery {
   const row = personDb().prepare('SELECT * FROM person_stage_deliveries WHERE id=? AND owner_user_id=?').get(id,userId)
   if (!row) throw personError('Stage delivery not found',404)

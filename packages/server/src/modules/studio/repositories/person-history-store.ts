@@ -15,9 +15,8 @@ export function personHasPendingWork(userId: number, sessionId = ''): boolean {
 
 export function personHistorySessions(userId: number, sessionId: string) {
   return personDb().prepare(`SELECT id FROM sessions WHERE CAST(studio_user_id AS TEXT)=? AND
-    (id=? OR id IN (SELECT e.session_id FROM person_executions e JOIN session_tasks t ON t.id=e.task_id WHERE t.owner_user_id=? AND t.session_id=?)
-    OR id IN (SELECT 'person-task-' || id FROM session_tasks WHERE owner_user_id=? AND session_id=?))`)
-    .all(String(userId), sessionId, userId, sessionId, userId, sessionId) as { id: string }[]
+    (id=? OR id IN (SELECT e.session_id FROM person_executions e JOIN session_tasks t ON t.id=e.task_id WHERE t.owner_user_id=? AND t.session_id=?))`)
+    .all(String(userId), sessionId, userId, sessionId) as { id: string }[]
 }
 
 /** Remove one conversation's task graph atomically; account resources and other conversations remain. */
@@ -29,6 +28,8 @@ export function clearPersonHistory(userId: number, mainId: string, historyRevisi
     if (main!.history_revision !== historyRevision) throw personError('Conversation changed; reload and retry', 409)
     if (personHasPendingWork(userId, mainId)) throw personError('Wait for Person tasks and result delivery to finish', 409)
     const rows = personHistorySessions(userId, mainId)
+    db.prepare('DELETE FROM person_occurrences WHERE schedule_id IN (SELECT id FROM person_schedules WHERE owner_user_id=? AND session_id=?)').run(userId, mainId)
+    db.prepare('DELETE FROM person_schedules WHERE owner_user_id=? AND session_id=?').run(userId, mainId)
     const tasks = db.prepare('SELECT id FROM session_tasks WHERE owner_user_id=? AND session_id=?').all(userId, mainId)
     for (const task of tasks) {
       db.prepare('DELETE FROM person_occurrences WHERE schedule_id IN (SELECT id FROM person_schedules WHERE task_id=?)').run(task.id)

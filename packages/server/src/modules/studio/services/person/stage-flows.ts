@@ -147,7 +147,10 @@ export function finishPersonStageTurn(userId: number, context: PersonStageContex
       db.prepare("UPDATE person_stages SET state='active' WHERE id=?").run(next.id)
       db.prepare('UPDATE person_flows SET current_position=?,revision=revision+1,updated_at=? WHERE id=?').run(next.position,Date.now(),flow.id)
       enqueuePersonStage(userId,next,flow.generation)
-    } else db.prepare("UPDATE person_flows SET state='completed',revision=revision+1,updated_at=? WHERE id=?").run(Date.now(),flow.id)
+    } else {
+      db.prepare("UPDATE person_flows SET state='completed',revision=revision+1,updated_at=? WHERE id=?").run(Date.now(),flow.id)
+      db.prepare("UPDATE person_occurrences SET state='finished' WHERE flow_id=?").run(flow.id)
+    }
   })
   personUpdated(userId)
 }

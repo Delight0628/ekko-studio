@@ -17,7 +17,7 @@ const avatar = computed(() => chatSessionAgentAvatar({ agent: props.result.agent
     <img class="task-return-logo" :src="avatar.src" :alt="avatar.label" :title="avatar.label" />
     <div class="task-return-content">
       <div class="task-return-header">
-        <button type="button" class="task-return-title" :aria-label="t('sessionTasks.openTask', { title: result.title })" @click="openTask(result.taskId)">{{ result.title }}</button>
+        <button type="button" class="task-return-title" :aria-label="t('sessionTasks.openTask', { title: result.title })" @click="openTask(result.taskId, result.executionId)">{{ result.title }}</button>
         <span class="task-status" :class="{ 'task-status--completed': result.state === 'finished' }" role="status">
           <SessionTaskIcon :name="result.state === 'finished' ? 'completed' : 'circle'" :size="13" />
           {{ t(`person.states.${result.state}`) }}

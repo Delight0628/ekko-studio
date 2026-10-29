@@ -4,6 +4,13 @@ import { initPersonStageTables } from './person-stage-schema'
 
 /** Models and goals belong to a conversation; memory and execution presets belong to the account. */
 export function initPersonTables(db: DatabaseSync): void {
+  // Person has not shipped. Discard the former worker-only schedules instead of
+  // carrying a second scheduling contract or guessing a new execution mode.
+  const scheduleColumns = db.prepare('PRAGMA table_info(person_schedules)').all()
+  if (scheduleColumns.length && !scheduleColumns.some(column => column.name === 'mode')) {
+    db.exec('DROP TABLE IF EXISTS person_occurrences; DROP TABLE person_schedules;')
+    db.exec("DELETE FROM person_operations WHERE operation_key LIKE 'schedule:%'")
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_person_goals ON session_tasks(owner_user_id, bot_id, updated_at);
     CREATE TABLE IF NOT EXISTS person_accounts (
@@ -28,6 +35,7 @@ export function initPersonTables(db: DatabaseSync): void {
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, occurrence_id TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_person_runs ON person_executions(owner_user_id, task_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_person_execution_session ON person_executions(session_id, owner_user_id);
     CREATE INDEX IF NOT EXISTS idx_person_presence_runs ON person_executions(owner_user_id)
       WHERE state IN ('starting','running','stopping');
     CREATE UNIQUE INDEX IF NOT EXISTS idx_person_active_run ON person_executions(task_id)
@@ -45,14 +53,15 @@ export function initPersonTables(db: DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS idx_person_events ON person_events(owner_user_id, execution_id, id);
     CREATE TABLE IF NOT EXISTS person_schedules (
-      id TEXT PRIMARY KEY, owner_user_id INTEGER NOT NULL, task_id TEXT NOT NULL,
+      id TEXT PRIMARY KEY, owner_user_id INTEGER NOT NULL, mode TEXT NOT NULL,
+      task_id TEXT, session_id TEXT NOT NULL, title TEXT NOT NULL, goal TEXT NOT NULL,
       kind TEXT NOT NULL, expression TEXT NOT NULL, timezone TEXT NOT NULL, next_at INTEGER NOT NULL,
       state TEXT NOT NULL DEFAULT 'active', revision INTEGER NOT NULL DEFAULT 0,
       misfire TEXT NOT NULL DEFAULT 'skip', created_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS person_occurrences (
       id TEXT PRIMARY KEY, schedule_id TEXT NOT NULL, revision INTEGER NOT NULL, scheduled_at INTEGER NOT NULL,
-      state TEXT NOT NULL, execution_id TEXT, UNIQUE(schedule_id, revision, scheduled_at)
+      state TEXT NOT NULL, execution_id TEXT, flow_id TEXT, UNIQUE(schedule_id, revision, scheduled_at)
     );
     CREATE TABLE IF NOT EXISTS person_operations (
       owner_user_id INTEGER NOT NULL, operation_key TEXT NOT NULL, request_hash TEXT NOT NULL,
@@ -84,18 +93,21 @@ export function initPersonTables(db: DatabaseSync): void {
   if (db.prepare('PRAGMA table_info(session_tasks)').all().some(column => column.name === 'session_id')) {
     const obsolete = db.prepare("SELECT id FROM session_tasks WHERE owner_user_id IS NOT NULL AND bot_id LIKE 'person:%' AND session_id IS NULL").all()
     for (const task of obsolete) {
+      const workers = db.prepare('SELECT DISTINCT session_id FROM person_executions WHERE task_id=?').all(task.id)
       db.prepare("DELETE FROM person_operations WHERE json_extract(result_json,'$.task.id')=? OR json_extract(result_json,'$.task_id')=?").run(task.id, task.id)
       db.prepare('DELETE FROM person_occurrences WHERE schedule_id IN (SELECT id FROM person_schedules WHERE task_id=?)').run(task.id)
       for (const table of ['person_task_returns', 'person_deliveries', 'person_events'])
         db.prepare(`DELETE FROM ${table} WHERE execution_id IN (SELECT id FROM person_executions WHERE task_id=?)`).run(task.id)
       for (const table of ['person_interactions', 'person_schedules', 'person_task_origins', 'person_executions'])
         db.prepare(`DELETE FROM ${table} WHERE task_id=?`).run(task.id)
-      for (const table of ['messages', 'task_plans', 'chat_compression_snapshots', 'run_usage', 'session_uploads', 'workspace_run_change_files', 'workspace_run_changes']) {
-        if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table))
-          db.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(`person-task-${task.id}`)
+      for (const worker of workers) {
+        for (const table of ['messages', 'task_plans', 'chat_compression_snapshots', 'run_usage', 'session_uploads', 'workspace_run_change_files', 'workspace_run_changes']) {
+          if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table))
+            db.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(worker.session_id)
+        }
+        db.prepare('DELETE FROM session_tasks WHERE session_id=?').run(worker.session_id)
+        db.prepare('DELETE FROM sessions WHERE id=?').run(worker.session_id)
       }
-      db.prepare('DELETE FROM session_tasks WHERE session_id=?').run(`person-task-${task.id}`)
-      db.prepare('DELETE FROM sessions WHERE id=?').run(`person-task-${task.id}`)
       db.prepare('DELETE FROM session_tasks WHERE id=?').run(task.id)
     }
   }

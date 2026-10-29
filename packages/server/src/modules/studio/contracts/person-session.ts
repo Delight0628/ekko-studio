@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-export const personTaskSessionId = (taskId: string) => `person-task-${taskId}`
+export const personExecutionSessionId = (executionId: string) => `person-task-${executionId}`
 
 /** Account identity is independent of the Profile used to execute a model call. */
 export const personSessionId = () => `person-main-${randomUUID()}`

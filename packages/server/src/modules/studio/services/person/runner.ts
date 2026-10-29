@@ -1,6 +1,7 @@
 import { personUpdated } from '../../repositories/person-updates'
 import { personRuntime } from '../../public/person-runtime'
 import { personError } from '../../contracts/person'
+import { personExecutionSessionId } from '../../contracts/person-session'
 import type { PersonExecution, PersonInteraction } from '../../contracts/person'
 import { personDb, personTransaction, personSettings, getPersonExecution, getPersonTask, setPersonExecution, personEvent,
   addPersonInteraction, answerPersonInteraction, promotePersonFollowups } from '../../repositories/person-store'
@@ -73,7 +74,7 @@ async function coordinate(run: PersonExecution, nativeId: string, questionText: 
     return { recorded: true }
   }))
   const task = getPersonTask(run.owner_user_id, run.task_id)
-  const decisions = personDb().prepare("SELECT substr(question,1,300) AS question,substr(answer,1,600) AS answer,answered_by FROM person_interactions WHERE task_id=? AND state='answered' ORDER BY created_at DESC LIMIT 6").all(task.id)
+  const decisions = personDb().prepare("SELECT substr(question,1,300) AS question,substr(answer,1,600) AS answer,answered_by FROM person_interactions WHERE execution_id IN (SELECT id FROM person_executions WHERE task_id=? AND session_id=?) AND state='answered' ORDER BY created_at DESC LIMIT 6").all(task.id,run.session_id)
   await runPersonModel(run.owner_user_id, 'coordinator', [{ role: 'user', content: JSON.stringify({ task: { title: task.title, requirements: JSON.parse(task.requirements_json) }, question: question.question, current_input: run.input_json ? JSON.parse(run.input_json) : undefined, choices, decisions }) }], tools, signal,
     'You answer a delegated agent on behalf of Person within the existing task scope. Use bot_interaction_reply once. Read relevant evidence when needed. Do not ask the human about routine implementation choices.',
     event => personEvent(run, 'coordinator.event', event), () => { current(run) }, task.session_id)
@@ -108,10 +109,10 @@ async function execute(run: PersonExecution, abort: AbortController) {
     current(run)
     personDb().prepare('UPDATE session_tasks SET workspace=? WHERE id=?').run(workspace, task.id)
     personDb().prepare('UPDATE sessions SET workspace=? WHERE id=? AND CAST(studio_user_id AS TEXT)=?').run(workspace, run.session_id, String(userId))
-    const decisions = personDb().prepare("SELECT question,answer,answered_by FROM person_interactions WHERE task_id=? AND state='answered' ORDER BY created_at DESC LIMIT 10").all(task.id)
+    const decisions = personDb().prepare("SELECT question,answer,answered_by FROM person_interactions WHERE execution_id IN (SELECT id FROM person_executions WHERE task_id=? AND session_id=?) AND state='answered' ORDER BY created_at DESC LIMIT 10").all(task.id,run.session_id)
     const requirements = personRequirements(task)
-    const prompt = run.input_json ? JSON.parse(run.input_json) : JSON.stringify({ title: task.title,
-      requirements: { goal: requirements.goal, ...(requirements.handoff ? { handoff: requirements.handoff } : {}) }, decisions })
+    const prompt = run.input_json && run.session_id !== personExecutionSessionId(run.id) ? JSON.parse(run.input_json) : JSON.stringify({ title: task.title,
+      requirements: { goal: requirements.goal, ...(requirements.handoff ? { handoff: requirements.handoff } : {}) }, decisions, ...(run.input_json ? { input: JSON.parse(run.input_json) } : {}) })
     current(run)
     const result = await personRuntime().execute({ user: personUser(userId), selection, sessionId: run.session_id, workspace, prompt, displayInput: run.input_json ? undefined : String(JSON.parse(task.requirements_json).goal || task.summary), signal: abort.signal,
       onEvent: (kind, payload) => {

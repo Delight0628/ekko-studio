@@ -102,10 +102,14 @@ export function personTools(userId: number, role: PersonRole, taskId?: string, s
       return context.search(personText(args.query, 'query', 200), personRevision(args.offset ?? 0))
     }),
     personTool('bot_schedules_query', 'List saved schedules without copying task histories.', {}, [], async () => listPersonSchedules(userId)),
-    personTool('bot_schedule_apply', 'Create a once or five-field-cron schedule for an open task, or pause/resume/cancel. A once expression is ISO-8601 with offset; cron needs IANA timezone. Cancelling a schedule does not stop current work.', {
+    personTool('bot_schedule_apply', 'Create: assistant uses title/goal (optional workers); worker uses task_id. Once: ISO+offset; cron: five fields+timezone. Pause/resume/cancel future triggers.', {
+      mode: { type: 'string', enum: ['assistant','worker'] }, session_id: string, title: string, goal: string,
       action: { type: 'string', enum: ['create','update','pause','resume','cancel'] }, task_id: string, schedule_id: string, kind: { type: 'string', enum: ['once','cron'] }, expression: string,
       timezone: string, expected_revision: integer, misfire: { type: 'string', enum: ['skip','run_latest'] }, idempotency_key: string,
-    }, ['action','idempotency_key'], async args => applyPersonSchedule(userId, args)),
+    }, ['action','idempotency_key'], async args => {
+      if (args.action === 'create' && args.mode === 'assistant' && args.session_id && args.session_id !== sessionId) throw personError('Schedule this role directly; use a flow for other roles',403)
+      return applyPersonSchedule(userId, { ...args, ...(args.action === 'create' && args.mode === 'assistant' ? { session_id: sessionId } : {}) })
+    }),
   )
   return tools
 }

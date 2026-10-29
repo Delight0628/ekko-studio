@@ -415,12 +415,11 @@ describe('user auth tables and middleware', () => {
     const owner = users.bootstrapDefaultSuperAdmin('admin', '123456')!
     db.prepare("INSERT INTO users(username,password_hash,role,status,created_at,updated_at) VALUES ('other','unused','super_admin','active',1,1)").run()
     const other = users.findUserByUsername('other')!
-    const { createPersonTask } = await import('../../packages/server/src/modules/studio/repositories/person-store')
+    const { createPersonTask, enqueuePersonExecution } = await import('../../packages/server/src/modules/studio/repositories/person-store')
     const { createSession } = await import('../../packages/server/src/modules/studio/repositories/session-store')
     createSession({ id: `person-main-${owner.id}`, user_id: owner.id, studio_user_id: owner.id, source: 'builtin_agent', profile: 'default' })
     const task = createPersonTask(owner.id, 'Owned task', 'Run privately', { runtime: 'ekko', mode: 'scoped', profile: 'default', provider: 'p', model: 'm' }, '/tmp', `person-main-${owner.id}`)
-    const id = `person-task-${task.id}`
-    createSession({ id, user_id: owner.id, studio_user_id: owner.id, source: 'builtin_agent', profile: 'default' })
+    const id = enqueuePersonExecution(task).session_id
     for (const [user, method, suffix, allowed] of [[owner,'GET','',true], [owner,'GET','/context',true], [other,'GET','',false], [owner,'DELETE','',false], [owner,'POST','/messages/batch-delete',false], [owner,'GET','/share-models',false]] as const) {
       const ctx = { path: `/api/studio/sessions/${id}${suffix}`, method, query: {}, request: { body: {} },
         headers: { authorization: `Bearer ${auth.signUserJwt(user, 'test-secret')}` }, state: {}, status: 200, body: null,

@@ -52,6 +52,34 @@ Person main also opts out of the runtime's generic shell/code execution guidance
 its registered tools dispatch background tasks rather than execute commands.
 The runtime default and ordinary Ekko chats retain their existing instructions.
 
+## Scheduled goals and execution contexts
+
+Schedules have two explicit modes. `assistant` stores the owning conversation,
+title and goal without requiring a background task or execution preset. Each
+occurrence enqueues a fresh single-role stage through the existing durable flow
+lifecycle: the role can reply directly or select optional workers. This internal
+scheduled wake-up is not a self-handoff through `bot_flow_create`. Stage completion
+updates the occurrence only after the final result is persisted. An unfinished
+stage, including waiting for its workers, prevents overlapping occurrences of
+that schedule. Pause and cancel affect future triggers; stop active work through
+the existing flow/task controls.
+
+`worker` binds an existing open task. Every fresh start and scheduled occurrence
+allocates an independent hidden `person-task-<execution UUID>` conversation, with
+no native session binding or previous occurrence's decisions. The task goal and
+shared workspace persist; cross-occurrence progress belongs in explicit workspace
+state rather than an ever-growing native chat. Manual follow-ups reuse the selected
+execution's conversation and queue under the existing per-task lease. Requirement
+changes prevent resuming a stale conversation. The task drawer lists recent
+execution conversations and result cards open the exact execution that produced
+the result. Worker ownership and history cleanup follow execution records rather
+than parsing a task ID from the conversation ID.
+
+Person is not released: initialization discards the old worker-only schedule table,
+its occurrence records and schedule idempotency results. Recreate those schedules
+with an explicit mode. Conversation history, task goals, account memory and Agent
+presets remain. Subsequent initialization preserves schedules in the new schema.
+
 ## Storage and retrieval
 
 The settings drawer separates General settings from Agents, Schedules and Memory.

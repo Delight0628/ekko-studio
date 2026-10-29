@@ -485,3 +485,63 @@ describe('independent Person stages', () => {
     expect(runtime.stop).not.toHaveBeenCalled()
   })
 })
+
+describe('scheduled role turns', () => {
+  async function schedule() {
+    const { applyPersonSchedule, tickPersonSchedules } = await import('../../packages/server/src/modules/studio/services/person/schedules')
+    const input = { action: 'create', mode: 'assistant', session_id: 'person-main-b', title: 'Daily status', goal: 'Report the saved goal; use a worker only if needed', kind: 'cron', expression: '* * * * *', timezone: 'UTC', idempotency_key: 'role-schedule' }
+    const saved = applyPersonSchedule(1, input)
+    expect(applyPersonSchedule(1, input).id).toBe(saved.id)
+    tickPersonSchedules(saved.next_at); tickPersonSchedules(saved.next_at)
+    const row = db.prepare('SELECT * FROM person_occurrences WHERE schedule_id=?').get(saved.id)!
+    const current = stages.getPersonFlow(1, String(row.flow_id))
+    return { saved, current, applyPersonSchedule, tickPersonSchedules }
+  }
+
+  it('handles the goal without any worker preset and creates an independent stage for the next occurrence', async () => {
+    store.savePersonSettings(1, { ...store.personSettings(1).settings, agents: [] }, 1)
+    const { saved, current, tickPersonSchedules } = await schedule()
+    expect(current.stages).toHaveLength(1)
+    expect(current.stages[0].session_id).toBe('person-main-b')
+    await flows.deliverPersonStages()
+    expect(runtime.deliverStage).toHaveBeenCalledOnce()
+    expect(await complete(current, 'Direct scheduled result')).toMatchObject({ state: 'completed' })
+    expect(db.prepare('SELECT state FROM person_occurrences WHERE flow_id=?').get(current.id)).toMatchObject({ state: 'finished' })
+    tickPersonSchedules(store.listPersonSchedules(1)[0].next_at)
+    const occurrences = db.prepare('SELECT flow_id FROM person_occurrences WHERE schedule_id=?').all(saved.id)
+    expect(new Set(occurrences.map(row => row.flow_id)).size).toBe(2)
+    expect(store.listPersonTasks(1)).toHaveLength(0)
+    expect(runtime.execute).not.toHaveBeenCalled()
+    expect(store.listPersonSchedules(1, 'person-main-1')).toHaveLength(0)
+    expect(store.listPersonSchedules(1, 'person-main-b')).toHaveLength(1)
+  })
+
+  it('can choose a worker through the existing stage flow and skips overlapping triggers until completion', async () => {
+    const { current, tickPersonSchedules } = await schedule()
+    const { personTools } = await import('../../packages/server/src/modules/studio/services/person/tools')
+    const delivery = await import('../../packages/server/src/modules/studio/services/person/delivery')
+    const tools = personTools(1, 'main', undefined, 'person-main-b')
+    const created: any = await tools.find(tool => tool.name === 'bot_task_create')!.execute({ title: 'Compute status', goal: 'Verify the status', agent_id: 'worker' }, origin(current))
+    expect(created.ok).toBe(true)
+    expect(stages.getPersonFlow(1, current.id).stages[0].tasks).toHaveLength(1)
+    await expect(control(current.id, 'complete', origin(current))).rejects.toThrow('Finish or explicitly close')
+    tickPersonSchedules(store.listPersonSchedules(1)[0].next_at)
+    expect(db.prepare("SELECT count(*) AS n FROM person_occurrences WHERE state='skipped'").get()).toMatchObject({ n: 1 })
+    await runner.tickPersonWork(); await wait(created.execution.id, 'finished')
+    await delivery.deliverPersonResults()
+    expect(vi.mocked(runtime.deliver).mock.calls.at(-1)![0]).toMatchObject({ origin: { sessionId: 'person-main-b', stage: { flowId: current.id } } })
+    expect((await complete(stages.getPersonFlow(1, current.id), 'Verified scheduled status')).state).toBe('completed')
+    expect(runtime.execute).toHaveBeenCalledOnce()
+  })
+
+  it('keeps pause and cancel scoped to future triggers and checks account ownership', async () => {
+    const { saved, current, applyPersonSchedule } = await schedule()
+    expect(() => applyPersonSchedule(2, { action: 'pause', schedule_id: saved.id, expected_revision: 0, idempotency_key: 'foreign' })).toThrow('not found')
+    expect(() => applyPersonSchedule(2, { action: 'create', mode: 'assistant', session_id: 'person-main-b', title: 'Foreign', goal: 'No', kind: 'cron', expression: '* * * * *', timezone: 'UTC', idempotency_key: 'foreign-create' })).toThrow('not found')
+    applyPersonSchedule(1, { action: 'pause', schedule_id: saved.id, expected_revision: 0, idempotency_key: 'pause' })
+    applyPersonSchedule(1, { action: 'cancel', schedule_id: saved.id, expected_revision: 1, idempotency_key: 'cancel' })
+    expect(stages.getPersonFlow(1, current.id).state).toBe('active')
+    expect(runtime.stop).not.toHaveBeenCalled()
+    expect(() => applyPersonSchedule(1, { action: 'create', mode: 'unknown', idempotency_key: 'bad-mode' })).toThrow('scheduling mode')
+  })
+})

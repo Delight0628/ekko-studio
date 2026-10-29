@@ -19934,6 +19934,26 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "assistant",
+                      "worker"
+                    ],
+                    "description": "Required on create. Assistant uses session_id/title/goal and optional workers; worker uses task_id."
+                  },
+                  "session_id": {
+                    "type": "string",
+                    "description": "Owning Person conversation ID. Required for new work; continuations preserve the existing task conversation."
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "goal": {
+                    "type": "string",
+                    "maxLength": 8000
+                  },
                   "action": {
                     "type": "string",
                     "enum": [
@@ -20378,7 +20398,7 @@
           "Person"
         ],
         "summary": "Get chat",
-        "description": "Open the account-owned hidden task conversation. Returns task and session metadata for standard socket resume. It stays excluded from ordinary session lists. Read-only history is permitted to its owner; direct run, abort and other session mutations remain forbidden.",
+        "description": "Open the selected account-owned execution conversation. Each fresh task start and scheduled occurrence has an independent session. Returns recent executions, task and session metadata for standard socket resume. It stays excluded from ordinary session lists. Read-only history is permitted to its owner; direct run, abort and other session mutations remain forbidden.",
         "operationId": "taskChat",
         "security": [
           {
@@ -20404,6 +20424,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "execution_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Select an owned execution conversation; omitted selects the current execution. Returns null session before the first run."
           }
         ]
       },
@@ -20412,7 +20440,7 @@
           "Person"
         ],
         "summary": "Create chat",
-        "description": "Continue a non-closed task in its existing hidden worker session. Running work queues follow-ups durably in FIFO order; completed tasks reopen. Stopping, stale revisions and a full queue return 409. Results return to the task-owning Person conversation, including cross-conversation instructions.",
+        "description": "Continue a non-closed task in the conversation selected by execution_id, or the current execution when omitted. Background schedules start fresh conversations; follow-ups retain the selected conversation. Running work queues follow-ups durably in FIFO order; completed tasks reopen. Stopping, stale revisions and a full queue return 409. Results return to the task-owning Person conversation, including cross-conversation instructions.",
         "operationId": "taskContinue",
         "security": [
           {
@@ -20447,6 +20475,15 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "execution_id": {
+                    "type": "string",
+                    "description": "Execution whose conversation receives this follow-up; defaults to current."
+                  },
+                  "expected_execution_id": {
+                    "type": "string",
+                    "nullable": true,
+                    "description": "Current task execution ID for concurrency checks."
+                  },
                   "input": {
                     "type": "array",
                     "minItems": 1,

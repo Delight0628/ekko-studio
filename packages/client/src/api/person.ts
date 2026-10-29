@@ -5,7 +5,8 @@ export interface PersonModel { profile: string; provider: string; model: string 
 export interface PersonModelGroup extends Pick<AvailableModelGroup, 'provider' | 'label' | 'models' | 'model_meta'> { profile: string }
 export interface PersonAgentPreset { id: string; name: string; description: string; selection: PersonModel & { runtime: string; mode: 'scoped' | 'global'; reasoningEffort: string } }
 export interface PersonTask { session_id: string; session_title?: string; updated_at: number; selection_json: string; id: string; title: string; summary: string; status: string; revision: number; execution_id?: string | null; execution_state: string; running: boolean | number; completion_evidence: string }
-export interface PersonSchedule { id: string; task_id: string; expression: string; timezone: string; next_at: number; state: string; revision: number }
+export interface PersonExecutionSummary { id: string; session_id: string; state: string; created_at: number; occurrence_id?: string | null }
+export interface PersonSchedule { id: string; mode: 'assistant' | 'worker'; task_id: string | null; session_id: string; title: string; goal: string; expression: string; timezone: string; next_at: number; state: string; revision: number }
 export interface PersonMemory { id: string; content: string; revision: number }
 export interface PersonQuestion { id: string; task_id: string | null; question: string; kind: string; choices_json: string; revision: number }
 export interface PersonTaskReturn { taskId: string; executionId: string; assistantMessageId: string; title: string; summary: string; agent: string; state: 'finished' | 'failed' }
