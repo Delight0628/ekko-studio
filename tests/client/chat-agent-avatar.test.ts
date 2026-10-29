@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { chatSessionAgentAvatar } from '@/utils/chat-agent-avatar'
 
 describe('single chat Agent avatars', () => {
+  it('uses stored bot identity independently of runtime and does not relabel unknown bots as zhezhe', () => {
+    for (const identity of [{ botType: 'zhezhe' }, { bot_type: 'zhezhe' }]) {
+      expect(chatSessionAgentAvatar({ id: 'conversation-1', agent: 'ekko-agent', ...identity }).label).toBe('zhezhe')
+    }
+    expect(chatSessionAgentAvatar({ id: 'person-main-future', botType: 'future-bot', agent: 'ekko-agent' }).label).toBe('Ekko')
+  })
   it('names the personal assistant zhezhe while keeping task worker identities', () => {
     expect(chatSessionAgentAvatar({ id: 'person-main-1', agent: 'ekko-agent' })).toEqual({
       label: 'zhezhe',

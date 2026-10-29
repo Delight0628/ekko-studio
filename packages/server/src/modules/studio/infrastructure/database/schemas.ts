@@ -202,6 +202,7 @@ export const SESSIONS_SCHEMA: Record<string, string> = {
   agent: 'TEXT NOT NULL DEFAULT \'\'',
   agent_mode: 'TEXT NOT NULL DEFAULT \'\'',
   agent_preset: 'TEXT NOT NULL DEFAULT \'\'',
+  bot_type: 'TEXT NOT NULL DEFAULT \'\'',
   agent_session_id: 'TEXT NOT NULL DEFAULT \'\'',
   agent_native_session_id: 'TEXT NOT NULL DEFAULT \'\'',
   user_id: 'TEXT',
@@ -1754,6 +1755,8 @@ export function initAllHermesTables(): void {
     syncTable(SESSIONS_TABLE, SESSIONS_SCHEMA, {
       indexes: SESSIONS_INDEXES,
     })
+    db.prepare(`UPDATE ${SESSIONS_TABLE} SET bot_type = 'zhezhe'
+      WHERE id LIKE 'person-main-%' AND bot_type = ''`).run()
     // Idempotent classification migration. Messages, timestamps and metadata
     // stay intact; group/workflow/global-agent sessions keep their source.
     db.prepare(`UPDATE ${SESSIONS_TABLE} SET source = 'builtin_agent', agent = 'ekko-agent'

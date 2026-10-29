@@ -478,6 +478,7 @@ export interface Session {
   codingAgentId?: ChatCodingAgentId
   codingAgentMode?: 'global' | 'scoped'
   agentPreset?: string
+  botType?: string
   messages: Message[]
   createdAt: number
   updatedAt: number
@@ -1213,6 +1214,7 @@ export function mapHermesSession(s: SessionSummary): Session {
     provider: s.provider || (s as any).billing_provider || '',
     apiMode: s.api_mode,
     agentPreset: s.agent_preset || undefined,
+    botType: s.bot_type || undefined,
     reasoningEffort: s.reasoning_effort || undefined,
     messageCount: s.message_count,
     messageTotal: s.message_count,
@@ -1938,6 +1940,7 @@ function createChatState(scopedSessionId?: string) {
           // (messages, loadedMessageCount, hasMoreBefore, contextTokens).
           existing.title = fresh.title
           existing.source = fresh.source
+          existing.botType = fresh.botType
           existing.updatedAt = fresh.updatedAt
           existing.lastActiveAt = fresh.lastActiveAt
           existing.endedAt = fresh.endedAt
@@ -2048,6 +2051,7 @@ function createChatState(scopedSessionId?: string) {
       target.hasMoreBefore = detail.hasMore
       if (detail.session.title) target.title = detail.session.title
       target.workspace = detail.session.workspace || target.workspace || null
+      target.botType = detail.session.bot_type || target.botType
       target.isPinned = Boolean(detail.session.is_pinned)
       target.categoryId = detail.session.category_id ?? null
       if (!pushEnabledWriteTargets.has(sid)) target.pushEnabled = Boolean(detail.session.push_enabled)

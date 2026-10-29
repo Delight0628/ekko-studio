@@ -11,10 +11,12 @@ import { usePageSidebarState } from '@/composables/usePageSidebar'
 import { batchDeleteSessions, renameSession, type SessionSummary } from '@/api/studio/sessions'
 import { ref, nextTick, onMounted, onBeforeUnmount, computed, watch, provide } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NInput, NEmpty, NButton, NAlert, NTabs, NTabPane, NDrawer, NDrawerContent, NTooltip, NModal, NPopconfirm, NDropdown, useMessage } from 'naive-ui'
+import { NInput, NButton, NAlert, NTabs, NTabPane, NDrawer, NDrawerContent, NTooltip, NModal, NPopconfirm, NDropdown, useMessage } from 'naive-ui'
 import PageLoading from '@/components/common/PageLoading.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import ChatInput from '@/components/hermes/chat/ChatInput.vue'
+import NewChatPage from '@/components/hermes/chat/NewChatPage.vue'
+import NewChatAgentCards from '@/components/hermes/chat/NewChatAgentCards.vue'
 import MessageList from '@/components/hermes/chat/MessageList.vue'
 import SessionTasksDrawer from '@/components/hermes/tasks/SessionTasksDrawer.vue'
 import PersonTaskChat from '@/components/hermes/person/PersonTaskChat.vue'
@@ -34,11 +36,14 @@ import FolderIcon from '@/components/common/FolderIcon.vue'
 import BroomIcon from '@/components/common/BroomIcon.vue'
 import FolderPicker from '@/components/hermes/chat/FolderPicker.vue'
 import { useDefaultWorkspace } from '@/composables/useDefaultWorkspace'
-import { useChatStore, mapHermesSession } from '@/stores/hermes/chat'
+import { useChatStore, mapHermesSession, type Attachment } from '@/stores/hermes/chat'
 import { useSettingsStore } from '@/stores/hermes/settings'
 import { usePersonPresenceStore } from '@/stores/hermes/person-presence'
 import type { AvailableModelGroup } from '@/api/hermes/system'
-import { personRequest, type PersonSnapshot, type PersonModelGroup, type PersonTask, type PersonSchedule, type PersonMemory, type PersonFlow } from '@/api/person'
+import { personRequest, type PersonSnapshot, type PersonModel, type PersonModelGroup, type PersonTask, type PersonSchedule, type PersonMemory, type PersonFlow } from '@/api/person'
+import { PERSON_BOTS, DEFAULT_PERSON_BOT_TYPE } from '../../../../shared/person-bots'
+import { deploymentUrl } from '@/utils/deployment-url'
+import { modelReasoningEfforts } from '@/utils/model-reasoning-effort'
 
 const { t } = useI18n()
 const message = useMessage()
@@ -55,6 +60,16 @@ const nextOffset = ref<number | null>(null)
 const showCreate = ref(false)
 const conversationName = ref('')
 const creating = ref(false)
+const showNewConversation = ref(false)
+const newConversationName = ref('')
+const newConversationBot = ref<string>(DEFAULT_PERSON_BOT_TYPE)
+const newConversationDefaults = ref<PersonSnapshot | null>(null)
+const newConversationModel = ref<PersonModel | null>(null)
+const newConversationEffort = ref('')
+const createdConversation = ref<SessionSummary | null>(null)
+const draftLocked = computed(() => creating.value || !!createdConversation.value)
+const botOptions = PERSON_BOTS.map(bot => ({ value: bot.type, label: bot.name, avatar: deploymentUrl(bot.avatar) }))
+const isNewConversation = computed(() => showNewConversation.value || (!!data.value && !data.value.session))
 const renameConversationId = ref<string | null>(null)
 const showConversationMenu = ref(false)
 const contextConversationId = ref<string | null>(null)
@@ -71,15 +86,23 @@ const conversationMenuOptions = computed(() => [
   { key: 'batch', label: t('chat.toggleBatchMode'), disabled: pending.value },
 ])
 const sidebarSessions = computed(() => conversations.value.map(mapHermesSession))
-function openCreateConversation() {
+function resetConversationDraft() {
+  newConversationName.value = ''; newConversationBot.value = DEFAULT_PERSON_BOT_TYPE
+  newConversationModel.value = null; newConversationEffort.value = ''
+  newConversationDefaults.value = null; createdConversation.value = null
+}
+async function openCreateConversation() {
   if (pending.value || creating.value) return
   batchMode.value = false
   selectedConversationIds.value = new Set()
   showBatchDeleteConfirm.value = false
   renameConversationId.value = null
-  conversationName.value = ''; error.value = ''
+  resetConversationDraft(); error.value = ''
+  showPanel.value = false; showTasks.value = false; chatTaskId.value = null; showModelPicker.value = false
   if (isMobile.value) showSessions.value = false
-  showCreate.value = true
+  showNewConversation.value = true
+  try { newConversationDefaults.value = await personRequest<PersonSnapshot>('', undefined, 'GET', lifetime.signal) }
+  catch (e) { if (!disposed) error.value = String(e) }
 }
 function openConversationMenu(event: MouseEvent, id: string) {
   event.preventDefault()
@@ -156,6 +179,7 @@ async function loadConversations(offset = 0) {
 function selectConversation(id: string) {
   if (batchMode.value) { toggleConversationSelection(id); return }
   error.value = ''
+  showNewConversation.value = false
   showConversationMenu.value = false
   if (isMobile.value) showSessions.value = false
   showTasks.value = false; chatTaskId.value = null
@@ -167,20 +191,33 @@ async function saveConversationName() {
   try {
     const title = conversationName.value.trim()
     const renameId = renameConversationId.value
-    let created: SessionSummary | undefined
-    if (renameId) {
-      if (!await renameSession(renameId, title)) throw new Error(t('chat.renameFailed'))
-    } else created = await personRequest<SessionSummary>('/conversations', { title })
+    if (!renameId || !await renameSession(renameId, title)) throw new Error(t('chat.renameFailed'))
     await loadConversations()
-    if (created) await selectConversation(created.id)
-    else {
-      const session = conversations.value.find(item => item.id === renameId)
-      if (session) chatStore.ensureSessionLoaded(session)
-      await refresh()
-    }
+    const session = conversations.value.find(item => item.id === renameId)
+    if (session) chatStore.ensureSessionLoaded(session)
+    await refresh()
     showCreate.value = false; conversationName.value = ''
     return true
   } catch (e) { error.value = String(e); return false }
+  finally { creating.value = false }
+}
+async function createDraftConversation(text?: string, attachments?: Attachment[]) {
+  if (!newConversationName.value.trim() || creating.value) return false
+  creating.value = true; error.value = ''
+  try {
+    const created = createdConversation.value ?? await personRequest<SessionSummary>('/conversations', {
+      title: newConversationName.value.trim(), bot_type: newConversationBot.value,
+      ...(newConversationModel.value ? { model: newConversationModel.value } : {}), reasoning_effort: newConversationEffort.value,
+    })
+    createdConversation.value = created
+    chatStore.ensureSessionLoaded(created)
+    await loadConversations()
+    await selectConversation(created.id)
+    await chatStore.switchSession(created.id)
+    if (text || attachments?.length) await chatStore.sendMessage(text || '', attachments)
+    createdConversation.value = null
+    return true
+  } catch (e) { if (!disposed) error.value = String(e); return false }
   finally { creating.value = false }
 }
 async function deleteConversation(id: string) {
@@ -232,7 +269,12 @@ let disposed = false
 let snapshotSequence = 0
 const lifetime = new AbortController()
 const busy = computed(() => chatStore.isRunActive)
-const currentModel = computed(() => data.value?.settings.model)
+const draftDefaults = computed(() => newConversationDefaults.value ?? (data.value?.session ? null : data.value))
+const currentModel = computed(() => isNewConversation.value ? newConversationModel.value ?? draftDefaults.value?.settings.model : data.value?.settings.model)
+const draftConfig = computed(() => ({ ...currentModel.value, agent: 'ekko-agent' }))
+const draftReasoningEfforts = computed(() => newConversationModel.value
+  ? modelReasoningEfforts(pickerGroups.value, pickerProvider.value, newConversationModel.value.model)
+  : draftDefaults.value?.reasoning_efforts ?? [])
 const needsAgentSetup = computed(() => !!data.value && !data.value.settings.agents.length)
 const modelKey = (profile: string, provider: string) => JSON.stringify([profile, provider])
 const pickerProvider = computed(() => currentModel.value ? modelKey(currentModel.value.profile, currentModel.value.provider) : '')
@@ -245,7 +287,7 @@ function displayModel(model: string, provider: string) {
   return pickerGroups.value.find(group => group.provider === provider)?.model_meta?.[model]?.alias || model
 }
 const modelLabel = computed(() => currentModel.value ? displayModel(currentModel.value.model, pickerProvider.value) : t('models.selectModel'))
-const reasoningEffort = computed(() => optimisticEffort.value ?? data.value?.settings.reasoningEffort ?? '')
+const reasoningEffort = computed(() => isNewConversation.value ? newConversationEffort.value : optimisticEffort.value ?? data.value?.settings.reasoningEffort ?? '')
 function openPanel(name: string) { if (name === 'tasks') { showTasks.value = true; return }; tab.value = name; showPanel.value = true; void refresh() }
 async function refresh() {
   if (disposed) return
@@ -344,17 +386,31 @@ function saveSettings(patch: Record<string, unknown>) {
 function selectModel(selection: { provider: string; model: string }) {
   const group = modelGroups.value.find(group => modelKey(group.profile, group.provider) === selection.provider)
   if (!group) return
-  void saveSettings({ model: { profile: group.profile, provider: group.provider, model: selection.model } })
+  const model = { profile: group.profile, provider: group.provider, model: selection.model }
+  if (isNewConversation.value) {
+    newConversationModel.value = model
+    if (!draftReasoningEfforts.value.includes(newConversationEffort.value)) newConversationEffort.value = ''
+  } else void saveSettings({ model })
   showModelPicker.value = false
 }
-function selectEffort(value: string) { optimisticEffort.value = value; void saveSettings({ reasoning_effort: value }) }
-function inheritModel() { void saveSettings({ use_global_default: true }); showModelPicker.value = false }
+function selectEffort(value: string) {
+  if (isNewConversation.value) newConversationEffort.value = value
+  else { optimisticEffort.value = value; void saveSettings({ reasoning_effort: value }) }
+}
+function inheritModel() {
+  if (isNewConversation.value) { newConversationModel.value = null; newConversationEffort.value = '' }
+  else void saveSettings({ use_global_default: true })
+  showModelPicker.value = false
+}
 function memoryForget(memory: PersonMemory) { return act(() => personRequest('/memory', { id: memory.id, expected_revision: memory.revision, forget: true })) }
 function scheduleAction(schedule: PersonSchedule, action: string) { return act(() => personRequest('/schedules/apply', { schedule_id: schedule.id, action, expected_revision: schedule.revision, idempotency_key: crypto.randomUUID() })) }
 function saveSchedule(input: Record<string, unknown>) { return act(() => personRequest('/schedules/apply', input)) }
 
 watch(busy, (running, wasRunning) => { if (wasRunning && !running) void refresh() })
-watch(selectedSessionId, () => { optimisticEffort.value = null; showModelPicker.value = false })
+watch(selectedSessionId, id => {
+  optimisticEffort.value = null; showModelPicker.value = false
+  if (!id) resetConversationDraft()
+})
 const stopPersonUpdates = onPersonUpdated(() => { void loadConversations().catch(() => {}); void refresh() })
 watch([selectedSessionId, () => route.query.message], async () => {
   if (bootstrapping) return
@@ -398,14 +454,14 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
             <NButton v-if="nextOffset !== null" quaternary block @click="loadConversations(nextOffset!)">{{ t('person.older') }}</NButton>
       </template>
     </SessionListSidebar>
-  <PageLoading :show="initializing || chatStore.isLoadingMessages" initial-only class="person-view">
+  <PageLoading :show="initializing || (!isNewConversation && chatStore.isLoadingMessages)" initial-only class="person-view">
     <PageHeader>
       <header class="person-header">
         <div class="header-left">
           <HeaderSidebarToggle class="header-sidebar-toggle" :expanded="showSessions" @toggle="showSessions = !showSessions" />
-          <span class="person-title">{{ data?.session?.title || t('person.title') }}</span>
+          <span class="person-title">{{ isNewConversation ? t('person.newConversation') : data?.session?.title || t('person.title') }}</span>
         </div>
-        <div class="person-header-actions">
+        <div v-if="!isNewConversation" class="person-header-actions">
           <NTooltip trigger="hover">
             <template #trigger><NButton quaternary circle size="small" :aria-label="t('person.tasks')" :aria-expanded="showTasks" :disabled="!data?.session" @click="openPanel('tasks')"><SessionTaskIcon :size="17" /></NButton></template>
             {{ t('person.tasks') }}
@@ -432,6 +488,26 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
     </PageHeader>
     <NAlert v-if="error" class="person-alert" type="error" closable @close="error = ''">{{ error }}</NAlert>
     <template v-if="data">
+      <NewChatPage v-if="isNewConversation" :title="t('person.newConversation')" :subtitle="t('person.welcome')">
+        <template #cards>
+          <NewChatAgentCards v-model:value="newConversationBot" :options="botOptions" :disabled="draftLocked" />
+        </template>
+        <div class="person-new-name">
+          <label for="person-conversation-name">{{ t('person.conversationName') }}</label>
+          <div class="person-new-name-input">
+            <NInput v-model:value="newConversationName" :maxlength="100" :disabled="draftLocked" :placeholder="t('person.conversationName')"
+              :input-props="{ id: 'person-conversation-name' }" @keydown.enter.prevent="createDraftConversation()" />
+            <NButton :loading="creating" :disabled="!newConversationName.trim() || creating" @click="createDraftConversation()">{{ t('common.create') }}</NButton>
+          </div>
+        </div>
+        <ChatInput draft hide-settings managed-reasoning-effort :persist-draft="false" :draft-config="draftConfig"
+          :send-disabled="!newConversationName.trim() || !currentModel || creating" :submit="createDraftConversation"
+          :model-label="modelLabel" :model-disabled="draftLocked" :model-expanded="showModelPicker"
+          :reasoning-effort="reasoningEffort" :reasoning-effort-disabled="draftLocked || !currentModel"
+          :scoped-reasoning-efforts="draftReasoningEfforts" :default-effort-label="t('person.defaultEffort')"
+          @update:reasoning-effort="selectEffort" @model-click="openModels" />
+      </NewChatPage>
+      <template v-else>
       <PersonTaskActivity :count="personPresence.backgroundTaskCount" :expanded="showTasks" @open="openPanel('tasks')" />
       <NModal v-model:show="showWorkspace" preset="dialog" :title="t('chat.setWorkspaceTitle')" :positive-text="t('common.ok')" :negative-text="t('common.cancel')"
         :positive-button-props="{ loading: settingsWrites > 0, disabled: busy || pending || !data?.can_clear }" style="width: var(--studio-workspace-picker-width)" @positive-click="saveWorkspace">
@@ -446,7 +522,6 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
         </div>
       </NModal>
       <MessageList v-if="data.session" :user-label="t('person.you')" hide-tool-calls hide-run-usage hide-reasoning :activity-label="t('person.executing')" />
-      <NEmpty v-if="!data.session" class="person-empty" :description="t('person.noConversations')"><template #extra><NButton type="primary" @click="openCreateConversation">{{ t('person.newConversation') }}</NButton></template></NEmpty>
       <div v-if="data.session" class="person-compose">
         <button v-if="needsAgentSetup" type="button" class="person-model-hint" @click="openPanel('agents')">{{ t('person.configureAgents') }}</button>
         <button v-if="!currentModel" type="button" class="person-model-hint" @click="openModels">{{ t('person.defaultUnavailable') }}</button>
@@ -456,11 +531,12 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
           :default-effort-label="t('person.defaultEffort')"
           :scoped-reasoning-efforts="data.reasoning_efforts" @update:reasoning-effort="selectEffort" @model-click="openModels" />
       </div>
+      </template>
       <ModelCascader v-model:show="showModelPicker" :groups="pickerGroups" :custom-models="{}" :display-name="displayModel"
         :provider="pickerProvider" :model="currentModel?.model" :loading="modelsLoading || settingsWrites > 0" :trigger-element="modelTrigger"
         :title="t('chat.setModelTitle')" @select="selectModel">
         <template #footer>
-          <NButton size="small" quaternary :disabled="busy || settingsWrites > 0" @click="inheritModel">{{ data.inherits_global_model ? t('person.followingGlobalModel') : t('person.useGlobalModel') }}</NButton>
+          <NButton size="small" quaternary :disabled="creating || (!isNewConversation && (busy || settingsWrites > 0))" @click="inheritModel">{{ (isNewConversation ? !newConversationModel : data.inherits_global_model) ? t('person.followingGlobalModel') : t('person.useGlobalModel') }}</NButton>
         </template>
       </ModelCascader>
       <NDrawer v-model:show="showPanel" :width="drawerWidth" placement="right" :close-on-esc="true" class="person-workspace-drawer">
@@ -515,7 +591,9 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
 <style scoped lang="scss">
 @use '@/styles/variables' as *;
 .person-layout { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; position: relative; }
-.person-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.person-new-name { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; font-size: 12px; color: $text-secondary; }
+.person-new-name-input { display: flex; align-items: center; gap: 8px; }
+.person-new-name-input :deep(.n-input) { flex: 1; min-width: 0; }
 .person-view { flex: 1; display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; color: $text-primary; background: var(--card-container-bg, var(--bg-main-surface)); }
 .person-header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding: calc(21px * var(--spacing-scale, 1)) calc(20px * var(--spacing-scale, 1)); border-bottom: var(--border-width, 1px) solid $border-color; }
 .header-left { display: flex; align-items: center; gap: calc(8px * var(--spacing-scale, 1)); overflow: hidden; flex: 1; min-width: 0; }

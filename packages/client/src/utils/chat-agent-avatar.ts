@@ -1,7 +1,8 @@
 import { deploymentUrl } from './deployment-url'
+import { DEFAULT_PERSON_BOT_TYPE, personBot } from '../../../shared/person-bots'
 
 export interface ChatAgentAvatar {
-  label: 'zhezhe' | 'Hermes' | 'Ekko' | 'Claude' | 'Codex' | 'Pi' | 'Grok' | 'OpenCode' | 'DeepSeek Harness' | 'Cursor' | 'Antigravity' | 'Qwen Code' | 'Kimi Code' | 'CodeBuddy' | 'Qoder' | 'GitHub Copilot' | 'ZCode'
+  label: string
   src: string
 }
 
@@ -10,6 +11,8 @@ interface ChatAgentSessionIdentity {
   source?: string
   agent?: string
   codingAgentId?: string
+  botType?: string
+  bot_type?: string
 }
 
 export const PERSON_AVATAR = { label: 'zhezhe', src: deploymentUrl('/coding-agents/person.jpg') } as const satisfies ChatAgentAvatar
@@ -43,7 +46,9 @@ const AGENT_AVATARS = {
 
 export function chatSessionAgentAvatar(session?: ChatAgentSessionIdentity | null): ChatAgentAvatar {
   if (!session) return AGENT_AVATARS['ekko-agent']
-  if (session.id?.startsWith('person-main-')) return PERSON_AVATAR
+  const botType = session.botType || session.bot_type || (session.id?.startsWith('person-main-') ? DEFAULT_PERSON_BOT_TYPE : '')
+  const bot = personBot(botType)
+  if (bot) return { label: bot.name, src: deploymentUrl(bot.avatar) }
   const runtime = String(session?.codingAgentId || session?.agent || '').trim().toLowerCase()
   if (runtime === 'hermes') return AGENT_AVATARS.hermes
   if (runtime === 'ekko-agent' || runtime === 'ekko_agent' || runtime === 'ekko') return AGENT_AVATARS['ekko-agent']

@@ -54,6 +54,7 @@ import StarIcon from "@/components/common/StarIcon.vue";
 import SessionTaskIcon from '@/components/common/SessionTaskIcon.vue';
 import ChatInput from "./ChatInput.vue";
 import NewChatAgentCards from "./NewChatAgentCards.vue";
+import NewChatPage from "./NewChatPage.vue";
 import { prepareAgentDeployment, type AgentDeploymentController } from "./agentDeployment.mjs";
 import RealtimeVoiceStage from "./RealtimeVoiceStage.vue";
 import ConversationMonitorPane from "./ConversationMonitorPane.vue";
@@ -3123,15 +3124,12 @@ watch([isEmptySingleChat, () => route.fullPath], ([empty]) => {
             :data-agent-deployment-active="currentMode === 'chat' && !showNewChatPage"
             :data-agent-deployment-status-session="chatStore.activeSessionId || ''"
             :data-agent-deployment-status="chatStore.isLoadingMessages ? 'pending' : chatStore.isRunActive ? 'working' : 'settled'">
-            <section v-if="showNewChatPage" class="new-chat-page" :aria-label="t('chat.newChat')">
-              <div class="new-chat-intro">
-                <h1>{{ t('chat.newChatCardTitle') }}</h1>
-                <p>{{ t('chat.newChatCardSubtitle') }}</p>
-              </div>
-              <NewChatAgentCards :value="newChatAgent" :options="newChatAgentOptions"
-                :loading="newChatAgentLoading" :disabled="newChatLoading || newChatAgentLoading"
-                @update:value="handleNewChatAgentChange" />
-              <div class="new-chat-compose">
+            <NewChatPage v-if="showNewChatPage" :title="t('chat.newChatCardTitle')" :subtitle="t('chat.newChatCardSubtitle')">
+              <template #cards>
+                <NewChatAgentCards :value="newChatAgent" :options="newChatAgentOptions"
+                  :loading="newChatAgentLoading" :disabled="newChatLoading || newChatAgentLoading"
+                  @update:value="handleNewChatAgentChange" />
+              </template>
                 <div class="new-chat-config-bar">
                   <div class="new-chat-config-actions">
                     <NButton quaternary circle size="small" class="new-chat-config-icon" :disabled="newChatLoading" :title="newChatWorkspace || t('chat.workspace')"
@@ -3204,8 +3202,7 @@ watch([isEmptySingleChat, () => route.fullPath], ([empty]) => {
                 <button v-else-if="newChatMissingCredentials" type="button" class="new-chat-config-hint" @click="showNewChatSettings = true">
                   {{ t('chat.newChatCredentialsHint') }}
                 </button>
-              </div>
-            </section>
+            </NewChatPage>
             <template v-else>
             <MessageList
               ref="messageListRef"
@@ -3530,19 +3527,6 @@ watch([isEmptySingleChat, () => route.fullPath], ([empty]) => {
   & + & { margin-top: 16px; padding-top: calc(16px * var(--spacing-scale, 1)); border-top: var(--border-width, 1px) solid $border-light; }
 }
 
-.new-chat-page {
-  flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;
-  justify-content: center; padding: clamp(12px, 2vh, 24px) 0;
-}
-.new-chat-intro {
-  flex: none; text-align: center; padding: 0 calc(20px * var(--spacing-scale, 1));
-  h1 { margin: 0 0 8px; font-size: clamp(22px, 2.4vw, 30px); font-weight: 600; letter-spacing: -.6px; }
-  p { margin: 0; color: $text-secondary; font-size: calc(var(--font-size-base, 14px) * 13 / 14); }
-}
-.new-chat-page > :deep(.agent-cards) {
-  flex: 1; min-height: 0; max-height: calc(176px * 1.4 + 84px); max-width: 1040px; margin: 8px auto 0;
-}
-.new-chat-compose { flex: none; width: min(760px, calc(100% - 48px)); margin: 12px auto 0; }
 .new-chat-config-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: calc(6px * var(--spacing-scale, 1)) calc(12px * var(--spacing-scale, 1)); margin-bottom: 8px; }
 .new-chat-config-actions { display: flex; justify-content: flex-start; align-items: center; gap: calc(8px * var(--spacing-scale, 1)); max-width: 100%; }
 .new-chat-config-icon { width: 28px; height: 28px; padding: 0; }
@@ -3561,25 +3545,12 @@ watch([isEmptySingleChat, () => route.fullPath], ([empty]) => {
     &:disabled { cursor: default; opacity: .45; }
   }
 }
-.new-chat-compose :deep(.chat-input-area) { padding: 0; border-top: 0; background: transparent; }
 .new-chat-config-hint { display: block; margin: 10px auto 0; padding: 0; border: 0; background: transparent; color: $text-secondary; font: inherit; font-size: calc(var(--font-size-base, 14px) * 12 / 14); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .workspace-picker-content { display: flex; flex-direction: column; gap: calc(12px * var(--spacing-scale, 1)); max-height: 65vh; overflow-y: auto; }
 .workspace-picker-content :deep(.n-button__content) { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: $breakpoint-mobile) {
-  .new-chat-page { justify-content: flex-start; padding: calc(16px * var(--spacing-scale, 1)) 0; }
-  .new-chat-intro {
-    margin-top: auto;
-    padding: 0 calc(24px * var(--spacing-scale, 1));
-    h1 { margin-bottom: 6px; font-size: clamp(19px, 5.1vw, 24px); line-height: var(--line-height, 1.35); }
-    p { font-size: calc(var(--font-size-base, 14px) * 12 / 14); line-height: var(--line-height, 1.5); }
-  }
-  .new-chat-page > :deep(.agent-cards) { flex: none; max-height: none; }
-  .new-chat-compose { width: calc(100% - 32px); margin-top: 8px; margin-bottom: auto; }
   .new-chat-config-bar { flex-wrap: wrap; gap: calc(6px * var(--spacing-scale, 1)); }
   .new-chat-config-actions { width: 100%; }
-}
-@media (max-width: $breakpoint-mobile) and (max-height: 640px) {
-  .new-chat-page { padding: calc(8px * var(--spacing-scale, 1)) 0; }
 }
 
 .new-chat-field {

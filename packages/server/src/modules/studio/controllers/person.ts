@@ -49,5 +49,5 @@ export const memory = (ctx: Context) => handle(ctx, (id, body) => {
 })
 
 export const conversations = (ctx: Context) => handle(ctx, id => personConversations(id, String(ctx.query.search || ''), Math.max(0, Number(ctx.query.offset) || 0)))
-export const conversationCreate = (ctx: Context) => handle(ctx, (id, body) => createPersonConversation(id, body.title))
+export const conversationCreate = (ctx: Context) => handle(ctx, (id, body) => createPersonConversation(id, body.title, body))
 export const conversationDelete = (ctx: Context) => handle(ctx, (id, body) => deletePersonConversation(id, ctx.params.id, body.expected_history_revision))

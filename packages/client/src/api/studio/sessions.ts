@@ -15,6 +15,7 @@ export interface SessionSummary {
   api_mode?: ProviderApiMode
   reasoning_effort?: string
   agent_preset?: string
+  bot_type?: string
   title: string | null
   parent_session_id?: string | null
   fork_point_message_id?: string | null

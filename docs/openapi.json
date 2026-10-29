@@ -19443,7 +19443,7 @@
           "Person"
         ],
         "summary": "Create conversations",
-        "description": "Create an account-owned, user-named conversation with a generated session ID. Memory and Agent presets remain shared across the account.",
+        "description": "Create an account-owned, user-named conversation with a generated session ID and a persisted bot_type (defaults to zhezhe). Optional model and reasoning_effort apply only to the new conversation. Unknown bot types are rejected. Memory and Agent presets remain shared across the account.",
         "operationId": "conversationCreate",
         "security": [
           {
@@ -19472,6 +19472,33 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 100
+                  },
+                  "bot_type": {
+                    "type": "string",
+                    "default": "zhezhe",
+                    "description": "Registered bot appearance, independent of conversation title and Agent runtime."
+                  },
+                  "model": {
+                    "type": "object",
+                    "required": [
+                      "profile",
+                      "provider",
+                      "model"
+                    ],
+                    "properties": {
+                      "profile": {
+                        "type": "string"
+                      },
+                      "provider": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "reasoning_effort": {
+                    "type": "string"
                   }
                 },
                 "required": [
