@@ -4,6 +4,15 @@ import { personError } from '../contracts/person'
 import { personDb } from './person-store'
 import { requirePersonSession } from './person-session-store'
 
+/** Only an outstanding handoff keeps its recipient active, never the waiting creator. */
+export function personCollaborationPendingCount(userId: number, sessionId: string): number {
+  return Number(personDb().prepare(`SELECT COUNT(DISTINCT f.id) AS n FROM person_flows f
+    JOIN person_stages s ON s.flow_id=f.id AND s.position=f.current_position
+    JOIN person_stage_deliveries d ON d.stage_id=s.id AND d.generation=f.generation
+    WHERE f.owner_user_id=? AND f.state='active' AND s.state='active'
+      AND s.session_id=? AND d.state IN ('pending','queued') AND d.error=''`).get(userId, sessionId)!.n)
+}
+
 export function getPersonFlow(userId: number, id: string): PersonConversationFlow {
   const db = personDb()
   const row = db.prepare('SELECT * FROM person_flows WHERE id=? AND owner_user_id=?').get(id, userId)

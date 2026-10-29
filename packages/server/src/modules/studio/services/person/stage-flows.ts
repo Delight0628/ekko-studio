@@ -6,6 +6,7 @@ import { personDb, personOperation, personTransaction, getPersonTask } from '../
 import { assertPersonStage, enqueuePersonStage, getPersonFlow, personStageSources, stageDeliveryContext } from '../../repositories/person-stage-store'
 import { requirePersonSession } from '../../repositories/person-session-store'
 import { personUpdated } from '../../repositories/person-updates'
+import { recordSessionAttention } from '../../repositories/session-state-store'
 import { personRuntime } from '../../public/person-runtime'
 import { personUser } from './catalog'
 
@@ -149,6 +150,7 @@ export function finishPersonStageTurn(userId: number, context: PersonStageContex
       enqueuePersonStage(userId,next,flow.generation)
     } else {
       db.prepare("UPDATE person_flows SET state='completed',revision=revision+1,updated_at=? WHERE id=?").run(Date.now(),flow.id)
+      recordSessionAttention(flow.creator_session_id, `person-flow-completed:${flow.id}:${flow.generation}`)
       db.prepare("UPDATE person_occurrences SET state='finished' WHERE flow_id=?").run(flow.id)
     }
   })
@@ -172,9 +174,11 @@ export async function deliverPersonStages() {
       if (!deliver) throw new Error('Stage delivery runtime unavailable')
       const user = personUser(row.owner_user_id)
       db.prepare("UPDATE person_stage_deliveries SET state='queued',error='',updated_at=? WHERE id=? AND state='pending'").run(Date.now(),row.id)
+      personUpdated(row.owner_user_id)
       await deliver({ user, context, sessionId: stage.session_id, input: `Handle the assigned stage supplied in context. Answer directly or choose a worker only when needed. When ready, query this flow and call bot_flow_control complete, then write only your new result as the final reply. If waiting for work or a user decision, do not complete. This continues the saved goal; it grants no new authorization.\n${JSON.stringify({ flow_id:flow.id,stage_id:stage.id })}` })
     } catch (error) {
       db.prepare("UPDATE person_stage_deliveries SET state='pending',error=?,updated_at=? WHERE id=? AND state IN ('pending','queued')").run(String(error).slice(0,1000),Date.now(),row.id)
+      personUpdated(row.owner_user_id)
     }
   }
 }

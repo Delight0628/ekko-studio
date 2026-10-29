@@ -32,12 +32,12 @@ function snapshotCard(source) {
 }
 
 /** Capture before the new-chat page unmounts, then start with the new session. */
-export function prepareAgentDeployment(source) {
-  try { return captureDeployment(source); }
+export function prepareAgentDeployment(source, options = {}) {
+  try { return captureDeployment(source, options); }
   catch { return null; } // A visual effect must never prevent the first message.
 }
 
-function captureDeployment(source) {
+function captureDeployment(source, options) {
   if (!source?.isConnected) return null;
   const doc = source.ownerDocument;
   const win = doc.defaultView;
@@ -79,6 +79,7 @@ function captureDeployment(source) {
     transformOrigin: '50% 50%', transformStyle: 'preserve-3d', willChange: 'transform,opacity' });
   const face = snapshotCard(source);
   const imageOnly = face.tagName === 'IMG';
+  if (imageOnly && options.imageSrc) face.src = options.imageSrc;
   hero.appendChild(face);
   const sweep = doc.createElement('div');
   Object.assign(sweep.style, { position: 'absolute', inset: '0', overflow: 'hidden', borderRadius: face.style.borderRadius,

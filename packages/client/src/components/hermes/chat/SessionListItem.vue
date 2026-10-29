@@ -16,6 +16,7 @@ const props = withDefaults(defineProps<{
   active: boolean
   pinned: boolean
   canDelete: boolean
+  deleteDisabled?: boolean
   deleteConfirmText?: string
   streaming?: boolean
   completedUnread?: boolean
@@ -132,7 +133,7 @@ onUnmounted(() => {
           <span v-if="pinned" class="session-item-pin" aria-hidden="true">
             <PinIcon width="13" height="13" filled />
           </span>
-          <span v-if="completedUnread" class="session-item-unread-dot" aria-hidden="true" />
+          <span v-if="completedUnread && !streaming" class="session-item-unread-dot" aria-hidden="true" />
           <span class="session-item-title" dir="auto">
             {{ session.title }}
           </span>
@@ -148,7 +149,7 @@ onUnmounted(() => {
         <span class="session-item-time">{{ formatTimestampMs(session.createdAt) }}</span>
       </span>
       <span class="session-item-agent-row">
-        <span class="session-item-agent-logo-wrap" :class="{ streaming, 'session-item-agent-logo-wrap--person': isPersonSession }">
+        <span class="session-item-agent-logo-wrap" :class="{ streaming }">
           <img
             class="session-item-agent-logo"
             :class="{ 'session-item-agent-logo--person': isPersonSession }"
@@ -188,9 +189,9 @@ onUnmounted(() => {
       <path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4" />
       <path d="M10 10h4v4h-4z" />
     </svg>
-    <NPopconfirm v-if="canDelete && !selectable" @positive-click="emit('delete')">
+    <NPopconfirm v-if="canDelete && !selectable" :disabled="deleteDisabled" :positive-button-props="{ disabled: deleteDisabled }" @positive-click="emit('delete')">
       <template #trigger>
-        <button class="session-item-delete" @click.stop.prevent>
+        <button class="session-item-delete" type="button" :disabled="deleteDisabled" :aria-label="t('common.delete')" @click.stop.prevent>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </template>
@@ -326,7 +327,11 @@ onUnmounted(() => {
 }
 
 .session-item-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  line-height: 0;
   opacity: 0;
   pointer-events: none;
   padding: calc(2px * var(--spacing-scale, 1));
@@ -338,7 +343,11 @@ onUnmounted(() => {
   transition: all var(--transition-fast);
 }
 
-.session-item-delete:hover {
+.session-item-delete:disabled {
+  cursor: default;
+}
+
+.session-item-delete:not(:disabled):hover {
   color: var(--error);
   background: rgba(var(--error-rgb), 0.1);
 }
@@ -464,14 +473,7 @@ onUnmounted(() => {
 
 .session-item-agent-logo--person {
   @include person-avatar(18px);
-}
-
-.session-item-agent-logo-wrap--person {
-  border-radius: 4px;
-}
-
-.session-item-agent-logo-wrap--person.streaming::before {
-  content: none;
+  border-radius: inherit;
 }
 
 @keyframes rainbow-glow {
@@ -517,5 +519,9 @@ onUnmounted(() => {
       0 0 10px rgba(255, 107, 107, 0.4),
       0 0 20px rgba(255, 107, 107, 0.2);
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-item-agent-logo-wrap.streaming::before { animation: none; }
 }
 </style>

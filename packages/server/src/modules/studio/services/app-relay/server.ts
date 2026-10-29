@@ -60,6 +60,8 @@ const ALLOWED_REQUEST_HEADERS = new Set([
   'x-session-share-token',
 ])
 const ALLOWED_CHAT_RUN_CLIENT_EVENTS = new Set([
+  'sessions.state.request',
+  'sessions.read',
   'app.events.subscribe',
   'app.events.unsubscribe',
   'run',

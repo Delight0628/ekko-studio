@@ -101,6 +101,9 @@ import { authenticateUserToken, inspectAppUserToken, isAuthEnabled, type Authent
 import { userCanAccessProfile } from '../repositories/users-store'
 import { observeRunChatPetEvent } from '../public/pet-events'
 import { observePersonPresenceEvent } from '../services/person/presence'
+import { SessionStateSync } from '../services/session-state'
+import { personBackgroundTaskCount } from '../repositories/person-presence-store'
+import { personCollaborationPendingCount } from '../repositories/person-stage-store'
 import { observeChatRunWebhookEvent, type ChatRunWebhookAgent } from '../services/webhooks'
 import { getAgentStatusSnapshot } from '../public/agent-status-registry'
 import {
@@ -470,9 +473,18 @@ export class ChatRunSocket {
   private stopUsageUpdates: () => void
   private stopPersonUpdates: () => void
   private personQuestions = new Map<string, ReturnType<typeof personChatInteraction>>()
+  private readonly sessionStateSync: SessionStateSync
 
   constructor(private readonly io: Server) {
     this.nsp = io.of('/chat-run')
+    this.sessionStateSync = new SessionStateSync(sessionId => {
+      const state = this.sessionMap.get(sessionId)
+      const backgroundPending = state ? this.backgroundPendingCount(state, sessionId) : personBackgroundPendingCount(sessionId)
+      const owner = sessionId.startsWith('person-main-') ? Number(getSession(sessionId)?.studio_user_id) : 0
+      return { working: !!state?.isWorking,
+        collaborationPending: owner ? personCollaborationPendingCount(owner, sessionId) : 0,
+        backgroundPending: owner ? Math.max(backgroundPending, personBackgroundTaskCount(owner, sessionId)) : backgroundPending }
+    }, (user, profile) => this.canAccessProfile(user, profile))
     this.stopPersonUpdates = onPersonUpdated(userId => this.syncPersonInteraction(userId))
     this.stopUsageUpdates = onRunUsageUpdated((sessionId, summary) => {
       const session = getSession(sessionId)
@@ -494,6 +506,7 @@ export class ChatRunSocket {
 
   private syncPersonInteraction(userId: number) {
     if (this.closing) return
+    this.sessionStateSync.refreshPerson(userId)
     for (const sid of personSessionIds(userId)) {
       this.nsp.to(`session:${sid}`).emit('person.updated', { session_id: sid })
       if (this.isSessionRunning(sid)) continue
@@ -831,6 +844,7 @@ export class ChatRunSocket {
 
   private onConnection(socket: Socket) {
     const shared = socket.data.sessionShare as SessionShareAccess | undefined
+    this.sessionStateSync.attach(socket)
     if (shared) bindSessionShareSocket(socket, shared, () => {
       const state = this.sessionMap.get(shared.share.session_id)
       if (!state) return
@@ -2056,6 +2070,7 @@ export class ChatRunSocket {
   }
 
   private applyBackgroundSessionPoll(poll: AgentBridgeBackgroundSession, state: SessionState) {
+    const beforePending = this.backgroundPendingCount(state, poll.session_id)
     if ((poll.events?.length || 0) > 0 || poll.running_count > 0) {
       this.backgroundActivityGraceUntil = Date.now() + 30_000
     }
@@ -2074,6 +2089,10 @@ export class ChatRunSocket {
         background: true,
       })
     }
+    const pending = this.backgroundPendingCount(state, poll.session_id)
+    if (pending !== beforePending) this.sessionStateSync.observe('delegation.updated', {
+      session_id: poll.session_id, background_pending: pending,
+    })
   }
 
   private socketForBackgroundRun(sessionId: string): Socket {
@@ -3504,6 +3523,7 @@ export class ChatRunSocket {
 
   private emitPendingInteraction(profile: string, event: string, payload: any) {
     if (isPrivatePersonSession(payload?.session_id)) {
+      this.sessionStateSync.observe(event, payload)
       const session = getSession(payload.session_id)
       const userId = Number(session?.studio_user_id)
       if (session?.id !== payload.session_id || !ownsPersonSession(userId, session) || payload.replayed || payload.restored || payload.background_snapshot) return
@@ -3538,6 +3558,7 @@ export class ChatRunSocket {
   }
 
   private emitSessionActivity(profile: string, event: string, payload: any) {
+    this.sessionStateSync.observe(event, payload)
     const sessionId = typeof payload?.session_id === 'string' ? payload.session_id : ''
     if (!sessionId) return
 
@@ -3591,6 +3612,7 @@ export class ChatRunSocket {
     this.closing = true
     this.stopUsageUpdates()
     this.stopPersonUpdates()
+    this.sessionStateSync.close()
     for (const sessionId of this.sessionMap.keys()) this.finishTaskPlanRun(sessionId, 'abort.completed')
     if (this.backgroundPollTimer) {
       clearInterval(this.backgroundPollTimer)

@@ -38,13 +38,14 @@ import FolderPicker from '@/components/hermes/chat/FolderPicker.vue'
 import { useDefaultWorkspace } from '@/composables/useDefaultWorkspace'
 import { useChatStore, mapHermesSession, type Attachment } from '@/stores/hermes/chat'
 import { useSettingsStore } from '@/stores/hermes/settings'
-import { usePersonPresenceStore } from '@/stores/hermes/person-presence'
+import { useSessionReadState } from '@/composables/useSessionReadState'
 import type { AvailableModelGroup } from '@/api/hermes/system'
 import { personRequest, type PersonSnapshot, type PersonModel, type PersonModelGroup, type PersonTask, type PersonSchedule, type PersonMemory, type PersonFlow } from '@/api/person'
 import { DEFAULT_PERSON_BOT_TYPE, personBot } from '../../../../shared/person-bots'
 import { modelReasoningEfforts } from '@/utils/model-reasoning-effort'
-import { PERSON_AVATAR } from '@/utils/chat-agent-avatar'
+import { PERSON_AVATAR, chatSessionAgentAvatar } from '@/utils/chat-agent-avatar'
 import { personBotLabel } from '@/utils/person-bot-label'
+import { deploymentUrl } from '@/utils/deployment-url'
 import { prepareAgentDeployment, type AgentDeploymentController } from '@/components/hermes/chat/agentDeployment.mjs'
 
 const { t } = useI18n()
@@ -220,7 +221,9 @@ async function saveConversationName() {
 async function createDraftConversation(text?: string, attachments?: Attachment[]) {
   if (!newConversationName.value.trim() || creating.value || (!text?.trim() && !attachments?.length)) return false
   personDeployment?.cancel()
-  const deployment = prepareAgentDeployment(personLayout.value?.querySelector('.person-bot-option.selected img'))
+  const deployment = prepareAgentDeployment(personLayout.value?.querySelector('.person-bot-option.selected img'), {
+    imageSrc: deploymentUrl(personBot(newConversationBot.value)!.animations.done),
+  })
   personDeployment = deployment
   creating.value = true; error.value = ''; duplicateBotName.value = false
   try {
@@ -273,9 +276,10 @@ async function deleteConversation(id: string) {
 function confirmDeleteConversation() {
   return deleteConversationId.value ? deleteConversation(deleteConversationId.value) : false
 }
-const personPresence = usePersonPresenceStore()
 const data = ref<PersonSnapshot | null>(null)
 const initializing = ref(true)
+const sessionStates = useSessionReadState(() => !initializing.value && !isNewConversation.value && !chatStore.isLoadingMessages
+  && chatStore.activeSessionId === selectedSessionId.value ? selectedSessionId.value : null)
 const error = ref('')
 const pending = ref(false)
 const tab = ref('general')
@@ -502,9 +506,10 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; personDeployment?.
           @select-all="selectAllConversations" @delete="deleteSelectedConversations" @cancel="toggleBatchMode" />
       </template>
       <template #default>
-            <SessionListItem v-for="session in sidebarSessions" :key="session.id" :session="session" :active="session.id === selectedSessionId" :pinned="false" :can-delete="!pending && !isMobile"
+            <SessionListItem v-for="session in sidebarSessions" :key="session.id" :session="session" :active="session.id === selectedSessionId" :pinned="false" :can-delete="!isMobile" :delete-disabled="pending"
               :selectable="batchMode" :selected="selectedConversationIds.has(session.id)" @toggle-select="toggleConversationSelection(session.id)"
-              single-line :show-profile="false" :streaming="chatStore.isSessionLive(session.id)" :to="router.resolve({ name: 'hermes.person', query: { session: session.id } }).href"
+              single-line :show-profile="false" :streaming="sessionStates.isWorking(session.id, chatStore.isSessionWorking(session.id))"
+              :completed-unread="sessionStates.isUnread(session.id)" :to="router.resolve({ name: 'hermes.person', query: { session: session.id } }).href"
               :delete-confirm-text="t('person.deleteConversationConfirm')" @select="selectConversation(session.id)" @delete="deleteConversation(session.id)" @contextmenu="openConversationMenu($event, session.id)" />
             <NButton v-if="nextOffset !== null" quaternary block @click="loadConversations(nextOffset!)">{{ t('person.older') }}</NButton>
       </template>
@@ -582,8 +587,10 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; personDeployment?.
         </div>
       </NModal>
       <template v-if="!isNewConversation">
-      <PersonTaskActivity :count="personPresence.backgroundTaskCount" :expanded="showTasks" @open="openPanel('tasks')" />
+      <div v-if="data.session" class="person-chat-messages">
+      <PersonTaskActivity :count="sessionStates.backgroundCount(selectedSessionId)" :avatar="chatSessionAgentAvatar(chatStore.activeSession)" :expanded="showTasks" @open="openPanel('tasks')" />
       <MessageList v-if="data.session" :user-label="t('person.you')" hide-tool-calls hide-run-usage hide-reasoning :activity-label="t('person.executing')" />
+      </div>
       <div v-if="data.session" class="person-compose">
         <button v-if="needsAgentSetup" type="button" class="person-model-hint" @click="openPanel('agents')">{{ t('person.configureAgents') }}</button>
         <button v-if="!currentModel" type="button" class="person-model-hint" @click="openModels">{{ t('person.defaultUnavailable') }}</button>
@@ -665,6 +672,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; personDeployment?.
 .person-workspace-shortcuts { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .person-alert { margin: 12px; width: auto; }
 .person-compose { flex-shrink: 0; min-width: 0; }
+.person-chat-messages { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 .person-model-hint { display: block; margin: 0 auto; border: 0; background: transparent; color: $accent-primary; cursor: pointer; font: inherit; font-size: 12px; padding: 8px; }
 .person-workspace { padding: 0 24px 28px; min-width: 0; }
 .workspace-heading { display: flex; align-items: center; gap: 12px; font-size: 13px; font-weight: 400; color: $text-secondary; }

@@ -3,6 +3,10 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createServer } from 'node:http'
+import { Server } from 'socket.io'
+import { io as connectSocket, type Socket } from 'socket.io-client'
+import type { SessionListState } from '../../packages/shared/session-state'
 import type { PersonRuntimePort } from '../../packages/server/src/modules/studio/public/person-runtime'
 
 let db: DatabaseSync, dir: string
@@ -201,6 +205,103 @@ async function complete(current: ReturnType<typeof flow>, text: string) {
 }
 
 describe('independent Person stages', () => {
+  it('lights only the current recipient and reports unread results after completion across devices', async () => {
+    const { SessionStateSync } = await import('../../packages/server/src/modules/studio/services/session-state')
+    const { onPersonUpdated } = await import('../../packages/server/src/modules/studio/repositories/person-updates')
+    const http = createServer()
+    const server = new Server(http)
+    const sync = new SessionStateSync(sessionId => ({ working: false, backgroundPending: 0,
+      collaborationPending: stages.personCollaborationPendingCount(1, sessionId) }), () => true)
+    const stop = onPersonUpdated(userId => sync.refreshPerson(userId))
+    const clients: Socket[] = []
+    const namespace = server.of('/chat-run')
+    namespace.use((socket, next) => {
+      socket.data.user = { id: Number(socket.handshake.auth.user), role: 'super_admin', username: 'test' }
+      next()
+    })
+    namespace.on('connection', socket => sync.attach(socket))
+    await new Promise<void>(resolve => http.listen(0, '127.0.0.1', resolve))
+    const port = (http.address() as { port: number }).port
+    async function device(user = 1) {
+      const states = new Map<string, SessionListState>()
+      const socket = connectSocket(`http://127.0.0.1:${port}/chat-run`, { autoConnect: false,
+        transports: ['websocket'], query: { session_state: '1' }, auth: { user } })
+      clients.push(socket)
+      socket.on('sessions.state.snapshot', ({ sessions }: { sessions: SessionListState[] }) => {
+        states.clear(); for (const state of sessions) states.set(state.sessionId, state)
+      })
+      socket.on('sessions.state.updated', (state: SessionListState) => states.set(state.sessionId, state))
+      const ready = new Promise<void>(resolve => socket.once('sessions.state.snapshot', () => resolve()))
+      socket.connect(); await ready
+      return { socket, states }
+    }
+    async function read(socket: Socket, state: SessionListState, ok = true) {
+      const result = await new Promise<{ ok: boolean }>(resolve => socket.emit('sessions.read', {
+        sessionId: state.sessionId, messageId: state.lastMessageId, attentionId: state.lastAttentionId,
+      }, resolve))
+      expect(result).toEqual({ ok })
+    }
+    try {
+      const a = await device(), b = await device(), other = await device(2)
+      const created = flow()
+      await vi.waitFor(() => {
+        for (const device of [a, b]) {
+          expect(device.states.get('person-main-1')).toMatchObject({ working: false, unread: false })
+          expect(device.states.get('person-main-b')).toMatchObject({ working: true, unread: false, lastMessageId: 0 })
+          expect(device.states.get('person-main-c')).toMatchObject({ working: false, unread: false })
+        }
+      })
+      expect([...other.states.keys()]).toEqual(['person-main-2'])
+      expect(db.prepare('SELECT COUNT(*) AS n FROM person_executions').get()).toMatchObject({ n: 0 })
+      const received = { ...a.states.get('person-main-b')! }
+      await read(b.socket, received, false)
+      await vi.waitFor(() => expect(a.states.get('person-main-b')).toMatchObject({ unread: false, working: true }))
+      await flows.deliverPersonStages()
+      expect(runtime.deliverStage).toHaveBeenCalledOnce()
+      const advanced = await complete(created, 'First collaboration result')
+      await vi.waitFor(() => {
+        expect(a.states.get('person-main-b')).toMatchObject({ working: false, unread: true })
+        expect(b.states.get('person-main-c')).toMatchObject({ working: true, unread: false })
+        expect(a.states.get('person-main-1')?.working).toBe(false)
+      })
+      // Reading the earlier request cannot clear the subsequently saved result.
+      await read(b.socket, received)
+      expect(a.states.get('person-main-b')?.unread).toBe(true)
+      await flows.deliverPersonStages()
+      await complete(advanced, 'Final collaboration result')
+      await vi.waitFor(() => {
+        expect(a.states.get('person-main-1')).toMatchObject({ working: false, unread: true, lastMessageId: 0 })
+        expect(b.states.get('person-main-c')).toMatchObject({ working: false, unread: true })
+      })
+      await read(b.socket, a.states.get('person-main-1')!)
+      await vi.waitFor(() => expect(a.states.get('person-main-1')?.unread).toBe(false))
+
+      const next = flow(['person-main-b'])
+      await vi.waitFor(() => expect(a.states.get('person-main-b')?.working).toBe(true))
+      await control(next.id, 'stop')
+      await vi.waitFor(() => expect(a.states.get('person-main-b')?.working).toBe(false))
+      await read(b.socket, a.states.get('person-main-b')!)
+      await vi.waitFor(() => expect(a.states.get('person-main-b')?.unread).toBe(false))
+      await control(next.id, 'resume')
+      await vi.waitFor(() => expect(a.states.get('person-main-b')).toMatchObject({ working: true, unread: false }))
+      expect(runtime.execute).not.toHaveBeenCalled()
+    } finally {
+      stop(); sync.close(); clients.forEach(socket => socket.disconnect())
+      await new Promise<void>(resolve => server.close(() => resolve()))
+    }
+  })
+  it.each([true, false])('clears handoff activity when delivery settles (success=%s) even if the stage stays active', async ok => {
+    const current = flow(['person-main-b'])
+    expect(stages.personCollaborationPendingCount(1, 'person-main-1')).toBe(0)
+    expect(stages.personCollaborationPendingCount(1, 'person-main-b')).toBe(1)
+    await flows.deliverPersonStages()
+    const delivery = db.prepare('SELECT id FROM person_stage_deliveries WHERE flow_id=?').get(current.id)!
+    flows.finishPersonStageDelivery(1, String(delivery.id), ok, ok ? '' : 'Delivery failed')
+    expect(stages.getPersonFlow(1, current.id).state).toBe('active')
+    expect(stages.personCollaborationPendingCount(1, 'person-main-b')).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM session_attention_events').get()).toMatchObject({ n: 0 })
+  })
+
   it.each([['person-main-1'],['person-main-b','person-main-b'],['person-main-b','person-main-1','person-main-1']])('rejects self-handoff routes %j before writing a flow or delivery', (...route:string[]) => {
     expect(()=>flow(route)).toThrow('cannot hand off to itself')
     expect(db.prepare('SELECT count(*) AS n FROM person_flows').get()).toMatchObject({n:0})

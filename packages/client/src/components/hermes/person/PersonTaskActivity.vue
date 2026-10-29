@@ -2,14 +2,14 @@
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePageLoadingState } from '@/composables/usePageLoading'
-import { PERSON_ANIMATIONS, PERSON_AVATAR } from '@/utils/chat-agent-avatar'
+import { PERSON_ANIMATIONS, PERSON_AVATAR, personAvatarAnimation, type ChatAgentAvatar } from '@/utils/chat-agent-avatar'
 
-const props = defineProps<{ count: number; expanded: boolean }>()
+const props = defineProps<{ count: number; expanded: boolean; avatar?: ChatAgentAvatar }>()
 const emit = defineEmits<{ open: [] }>()
 const { t, locale } = useI18n()
 const pageLoading = usePageLoadingState()
-// Keep the floating capsule outside content filters and clipping ancestors.
-const portalTarget = document.querySelector('.app-shell') || document.body
+const avatar = computed(() => props.avatar || PERSON_AVATAR)
+const animation = computed(() => personAvatarAnimation(avatar.value, 'searching') || PERSON_ANIMATIONS.searching)
 const formattedCount = computed(() => props.count.toLocaleString(locale.value))
 const reducedMotion = ref(false)
 let motionQuery: MediaQueryList | undefined
@@ -23,30 +23,28 @@ onBeforeUnmount(() => motionQuery?.removeEventListener('change', syncMotion))
 </script>
 
 <template>
-  <Teleport :to="portalTarget">
     <div class="person-task-activity" role="status" aria-live="polite" aria-atomic="true">
       <Transition name="person-task-island" appear>
         <button v-if="count > 0 && !pageLoading" type="button" class="person-task-island" data-theme-surface="card"
-          :aria-label="`${PERSON_AVATAR.label} · ${t('person.backgroundTasks')} · ${formattedCount}`" :aria-expanded="expanded" aria-haspopup="dialog" @click="emit('open')">
-          <span class="person-task-island__avatar-slot" aria-hidden="true"><img class="person-task-island__avatar" :src="reducedMotion ? PERSON_AVATAR.src : PERSON_ANIMATIONS.searching" alt="" width="48" height="48" /></span>
-          <span class="person-task-island__label" aria-hidden="true"><strong>{{ PERSON_AVATAR.label }}</strong><span>{{ t('person.backgroundTasks') }}</span></span>
+          :aria-label="`${avatar.label} · ${t('person.backgroundTasks')} · ${formattedCount}`" :aria-expanded="expanded" aria-haspopup="dialog" @click="emit('open')">
+          <span class="person-task-island__avatar-slot" aria-hidden="true"><img class="person-task-island__avatar" :src="reducedMotion ? avatar.src : animation" alt="" width="48" height="48" /></span>
+          <span class="person-task-island__label" aria-hidden="true"><strong>{{ avatar.label }}</strong><span>{{ t('person.backgroundTasks') }}</span></span>
           <span class="person-task-island__count" aria-hidden="true">{{ formattedCount }}</span>
           <svg class="person-task-island__chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
         </button>
       </Transition>
     </div>
-  </Teleport>
 </template>
 
 <style scoped lang="scss">
 @use '@/styles/variables' as *;
 
 .person-task-activity {
-  position: fixed;
-  z-index: 1002;
-  top: calc(var(--studio-header-height, 60px) + 12px + env(safe-area-inset-top, 0px));
+  position: absolute;
+  z-index: 5;
+  top: 12px;
   left: 50%;
-  width: min(280px, calc(100vw - 32px));
+  width: min(280px, calc(100% - 32px));
   transform: translateX(-50%);
   pointer-events: none;
 }
