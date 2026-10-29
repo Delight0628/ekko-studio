@@ -98,9 +98,9 @@ onMounted(async () => {
         <label>{{ t('person.agentName') }}<NInput v-model:value="editingAgent.name" :maxlength="100" :disabled="saving" :input-props="{ 'aria-label': t('person.agentName') }" /></label>
         <label>{{ t('person.agentResource') }}<NSelect v-model:value="editingAgent.selection.profile" :options="profiles" :disabled="saving" :aria-label="t('person.agentResource')" @update:value="resetModel(editingAgent)" /></label>
         <label class="field-wide">{{ t('person.agentPurpose') }}<NInput v-model:value="editingAgent.description" type="textarea" :maxlength="1000" :disabled="saving" :autosize="{ minRows: 2, maxRows: 4 }" :input-props="{ 'aria-label': t('person.agentPurpose') }" /></label>
-        <label v-if="editingAgent.selection.runtime && !['ekko', 'hermes'].includes(editingAgent.selection.runtime)">{{ t('person.agentMode') }}
-          <NSelect v-model:value="editingAgent.selection.mode" :disabled="saving || isGlobalOnlyCodingAgent(editingAgent.selection.runtime)" :aria-label="t('person.agentMode')"
-            :options="[{ label: t('person.scopedMode'), value: 'scoped' }, { label: t('person.nativeMode'), value: 'global', disabled: !nativeAllowed }]" @update:value="resetModel(editingAgent)" />
+        <label v-if="editingAgent.selection.runtime && !['ekko', 'hermes'].includes(editingAgent.selection.runtime)">{{ t('codingAgents.launchModeScope') }}
+          <NSelect v-model:value="editingAgent.selection.mode" :disabled="saving || isGlobalOnlyCodingAgent(editingAgent.selection.runtime)" :aria-label="t('codingAgents.launchModeScope')"
+            :options="[{ label: t('codingAgents.modelScope'), value: 'scoped' }, { label: t('codingAgents.launchModeGlobalShort'), value: 'global', disabled: !nativeAllowed }]" @update:value="resetModel(editingAgent)" />
         </label>
         <template v-if="editingAgent.selection.mode === 'scoped'">
           <label>{{ t('person.chooseModel') }}<ScopedModelSelector :provider="editingAgent.selection.provider" :model="editingAgent.selection.model" :groups="groupsFor(editingAgent)" :disabled="saving || !editingAgent.selection.runtime"
@@ -121,7 +121,7 @@ onMounted(async () => {
           <article v-for="(agent, index) in draft" :key="agent.id" class="panel-tile agent-card" data-theme-surface="card">
             <div class="agent-identity"><img class="agent-avatar" :src="avatar(agent.selection.runtime).src" alt="" /><div><h3 :title="agent.name">{{ agent.name }}</h3><span class="tile-meta agent-runtime-label" :title="avatar(agent.selection.runtime).label">{{ avatar(agent.selection.runtime).label }}</span></div></div>
             <p class="agent-description">{{ agent.description }}</p>
-            <div class="agent-model"><span class="tile-meta">{{ t('person.chooseModel') }}</span><span>{{ agent.selection.model || t('person.nativeMode') }}</span></div>
+            <div class="agent-model"><span class="tile-meta">{{ t('person.chooseModel') }}</span><span>{{ agent.selection.model || t('codingAgents.nativeModelDefault') }}</span></div>
             <footer class="tile-footer"><span class="tile-meta">{{ agent.selection.profile }}</span><div class="tile-actions"><NButton quaternary size="small" :disabled="saving" @click="draft.splice(index, 1)">{{ t('common.delete') }}</NButton><NButton secondary size="small" :disabled="saving" @click="editingId = agent.id">{{ t('common.edit') }}</NButton></div></footer>
           </article>
         </div>
