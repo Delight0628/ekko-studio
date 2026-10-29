@@ -24,7 +24,8 @@ async function handle(ctx: Context, work: (id: number, body: Record<string, unkn
     ctx.body = await work(ctx.state.user.id, body)
   } catch (error) {
     const status = Number((error as { status?: number }).status) || 500
-    ctx.status = status; ctx.body = { error: status < 500 && error instanceof Error ? error.message : 'Person operation failed' }
+    ctx.status = status; ctx.body = { error: status < 500 && error instanceof Error ? error.message : 'Person operation failed',
+      ...((error as { code?: string }).code === 'PERSON_BOT_NAME_EXISTS' ? { code: 'PERSON_BOT_NAME_EXISTS' } : {}) }
   }
 }
 export const snapshot = (ctx: Context) => handle(ctx, id => personSnapshot(id, String(ctx.query.session_id || '')))

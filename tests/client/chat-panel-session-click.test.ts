@@ -111,14 +111,8 @@ describe('ChatPanel session clicks', () => {
     expect(source).toContain('await applySessionModelSwitch(pending.model, pending.provider, sessionModelApiMode.value)')
   })
 
-  it('creates a conversation from the inline composer submission', () => {
-    const source = readFileSync('packages/client/src/components/hermes/chat/ChatPanel.vue', 'utf8')
-
-    expect(source).toContain('class="new-chat-page"')
-    expect(source).toContain(':submit="submitNewChat"')
-    expect(source).not.toContain('<NDrawer')
-    expect(source).not.toContain('{{ t("chat.newChat") }}\n            </NButton>')
-  })
+  // Inline composer creation is exercised by tests/e2e/new-chat-page.spec.ts,
+  // including its first message, model settings and cancellation.
 
   it('offers MoA only for Hermes session creation and switching', () => {
     const source = readFileSync('packages/client/src/components/hermes/chat/ChatPanel.vue', 'utf8')

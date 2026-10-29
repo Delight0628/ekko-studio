@@ -50,25 +50,27 @@ export function personSettings(userId: number, sessionId?: string): { settings: 
   return { settings: { ...shared, model: local.model ?? null, reasoningEffort: local.reasoningEffort ?? '' }, revision: row?.revision || 0 }
 }
 export function savePersonSettings(userId: number, settings: PersonSettings, revision: number, workspace?: string, sessionId?: string) {
-  return personTransaction(() => {
-    const account = personSettings(userId)
-    if (account.revision !== revision) throw personError('Settings changed; reload and retry', 409)
-    if (sessionId) {
-      requirePersonSession(userId, sessionId)
-      personDb().prepare('INSERT INTO person_conversation_settings VALUES (?,?,?) ON CONFLICT(session_id) DO UPDATE SET settings_json=excluded.settings_json')
-        .run(sessionId, userId, JSON.stringify({ model: settings.model, reasoningEffort: settings.reasoningEffort }))
-    }
-    personDb().prepare('INSERT INTO person_accounts VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET settings_json=excluded.settings_json,revision=excluded.revision')
-      .run(userId, JSON.stringify(sharedPersonSettings(settings)), revision + 1)
-    if (workspace) {
-      personDb().prepare('UPDATE session_tasks SET workspace=? WHERE owner_user_id=? AND bot_id=?').run(workspace, userId, `person:${userId}`)
-      personDb().prepare(`UPDATE sessions SET workspace=? WHERE CAST(studio_user_id AS TEXT)=? AND
-        (id LIKE 'person-main-%' OR id IN (SELECT 'person-task-' || id FROM session_tasks WHERE owner_user_id=? AND bot_id=?))`)
-        .run(workspace, String(userId), userId, `person:${userId}`)
-    }
-    personUpdated(userId)
-    return personSettings(userId, sessionId)
-  })
+  return personTransaction(() => savePersonSettingsInTransaction(userId, settings, revision, workspace, sessionId))
+}
+/** Used when settings and a new BOT must commit together. Caller owns the transaction. */
+export function savePersonSettingsInTransaction(userId: number, settings: PersonSettings, revision: number, workspace?: string, sessionId?: string) {
+  const account = personSettings(userId)
+  if (account.revision !== revision) throw personError('Settings changed; reload and retry', 409)
+  if (sessionId) {
+    requirePersonSession(userId, sessionId)
+    personDb().prepare('INSERT INTO person_conversation_settings VALUES (?,?,?) ON CONFLICT(session_id) DO UPDATE SET settings_json=excluded.settings_json')
+      .run(sessionId, userId, JSON.stringify({ model: settings.model, reasoningEffort: settings.reasoningEffort }))
+  }
+  personDb().prepare('INSERT INTO person_accounts VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET settings_json=excluded.settings_json,revision=excluded.revision')
+    .run(userId, JSON.stringify(sharedPersonSettings(settings)), revision + 1)
+  if (workspace) {
+    personDb().prepare('UPDATE session_tasks SET workspace=? WHERE owner_user_id=? AND bot_id=?').run(workspace, userId, `person:${userId}`)
+    personDb().prepare(`UPDATE sessions SET workspace=? WHERE CAST(studio_user_id AS TEXT)=? AND
+      (id LIKE 'person-main-%' OR id IN (SELECT 'person-task-' || id FROM session_tasks WHERE owner_user_id=? AND bot_id=?))`)
+      .run(workspace, String(userId), userId, `person:${userId}`)
+  }
+  personUpdated(userId)
+  return personSettings(userId, sessionId)
 }
 const executionOrder = "CASE WHEN state IN ('finished','failed','interrupted') THEN 2 WHEN state='pending' THEN 1 ELSE 0 END,created_at DESC,rowid DESC"
 const taskExecutionColumns = `

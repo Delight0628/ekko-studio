@@ -19443,7 +19443,7 @@
           "Person"
         ],
         "summary": "Create conversations",
-        "description": "Create an account-owned, user-named conversation with a generated session ID and a persisted bot_type (defaults to zhezhe). Optional model and reasoning_effort apply only to the new conversation. Unknown bot types are rejected. Memory and Agent presets remain shared across the account.",
+        "description": "Create an account-owned, user-named conversation with a generated session ID and a persisted bot_type (defaults to zhezhe). Duplicate BOT names return HTTP 409 with code PERSON_BOT_NAME_EXISTS; concurrent creates are checked in the insertion transaction. Optional model and reasoning_effort apply only to the new conversation. Optional workspace changes the account-shared workspace atomically with creation and requires current expected_revision and idle work. Unknown bot types are rejected. Memory and Agent presets remain shared across the account.",
         "operationId": "conversationCreate",
         "security": [
           {
@@ -19471,7 +19471,8 @@
                   "title": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 100
+                    "maxLength": 100,
+                    "description": "BOT name, unique among this account’s Person conversations after trimming, Unicode NFKC normalization and lowercasing."
                   },
                   "bot_type": {
                     "type": "string",
@@ -19499,6 +19500,16 @@
                   },
                   "reasoning_effort": {
                     "type": "string"
+                  },
+                  "workspace": {
+                    "type": "string",
+                    "maxLength": 4000,
+                    "description": "Optional account-shared absolute workspace; empty restores the account private workspace. A change requires expected_revision and idle replies, tasks and deliveries, and commits atomically with BOT creation."
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Current account settings revision, required when workspace changes."
                   }
                 },
                 "required": [

@@ -5,6 +5,10 @@ export const PERSON_BOTS = [
 
 export const DEFAULT_PERSON_BOT_TYPE = 'zhezhe'
 
+export function personBotNameKey(name: string) {
+  return name.trim().normalize('NFKC').toLowerCase()
+}
+
 export function personBot(type: unknown) {
   return PERSON_BOTS.find(bot => bot.type === type)
 }

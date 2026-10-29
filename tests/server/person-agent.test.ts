@@ -1536,6 +1536,48 @@ describe('Person multi-conversation ownership', () => {
     await expect(createPersonConversation(1, '  ')).rejects.toThrow('conversation name')
   })
 
+  it('rejects duplicate BOT names across all owned pages and concurrent creates', async () => {
+    const { createPersonConversation } = await import('../../packages/server/src/modules/studio/services/person/conversations')
+    const { createSession } = await import('../../packages/server/src/modules/studio/repositories/session-store')
+    for (let i = 0; i < 55; i++) createSession({ id: `person-main-page-${i}`, studio_user_id: 1, title: `Bot ${i}` })
+    const count = db.prepare('SELECT COUNT(*) AS n FROM sessions').get()!.n
+    await expect(createPersonConversation(1, '  ＢＯＴ ０  ')).rejects.toMatchObject({ status: 409, code: 'PERSON_BOT_NAME_EXISTS' })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM sessions').get()!.n).toBe(count)
+    await expect(createPersonConversation(2, 'Bot 0')).resolves.toMatchObject({ title: 'Bot 0' })
+    createSession({ id: 'ordinary-same-name', studio_user_id: 1, title: 'Helper' })
+    const results = await Promise.allSettled([createPersonConversation(1, 'Helper'), createPersonConversation(1, 'helper')])
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    expect(results.find(result => result.status === 'rejected')).toMatchObject({ reason: { status: 409, code: 'PERSON_BOT_NAME_EXISTS' } })
+    const { conversationCreate } = await import('../../packages/server/src/modules/studio/controllers/person')
+    const ctx: any = { set: vi.fn(), state: { user: { id: 1 } }, request: { body: { title: 'Helper' } } }
+    await conversationCreate(ctx)
+    expect(ctx).toMatchObject({ status: 409, body: { code: 'PERSON_BOT_NAME_EXISTS' } })
+  })
+
+  it('commits a selected shared workspace with creation and rejects stale or busy changes', async () => {
+    const { createPersonConversation } = await import('../../packages/server/src/modules/studio/services/person/conversations')
+    const { getSession } = await import('../../packages/server/src/modules/studio/repositories/session-store')
+    const old = store.personSettings(1)
+    const workspace = join(dir, 'chosen')
+    const created = await createPersonConversation(1, 'Workspace bot', { workspace, expected_revision: old.revision })
+    expect(created.workspace).toBe(workspace)
+    expect(store.personSettings(1)).toMatchObject({ settings: { workspace }, revision: old.revision + 1 })
+    expect(getSession('person-main-1')?.workspace).toBe(workspace)
+    expect(existsSync(workspace)).toBe(true)
+    const before = db.prepare('SELECT id,workspace FROM sessions ORDER BY id').all()
+    await expect(createPersonConversation(1, 'Stale', { workspace: dir, expected_revision: old.revision })).rejects.toThrow('Settings changed')
+    await expect(createPersonConversation(1, 'Relative', { workspace: 'relative' })).rejects.toThrow('absolute')
+    mainBusy = true
+    await expect(createPersonConversation(1, 'Busy', { workspace: dir, expected_revision: old.revision + 1 })).rejects.toThrow('Wait for Person')
+    mainBusy = false
+    await expect(createPersonConversation(1, 'workspace bot', { workspace: dir, expected_revision: old.revision + 1 })).rejects.toMatchObject({ code: 'PERSON_BOT_NAME_EXISTS' })
+    expect(db.prepare('SELECT id,workspace FROM sessions ORDER BY id').all()).toEqual(before)
+    expect(store.personSettings(1).settings.workspace).toBe(workspace)
+    const task = await create()
+    await expect(createPersonConversation(1, 'Pending task', { workspace: dir, expected_revision: old.revision + 1 })).rejects.toThrow('Wait for Person')
+    expect(store.getPersonTask(1, task.task.id).workspace).toBe(workspace)
+  })
+
   it('stores bot type separately from the name and isolates initial model settings', async () => {
     const { createPersonConversation, personConversations } = await import('../../packages/server/src/modules/studio/services/person/conversations')
     const { personSnapshot } = await import('../../packages/server/src/modules/studio/services/person/service')

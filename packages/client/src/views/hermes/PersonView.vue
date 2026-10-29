@@ -41,7 +41,7 @@ import { useSettingsStore } from '@/stores/hermes/settings'
 import { usePersonPresenceStore } from '@/stores/hermes/person-presence'
 import type { AvailableModelGroup } from '@/api/hermes/system'
 import { personRequest, type PersonSnapshot, type PersonModel, type PersonModelGroup, type PersonTask, type PersonSchedule, type PersonMemory, type PersonFlow } from '@/api/person'
-import { PERSON_BOTS, DEFAULT_PERSON_BOT_TYPE } from '../../../../shared/person-bots'
+import { PERSON_BOTS, DEFAULT_PERSON_BOT_TYPE, personBotNameKey } from '../../../../shared/person-bots'
 import { deploymentUrl } from '@/utils/deployment-url'
 import { modelReasoningEfforts } from '@/utils/model-reasoning-effort'
 
@@ -66,7 +66,14 @@ const newConversationBot = ref<string>(DEFAULT_PERSON_BOT_TYPE)
 const newConversationDefaults = ref<PersonSnapshot | null>(null)
 const newConversationModel = ref<PersonModel | null>(null)
 const newConversationEffort = ref('')
+const newConversationWorkspace = ref<string | null>(null)
+const conflictingBotName = ref('')
 const createdConversation = ref<SessionSummary | null>(null)
+const duplicateBotName = computed(() => {
+  const name = personBotNameKey(newConversationName.value)
+  return !!name && (name === conflictingBotName.value || conversations.value.some(session => session.id !== createdConversation.value?.id && personBotNameKey(session.title || '') === name))
+})
+watch(newConversationName, () => { conflictingBotName.value = '' })
 const draftLocked = computed(() => creating.value || !!createdConversation.value)
 const botOptions = PERSON_BOTS.map(bot => ({ value: bot.type, label: bot.name, avatar: deploymentUrl(bot.avatar) }))
 const isNewConversation = computed(() => showNewConversation.value || (!!data.value && !data.value.session))
@@ -89,6 +96,7 @@ const sidebarSessions = computed(() => conversations.value.map(mapHermesSession)
 function resetConversationDraft() {
   newConversationName.value = ''; newConversationBot.value = DEFAULT_PERSON_BOT_TYPE
   newConversationModel.value = null; newConversationEffort.value = ''
+  newConversationWorkspace.value = null; conflictingBotName.value = ''
   newConversationDefaults.value = null; createdConversation.value = null
 }
 async function openCreateConversation() {
@@ -150,7 +158,7 @@ function selectAllConversations() {
 async function deleteSelectedConversations() {
   if (pending.value || !selectedConversationIds.value.size) return
   const targets = [...selectedConversationIds.value].map(id => ({ id }))
-  pending.value = true; error.value = ''
+  pending.value = true; deletingConversations = true; snapshotSequence++; error.value = ''
   try {
     const result = await batchDeleteSessions(targets)
     const failedIds = new Set(result.errors.map(item => item.id))
@@ -166,7 +174,7 @@ async function deleteSelectedConversations() {
     else batchMode.value = false
     showBatchDeleteConfirm.value = false
   } catch (e) { error.value = String(e); message.error(t('chat.batchDeleteFailed')) }
-  finally { pending.value = false }
+  finally { pending.value = false; deletingConversations = false; void refresh() }
 }
 let conversationRequestSequence = 0
 async function loadConversations(offset = 0) {
@@ -202,12 +210,13 @@ async function saveConversationName() {
   finally { creating.value = false }
 }
 async function createDraftConversation(text?: string, attachments?: Attachment[]) {
-  if (!newConversationName.value.trim() || creating.value) return false
+  if (!newConversationName.value.trim() || duplicateBotName.value || creating.value || (!text?.trim() && !attachments?.length)) return false
   creating.value = true; error.value = ''
   try {
     const created = createdConversation.value ?? await personRequest<SessionSummary>('/conversations', {
       title: newConversationName.value.trim(), bot_type: newConversationBot.value,
       ...(newConversationModel.value ? { model: newConversationModel.value } : {}), reasoning_effort: newConversationEffort.value,
+      ...(newConversationWorkspace.value !== null ? { workspace: newConversationWorkspace.value, expected_revision: draftDefaults.value?.revision } : {}),
     })
     createdConversation.value = created
     chatStore.ensureSessionLoaded(created)
@@ -217,12 +226,23 @@ async function createDraftConversation(text?: string, attachments?: Attachment[]
     if (text || attachments?.length) await chatStore.sendMessage(text || '', attachments)
     createdConversation.value = null
     return true
-  } catch (e) { if (!disposed) error.value = String(e); return false }
+  } catch (e) {
+    if (!disposed) {
+      if ((e as { code?: string }).code === 'PERSON_BOT_NAME_EXISTS') conflictingBotName.value = personBotNameKey(newConversationName.value)
+      else {
+        error.value = String(e)
+        if ((e as { status?: number }).status === 409 && !createdConversation.value) {
+          newConversationDefaults.value = await personRequest<PersonSnapshot>('', undefined, 'GET', lifetime.signal).catch(() => newConversationDefaults.value)
+        }
+      }
+    }
+    return false
+  }
   finally { creating.value = false }
 }
 async function deleteConversation(id: string) {
   if (pending.value) return false
-  pending.value = true; error.value = ''
+  pending.value = true; deletingConversations = true; snapshotSequence++; error.value = ''
   try {
     const snapshot = await personRequest<PersonSnapshot>(`?session_id=${encodeURIComponent(id)}`, undefined, 'GET', lifetime.signal)
     await personRequest(`/conversations/${encodeURIComponent(id)}`, { expected_history_revision: snapshot.history_revision }, 'DELETE', lifetime.signal)
@@ -233,7 +253,7 @@ async function deleteConversation(id: string) {
     else await refresh()
     return true
   } catch (e) { if (!disposed) error.value = String(e); return false }
-  finally { pending.value = false }
+  finally { pending.value = false; deletingConversations = false; void refresh() }
 }
 function confirmDeleteConversation() {
   return deleteConversationId.value ? deleteConversation(deleteConversationId.value) : false
@@ -265,6 +285,7 @@ const { drawerWidth } = useTaskDrawerLayout()
 let bootstrapping = true
 let refreshing = false
 let refreshAgain = false
+let deletingConversations = false
 let disposed = false
 let snapshotSequence = 0
 const lifetime = new AbortController()
@@ -291,18 +312,31 @@ const reasoningEffort = computed(() => isNewConversation.value ? newConversation
 function openPanel(name: string) { if (name === 'tasks') { showTasks.value = true; return }; tab.value = name; showPanel.value = true; void refresh() }
 async function refresh() {
   if (disposed) return
-  if (refreshing) { refreshAgain = true; return }
-  refreshing = true
+  // Deletion broadcasts before its HTTP response; wait until the route is updated.
+  if (refreshing || deletingConversations) { refreshAgain = true; return }
+  refreshing = true; refreshAgain = false
   const sequence = snapshotSequence
+  const sessionId = selectedSessionId.value
   try {
-    const next = await personRequest<PersonSnapshot>(selectedSessionId.value ? `?session_id=${encodeURIComponent(selectedSessionId.value)}` : '', undefined, 'GET', lifetime.signal)
+    const next = await personRequest<PersonSnapshot>(sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '', undefined, 'GET', lifetime.signal)
     if (disposed) return
-    if (sequence !== snapshotSequence) { refreshAgain = true; return }
+    if (sequence !== snapshotSequence || sessionId !== selectedSessionId.value) { refreshAgain = true; return }
     data.value = next
     syncSession(next)
-    if (next.session && (chatStore.activeSessionId !== next.session.id || (typeof route.query.message === 'string' && chatStore.focusMessageId !== route.query.message))) void chatStore.switchSession(next.session.id, typeof route.query.message === 'string' ? route.query.message : null).catch(e => { if (!disposed) error.value = String(e) })
+    if (next.session && (chatStore.activeSessionId !== next.session.id || (typeof route.query.message === 'string' && chatStore.focusMessageId !== route.query.message))) void chatStore.switchSession(next.session.id, typeof route.query.message === 'string' ? route.query.message : null).catch(e => { if (!disposed && sequence === snapshotSequence && sessionId === selectedSessionId.value) error.value = String(e) })
     else if (!next.session && chatStore.activeSessionId?.startsWith('person-main-')) chatStore.clearActiveSession()
-  } catch (e) { if (!disposed) { error.value = String(e); if ((e as { status?: number }).status === 404) { chatStore.forgetSession(selectedSessionId.value); await router.replace({ name: 'hermes.person' }) } } } finally { refreshing = false; if (refreshAgain && !disposed) { refreshAgain = false; void refresh() } }
+  } catch (e) {
+    if (disposed) return
+    if (sequence !== snapshotSequence || sessionId !== selectedSessionId.value) { refreshAgain = true; return }
+    if ((e as { status?: number }).status === 404 && sessionId) {
+      error.value = ''
+      chatStore.forgetSession(sessionId)
+      await router.replace({ name: 'hermes.person' })
+    } else error.value = String(e)
+  } finally {
+    refreshing = false
+    if (refreshAgain && !disposed && !deletingConversations) void refresh()
+  }
 }
 function flowAction(flow: PersonFlow, action: 'stop' | 'resume') {
   return act(() => personRequest('/flows/apply', { action, flow_id: flow.id, expected_revision: flow.revision, idempotency_key: crypto.randomUUID() }))
@@ -324,12 +358,17 @@ function syncSession(snapshot: PersonSnapshot) {
 }
 function folderName(path: string) { return path.replace(/\\/g, '/').split('/').filter(Boolean).at(-1) || path }
 function openWorkspace() {
-  workspaceValue.value = data.value?.settings.workspace || ''
+  workspaceValue.value = isNewConversation.value ? newConversationWorkspace.value ?? draftDefaults.value?.settings.workspace ?? '' : data.value?.settings.workspace || ''
   showWorkspace.value = true
   void workspaceDirectories.init().catch(e => { error.value = String(e) })
 }
 async function saveWorkspace() {
   const workspace = workspaceValue.value?.trim() || ''
+  if (isNewConversation.value) {
+    newConversationWorkspace.value = workspace
+    showWorkspace.value = false
+    return true
+  }
   await saveSettings({ workspace })
   if (data.value?.settings.workspace !== workspace) return false
   await refresh()
@@ -493,24 +532,25 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
           <NewChatAgentCards v-model:value="newConversationBot" :options="botOptions" :disabled="draftLocked" />
         </template>
         <div class="person-new-name">
-          <label for="person-conversation-name">{{ t('person.conversationName') }}</label>
           <div class="person-new-name-input">
-            <NInput v-model:value="newConversationName" :maxlength="100" :disabled="draftLocked" :placeholder="t('person.conversationName')"
-              :input-props="{ id: 'person-conversation-name' }" @keydown.enter.prevent="createDraftConversation()" />
-            <NButton :loading="creating" :disabled="!newConversationName.trim() || creating" @click="createDraftConversation()">{{ t('common.create') }}</NButton>
+            <NInput v-model:value="newConversationName" :maxlength="100" :disabled="draftLocked" :placeholder="t('person.botNamePlaceholder')" :status="duplicateBotName ? 'error' : undefined"
+              :input-props="{ id: 'person-conversation-name', 'aria-label': t('person.botName'), 'aria-invalid': duplicateBotName, 'aria-describedby': duplicateBotName ? 'person-bot-name-error' : undefined }" />
+            <NTooltip trigger="hover">
+              <template #trigger><NButton quaternary circle :disabled="draftLocked" :aria-label="t('chat.workspace')" :aria-expanded="showWorkspace" @click="openWorkspace"><FolderIcon /></NButton></template>
+              {{ (newConversationWorkspace ?? draftDefaults?.settings.workspace) || t('chat.workspace') }}
+            </NTooltip>
           </div>
+          <span v-if="duplicateBotName" id="person-bot-name-error" class="person-name-error" role="alert">{{ t('person.botNameExists') }}</span>
         </div>
         <ChatInput draft hide-settings managed-reasoning-effort :persist-draft="false" :draft-config="draftConfig"
-          :send-disabled="!newConversationName.trim() || !currentModel || creating" :submit="createDraftConversation"
+          :send-disabled="!newConversationName.trim() || duplicateBotName || !currentModel || creating" :submit="createDraftConversation"
           :model-label="modelLabel" :model-disabled="draftLocked" :model-expanded="showModelPicker"
           :reasoning-effort="reasoningEffort" :reasoning-effort-disabled="draftLocked || !currentModel"
           :scoped-reasoning-efforts="draftReasoningEfforts" :default-effort-label="t('person.defaultEffort')"
           @update:reasoning-effort="selectEffort" @model-click="openModels" />
       </NewChatPage>
-      <template v-else>
-      <PersonTaskActivity :count="personPresence.backgroundTaskCount" :expanded="showTasks" @open="openPanel('tasks')" />
       <NModal v-model:show="showWorkspace" preset="dialog" :title="t('chat.setWorkspaceTitle')" :positive-text="t('common.ok')" :negative-text="t('common.cancel')"
-        :positive-button-props="{ loading: settingsWrites > 0, disabled: busy || pending || !data?.can_clear }" style="width: var(--studio-workspace-picker-width)" @positive-click="saveWorkspace">
+        :positive-button-props="{ loading: settingsWrites > 0, disabled: isNewConversation ? draftLocked : busy || pending || !data?.can_clear }" style="width: var(--studio-workspace-picker-width)" @positive-click="saveWorkspace">
         <p>{{ t('person.workspaceHint') }}</p>
         <div v-if="defaultWorkspaces.length" class="person-workspace-shortcuts">
           <NButton v-for="path in defaultWorkspaces" :key="path" size="tiny" :title="path" @click="workspaceValue = path">{{ folderName(path) }}</NButton>
@@ -521,6 +561,8 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
           <NButton v-for="entry in recentWorkspaces" :key="entry.path" size="tiny" :title="entry.path" @click="workspaceValue = entry.path">{{ folderName(entry.path) }}</NButton>
         </div>
       </NModal>
+      <template v-if="!isNewConversation">
+      <PersonTaskActivity :count="personPresence.backgroundTaskCount" :expanded="showTasks" @open="openPanel('tasks')" />
       <MessageList v-if="data.session" :user-label="t('person.you')" hide-tool-calls hide-run-usage hide-reasoning :activity-label="t('person.executing')" />
       <div v-if="data.session" class="person-compose">
         <button v-if="needsAgentSetup" type="button" class="person-model-hint" @click="openPanel('agents')">{{ t('person.configureAgents') }}</button>
@@ -592,6 +634,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; lifetime.abort() }
 @use '@/styles/variables' as *;
 .person-layout { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; position: relative; }
 .person-new-name { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; font-size: 12px; color: $text-secondary; }
+.person-name-error { color: $error; }
 .person-new-name-input { display: flex; align-items: center; gap: 8px; }
 .person-new-name-input :deep(.n-input) { flex: 1; min-width: 0; }
 .person-view { flex: 1; display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; color: $text-primary; background: var(--card-container-bg, var(--bg-main-surface)); }
