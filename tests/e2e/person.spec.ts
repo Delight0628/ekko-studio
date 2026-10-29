@@ -291,6 +291,31 @@ test('Person session switch closes a model picker opened for the previous sessio
   expect(operations.filter(op => op.path.endsWith('/settings'))).toEqual([])
 })
 
+test('Person keeps its dialogue and composer mounted while switching conversations', async ({ page }) => {
+  const { second } = await setupSessionModels(page)
+  await page.goto('/#/person?session=person-main-1')
+  await expect(page.locator('.person-compose .input-textarea')).toBeVisible()
+  const before = await page.locator('.person-compose .input-textarea').elementHandle()
+  const messages = await page.locator('.message-list-shell').elementHandle()
+  let release!: () => void
+  const snapshot = new Promise<void>(resolve => { release = resolve })
+  await page.route(`**/api/studio/person?session_id=${second.id}`, async route => {
+    await snapshot
+    return route.fallback()
+  })
+  try {
+    await page.locator('.person-sidebar .session-item').filter({ hasText: second.title }).click()
+    await expect(page.locator('.person-title')).toHaveText(second.title)
+    await expect(page.locator('.person-view')).toHaveAttribute('inert', '')
+    expect(await before!.evaluate(el => el.isConnected)).toBe(true)
+    expect(await messages!.evaluate(el => el.isConnected)).toBe(true)
+    await expect(page.locator('.person-view > .page-loading-overlay')).toHaveCount(0)
+  } finally { release() }
+  await expect(page.locator('.person-view')).not.toHaveAttribute('inert')
+  expect(await before!.evaluate(el => el.isConnected)).toBe(true)
+  expect(await messages!.evaluate(el => el.isConnected)).toBe(true)
+})
+
 test('Person events use the existing global question notification and open the main window',async({page})=>{
   await setup(page,'light',false,false)
   await page.goto('/#/person')

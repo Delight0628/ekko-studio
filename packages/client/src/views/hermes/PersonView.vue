@@ -278,6 +278,8 @@ function confirmDeleteConversation() {
 }
 const data = ref<PersonSnapshot | null>(null)
 const initializing = ref(true)
+const switchingConversation = computed(() => !isNewConversation.value && !!selectedSessionId.value
+  && data.value?.session?.id !== selectedSessionId.value)
 const sessionStates = useSessionReadState(() => !initializing.value && !isNewConversation.value && !chatStore.isLoadingMessages
   && chatStore.activeSessionId === selectedSessionId.value ? selectedSessionId.value : null)
 const error = ref('')
@@ -473,7 +475,16 @@ watch(selectedSessionId, id => {
 const stopPersonUpdates = onPersonUpdated(() => { void loadConversations().catch(() => {}); void refresh() })
 watch([selectedSessionId, () => route.query.message], async () => {
   if (bootstrapping) return
-  snapshotSequence++; data.value = null; chatTaskId.value = null; showTasks.value = false
+  const sequence = ++snapshotSequence
+  chatTaskId.value = null; showTasks.value = false
+  // Keep the shared message list and composer mounted, as ordinary chat does.
+  const sessionId = selectedSessionId.value
+  const cached = conversations.value.find(session => session.id === sessionId)
+  if (cached) {
+    chatStore.ensureSessionLoaded(cached)
+    void chatStore.switchSession(sessionId, typeof route.query.message === 'string' ? route.query.message : null)
+      .catch(e => { if (!disposed && sequence === snapshotSequence) error.value = String(e) })
+  }
   await refresh()
 })
 onMounted(async () => {
@@ -514,7 +525,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; personDeployment?.
             <NButton v-if="nextOffset !== null" quaternary block @click="loadConversations(nextOffset!)">{{ t('person.older') }}</NButton>
       </template>
     </SessionListSidebar>
-  <PageLoading :show="initializing || (!isNewConversation && chatStore.isLoadingMessages)" initial-only class="person-view"
+  <PageLoading :show="initializing || (!isNewConversation && chatStore.isLoadingMessages)" :inert="switchingConversation || undefined" initial-only class="person-view"
     data-agent-deployment-surface :data-agent-deployment-session="selectedSessionId"
     :data-agent-deployment-active="!isNewConversation && !!selectedSessionId"
     :data-agent-deployment-status-session="selectedSessionId"
@@ -523,7 +534,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; personDeployment?.
       <header class="person-header">
         <div class="header-left">
           <HeaderSidebarToggle class="header-sidebar-toggle" :expanded="showSessions" @toggle="showSessions = !showSessions" />
-          <span class="person-title">{{ isNewConversation ? t('person.newConversation') : data?.session?.title || t('person.title') }}</span>
+          <span class="person-title">{{ isNewConversation ? t('person.newConversation') : conversations.find(session => session.id === selectedSessionId)?.title || data?.session?.title || t('person.title') }}</span>
         </div>
         <div v-if="!isNewConversation" class="person-header-actions">
           <NTooltip trigger="hover">
