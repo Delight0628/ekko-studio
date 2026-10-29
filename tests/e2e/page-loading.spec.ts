@@ -72,6 +72,45 @@ test('single chat covers its first load and keeps session switches uncovered', a
   expect(await composer!.evaluate(el => el.isConnected)).toBe(true)
 })
 
+test('single chat shows its welcome only after history confirms an empty conversation', async ({ page }) => {
+  await authenticate(page)
+  await mockChatSocket(page)
+  const sessions = ['ready', 'history', 'empty', 'unknown'].map(id => ({
+    id: `empty-check-${id}`, title: id, profile: 'research', source: 'cli', started_at: 1, message_count: 0,
+  }))
+  await mockHermesApi(page, { sessions })
+  await page.addInitScript(() => {
+    (window as any).__PW_CHAT_SOCKET_RESUMES__ = { 'empty-check-ready': {
+      session_id: 'empty-check-ready', messages: [], isWorking: false, events: [], messageTotal: 0,
+    } }
+  })
+  await page.goto('/#/hermes/session/empty-check-ready')
+  const welcome = page.locator('.message-list-shell .empty-state')
+  await expect(welcome).toBeVisible()
+  const select = async (id: string) => {
+    await page.evaluate(id => { location.hash = `/hermes/session/empty-check-${id}` }, id)
+    await page.waitForFunction(id => (window as any).__PW_CHAT_SOCKET__.emitted.some((entry: any) => entry.event === 'resume' && entry.payload.session_id === `empty-check-${id}`), id)
+    await expect(welcome).toHaveCount(0)
+  }
+  const resumed = async (id: string, messages?: any[]) => page.evaluate(({ id, messages }) => {
+    (window as any).__PW_CHAT_SOCKET__.latest.__trigger('resumed', {
+      session_id: `empty-check-${id}`, isWorking: false, events: [], messageTotal: messages?.length ?? 0,
+      ...(messages ? { messages } : {}),
+    })
+  }, { id, messages })
+  await select('history')
+  await resumed('history', [{ id: 1, role: 'assistant', content: 'Existing conversation history', timestamp: 1 }])
+  await expect(page.getByText('Existing conversation history', { exact: true })).toBeVisible()
+  await expect(welcome).toHaveCount(0)
+  await select('empty')
+  await resumed('empty', [])
+  await expect(welcome).toBeVisible()
+  await select('unknown')
+  await resumed('unknown')
+  await expect(page.locator('.message-list-shell')).toBeVisible()
+  await expect(welcome).toHaveCount(0)
+})
+
 test('group chat covers initial room data and keeps failed or stale room switches uncovered', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await authenticate(page)

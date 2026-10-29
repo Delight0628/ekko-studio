@@ -15,6 +15,9 @@ reveal immediately; a fresh resume response does not replay that fade. The
 animation never delays resume or replays on background refreshes. Reduced motion skips
 the fade. This UI history path is separate from the model-context history loader
 described below.
+The shared message list shows its welcome logo/text only after history has been
+confirmed empty (or for a new local draft). Pending/failed resumes and histories
+whose rows are hidden by display filters do not count as empty conversations.
 
 Model selection and reasoning effort are stored only in `person_conversation_settings`, keyed by the owned session ID. Setting a model, changing effort or restoring the global model requires `session_id`; unscoped writes are rejected. Unconfigured conversations use the Studio global default, never another Person conversation's selection. Obsolete account model/effort/context-budget fields are discarded at initialization without migration; existing conversation settings and history remain intact.
 

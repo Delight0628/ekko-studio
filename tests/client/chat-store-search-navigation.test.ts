@@ -81,6 +81,37 @@ describe('search message navigation', () => {
     expect(api.fetchSessionMessagesPage).not.toHaveBeenCalled()
   })
 
+  it('confirms empty history only after a successful resume and preserves that fact across metadata refreshes', async () => {
+    const store = useChatStore()
+    store.sessions = [session()]
+    let resumed!: (data: any) => void
+    api.resumeSession.mockImplementation((_id, callback) => { resumed = callback })
+    const opening = store.switchSession('search-session')
+    expect(store.isLoadingMessages).toBe(true)
+    expect(store.activeSession?.messagesLoaded).toBe(false)
+    resumed({ session_id: 'search-session', messages: [], messageTotal: 0, isWorking: false, events: [] })
+    await opening
+    expect(store.isLoadingMessages).toBe(false)
+    expect(store.activeSession?.messagesLoaded).toBe(true)
+    store.ensureSessionLoaded({ id: 'search-session', title: 'Renamed', started_at: 1, message_count: 0 } as any)
+    expect(store.activeSession?.messagesLoaded).toBe(true)
+  })
+
+  it('does not treat a timed-out resume as an empty transcript', async () => {
+    vi.useFakeTimers()
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const store = useChatStore()
+      store.sessions = [session()]
+      api.resumeSession.mockImplementation(() => {})
+      const opening = store.switchSession('search-session')
+      await vi.advanceTimersByTimeAsync(15_001)
+      await expect(opening).resolves.toBe(false)
+      expect(store.isLoadingMessages).toBe(false)
+      expect(store.activeSession?.messagesLoaded).toBe(false)
+    } finally { log.mockRestore(); vi.useRealTimers() }
+  })
+
   it('keeps ordinary history loading capped at 300 messages', async () => {
     const store = useChatStore()
     store.sessions = [session()]

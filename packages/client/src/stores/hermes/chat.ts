@@ -480,6 +480,7 @@ export interface Session {
   agentPreset?: string
   botType?: string
   messages: Message[]
+  messagesLoaded?: boolean
   createdAt: number
   updatedAt: number
   model?: string
@@ -1540,6 +1541,8 @@ function createChatState(scopedSessionId?: string) {
   const pushEnabledConfirmedValues = new Map<string, boolean>()
 
   function beginMessageLoad(sessionId: string, requestSequence: number) {
+    const session = sessions.value.find(session => session.id === sessionId)
+    if (session) session.messagesLoaded = false
     const next = new Map(messageLoadRequests.value)
     next.set(sessionId, requestSequence)
     messageLoadRequests.value = next
@@ -2043,6 +2046,7 @@ function createChatState(scopedSessionId?: string) {
       if (!detail) return false
       const mapped = mapHermesMessages(detail.messages || [], detail.taskPlans, target.messages)
       target.messages = mapped
+      target.messagesLoaded = true
       restorePersistedSubagentStreams(sid)
       setWorkspaceRunChanges(sid, detail.workspaceRunChanges || [])
       target.loadedMessageCount = detail.messages.length
@@ -2224,6 +2228,7 @@ function createChatState(scopedSessionId?: string) {
           target.parentLastMessageRole = (data as any).parentLastMessageRole || target.parentLastMessageRole || null
           if (Array.isArray(data.messages)) {
             target.messages = mapHermesMessages(data.messages as any[], data.taskPlans, target.messages)
+            target.messagesLoaded = true
             restorePersistedSubagentStreams(sessionId)
             setWorkspaceRunChanges(sessionId, data.workspaceRunChanges || [])
             target.loadedMessageCount = data.messageLoadedCount ?? data.messages.length
@@ -3999,6 +4004,7 @@ function createChatState(scopedSessionId?: string) {
           const previousReasoningAssistantMessageId = reasoningAssistantMessageId
           const replayRunMarker = getReplayRunMarker(data.events) ?? activeRunMarker
           target.messages = mapHermesMessages(data.messages as any[], data.taskPlans, target.messages)
+          target.messagesLoaded = true
           restorePersistedSubagentStreams(sid)
           setWorkspaceRunChanges(sid, data.workspaceRunChanges || [])
           target.loadedMessageCount = data.messageLoadedCount ?? data.messages.length
@@ -5527,6 +5533,7 @@ function createChatState(scopedSessionId?: string) {
                 activeSession.value.isLocalOnly = false
               }
               activeSession.value.messages = mapHermesMessages(data.messages as any[], data.taskPlans, activeSession.value.messages)
+              activeSession.value.messagesLoaded = true
               restorePersistedSubagentStreams(sid)
               setWorkspaceRunChanges(sid, data.workspaceRunChanges || [])
               activeSession.value.loadedMessageCount = data.messageLoadedCount ?? data.messages.length

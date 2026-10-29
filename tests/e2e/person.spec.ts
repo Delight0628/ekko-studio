@@ -364,6 +364,42 @@ test('Person starts resume while its initial snapshot is still loading', async (
   await expect(page.locator('.person-compose .input-textarea')).toBeVisible()
 })
 
+test('Person shows its welcome only after history confirms an empty BOT', async ({ page }) => {
+  const { state, second, models } = await setupSessionModels(page)
+  const empty = { ...second, id: 'person-main-empty', title: 'Empty BOT' }
+  const unknown = { ...second, id: 'person-main-unknown', title: 'Unknown BOT' }
+  for (const session of [empty, unknown]) {
+    state.conversations.push(session)
+    models.set(session.id, structuredClone(models.get(second.id)!))
+  }
+  await page.addInitScript(id => { delete (window as any).__PW_CHAT_SOCKET_RESUMES__[id] }, second.id)
+  await page.goto('/#/person?session=person-main-1')
+  const welcome = page.locator('.person-chat-messages .empty-state')
+  await expect(welcome).toBeVisible()
+  const select = async (session: { id: string; title: string }) => {
+    await page.locator('.person-sidebar .session-item').filter({ hasText: session.title }).click()
+    await page.waitForFunction(id => (window as any).__PW_CHAT_SOCKET__.emitted.some((entry: any) => entry.event === 'resume' && entry.payload.session_id === id), session.id)
+    await expect(welcome).toHaveCount(0)
+  }
+  const resumed = async (id: string, messages?: any[]) => page.evaluate(({ id, messages }) => {
+    (window as any).__PW_CHAT_SOCKET__.latest.__trigger('resumed', {
+      session_id: id, isWorking: false, events: [], messageTotal: messages?.length ?? 0,
+      ...(messages ? { messages } : {}),
+    })
+  }, { id, messages })
+  await select(second)
+  await resumed(second.id, [{ id: 1, role: 'assistant', content: 'Existing BOT history', timestamp: 1 }])
+  await expect(page.getByText('Existing BOT history', { exact: true })).toBeVisible()
+  await expect(welcome).toHaveCount(0)
+  await select(empty)
+  await resumed(empty.id, [])
+  await expect(welcome).toBeVisible()
+  await select(unknown)
+  await resumed(unknown.id)
+  await expect(page.locator('.person-chat-messages')).toBeVisible()
+  await expect(welcome).toHaveCount(0)
+})
+
 test('Person fades cached BOT messages immediately without restarting on the fresh resume', async ({ page }) => {
   const { second } = await setupSessionModels(page)
   await page.addInitScript(id => {

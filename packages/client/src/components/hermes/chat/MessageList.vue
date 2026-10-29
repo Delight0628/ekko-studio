@@ -216,6 +216,12 @@ const emptyState = computed(() => {
       : t("chat.emptyStateAgent", { agent: agent.label }),
   };
 });
+const showEmptyConversation = computed(() => {
+  const session = chatStore.activeSession;
+  return !chatStore.isLoadingMessages && !isRunIndicatorActive.value
+    && !!session && (session.messagesLoaded === true || session.isLocalOnly === true)
+    && chatStore.messages.length === 0 && (session.messageTotal ?? session.messageCount ?? 0) === 0;
+});
 
 function assistantMessageBody(message: Message): string {
   return parseThinking(message.content || "", { streaming: !!message.isStreaming }).body.trim();
@@ -789,7 +795,7 @@ defineExpose({
       :inert="isSearchLoading || undefined"
       :aria-hidden="isSearchLoading || undefined"
       :messages="messageRows"
-      :show-empty="!isRunIndicatorActive"
+      :show-empty="showEmptyConversation"
       :virtualized="(chatStore.activeSession?.loadedMessageCount || 0) > LIVE_CHAT_MAX_LOADED_MESSAGES"
       :padding="virtualListPadding"
       @scroll="handleListScroll"
