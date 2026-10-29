@@ -25,6 +25,9 @@ The subscription uses its own Socket.IO Manager (`forceNew: true`). Other
 namespaces, including Person presence, connect first in the real app. Reusing
 their Manager retains the original Engine.IO query and silently drops
 `session_state`, so a successful connection alone does not prove subscription.
+The local and cloud App bridges apply the same isolation when opening a
+`/chat-run` state observer. Each state also includes its session's `profile`, so
+native App unread records and receipts retain the correct Profile association.
 
 Profile permissions filter ordinary chats; Person conversations are
 restricted to their owner; worker, group, workflow and Global Agent sessions are

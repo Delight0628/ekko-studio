@@ -557,6 +557,7 @@ export class LocalAppRelayServer {
 
     this.closeSocket(socket, { id })
     const localSocket = createClientSocket(`${this.localBaseUrl}${namespace}`, {
+      forceNew: namespace === '/chat-run' && String(request.query?.session_state) === '1',
       auth: {
         ...normalizeSocketAuth(request.auth),
         token: socket.data.localUserToken,

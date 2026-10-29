@@ -182,6 +182,8 @@ describe('account session state over Socket.IO', () => {
     assistant('person-main-two')
     const a = await device(), b = await device(2)
     expect(a.snapshot.map(s => s.sessionId)).toEqual(['chat', 'research', 'person-main-one'])
+    expect(a.snapshot.find(s => s.sessionId === 'research')?.profile).toBe('research')
+    expect(a.snapshot.find(s => s.sessionId === 'chat')?.profile).toBe('default')
     expect(b.snapshot.map(s => s.sessionId)).toEqual(['chat', 'person-main-two'])
     expect(await read(b.socket, 'person-main-one', one)).toEqual({ ok: false })
     expect(await read(b.socket, 'research', 0)).toEqual({ ok: false })

@@ -653,6 +653,7 @@ export class AppRelayClient {
 
     this.closeLocalSocket({ id })
     const localSocket = io(`${this.localBaseUrl}${namespace}`, {
+      forceNew: namespace === '/chat-run' && String(request.query?.session_state) === '1',
       auth: normalizeSocketAuth(request.auth),
       query: normalizeSocketQuery(request.query),
       transports: ['websocket', 'polling'],

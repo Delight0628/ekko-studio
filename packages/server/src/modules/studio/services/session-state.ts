@@ -26,7 +26,7 @@ export class SessionStateSync {
       const runtime = this.runtime(session.id)
       const backgroundPending = this.pending.get(session.id) ?? runtime.backgroundPending
       const working = (this.foreground.get(session.id) ?? runtime.working) || backgroundPending > 0 || (runtime.collaborationPending || 0) > 0
-      return { sessionId: session.id, working,
+      return { sessionId: session.id, profile: session.profile || 'default', working,
         backgroundPending, lastMessageId: session.lastMessageId, readMessageId: session.readMessageId,
         lastAttentionId: session.lastAttentionId, readAttentionId: session.readAttentionId,
         unread: !working && (session.lastMessageId > session.readMessageId || session.lastAttentionId > session.readAttentionId) }

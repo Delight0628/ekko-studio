@@ -113,6 +113,7 @@ describe('SessionListItem', () => {
     const link = wrapper.get('a.session-item')
     expect(link.attributes('href')).toBe('/session/s1')
     expect(wrapper.find('button.session-item').exists()).toBe(false)
+    expect(wrapper.get('.session-item-delete').attributes('aria-label')).toBe('common.delete Session One')
   })
 
   it('renders selectable mode as a button and does not expose row href', () => {

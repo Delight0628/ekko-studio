@@ -1,6 +1,7 @@
 /** Account-specific read cursor and live execution state, independent of open tabs. */
 export interface SessionListState {
   sessionId: string
+  profile?: string
   working: boolean
   backgroundPending: number
   lastMessageId: number

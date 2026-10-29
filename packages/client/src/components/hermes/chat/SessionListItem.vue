@@ -191,7 +191,7 @@ onUnmounted(() => {
     </svg>
     <NPopconfirm v-if="canDelete && !selectable" :disabled="deleteDisabled" :positive-button-props="{ disabled: deleteDisabled }" @positive-click="emit('delete')">
       <template #trigger>
-        <button class="session-item-delete" type="button" :disabled="deleteDisabled" :aria-label="t('common.delete')" @click.stop.prevent>
+        <button class="session-item-delete" type="button" :disabled="deleteDisabled" :aria-label="`${t('common.delete')} ${session.title}`" @click.stop.prevent>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </template>
