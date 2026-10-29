@@ -1828,39 +1828,118 @@ for (const width of [1440, 390]) {
 }
 
 for (const width of [1440, 390]) {
-  test(`Person chats without a background Agent preset at ${width}px`, async ({ page }) => {
+  test(`Person checks execution agents on send and preserves the draft at ${width}px`, async ({ page }) => {
     const { state } = await setup(page, 'light', false, false)
     state.settings.agents = []
+    await page.route('**/api/studio/uploads', route => route.fulfill({ json: { files: [{ name: 'notes.txt', path: '/tmp/person/notes.txt' }] } }))
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/#/person')
     await expect(page.locator('.person-title')).toBeVisible()
-    await expect(page.getByRole('dialog', { name: 'Set up your first Agent' })).not.toBeVisible()
+    const dialog = page.getByRole('dialog', { name: 'Add an execution agent' })
+    await expect(dialog).not.toBeVisible()
+    await expect(page.getByRole('button', { name: 'Go to settings', exact: true })).toHaveCount(0)
     await page.locator('.input-textarea').fill('Continue the idiom game')
+    await page.locator('.file-input-hidden').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Keep this attachment') })
     await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled()
     await page.getByRole('button', { name: 'Send', exact: true }).click()
-    await expect.poll(() => emitted(page, 'run')).toHaveLength(1)
-    await page.reload()
-    await expect(page.locator('.person-title')).toBeVisible()
-    await page.getByRole('button', { name: 'Go to settings', exact: true }).click()
-    const drawer = page.locator('.person-workspace-drawer')
-    await expect(drawer.getByText('No Agents yet', { exact: true })).toBeVisible()
+    await expect(dialog).toContainText('at least one execution agent')
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+    await page.locator('.input-textarea').press('Enter')
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: 'close', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+    await page.locator('.input-textarea').press('Enter')
+    await expect(dialog).toBeVisible()
     await page.keyboard.press('Escape')
-    await page.locator('.input-textarea').fill('Another turn')
-    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled()
+    await expect(dialog).not.toBeVisible()
+    expect(await emitted(page, 'run')).toHaveLength(0)
+    await expect(page.locator('.input-textarea')).toHaveValue('Continue the idiom game')
+    await expect(page.locator('.attachment-preview')).toContainText('notes.txt')
+    await page.getByRole('button', { name: 'Send', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Go to settings', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+    const drawer = page.locator('.person-workspace-drawer')
+    await expect(drawer.getByRole('tab', { name: /^Agents/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(drawer.getByText('No Agents yet', { exact: true })).toBeVisible()
+    await addExecutionAgent(page)
+    await expect.poll(() => state.settings.agents.length).toBe(1)
+    await page.keyboard.press('Escape')
+    await expect(drawer).not.toBeVisible()
+    await expect(page.locator('.input-textarea')).toHaveValue('Continue the idiom game')
+    await expect(page.locator('.attachment-preview')).toContainText('notes.txt')
+    await page.getByRole('button', { name: 'Send', exact: true }).click()
+    await expect.poll(() => emitted(page, 'run')).toHaveLength(1)
+    await expect(page.locator('.input-textarea')).toHaveValue('')
+    await expect(page.locator('.attachment-preview')).toHaveCount(0)
+    await expect(dialog).not.toBeVisible()
+  })
+}
+
+async function addExecutionAgent(page: Page, conflict = false) {
+  const settings = page.locator('.person-agent-settings')
+  await settings.getByRole('button', { name: 'Add agent', exact: true }).click()
+  await settings.getByRole('button', { name: 'Ekko', exact: true }).click()
+  await settings.getByRole('textbox', { name: 'Agent name', exact: true }).fill('Task executor')
+  await settings.getByRole('textbox', { name: 'Purpose', exact: true }).fill('Handle assistant tasks')
+  await settings.locator('.scoped-model-selector button').click()
+  await page.getByRole('menuitemradio').filter({ hasText: 'global-model' }).click()
+  await settings.getByRole('button', { name: 'Save', exact: true }).click()
+  if (conflict) {
+    await expect(settings.locator('.n-alert')).toContainText('Settings changed')
+    await expect(settings.getByRole('textbox', { name: 'Agent name', exact: true })).toHaveValue('Task executor')
+    await settings.getByRole('button', { name: 'Save', exact: true }).click()
+  }
+  await expect(settings.locator('.agent-card')).toContainText('Task executor')
+}
+
+for (const existing of [false, true]) {
+  test(`Person configures an execution agent before creating a BOT (${existing ? 'existing conversations' : 'first conversation'})`, async ({ page }) => {
+    const { state, operations } = await setup(page, 'light', false, false)
+    state.settings.agents = []
+    if (!existing) state.conversations = []
+    await page.goto('/#/person')
+    if (existing) await page.getByRole('button', { name: 'New BOT role', exact: true }).click()
+    const draft = page.locator('.new-chat-page')
+    await draft.getByRole('textbox', { name: 'BOT name' }).fill('New assistant')
+    await draft.locator('.input-textarea').fill('My first message')
+    await draft.getByRole('button', { name: 'Send', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Add an execution agent' })
+    await expect(dialog).toBeVisible()
+    expect(operations.filter(op => op.path.endsWith('/conversations') && op.body)).toHaveLength(0)
+    expect(await emitted(page, 'run')).toHaveLength(0)
+    await dialog.getByRole('button', { name: 'Go to settings', exact: true }).click()
+    await expect(page.getByRole('tab', { name: /^Agents/ })).toHaveAttribute('aria-selected', 'true')
+    // Another window changed shared settings; retry must retain the Agent draft.
+    state.revision++
+    await addExecutionAgent(page, true)
+    expect(operations.filter(op => op.path.endsWith('/settings')).at(-1).body.session_id).toBeUndefined()
+    await page.keyboard.press('Escape')
+    await expect(draft.getByRole('textbox', { name: 'BOT name' })).toHaveValue('New assistant')
+    await expect(draft.locator('.input-textarea')).toHaveValue('My first message')
+    await draft.getByRole('button', { name: 'Send', exact: true }).click()
+    await expect(page.locator('.person-title')).toHaveText('New assistant')
+    await expect.poll(() => emitted(page, 'run')).toHaveLength(1)
+    expect(operations.filter(op => op.path.endsWith('/conversations') && op.body)).toHaveLength(1)
   })
 }
 
 for (const { width, mode } of [{ width: 1440, mode: 'light' }, { width: 390, mode: 'dark' }] as const) {
-  test(`previews optional Agent settings in Chinese in ${mode} at ${width}px`, async ({ page }) => {
+  test(`previews execution Agent prompt in Chinese in ${mode} at ${width}px`, async ({ page }) => {
     const { state } = await setup(page, mode, false, false)
     state.settings.agents = []
     await page.addInitScript(() => localStorage.setItem('hermes_locale', 'zh'))
     await page.setViewportSize({ width, height: 900 })
     await page.goto('/#/person')
     await expect(page.locator('.person-title')).toBeVisible()
-    await expect(page.getByRole('dialog', { name: '先配置你的第一个 Agent' })).not.toBeVisible()
+    const dialog = page.getByRole('dialog', { name: '请先添加执行智能体' })
+    await expect(dialog).not.toBeVisible()
+    await page.locator('.input-textarea').fill('帮我整理今天的任务')
+    await page.getByRole('button', { name: 'Send', exact: true }).click()
+    await expect(dialog).toContainText('个人助理至少需要一个执行智能体来处理任务')
     await page.screenshot({ path: `/tmp/person-agent-setup-zh-${mode}-${width}.png`, animations: 'disabled' })
-    await page.getByRole('button', { name: '去设置', exact: true }).click()
+    await dialog.getByRole('button', { name: '去设置', exact: true }).click()
+    await expect(page.getByRole('tab', { name: /^智能体/ })).toHaveAttribute('aria-selected', 'true')
     await expect(page.locator('.person-workspace-drawer .panel-empty')).toBeVisible()
     await page.screenshot({ path: `/tmp/person-agent-setup-drawer-zh-${mode}-${width}.png`, animations: 'disabled' })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -1868,11 +1947,20 @@ for (const { width, mode } of [{ width: 1440, mode: 'light' }, { width: 390, mod
 }
 
 for (const mode of ['light', 'dark'] as const) {
-  test(`Person optional Agent cards follow wallpaper and regional themes in ${mode}`, async ({ page }) => {
+  test(`Person Agent prompt and cards follow wallpaper and regional themes in ${mode}`, async ({ page }) => {
     const { state } = await setup(page, mode)
     state.settings.agents = []
     await page.goto('/#/person')
-    await page.getByRole('button', { name: 'Go to settings', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Add an execution agent' })
+    async function openPrompt() {
+      await page.locator('.input-textarea').fill('Check execution agents')
+      await page.getByRole('button', { name: 'Send', exact: true }).click()
+      await expect(dialog).toBeVisible()
+      await expect(dialog).toHaveCSS('opacity', '1')
+    }
+    await openPrompt()
+    await expect(dialog).toHaveCSS('background-color', /rgba\(.+, 0\.5\)/)
+    await dialog.getByRole('button', { name: 'Go to settings', exact: true }).click()
     const empty = page.locator('.person-agent-settings .panel-empty')
     await expect(empty).toHaveCSS('background-color', /rgba\(.+, 0\.65\)/)
     await expect(empty).toHaveCSS('backdrop-filter', 'blur(12px) saturate(1.1)')
@@ -1883,7 +1971,10 @@ for (const mode of ['light', 'dark'] as const) {
       } }) })
     })
     await page.reload()
-    await page.getByRole('button', { name: 'Go to settings', exact: true }).click()
+    await openPrompt()
+    await expect(dialog).toHaveCSS('background-color', 'rgba(51, 102, 153, 0)')
+    await expect(dialog).toHaveCSS('border-radius', '18px')
+    await dialog.getByRole('button', { name: 'Go to settings', exact: true }).click()
     await expect(empty).toHaveCSS('background-color', 'rgba(51, 102, 153, 0)')
     await expect(empty).toHaveCSS('opacity', '1')
     await expect(empty).toHaveCSS('border-radius', '18px')
@@ -1891,7 +1982,9 @@ for (const mode of ['light', 'dark'] as const) {
       await fetch('/api/theme', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ background: null, appearance: { global: {}, regions: {} } }) })
     })
     await page.reload()
-    await page.getByRole('button', { name: 'Go to settings', exact: true }).click()
+    await openPrompt()
+    await expect(dialog).toHaveCSS('background-color', mode === 'light' ? 'rgb(255, 255, 255)' : 'rgb(42, 42, 42)')
+    await dialog.getByRole('button', { name: 'Go to settings', exact: true }).click()
     await expect(empty).toHaveCSS('background-color', mode === 'light' ? 'rgb(255, 255, 255)' : 'rgb(42, 42, 42)')
   })
 }
