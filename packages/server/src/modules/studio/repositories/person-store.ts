@@ -116,7 +116,8 @@ export function enqueuePersonExecution(task: PersonTask, occurrence: string | nu
   personDb().prepare(`INSERT INTO person_executions(id,task_id,owner_user_id,requirements_revision,state,session_id,selection_json,created_at,updated_at,occurrence_id,input_json)
     VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(id, task.id, task.owner_user_id, task.requirements_revision, active ? 'pending' : 'queued', `person-task-${task.id}`, task.selection_json, now, now, occurrence, input ? JSON.stringify(input) : '')
   personDb().prepare(`INSERT INTO person_deliveries(execution_id,owner_user_id,origin_json,updated_at)
-    SELECT ?,owner_user_id,origin_json,? FROM person_task_origins WHERE task_id=?`).run(id, now, task.id)
+    SELECT ?,owner_user_id,${occurrence ? "json_remove(origin_json,'$.memoryRequest')" : 'origin_json'},? FROM person_task_origins WHERE task_id=?`).run(id, now, task.id)
+  personDb().prepare("UPDATE person_task_origins SET origin_json=json_remove(origin_json,'$.memoryRequest') WHERE task_id=?").run(task.id)
   return getPersonExecution(task.owner_user_id, id)
 }
 /** Pending turns are durable but never compete with the active runtime lease. */

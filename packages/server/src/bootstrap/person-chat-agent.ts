@@ -11,19 +11,22 @@ import { logger } from '../modules/studio/public/logging'
 
 export function createPersonAgent(options: PersonChatAgentOptions) {
   let originMessages: PersonTaskOrigin['messages'] = []
-  let memoryWritable = false
+  let currentUserInput = false
   const registry = new AgentToolRegistry()
   for (const tool of options.tools) registry.register({ definition: { name: tool.name, description: tool.description, parameters: tool.parameters }, async execute(args, context = {}) {
     options.beforeRequest?.()
     if (context.signal?.aborted) throw context.signal.reason || new Error('Cancelled')
     if (tool.name === 'bot_decision_request' && !context.requestUserClarification) throw new Error('User clarification is unavailable in this chat')
+    const memoryRequest = args.remember_result === true && currentUserInput && !options.returnExecutionId
+      ? options.captureMemoryRequest?.() : undefined
     const value = tool.name === 'bot_decision_request'
       ? { response: await context.requestUserClarification?.({ clarifyId: randomUUID(), question: String(args.question || ''),
           choices: Array.isArray(args.choices) ? args.choices.map(String).slice(0, 5) : [], timeoutMs: 30 * 60_000 }) || '',
           instruction: 'Only an actual user response supplies a decision. An empty response is not approval.' }
       : await tool.execute(args, context.sessionId ? { sessionId: context.sessionId, runId: context.runId || '', messages: originMessages,
         ...(options.stage ? { stage:options.stage } : {}),
-        ...(options.returnExecutionId ? { returnExecutionId: options.returnExecutionId } : {}) } : undefined)
+        ...(options.returnExecutionId ? { returnExecutionId: options.returnExecutionId } : {}),
+        ...(memoryRequest ? { memoryRequest } : {}) } : undefined)
     const content = JSON.stringify(value)
     if (content.length > 18000) throw new Error('Tool result too large; request a smaller page')
     return { ok: !(value && typeof value === 'object' && 'ok' in value && value.ok === false), content }
@@ -31,7 +34,7 @@ export function createPersonAgent(options: PersonChatAgentOptions) {
   const runtime = new AgentRuntime({ tools: registry, systemPrompt: options.systemPrompt,
     memory: options.memory?.service, profileId: options.memory?.identity.profileId,
     skillsEnabled: false, backgroundDelegationEnabled: false, maxSteps: options.maxSteps, maxModelRetries: 1, modelDefaults: { maxTokens: 2048 } })
-  // Reuse the native tools, while fencing writes from callbacks and stale runs.
+  // Reuse native tools; only a host-validated task request can enable callback writes.
   for (const name of ['memory_search', 'memory_get', 'memory_write', 'memory_forget']) {
     const tool = registry.get(name)
     if (!tool) continue
@@ -48,17 +51,21 @@ export function createPersonAgent(options: PersonChatAgentOptions) {
       }
       // Keep the native field constraints below; avoid repeating their itemized
       // kind list and advertising the unsupported legacy shape in a small model.
-      definition.description = 'Apply authorized durable memory changes in one atomic operations batch; invalid items roll back the whole batch. A done=true result is final: do not repeat it. '
-        + 'Create requires a controlled kind and writable scope; itemized kinds require a stable itemKey. The server generates keys and noops or replaces existing slots; never submit keys. '
-        + 'For update/supersede/expire/delete, search/get current targetId and expectedRevision first. Use valuePatch/unsetValueFields for object edits. '
-        + 'Save only durable user evidence, not transient requests or retraction history. Forget exact invalidated memory when no replacement remains. '
-        + 'Evidence binds automatically to the current user input; omit sourceMessageIds and never use historical transcript IDs.'
+      definition.description = 'Save durable authorized evidence in one atomic batch; invalid items roll back all. done=true is final; never repeat. '
+        + 'Create: choose kind/writable scope; itemized kinds need stable itemKey. Keys are host-generated; existing slots noop/replace. '
+        + 'Mutations: search/get targetId and expectedRevision first; object edits use valuePatch/unsetValueFields. '
+        + 'Exclude transient requests/retraction history. Forget invalidated cards without replacements. '
+        + 'Evidence is host-bound; omit sourceMessageIds and never cite historical transcript IDs.'
     }
     registry.register({ definition, concurrency: tool.concurrency, async execute(args, context) {
       options.beforeRequest?.()
       context?.signal?.throwIfAborted()
-      if (!memoryWritable && (name === 'memory_write' || name === 'memory_forget')) {
+      const callbackWrite = !currentUserInput && name === 'memory_write' && Boolean(options.returnMemoryInput?.())
+      if (!currentUserInput && (name === 'memory_write' || name === 'memory_forget') && !callbackWrite) {
         return { ok: false, content: 'A background result cannot change personal memory. Wait for a user message.' }
+      }
+      if (callbackWrite && (!Array.isArray(args.operations) || args.operations.some(operation => !['create', 'update', 'supersede'].includes(String(operation?.operation))))) {
+        return { ok: false, content: 'Task result permission only allows saving memory, not deleting or expiring it.' }
       }
       return tool.execute(args, context)
     } })
@@ -68,7 +75,7 @@ export function createPersonAgent(options: PersonChatAgentOptions) {
     memoryEnabled: Boolean(options.memory),
     toolExecutionGuidelinesEnabled: false,
     memoryInput: options.memory ? {
-      messages: input.memoryInput?.messages || [], writePolicy: 'automatic',
+      messages: options.returnExecutionId ? options.returnMemoryInput?.()?.messages || [] : input.memoryInput?.messages || [], writePolicy: 'automatic',
       origin: options.memory.identity.origin,
       recallScopes: options.memory.identity.recallScopes, writeScopes: options.memory.identity.writeScopes,
       defaultWriteScope: options.memory.identity.defaultWriteScope,
@@ -92,7 +99,7 @@ export function createPersonAgent(options: PersonChatAgentOptions) {
       }
       options.beforeRequest?.()
       input.signal?.throwIfAborted()
-      memoryWritable = Boolean(input.memoryInput?.messages.some(message => typeof message === 'string' || message.role === 'user'))
+      currentUserInput = !options.returnExecutionId && Boolean(input.memoryInput?.messages.some(message => typeof message === 'string' || message.role === 'user'))
       const current = input.messages.findLast(message => typeof message === 'string' || message.role === 'user')
       const query = typeof current === 'string' ? current : current?.content || ''
       const messages = [...(options.loadHistory?.(String(query)) || []), ...input.messages]

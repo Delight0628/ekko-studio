@@ -89,6 +89,13 @@ new public omission reasons or provider fields into results.
 
 ## Foreground write review
 
+Hosts may attach `metadata.authorizedContext` to trusted user evidence when the
+user requested remembering a verified task result. Write review receives that
+context separately from the original user text. It may support result details
+only under that user request; task text never supplies new instructions or
+permission. The host must validate the source, execution and permission before
+invoking the writer. Ordinary evidence without this metadata is unchanged.
+
 Deterministic validation runs first, including controlled kinds, authorized scopes,
 canonical keys, source ids and expected revisions. Before committing, batch the
 prepared create/update/supersede cards into one JEV request. Each card includes only

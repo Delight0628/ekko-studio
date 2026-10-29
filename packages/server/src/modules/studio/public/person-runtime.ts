@@ -28,6 +28,8 @@ export interface PersonChatAgentOptions extends Pick<PersonModelCall, 'selection
   workspace: string
   memory?: { service: MemoryService; identity: MemoryRuntimeIdentity }
   loadHistory?: (query: string) => AgentMessage[]
+  captureMemoryRequest?: () => PersonTaskOrigin['memoryRequest']
+  returnMemoryInput?: () => AgentRuntimeRunInput['memoryInput']
 }
 export interface PersonResultDelivery {
   user: AuthenticatedUser

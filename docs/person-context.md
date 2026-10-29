@@ -177,9 +177,22 @@ native memory evidence IDs. Explicit unsupported IDs still fail native validatio
 the adapter never rewrites a rejected citation into an accepted one.
 Optional Person memory JEV enhancements use their independently configured global Person switches and default to disabled; model Profile changes do not select another memory store.
 
-Only the current host-provided user evidence is captured for memory writes.
-Retrieved history and background callbacks cannot become fresh user evidence;
-callback memory writes are rejected. Native revision checks, canonical keys,
+Only host-provided user evidence is captured for memory writes. When the current
+user asks to remember a worker result, the main assistant sets `remember_result`
+on `bot_task_create` or `bot_task_control` (`adopt`, `start`, `continue`). The host
+binds the current persisted user message and history revision to exactly one
+execution's delivery. On a successful, current return, the main assistant can save
+the requested result without another confirmation. The original user text remains
+the source; verified task output is separate host-stamped `authorizedContext` for
+optional write review, rather than fabricated user-authored text.
+
+The request is checked again before each memory write. Changed/deleted source
+messages, changed history, cancelled/delivered callbacks, failed or superseded
+executions and closed tasks cannot use it. It is consumed at enqueue, never
+inherited by subsequent executions, schedules, or new tasks created from a callback.
+It permits saving only, not forgetting/deleting/expiring memory. No grant is
+inferred from retrieved history, queue payloads or worker instructions. Legacy
+deliveries without this request remain read-only. Native revision checks, canonical keys,
 account ownership and explicit forget intent apply. The memory panel lists
 active cards and can delete an exact card at its current revision. New memories
 and corrections are made in the Person conversation so the structured value,

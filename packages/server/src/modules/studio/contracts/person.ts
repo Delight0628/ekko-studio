@@ -23,6 +23,14 @@ export interface PersonTaskOrigin {
   messages: AgentMessage[]
   returnExecutionId?: string
   stage?: import('./person-stage').PersonStageContext
+  /** Host-bound user request; copied into exactly one execution's delivery. */
+  memoryRequest?: PersonTaskMemoryRequest
+}
+export interface PersonTaskMemoryRequest {
+  sessionId: string
+  messageId: number
+  historyRevision: number
+  content: string
 }
 export interface PersonSettings {
   workspace: string

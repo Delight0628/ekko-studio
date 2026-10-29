@@ -16,7 +16,7 @@ type Snapshot = Pick<PersonTask, 'id' | 'session_id' | 'session_title' | 'title'
 type Reference = { task: Snapshot; assignable: boolean; expiresAt: number }
 const text = (maxLength: number): Field => ({ type: 'string', minLength: 1, maxLength })
 const actionFields: Record<Action, string[]> = {
-  adopt: ['goal', 'agent_id', 'start', 'session_id'], update: ['goal'], continue: ['message'], start: [], stop: [], close: [], reopen: [], advance: ['message'],
+  adopt: ['goal', 'agent_id', 'start', 'session_id', 'remember_result'], update: ['goal'], continue: ['message', 'remember_result'], start: ['remember_result'], stop: [], close: [], reopen: [], advance: ['message'],
 }
 const actionRequired: Partial<Record<Action, string[]>> = { adopt: ['goal'], update: ['goal'], continue: ['message'], advance: ['message'] }
 const queryAgain = 'Call bot_tasks_query again and reconsider the action using its current task_ref and allowed_actions.'
@@ -87,6 +87,10 @@ export function personTaskTools(userId: number, currentSessionId: string): Perso
   }
   const execute = async (input: Record<string, unknown>, origin?: PersonTaskOrigin) => {
     origin ||= { sessionId: currentSessionId, runId: '', messages: [] }
+    if (input.remember_result === true && (!origin.memoryRequest || origin.returnExecutionId || origin.memoryRequest.sessionId !== currentSessionId)) {
+      throw personError('remember_result requires the current user request; background results cannot grant memory writes', 403)
+    }
+    origin = { ...origin, memoryRequest: input.remember_result === true ? origin.memoryRequest : undefined }
     if (origin.stage) {
       assertPersonStage(userId,origin.stage,currentSessionId)
       if (input.action !== 'create') {
@@ -149,9 +153,11 @@ export function personTaskTools(userId: number, currentSessionId: string): Perso
   })
   const create = define('bot_task_create', 'Background execution for THIS role only, never message forwarding. agent_id from bot_agents_list. Starts unless start=false. Other roles: bot_flow_create.', {
     session_id: { ...text(100), description: 'Omit; only the current conversation is allowed.' }, title: text(200), goal: text(8000), agent_id: text(100), start: { type: 'boolean' },
+    remember_result: { type: 'boolean', description: 'Remember at current user request.' },
   }, ['title', 'goal'], (args, origin) => execute({ action: 'create', session_id: currentSessionId, ...args }, origin))
   const control = define('bot_task_control', 'Use fresh task_ref/allowed_actions. advance follows legacy route; continue preserves Agent/owner. Only creator reopens stopped legacy flows.', {
     task_ref: text(100), action: { ...text(30), enum: Object.keys(actionFields) }, session_id: { ...text(100), description: 'Adopt only, current conversation only.' }, goal: { ...text(8000), description: 'Adopt/update only.' }, message: { ...text(32000), description: 'continue: follow-up; advance: outcome and artifacts (max 4000).' }, agent_id: text(100), start: { type: 'boolean' },
+    remember_result: { type: 'boolean', description: 'adopt/start/continue only.' },
   }, ['task_ref', 'action'], async (args, origin) => {
     const action = args.action as Action
     if (Object.keys(args).some(key => !['task_ref', 'action', ...actionFields[action]].includes(key))) throw personError(`Unsupported fields for ${action}`)
