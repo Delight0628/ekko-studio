@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { authenticate, mockChatSocket, mockHermesApi, TEST_ACCESS_KEY } from './fixtures'
+import { authenticate, mockChatSocket, mockExistingHermesChat, mockHermesApi, TEST_ACCESS_KEY } from './fixtures'
 import { selectNewChatAgent, selectNewChatLaunchMode, sendNewChatMessage } from './new-chat-helpers'
 
 const catalog = { agentId: 'codex', name: 'Codex', status: 'ready', source: 'app-server', scope: 'available',
@@ -406,7 +406,7 @@ test('slow first discovery shows one loading indicator and does not block native
 
 test('global native choices survive reopening and remain separate from scoped choices', async ({ page }) => {
   await authenticate(page, TEST_ACCESS_KEY, 'research')
-  await mockHermesApi(page)
+  await mockExistingHermesChat(page)
   await mockChatSocket(page)
   await page.route('**/api/coding-agents/models?*', route => route.fulfill({ json: { agents: [catalog] } }))
   await openGlobalDraft(page)
