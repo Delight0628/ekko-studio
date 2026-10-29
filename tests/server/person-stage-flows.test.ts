@@ -545,3 +545,19 @@ describe('scheduled role turns', () => {
     expect(() => applyPersonSchedule(1, { action: 'create', mode: 'unknown', idempotency_key: 'bad-mode' })).toThrow('scheduling mode')
   })
 })
+
+it('keeps an assistant occurrence and its result when its schedule is deleted', async () => {
+  const { applyPersonSchedule, tickPersonSchedules } = await import('../../packages/server/src/modules/studio/services/person/schedules')
+  const saved = applyPersonSchedule(1, { action: 'create', mode: 'assistant', session_id: 'person-main-b', title: 'Reminder', goal: 'Reply directly', kind: 'cron', expression: '* * * * *', timezone: 'UTC', idempotency_key: 'assistant-delete-create' })
+  tickPersonSchedules(saved.next_at)
+  const row = db.prepare('SELECT flow_id FROM person_occurrences WHERE schedule_id=?').get(saved.id)!
+  const current = stages.getPersonFlow(1, String(row.flow_id))
+  applyPersonSchedule(1, { action: 'delete', schedule_id: saved.id, expected_revision: 0, idempotency_key: 'assistant-delete' })
+  expect(store.listPersonSchedules(1)).toHaveLength(0)
+  await flows.deliverPersonStages()
+  expect(runtime.deliverStage).toHaveBeenCalledOnce()
+  expect((await complete(current, 'Reminder delivered')).state).toBe('completed')
+  expect(sessions.getSessionDetail('person-main-b')?.messages.some(message => message.content === 'Reminder delivered')).toBe(true)
+  tickPersonSchedules(saved.next_at + 86400_000)
+  expect(stages.listPersonFlows(1)).toHaveLength(1)
+})

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NButton, NDatePicker, NInput, NSelect, NTag, NTimePicker } from 'naive-ui'
+import { NButton, NDatePicker, NInput, NPopconfirm, NSelect, NTag, NTimePicker } from 'naive-ui'
 import type { PersonSchedule, PersonTask } from '@/api/person'
 import PersonPanelIcon from './PersonPanelIcon.vue'
 
@@ -10,6 +10,11 @@ const emit = defineEmits<{ action: [schedule: PersonSchedule, action: string] }>
 const { t, locale } = useI18n()
 const editorOpen = ref(false)
 const editing = ref<PersonSchedule | null>(null)
+watch(() => props.schedules, schedules => {
+  if (editing.value && !schedules.some(schedule => schedule.id === editing.value?.id)) {
+    editing.value = null; editorOpen.value = false
+  }
+})
 const taskId = ref<string | null>(null)
 const mode = ref<'assistant' | 'worker'>('assistant')
 const title = ref('')
@@ -92,6 +97,10 @@ function nextDate(schedule: PersonSchedule) {
           <NButton v-if="schedule.state === 'active'" quaternary size="small" :disabled="saving" @click="emit('action', schedule, 'pause')">{{ t('person.pause') }}</NButton>
           <NButton v-if="schedule.state === 'paused'" quaternary size="small" :disabled="saving" @click="emit('action', schedule, 'resume')">{{ t('person.resume') }}</NButton>
           <NButton v-if="schedule.state !== 'cancelled'" quaternary size="small" :disabled="saving" @click="emit('action', schedule, 'cancel')">{{ t('person.cancelSchedule') }}</NButton>
+          <NPopconfirm :disabled="saving" :positive-text="t('common.delete')" :negative-text="t('common.cancel')" @positive-click="emit('action', schedule, 'delete')">
+            <template #trigger><NButton quaternary size="small" type="error" :disabled="saving">{{ t('common.delete') }}</NButton></template>
+            {{ t('person.deleteScheduleConfirm') }}
+          </NPopconfirm>
         </div></footer>
       </article>
     </div>

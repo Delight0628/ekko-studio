@@ -128,7 +128,10 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true, custo
       else {
         const schedule = state.schedules.find((item: any) => item.id === body.schedule_id)
         if (!schedule || body.expected_revision !== schedule.revision) return route.fulfill({ status: 409, json: { error: 'Schedule changed' } })
-        if (body.action === 'update') Object.assign(schedule, body)
+        if (body.action === 'delete') {
+          if (state.failScheduleDelete) return route.fulfill({ status: 500, json: { error: 'Schedule deletion failed' } })
+          state.schedules = state.schedules.filter((item: any) => item.id !== schedule.id)
+        } else if (body.action === 'update') Object.assign(schedule, body)
         else schedule.state = { pause: 'paused', resume: 'active', cancel: 'cancelled' }[body.action as string]
         schedule.revision++
       }
@@ -2409,4 +2412,74 @@ test('switches execution conversations and keeps a historical follow-up on the s
   await drawer.getByRole('button', { name: 'Send', exact: true }).click()
   await expect.poll(() => operations.filter(op => op.path.endsWith('/chat') && op.body?.input).at(-1)?.body).toMatchObject({ execution_id: 'first', expected_execution_id: 'second' })
   await expect(drawer.getByText('first occurrence result', { exact: true })).toBeVisible()
+})
+
+for (const [mode, width, status, executionMode] of [
+  ['light', 1440, 'active', 'worker'], ['dark', 390, 'paused', 'assistant'],
+  ['light', 390, 'cancelled', 'worker'], ['dark', 1440, 'exhausted', 'assistant'],
+] as const) {
+  test(`deletes a ${status} ${executionMode} schedule in ${mode} at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    const { state, operations } = await setup(page, mode, width === 390)
+    const schedule = { id: 'delete-target', session_id: 'person-main-1', mode: executionMode, task_id: executionMode === 'worker' ? 'task1' : null,
+      title: 'Schedule to remove', goal: 'Saved goal', kind: 'cron', expression: '0 9 * * *', timezone: 'UTC', next_at: Date.now() + 86400000, state: status, revision: 3 }
+    state.schedules = [schedule, { ...schedule, id: 'keep-plan', title: 'Keep this plan', state: 'active' }]
+    await page.goto('/#/person')
+    await page.locator('.person-header-actions').getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByRole('tab', { name: /Schedules/ }).click()
+    const drawer = page.locator('.person-workspace-drawer')
+    const card = drawer.locator('.schedule-tile').filter({ has: page.getByRole('heading', { name: 'Schedule to remove', exact: true }) })
+    await card.getByRole('button', { name: 'Delete', exact: true }).click()
+    const confirm = page.locator('.n-popconfirm')
+    await expect(confirm).toContainText('Existing tasks, execution history and running work are kept.')
+    await confirm.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(card).toBeVisible()
+    expect(operations.filter(op => op.body?.action === 'delete')).toHaveLength(0)
+    if (status !== 'cancelled') {
+      await card.getByRole('button', { name: 'Edit', exact: true }).click()
+      await expect(drawer.locator('.panel-editor')).toBeVisible()
+    }
+    await card.getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(confirm).toBeVisible()
+    await page.evaluate(async () => {
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      await Promise.all(document.getAnimations().filter(animation => animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {})))
+    })
+    await page.screenshot({ path: `/tmp/person-schedule-delete-${status}-${width}.png`, animations: 'disabled' })
+    await confirm.getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(card).toHaveCount(0)
+    await expect(drawer.locator('.schedule-tile')).toHaveCount(1)
+    await expect(drawer.getByRole('heading', { name: 'Keep this plan', exact: true })).toBeVisible()
+    await expect(drawer.locator('.panel-editor')).toHaveCount(0)
+    expect(operations.filter(op => op.body?.action === 'delete').at(-1).body).toMatchObject({ schedule_id: 'delete-target', expected_revision: 3 })
+    expect(state.tasks[0].running).toBe(true)
+    expect(operations.some(op => op.path.endsWith('/tasks/apply') || op.path.endsWith('/flows/apply'))).toBe(false)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  })
+}
+
+test('keeps a schedule and its edit draft on deletion failure, then allows retry', async ({ page }) => {
+  const { state, operations } = await setup(page, 'light', false)
+  state.schedules = [{ id: 'retry-delete', mode: 'assistant', session_id: 'person-main-1', task_id: null, title: 'Retry deletion', goal: 'Original goal',
+    kind: 'cron', expression: '0 9 * * *', timezone: 'UTC', next_at: Date.now() + 86400000, state: 'active', revision: 0 }]
+  state.failScheduleDelete = true
+  await page.goto('/#/person')
+  await page.locator('.person-header-actions').getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('tab', { name: /Schedules/ }).click()
+  const drawer = page.locator('.person-workspace-drawer')
+  const card = drawer.locator('.schedule-tile')
+  await card.getByRole('button', { name: 'Edit', exact: true }).click()
+  await drawer.getByRole('textbox', { name: 'Scheduled goal', exact: true }).fill('Keep this unsaved draft')
+  await card.getByRole('button', { name: 'Delete', exact: true }).click()
+  await page.locator('.n-popconfirm').getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(drawer.locator('.workspace-error')).toContainText('Schedule deletion failed')
+  await expect(card).toBeVisible()
+  await expect(drawer.getByRole('textbox', { name: 'Scheduled goal', exact: true })).toHaveValue('Keep this unsaved draft')
+  state.failScheduleDelete = false
+  await card.getByRole('button', { name: 'Delete', exact: true }).click()
+  await page.locator('.n-popconfirm').getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(card).toHaveCount(0)
+  await expect(drawer.locator('.panel-editor')).toHaveCount(0)
+  await expect(drawer.locator('.panel-empty')).toBeVisible()
+  expect(operations.filter(op => op.body?.action === 'delete')).toHaveLength(2)
 })

@@ -19909,7 +19909,7 @@
           "Person"
         ],
         "summary": "Create apply",
-        "description": "Studio user login required. Account isolation is enforced by the server. Mutations use current revisions; task and schedule operations require an idempotency key. Worker question answers are delivered through their original interactive runtime.",
+        "description": "Studio user login required. Account isolation is enforced by the server. Mutations use current revisions; task and schedule operations require an idempotency key. Worker question answers are delivered through their original interactive runtime. Delete requires schedule_id and current expected_revision. It removes the schedule and occurrence metadata, stops future triggers and preserves tasks, execution history, running work and result delivery. Exact retries with the same idempotency key return the deletion receipt.",
         "operationId": "schedules",
         "security": [
           {
@@ -19961,7 +19961,8 @@
                       "update",
                       "pause",
                       "resume",
-                      "cancel"
+                      "cancel",
+                      "delete"
                     ]
                   },
                   "idempotency_key": {

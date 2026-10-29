@@ -2117,3 +2117,56 @@ it('discards prelaunch worker-only schedules once while retaining task goals, co
   initPersonTables(db)
   expect(store.listPersonSchedules(1)[0].id).toBe(saved.id)
 })
+
+describe('deleting Person schedules', () => {
+  it.each(['active', 'paused', 'cancelled', 'exhausted'])('removes a %s plan and its occurrence metadata while preserving task history', async state => {
+    const { task } = await create({ start: false })
+    const saved = schedules.applyPersonSchedule(1, { action: 'create', mode: 'worker', task_id: task.id, kind: 'cron', expression: '* * * * *', timezone: 'UTC', idempotency_key: 'delete-plan-create' })
+    schedules.tickPersonSchedules(saved.next_at)
+    const run = store.taskPersonExecutions(1, task.id)[0]
+    store.setPersonExecution(run, 'finished', { output: 'Saved result' })
+    db.prepare('UPDATE person_schedules SET state=? WHERE id=?').run(state, saved.id)
+    const request = { action: 'delete', schedule_id: saved.id, expected_revision: 0, idempotency_key: 'delete-plan' }
+    expect(schedules.applyPersonSchedule(1, request)).toEqual({ deleted: true, schedule_id: saved.id })
+    expect(schedules.applyPersonSchedule(1, request)).toEqual({ deleted: true, schedule_id: saved.id })
+    expect(store.listPersonSchedules(1)).toHaveLength(0)
+    expect(db.prepare('SELECT * FROM person_occurrences WHERE schedule_id=?').get(saved.id)).toBeUndefined()
+    expect(store.getPersonExecution(1, run.id).output).toBe('Saved result')
+    expect(store.getPersonTask(1, task.id).title).toBe(task.title)
+    schedules.tickPersonSchedules(saved.next_at + 86400_000)
+    expect(store.taskPersonExecutions(1, task.id)).toHaveLength(1)
+    expect(runtime.stop).not.toHaveBeenCalled()
+  })
+
+  it('rejects foreign accounts and stale revisions without deleting occurrences or another plan', async () => {
+    const { task } = await create({ start: false })
+    const make = (key: string) => schedules.applyPersonSchedule(1, { action: 'create', mode: 'worker', task_id: task.id, kind: 'cron', expression: '* * * * *', timezone: 'UTC', idempotency_key: key })
+    const one = make('one'), two = make('two')
+    schedules.tickPersonSchedules(one.next_at)
+    const count = db.prepare('SELECT count(*) AS n FROM person_occurrences').get()!.n
+    expect(() => schedules.applyPersonSchedule(2, { action: 'delete', schedule_id: one.id, expected_revision: 0, idempotency_key: 'foreign-delete' })).toThrow('not found')
+    expect(() => schedules.applyPersonSchedule(1, { action: 'delete', schedule_id: one.id, expected_revision: 1, idempotency_key: 'stale-delete' })).toThrow('Schedule changed')
+    expect(() => schedules.applyPersonSchedule(1, { action: 'delete', schedule_id: one.id, idempotency_key: 'missing-revision' })).toThrow('expected_revision')
+    expect(db.prepare('SELECT count(*) AS n FROM person_occurrences').get()!.n).toBe(count)
+    schedules.applyPersonSchedule(1, { action: 'delete', schedule_id: one.id, expected_revision: 0, idempotency_key: 'valid-delete' })
+    expect(store.listPersonSchedules(1).map(schedule => schedule.id)).toEqual([two.id])
+  })
+
+  it('keeps a running worker and its callback when its plan is deleted', async () => {
+    let finish!: (value: { ok: boolean; output: string }) => void
+    runtime.execute = vi.fn(input => { input.onEvent('run.started', {}); return new Promise(resolve => { finish = resolve }) })
+    const { task } = await create({ start: false })
+    const saved = schedules.applyPersonSchedule(1, { action: 'create', mode: 'worker', task_id: task.id, kind: 'cron', expression: '* * * * *', timezone: 'UTC', idempotency_key: 'running-plan' })
+    schedules.tickPersonSchedules(saved.next_at)
+    const execution = store.taskPersonExecutions(1, task.id)[0]
+    await runner.tickPersonWork(); await wait(execution.id, 'running')
+    schedules.applyPersonSchedule(1, { action: 'delete', schedule_id: saved.id, expected_revision: 0, idempotency_key: 'delete-running-plan' })
+    expect(store.getPersonExecution(1, execution.id).state).toBe('running')
+    expect(runtime.stop).not.toHaveBeenCalled()
+    finish({ ok: true, output: 'Finished after deleting the schedule' })
+    await wait(execution.id, 'finished')
+    const { deliverPersonResults } = await import('../../packages/server/src/modules/studio/services/person/delivery')
+    await deliverPersonResults()
+    expect(runtime.deliver).toHaveBeenCalledWith(expect.objectContaining({ executionId: execution.id, output: 'Finished after deleting the schedule' }))
+  })
+})

@@ -36,6 +36,13 @@ export function applyPersonSchedule(userId: number, input: Record<string, unknow
     const schedule = db.prepare('SELECT * FROM person_schedules WHERE id=? AND owner_user_id=?').get(id, userId) as unknown as PersonSchedule | undefined
     if (!schedule) throw personError('Schedule not found', 404)
     requirePersonSession(userId, schedule.session_id)
+    if (input.action === 'delete') {
+      if (!db.prepare('DELETE FROM person_schedules WHERE id=? AND owner_user_id=? AND revision=?')
+        .run(id, userId, personRevision(input.expected_revision)).changes) throw personError('Schedule changed', 409)
+      // Occurrences are schedule metadata; their workers, results and flows remain.
+      db.prepare('DELETE FROM person_occurrences WHERE schedule_id=?').run(id)
+      return { deleted: true, schedule_id: id }
+    }
     if (input.action === 'update') {
       if (schedule.task_id && getPersonTask(userId, schedule.task_id).status !== 'open') throw personError('Task must be open',409)
       if (input.mode && input.mode !== schedule.mode || input.task_id && input.task_id !== schedule.task_id || input.session_id && input.session_id !== schedule.session_id) throw personError('Schedule target is fixed; create a new schedule')
