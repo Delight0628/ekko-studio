@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NButton, NDatePicker, NInput, NPopconfirm, NSelect, NTag, NTimePicker } from 'naive-ui'
+import { NButton, NDatePicker, NInput, NModal, NSelect, NTag, NTimePicker } from 'naive-ui'
 import type { PersonSchedule, PersonTask } from '@/api/person'
 import PersonPanelIcon from './PersonPanelIcon.vue'
 
@@ -10,7 +10,9 @@ const emit = defineEmits<{ action: [schedule: PersonSchedule, action: string] }>
 const { t, locale } = useI18n()
 const editorOpen = ref(false)
 const editing = ref<PersonSchedule | null>(null)
+const deleteTarget = ref<PersonSchedule | null>(null)
 watch(() => props.schedules, schedules => {
+  if (deleteTarget.value && !schedules.some(schedule => schedule.id === deleteTarget.value?.id)) deleteTarget.value = null
   if (editing.value && !schedules.some(schedule => schedule.id === editing.value?.id)) {
     editing.value = null; editorOpen.value = false
   }
@@ -53,6 +55,11 @@ async function submit() {
   if (props.saving || !validTarget.value || !expression.value || !zone.value.trim()) return
   if (await props.save({ action: editing.value ? 'update' : 'create', mode: mode.value, ...(mode.value === 'worker' ? { task_id: taskId.value } : { session_id: props.sessionId, title: title.value, goal: goal.value }), schedule_id: editing.value?.id, expected_revision: editing.value?.revision,
     kind: kind.value, expression: expression.value, timezone: zone.value, misfire: 'run_latest', idempotency_key: crypto.randomUUID() })) editorOpen.value = false
+}
+function confirmDelete() {
+  if (props.saving || !deleteTarget.value) return false
+  emit('action', deleteTarget.value, 'delete')
+  deleteTarget.value = null
 }
 function scheduleLabel(schedule: PersonSchedule) {
   const fields = schedule.expression.split(' ')
@@ -97,14 +104,15 @@ function nextDate(schedule: PersonSchedule) {
           <NButton v-if="schedule.state === 'active'" quaternary size="small" :disabled="saving" @click="emit('action', schedule, 'pause')">{{ t('person.pause') }}</NButton>
           <NButton v-if="schedule.state === 'paused'" quaternary size="small" :disabled="saving" @click="emit('action', schedule, 'resume')">{{ t('person.resume') }}</NButton>
           <NButton v-if="schedule.state !== 'cancelled'" quaternary size="small" :disabled="saving" @click="emit('action', schedule, 'cancel')">{{ t('person.cancelSchedule') }}</NButton>
-          <NPopconfirm :disabled="saving" :positive-text="t('common.delete')" :negative-text="t('common.cancel')" @positive-click="emit('action', schedule, 'delete')">
-            <template #trigger><NButton quaternary size="small" type="error" :disabled="saving">{{ t('common.delete') }}</NButton></template>
-            {{ t('person.deleteScheduleConfirm') }}
-          </NPopconfirm>
+          <NButton quaternary size="small" type="error" :disabled="saving" @click="deleteTarget = schedule">{{ t('common.delete') }}</NButton>
         </div></footer>
       </article>
     </div>
     <div v-else-if="!editorOpen" class="panel-empty"><PersonPanelIcon name="schedule" :size="36" /><h3>{{ t('person.empty') }}</h3><p>{{ t('person.scheduleEmpty') }}</p></div>
+    <NModal :show="!!deleteTarget" preset="dialog" :title="t('common.delete')" :content="t('person.deleteScheduleConfirm')"
+      :positive-text="t('common.delete')" :negative-text="t('common.cancel')" :positive-button-props="{ type: 'error', disabled: saving }"
+      :mask-closable="!saving" :closable="!saving" :style="{ width: 'min(420px, calc(100vw - 32px))' }"
+      @positive-click="confirmDelete" @negative-click="deleteTarget = null" @update:show="show => { if (!show) deleteTarget = null }" />
   </section>
 </template>
 
