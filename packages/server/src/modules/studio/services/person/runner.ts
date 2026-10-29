@@ -190,7 +190,7 @@ export async function tickPersonWork() {
     }
     const queued = db.prepare("SELECT * FROM person_executions WHERE state='queued' ORDER BY created_at").all() as unknown as PersonExecution[]
     for (const next of queued) {
-      if (active.size >= 6) break
+      if (active.size >= 12) break
       if (busyTasks.has(next.task_id)) continue
       const count = Number((db.prepare("SELECT COUNT(*) AS n FROM person_executions WHERE owner_user_id=? AND state IN ('starting','running','waiting_person','waiting_user','waiting_approval','stopping')").get(next.owner_user_id) as { n: number }).n)
       if (count >= personSettings(next.owner_user_id).settings.maxConcurrentTasks) continue

@@ -20168,7 +20168,9 @@
                   "maxConcurrentTasks": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 4
+                    "maximum": 12,
+                    "default": 6,
+                    "description": "Account-shared concurrency across all Person BOTs; additional tasks queue."
                   }
                 },
                 "required": [

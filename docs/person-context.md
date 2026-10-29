@@ -114,7 +114,9 @@ requests; only new original evidence is summarized, never an earlier summary.
 The current user input and latest complete tool interaction stay intact.
 
 General settings also exposes the main-reply step limit (2–30), concurrent
-background tasks (1–4), and timezone. Settings use revision-checked partial updates
+background tasks (1–12, default 6 shared across the account's BOTs), and timezone.
+The worker process also allows up to 12 active executions in total. Explicitly
+saved account limits are preserved. Settings use revision-checked partial updates
 and apply to subsequent replies and task dispatch. Existing schedules retain their
 own timezone.
 

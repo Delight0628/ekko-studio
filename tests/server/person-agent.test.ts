@@ -235,6 +235,44 @@ describe('Person task result memory requests', () => {
 })
 const wait = async (id: string, state: string) => vi.waitFor(() => expect(store.getPersonExecution(1, id).state).toBe(state), { timeout: 2000, interval: 10 })
 
+describe('Person account concurrency', () => {
+  it.each([6, 12])('shares %i slots across Bots and starts queued work when a slot is released', async limit => {
+    const { configurePerson } = await import('../../packages/server/src/modules/studio/services/person/service')
+    const { createSession } = await import('../../packages/server/src/modules/studio/repositories/session-store')
+    expect(store.personSettings(1).settings.maxConcurrentTasks).toBe(6)
+    expect(store.personSettings(2).settings.maxConcurrentTasks).toBe(6)
+    if (limit === 12) await configurePerson(1, { maxConcurrentTasks: limit, expected_revision: 1 })
+    createSession({ id: 'person-main-second', studio_user_id: 1, user_id: 1, title: 'Second Bot', source: 'builtin_agent', agent: 'ekko-agent', agent_preset: 'person', bot_type: 'xiaohe', profile: 'default' })
+    expect(store.personSettings(1, 'person-main-second').settings.maxConcurrentTasks).toBe(limit)
+    expect(store.personSettings(2).settings.maxConcurrentTasks).toBe(6)
+
+    const finish = new Map<string, (result: { ok: boolean; output?: string; error?: string }) => void>()
+    runtime.execute = vi.fn(input => {
+      input.onEvent('run.started', {})
+      return new Promise<{ ok: boolean; output?: string; error?: string }>(resolve => {
+        finish.set(input.sessionId, resolve)
+        input.signal.addEventListener('abort', () => resolve({ ok: false, error: 'Stopped' }), { once: true })
+      })
+    })
+    const created = []
+    for (let index = 0; index < 13; index++) created.push(await create({ session_id: index % 2 ? 'person-main-second' : 'person-main-1' }))
+    const executions = () => created.map(({ execution }) => store.getPersonExecution(1, execution.id))
+    await runner.tickPersonWork()
+    await vi.waitFor(() => expect(runtime.execute).toHaveBeenCalledTimes(limit))
+    expect(executions().filter(run => run.state === 'running')).toHaveLength(limit)
+    expect(executions().filter(run => run.state === 'queued')).toHaveLength(13 - limit)
+    expect(new Set(created.filter(({ execution }) => store.getPersonExecution(1, execution.id).state === 'running').map(({ task }) => task.session_id))).toEqual(new Set(['person-main-1', 'person-main-second']))
+
+    const completed = executions().find(run => run.state === 'running')!
+    finish.get(completed.session_id)!({ ok: true, output: 'Done' })
+    await wait(completed.id, 'finished')
+    await runner.tickPersonWork()
+    await vi.waitFor(() => expect(runtime.execute).toHaveBeenCalledTimes(limit + 1))
+    expect(executions().filter(run => run.state === 'running')).toHaveLength(limit)
+    expect(executions().filter(run => run.state === 'queued')).toHaveLength(12 - limit)
+  })
+})
+
 describe('Person session model isolation', () => {
   it.each([{ model: selection }, { reasoning_effort: 'high' }, { use_global_default: true }])('rejects model settings without a session: %j', async patch => {
     const { configurePerson } = await import('../../packages/server/src/modules/studio/services/person/service')
@@ -440,7 +478,7 @@ describe('Person account-owned tasks and runtime', () => {
     expect(await personSnapshot(1, 'person-main-1')).toMatchObject({ compression: { enabled: false, threshold: 0.7 }, settings: { compressionThreshold: null } })
   })
 
-  it.each([{ compressionThreshold: 0.01 }, { compressionThreshold: 0.96 }, { compressionThreshold: '50' }, { contextTokens: 16000 }, { maxSteps: 31 }, { maxConcurrentTasks: 5 }])('rejects invalid general settings without saving: %j', async patch => {
+  it.each([{ compressionThreshold: 0.01 }, { compressionThreshold: 0.96 }, { compressionThreshold: '50' }, { contextTokens: 16000 }, { maxSteps: 31 }, { maxConcurrentTasks: 0 }, { maxConcurrentTasks: 13 }, { maxConcurrentTasks: 1.5 }])('rejects invalid general settings without saving: %j', async patch => {
     const { configurePerson } = await import('../../packages/server/src/modules/studio/services/person/service')
     const original = store.personSettings(1)
     await expect(configurePerson(1, { ...patch, expected_revision: original.revision })).rejects.toMatchObject({ status: 400 })

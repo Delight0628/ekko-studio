@@ -14,7 +14,7 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true, custo
   await page.route('**/api/theme/background?*', route => route.request().method() === 'GET'
     ? route.fulfill({ contentType: 'image/png', body: image }) : route.fallback())
   const globalModel = { model: 'global-model', provider: 'provider', profile: 'default' }
-  const state: any = { settings: { workspace: '', model: globalModel, reasoningEffort: 'low', timezone: 'UTC', compressionThreshold: null, maxSteps: 12, maxConcurrentTasks: 2, agents: [{ id: 'worker', name: 'Research assistant', description: 'Research and write reports', selection: { runtime: 'ekko', mode: 'scoped', profile: 'default', provider: 'provider', model: 'global-model', reasoningEffort: '' } }] }, contextTokens: 200000, compression: { enabled: true, threshold: 0.5, globalThreshold: 0.5 }, inherits_global_model: true, reasoning_efforts: ['none', 'low', 'high'], revision: 0, busy: false, history_revision: 0, can_clear: false, tasks: [{ id: 'task1', title: 'Check report', summary: 'Verify a report', status: 'open', revision: 0, execution_id: 'execution1', execution_state: 'running', running: true }], schedules: [], memories: [], interactions: [] }
+  const state: any = { settings: { workspace: '', model: globalModel, reasoningEffort: 'low', timezone: 'UTC', compressionThreshold: null, maxSteps: 12, maxConcurrentTasks: 6, agents: [{ id: 'worker', name: 'Research assistant', description: 'Research and write reports', selection: { runtime: 'ekko', mode: 'scoped', profile: 'default', provider: 'provider', model: 'global-model', reasoningEffort: '' } }] }, contextTokens: 200000, compression: { enabled: true, threshold: 0.5, globalThreshold: 0.5 }, inherits_global_model: true, reasoning_efforts: ['none', 'low', 'high'], revision: 0, busy: false, history_revision: 0, can_clear: false, tasks: [{ id: 'task1', title: 'Check report', summary: 'Verify a report', status: 'open', revision: 0, execution_id: 'execution1', execution_state: 'running', running: true }], schedules: [], memories: [], interactions: [] }
   state.session = { id: 'person-main-1', source: 'builtin_agent', agent: 'ekko-agent', agent_preset: 'person', agent_mode: 'scoped', profile: 'default', title: 'Person', workspace: '/tmp/person/default', model: 'global-model', provider: 'provider', started_at: 1, ended_at: null, message_count: 0, tool_call_count: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, reasoning_tokens: 0, billing_provider: null, estimated_cost_usd: 0, actual_cost_usd: null, cost_status: '' }
   state.conversations = [state.session]
   state.conversationMessages = {}
@@ -771,7 +771,8 @@ test('Person general settings save independently, survive refresh and retain dra
   await panel.getByRole('switch', { name: 'Follow global threshold' }).click()
   await panel.getByRole('textbox', { name: 'Compression Threshold' }).fill('60')
   await panel.getByRole('textbox', { name: 'Maximum steps per reply' }).fill('20')
-  await panel.getByRole('textbox', { name: 'Concurrent background tasks' }).fill('3')
+  await expect(panel.getByRole('textbox', { name: 'Concurrent background tasks' })).toHaveValue('6')
+  await panel.getByRole('textbox', { name: 'Concurrent background tasks' }).fill('12')
   await panel.locator('.n-select').click()
   await panel.locator('.n-base-selection-input').fill('Asia/Shanghai')
   await page.locator('.n-base-select-option__content:visible').getByText('Asia/Shanghai', { exact: true }).click()
@@ -781,14 +782,14 @@ test('Person general settings save independently, survive refresh and retain dra
   await expect(panel.getByRole('textbox', { name: 'Compression Threshold' })).toHaveValue('60')
   await save.click()
   await expect(panel.getByRole('status')).toHaveText('Settings saved')
-  expect(operations.filter(op => op.path.endsWith('/settings')).at(-1).body).toEqual({ compressionThreshold: 0.6, maxSteps: 20, maxConcurrentTasks: 3, timezone: 'Asia/Shanghai', session_id: 'person-main-1', expected_revision: 0 })
+  expect(operations.filter(op => op.path.endsWith('/settings')).at(-1).body).toEqual({ compressionThreshold: 0.6, maxSteps: 20, maxConcurrentTasks: 12, timezone: 'Asia/Shanghai', session_id: 'person-main-1', expected_revision: 0 })
   expect(state.settings.agents).toEqual(originalAgents)
   expect(state.settings.model.model).toBe('global-model')
   await page.reload()
   await page.locator('.person-header-actions').getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(panel.getByRole('textbox', { name: 'Compression Threshold' })).toHaveValue('60')
   await expect(panel.getByRole('textbox', { name: 'Maximum steps per reply' })).toHaveValue('20')
-  await expect(panel.getByRole('textbox', { name: 'Concurrent background tasks' })).toHaveValue('3')
+  await expect(panel.getByRole('textbox', { name: 'Concurrent background tasks' })).toHaveValue('12')
   await expect(panel.locator('.n-select')).toContainText('Asia/Shanghai')
 })
 
