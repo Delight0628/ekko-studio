@@ -19,7 +19,7 @@ async function setup(page: Page, mode: 'light' | 'dark', wallpaper = true, custo
   state.conversations = [state.session]
   state.conversationMessages = {}
   state.tasks[0].session_id = state.session.id
-  await page.addInitScript(() => { (window as any).__PW_CHAT_SOCKET_RESUMES__ = { 'person-main-1': { session_id: 'person-main-1', messages: [], isWorking: false, events: [] } } })
+  await page.addInitScript(() => { (window as any).__PW_CHAT_SOCKET_RESUMES__ = { 'person-main-1': { session_id: 'person-main-1', messages: [], isWorking: false, events: [] }, ...(window as any).__PW_CHAT_SOCKET_RESUMES__ } })
   const operations: any[] = []
   function removeConversation(id: string) {
     state.conversations = state.conversations.filter((session: any) => session.id !== id)
@@ -2256,8 +2256,8 @@ for (const width of [1440, 390]) {
 }
 
 for (const mode of ['light', 'dark'] as const) {
-  test(`Person previews transparent Bot characters on interaction and creates the selected role in ${mode}`, async ({ page }) => {
-    const { state, operations } = await setup(page, mode, mode === 'dark', mode === 'dark')
+  test(`Person previews transparent Bot characters on interaction in ${mode}`, async ({ page }) => {
+    await setup(page, mode, mode === 'dark', mode === 'dark')
     await page.setViewportSize({ width: 1440, height: 1050 })
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.goto('/#/person')
@@ -2334,6 +2334,23 @@ for (const mode of ['light', 'dark'] as const) {
     await selected.focus()
     await page.keyboard.press('End')
     await expect.poll(centerError).toBeLessThan(1)
+  })
+
+  test(`Person creates the selected Bot role and restores its idle avatar after reload in ${mode}`, async ({ page }) => {
+    const { state, operations } = await setup(page, mode, mode === 'dark', mode === 'dark')
+    await page.setViewportSize({ width: 1440, height: 1050 })
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.goto('/#/person')
+    await page.getByRole('button', { name: 'New BOT role', exact: true }).click()
+    const picker = page.locator('.person-bot-picker')
+    const viewport = picker.locator('.person-bot-viewport')
+    const selected = picker.locator('.person-bot-option[aria-pressed="true"]')
+    const centerError = () => viewport.evaluate(el => {
+      const button = el.querySelector<HTMLElement>('[aria-pressed="true"]')!, slot = button.parentElement!
+      return Math.abs(slot.offsetLeft + slot.offsetWidth / 2 - el.scrollLeft - el.clientWidth / 2)
+    })
+    await selected.focus()
+    await page.keyboard.press('End')
     const party = picker.getByRole('button', { name: 'paidui', exact: true })
     await party.click()
     await expect(party).toHaveAttribute('aria-pressed', 'true')
@@ -2356,8 +2373,9 @@ for (const mode of ['light', 'dark'] as const) {
     // the created conversation before expecting its empty-state character.
     const created = state.conversations.find((session: any) => session.title === 'Party companion')
     await page.addInitScript(sessionId => {
-      (window as any).__PW_CHAT_SOCKET_RESUMES__[sessionId] = {
-        session_id: sessionId, messages: [], messageTotal: 0, isWorking: false, events: [],
+      (window as any).__PW_CHAT_SOCKET_RESUMES__ = {
+        ...(window as any).__PW_CHAT_SOCKET_RESUMES__,
+        [sessionId]: { session_id: sessionId, messages: [], messageTotal: 0, isWorking: false, events: [] },
       }
     }, created.id)
     await page.reload()
@@ -2395,7 +2413,7 @@ for (const mode of ['light', 'dark'] as const) {
           stable = Math.abs(left - previousLeft) < .5 ? stable + 1 : 0
           previousLeft = left
           return stable
-        }).toBeGreaterThanOrEqual(3)
+        }, { intervals: [100] }).toBeGreaterThanOrEqual(3)
         await expectPersonBotHit(mobile, viewport)
       }
       await settleSwipe()
