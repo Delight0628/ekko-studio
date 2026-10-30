@@ -13,7 +13,7 @@ export interface PersonTaskReturn { taskId: string; executionId: string; assista
 export interface PersonGeneralSettings { compressionThreshold: number | null; maxSteps: number; maxConcurrentTasks: number; timezone: string }
 export interface PersonFlow {
   id: string; title: string; goal: string; revision: number; state: 'active' | 'stopped' | 'completed'; current_position: number; error: string
-  stages: Array<{ id: string; position: number; session_id: string; session_title?: string; goal: string; state: 'pending' | 'active' | 'completed'; result_message_id: number | null; tasks: Array<{ id: string; title: string; status: string }> }>
+  stages: Array<{ id: string; position: number; group_position: number; session_id: string; session_title?: string; bot_type?: string | null; delivery_state?: string; delivery_error?: string; goal: string; state: 'pending' | 'active' | 'completed'; result_message_id: number | null; tasks: Array<{ id: string; title: string; status: string; execution_state?: string; agent?: string }> }>
 }
 export interface PersonSnapshot {
   session: SessionSummary | null

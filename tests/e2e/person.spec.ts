@@ -3186,8 +3186,8 @@ for (const width of [1440, 390]) {
     await page.locator('.person-header-actions').getByRole('button',{name:'Settings',exact:true}).click()
     const drawer=page.locator('.person-workspace-drawer')
     await drawer.getByRole('tab',{name:'Flows',exact:true}).click()
-    await expect(drawer.getByRole('heading',{name:'Idiom chain'})).toBeVisible()
-    await expect(drawer.getByText('First role',{exact:true})).toBeVisible()
+    await drawer.getByRole('button',{name:'Idiom chain',exact:true}).click()
+    await expect(drawer.locator('.flow-card').getByText('First role',{exact:true})).toBeVisible()
     await expect(drawer.getByRole('button',{name:'View result',exact:true})).toBeVisible()
     await drawer.getByRole('button',{name:'Stop flow',exact:true}).click()
     await expect(drawer.getByRole('button',{name:'Resume',exact:true})).toBeVisible()
@@ -3199,6 +3199,125 @@ for (const width of [1440, 390]) {
     expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await drawer.getByRole('button',{name:'View result',exact:true}).click()
     await expect(page).toHaveURL(/session=person-main-1&message=7/)
+    await expect(drawer).not.toBeVisible()
+  })
+}
+
+for (const { width, mode } of [{ width:1440, mode:'light' }, { width:390, mode:'dark' }] as const) {
+  test(`Person displays parallel branches, waits for peers and opens their results in ${mode}`, async ({ page }) => {
+    const { state, operations } = await setup(page,mode,mode === 'dark',mode === 'dark')
+    state.tasks=[]
+    state.conversations.push({ ...state.session,id:'person-main-b',title:'Competitor researcher' },{ ...state.session,id:'person-main-c',title:'Needs researcher' })
+    state.flows=[{ id:'parallel-flow',title:'Parallel research',goal:'Research independently, then write a combined proposal',state:'active',revision:0,current_position:0,error:'',stages:[
+      { id:'a',position:0,group_position:0,session_id:'person-main-b',session_title:'Competitor researcher',goal:'Research competitor offerings',state:'completed',result_message_id:101,tasks:[] },
+      { id:'b',position:1,group_position:0,session_id:'person-main-c',session_title:'Needs researcher',goal:'Analyze user needs',state:'active',result_message_id:null,tasks:[] },
+      { id:'c',position:2,group_position:1,session_id:'person-main-1',session_title:'Summary writer',goal:'Combine both research results',state:'pending',result_message_id:null,tasks:[] },
+    ] }]
+    await page.setViewportSize({width,height:900})
+    await page.goto('/#/person')
+    await page.locator('.person-header-actions').getByRole('button',{name:'Settings',exact:true}).click()
+    const drawer=page.locator('.person-workspace-drawer')
+    await drawer.getByRole('tab',{name:'Flows',exact:true}).click()
+    await drawer.getByRole('button',{name:'Parallel research',exact:true}).click()
+    await expect(drawer.getByText('Step 1',{exact:true})).toBeVisible()
+    await expect(drawer.getByText('Step 2',{exact:true})).toBeVisible()
+    await expect(drawer.getByText('Parallel · 2 roles',{exact:true})).toBeVisible()
+    await expect(drawer.getByText('Waiting for other roles',{exact:true})).toBeVisible()
+    const summary=drawer.locator('.flow-role').filter({hasText:'Summary writer'})
+    await expect(summary.getByText('Waiting for prior results',{exact:true})).toBeVisible()
+    await expect(summary.getByText('Waiting for Needs researcher',{exact:true})).toBeVisible()
+    await drawer.getByRole('button',{name:'Stop flow',exact:true}).click()
+    await expect(drawer.getByText('Waiting for other roles',{exact:true})).toHaveCount(0)
+    await drawer.getByRole('button',{name:'Resume',exact:true}).click()
+    await expect(drawer.getByText('Waiting for other roles',{exact:true})).toBeVisible()
+    await page.screenshot({path:`/tmp/person-parallel-flow-${mode}.png`,animations:'disabled'})
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    state.flows[0].stages[1].state='completed';state.flows[0].stages[1].result_message_id=102
+    state.flows[0].stages[2].state='active';state.flows[0].current_position=1
+    await emit(page,'person.updated',{})
+    await expect(drawer.getByText('Waiting for other roles',{exact:true})).toHaveCount(0)
+    await expect(summary.getByText('In progress',{exact:true})).toBeVisible()
+    await expect(drawer.getByRole('button',{name:'View result',exact:true})).toHaveCount(2)
+    expect(operations.filter(op=>op.path.endsWith('/flows/apply')).map(op=>op.body.action)).toEqual(['stop','resume'])
+    await drawer.locator('.flow-role').filter({hasText:'Competitor researcher'}).getByRole('button',{name:'View result',exact:true}).click()
+    await expect(page).toHaveURL(/session=person-main-b&message=101/)
+    await expect(drawer).not.toBeVisible()
+  })
+}
+
+for (const { width, mode, wallpaper } of [
+  { width:1440,mode:'light',wallpaper:false }, { width:1440,mode:'dark',wallpaper:true },
+  { width:390,mode:'light',wallpaper:true }, { width:390,mode:'dark',wallpaper:false },
+] as const) {
+  test(`previews the role collaboration graph at ${width}px in ${mode}`,async ({ page }) => {
+    const { state } = await setup(page,mode,wallpaper,wallpaper)
+    await page.addInitScript(() => localStorage.setItem('hermes_locale','zh'))
+    state.session.title='负责人'
+    state.conversations.push({ ...state.session,id:'person-main-b',title:'程序员',bot_type:'xiaohe' },{ ...state.session,id:'person-main-c',title:'文案',bot_type:'yingying' })
+    Object.assign(state.tasks[0],{session_id:'person-main-c',title:'检查页面文案',summary:'检查页面表达与行动按钮',selection_json:'{"runtime":"codex"}'})
+    state.flows=[{ id:'review-flow',title:'产品页面上线评审',goal:'程序员和文案分别检查页面，完成后由负责人汇总上线建议。',state:'active',revision:0,current_position:0,error:'',stages:[
+      { id:'a',position:0,group_position:0,session_id:'person-main-b',session_title:'程序员',bot_type:'xiaohe',goal:'检查页面交互与移动端适配，整理需要修复的问题。',state:'completed',result_message_id:101,tasks:[] },
+      { id:'b',position:1,group_position:0,session_id:'person-main-c',session_title:'文案',bot_type:'yingying',goal:'检查首页文案与行动按钮，给出具体修改建议。',state:'active',result_message_id:null,tasks:[{id:'task1',title:'检查页面文案',status:'open',execution_state:'running',agent:'codex'}] },
+      { id:'c',position:2,group_position:1,session_id:'person-main-1',session_title:'负责人',bot_type:'zhezhe',goal:'综合两份评审结果，输出最终上线清单。',state:'pending',result_message_id:null,tasks:[] },
+    ] }]
+    await page.setViewportSize({width,height:width < 640 ? 1400 : 1080})
+    await page.goto('/#/person')
+    await page.locator('.person-header-actions').getByRole('button',{name:'设置',exact:true}).click()
+    const drawer=page.locator('.person-workspace-drawer')
+    await drawer.getByRole('tab',{name:'协作流程',exact:true}).click()
+    await drawer.getByRole('button',{name:'产品页面上线评审',exact:true}).click()
+    await expect(drawer.getByText('等待 文案 完成',{exact:true})).toBeVisible()
+    await expect(drawer.getByText('2 个角色并行，已完成 1 个',{exact:true})).toBeVisible()
+    const branches=drawer.locator('.flow-group').first().locator('.flow-role')
+    const boxes=await branches.evaluateAll(nodes=>nodes.map(node=>{const r=node.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width}}))
+    if(width > 640) expect(Math.abs(boxes[0].y-boxes[1].y)).toBeLessThan(2)
+    else expect(boxes[1].y).toBeGreaterThan(boxes[0].y)
+    const copy=drawer.getByRole('region',{name:'文案',exact:true})
+    await copy.locator('summary').click()
+    await expect(copy.getByRole('button',{name:/检查页面文案/})).toBeVisible()
+    await expect(drawer.getByRole('region',{name:'程序员',exact:true}).locator('.flow-role-avatar')).toHaveAttribute('src',/\/person\/xiaohe\/idle\.png$/)
+    await page.evaluate(()=>document.fonts.ready)
+    await drawer.locator('.flow-card').scrollIntoViewIfNeeded()
+    if(width < 640) await page.screenshot({path:`/tmp/person-flow-ui-${width}-${mode}.png`})
+    else {
+      const previewBounds=await drawer.locator('.flow-card').boundingBox()
+      await page.screenshot({path:`/tmp/person-flow-ui-${width}-${mode}.png`,clip:previewBounds!})
+    }
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    if(width === 1440 && mode === 'dark') {
+      await page.evaluate(async()=>{
+        const path='/src/composables/useTheme.ts'; const {useTheme}=await import(path)
+        await useTheme().saveThemeCustomization({appearance:{global:{opacity:0.4},regions:{card:{backgroundColor:'#336699',borderColor:'#6688aa',opacity:0.25,blur:8,radius:18}}}})
+      })
+      await drawer.locator('.flow-card').screenshot({path:'/tmp/person-flow-ui-regional.png',animations:'disabled'})
+      await page.evaluate(async()=>{
+        const path='/src/composables/useTheme.ts'; const {useTheme}=await import(path)
+        await useTheme().saveThemeCustomization({appearance:{global:{opacity:0.4},regions:{card:{opacity:0}}}})
+      })
+      await expect(copy.getByRole('button',{name:/检查页面文案/})).toBeVisible()
+      await drawer.locator('.flow-card').screenshot({path:'/tmp/person-flow-ui-transparent.png',animations:'disabled'})
+      await page.evaluate(async()=>{
+        const path='/src/composables/useTheme.ts'; const {useTheme}=await import(path)
+        const theme=useTheme();await theme.resetCustomization();await theme.removeBackground()
+      })
+      await drawer.getByRole('button',{name:'打开 程序员 的对话',exact:true}).focus()
+      await expect(drawer.getByRole('button',{name:'打开 程序员 的对话',exact:true})).toBeFocused()
+    }
+    if(width === 1440 && mode === 'light') {
+      state.flows[0]={...state.flows[0],title:'大家介绍一下自己',goal:'每个角色介绍自己的职责和擅长的工作。',stages:state.flows[0].stages.map((stage:any,index:number)=>({...stage,group_position:0,state:index ? 'active' : 'completed',goal:'介绍自己的职责与擅长的工作。',tasks:[]}))}
+      await emit(page,'person.updated',{})
+      await expect(drawer.getByRole('button',{name:'大家介绍一下自己',exact:true})).toHaveAttribute('aria-expanded','true')
+      await expect(drawer.locator('.flow-handoff')).toHaveCount(0)
+      await drawer.locator('.flow-card').screenshot({path:'/tmp/person-flow-ui-everyone.png',animations:'disabled'})
+    }
+    if(width === 390 && mode === 'light') {
+      await page.setViewportSize({width,height:844})
+      await copy.getByRole('button',{name:/检查页面文案/}).click()
+      await expect(page.locator('.person-task-chat')).toBeVisible()
+      return
+    }
+    await drawer.getByRole('button',{name:'打开 程序员 的对话',exact:true}).click()
+    await expect(page).toHaveURL(/session=person-main-b/)
     await expect(drawer).not.toBeVisible()
   })
 }
@@ -3325,4 +3444,104 @@ test('keeps a schedule and its edit draft on deletion failure, then allows retry
   await expect(drawer.locator('.panel-editor')).toHaveCount(0)
   await expect(drawer.locator('.panel-empty')).toBeVisible()
   expect(operations.filter(op => op.body?.action === 'delete')).toHaveLength(2)
+})
+
+for (const { width, mode } of [{ width:1440,mode:'light' },{ width:390,mode:'dark' }] as const) {
+  test(`keeps many collaboration flows compact and expands one at a time at ${width}px`,async ({ page }) => {
+    const { state }=await setup(page,mode,false,false)
+    await page.addInitScript(()=>localStorage.setItem('hermes_locale','zh'))
+    state.tasks=[]
+    const titles=['产品页面上线评审','大家介绍一下自己','竞品调研与方案','本周内容发布计划','移动端交互走查','支付接入评审','本周工作汇总','用户反馈分类','首页文案迭代','注册流程验收','活动方案整理','帮助中心更新']
+    state.flows=titles.map((title,index)=>({
+      id:`compact-${index}`,title,goal:'各角色分别完成分工，交由负责人整理最终结果。',state:index < 5 ? 'active' : index === 5 ? 'stopped' : 'completed',revision:0,current_position:0,error:'',
+      stages:(index === 1 ? ['程序员','文案','负责人'] : index === 2 ? ['竞品研究员','需求研究员','负责人'] : ['程序员','文案','负责人']).map((session_title,position)=>({
+        id:`compact-${index}-${position}`,position,group_position:index === 1 ? 0 : position < 2 ? 0 : 1,
+        session_id:'person-main-1',session_title,bot_type:['xiaohe','yingying','zhezhe'][position],goal:['检查交互与移动端适配。','检查文案与行动按钮。','汇总结果，输出最终清单。'][position],
+        state:index > 5 || position === 0 ? 'completed' : index === 1 || position === 1 ? 'active' : 'pending',result_message_id:index > 5 || position === 0 ? 101 : null,
+        tasks:index === 4 && position === 1 ? [{id:'approval',title:'确认调整方案',status:'open',execution_state:'waiting_approval'}] : [],
+      })),
+    }))
+    state.flows[11].stages=Array.from({length:13},(_,position)=>({ ...state.flows[11].stages[position % 3],id:`long-${position}`,position,group_position:position,session_title:`多语言校对角色 ${position + 1}` }))
+    await page.setViewportSize({width,height:width > 640 ? 1040 : 844})
+    await page.goto('/#/person')
+    await page.locator('.person-header-actions').getByRole('button',{name:'设置',exact:true}).click()
+    const drawer=page.locator('.person-workspace-drawer')
+    await drawer.getByRole('tab',{name:'协作流程',exact:true}).click()
+    const rows=drawer.locator('.flow-row')
+    await expect(rows).toHaveCount(12)
+    await expect(drawer.locator('.flow-card')).toHaveCount(0)
+    await expect(rows.first()).toHaveAttribute('aria-expanded','false')
+    await expect(rows.first().locator('.flow-route')).toHaveText(/程序员 ∥ 文案\s*→\s*负责人/)
+    await expect(rows.nth(1).locator('.flow-route')).toHaveText('程序员 ∥ 文案 ∥ 负责人')
+    await expect(rows.nth(4)).toContainText('等待你回答')
+    await page.evaluate(async()=>{
+      await document.fonts.ready
+      await Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations !== Infinity).map(a=>a.finished.catch(()=>{})))
+    })
+    const bounds=await rows.evaluateAll(nodes=>nodes.map(node=>{const r=node.getBoundingClientRect();return {height:r.height,width:r.width,x:r.x}}))
+    expect(bounds.every(r=>r.height <= 80 && r.x >= 0 && r.x+r.width <= width)).toBe(true)
+    if(width > 640) {
+      const clip=await drawer.boundingBox()
+      await page.screenshot({path:'/tmp/person-flows-compact-desktop.png',clip:clip!})
+    } else await page.screenshot({path:'/tmp/person-flows-compact-mobile.png'})
+    await rows.first().focus()
+    await page.keyboard.press('Enter')
+    await expect(rows.first()).toHaveAttribute('aria-expanded','true')
+    await expect(drawer.locator('.flow-card')).toHaveCount(1)
+    await rows.nth(1).click()
+    await expect(rows.first()).toHaveAttribute('aria-expanded','false')
+    await expect(rows.nth(1)).toHaveAttribute('aria-expanded','true')
+    await expect(drawer.locator('.flow-card')).toHaveCount(1)
+    await rows.nth(1).click()
+    await expect(drawer.locator('.flow-card')).toHaveCount(0)
+    const filters=drawer.locator('.flow-filters')
+    await filters.getByRole('button',{name:/^进行中\s*5$/}).click()
+    await expect(rows).toHaveCount(5)
+    await expect(filters.getByRole('button',{name:/^进行中\s*5$/})).toHaveAttribute('aria-pressed','true')
+    const search=drawer.getByRole('textbox',{name:'搜索流程或角色',exact:true})
+    await search.fill('竞品研究员')
+    await expect(rows).toHaveCount(1)
+    await expect(rows.first()).toContainText('竞品调研与方案')
+    await rows.first().click()
+    await search.fill('不存在的流程')
+    await expect(rows).toHaveCount(0)
+    await expect(drawer.getByText('没有匹配的流程。',{exact:true})).toBeVisible()
+    await search.fill('')
+    await expect(drawer.locator('.flow-card')).toHaveCount(0)
+    await filters.getByRole('button',{name:/^已停止\s*1$/}).click()
+    await expect(rows).toHaveCount(1)
+    await expect(rows.first()).toContainText('支付接入评审')
+    await filters.getByRole('button',{name:/^已完成\s*6$/}).click()
+    await expect(rows).toHaveCount(6)
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  })
+}
+
+test('limits collaboration display and filters to the latest 50 flows',async ({page})=>{
+  const {state}=await setup(page,'light',false,false)
+  state.tasks=[]
+  state.flows=Array.from({length:51},(_,index)=>({
+    id:`limited-${index}`,title:`Collaboration ${index+1}`,goal:'Complete the assigned work',state:index < 10 || index === 50 ? 'active' : 'completed',revision:0,current_position:0,error:'',
+    stages:[{id:`limited-stage-${index}`,position:0,group_position:0,session_id:'person-main-1',session_title:'Reviewer',goal:'Save the review result',state:index < 10 || index === 50 ? 'active' : 'completed',result_message_id:index < 10 || index === 50 ? null : 7,tasks:[]}],
+  }))
+  await page.goto('/#/person')
+  await page.locator('.person-header-actions').getByRole('button',{name:'Settings',exact:true}).click()
+  const drawer=page.locator('.person-workspace-drawer')
+  await drawer.getByRole('tab',{name:'Flows',exact:true}).click()
+  const rows=drawer.locator('.flow-row'),filters=drawer.locator('.flow-filters')
+  await expect(rows).toHaveCount(50)
+  await expect(filters.getByRole('button',{name:/^All\s*50$/})).toBeVisible()
+  await filters.getByRole('button',{name:/^In progress\s*10$/}).click()
+  await expect(rows).toHaveCount(10)
+  await filters.getByRole('button',{name:/^All\s*50$/}).click()
+  const search=drawer.getByRole('textbox',{name:'Search flows or roles',exact:true})
+  await search.fill('Collaboration 51')
+  await expect(rows).toHaveCount(0)
+  await expect(drawer.getByText('No matching flows.',{exact:true})).toBeVisible()
+  await search.fill('Collaboration 50')
+  await expect(rows).toHaveCount(1)
+  await rows.first().click()
+  await drawer.getByRole('button',{name:'View result',exact:true}).click()
+  await expect(page).toHaveURL(/session=person-main-1&message=7/)
+  await expect(drawer).not.toBeVisible()
 })

@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import type { PersonConversationFlow, PersonStage, PersonStageContext, PersonStageDelivery } from '../contracts/person-stage'
 import { personError } from '../contracts/person'
-import { personDb } from './person-store'
+import { getPersonTask, personDb } from './person-store'
 import { requirePersonSession } from './person-session-store'
 
 /** Only an outstanding handoff keeps its recipient active, never the waiting creator. */
 export function personCollaborationPendingCount(userId: number, sessionId: string): number {
   return Number(personDb().prepare(`SELECT COUNT(DISTINCT f.id) AS n FROM person_flows f
-    JOIN person_stages s ON s.flow_id=f.id AND s.position=f.current_position
+    JOIN person_stages s ON s.flow_id=f.id AND s.group_position=f.current_position
     JOIN person_stage_deliveries d ON d.stage_id=s.id AND d.generation=f.generation
     WHERE f.owner_user_id=? AND f.state='active' AND s.state='active'
       AND s.session_id=? AND d.state IN ('pending','queued') AND d.error=''`).get(userId, sessionId)!.n)
@@ -17,20 +17,28 @@ export function getPersonFlow(userId: number, id: string): PersonConversationFlo
   const db = personDb()
   const row = db.prepare('SELECT * FROM person_flows WHERE id=? AND owner_user_id=?').get(id, userId)
   if (!row) throw personError('Flow not found', 404)
-  const stages = db.prepare('SELECT s.*,c.title AS session_title FROM person_stages s LEFT JOIN sessions c ON c.id=s.session_id WHERE flow_id=? ORDER BY position').all(id) as unknown as PersonStage[]
-  for (const stage of stages) stage.tasks = db.prepare('SELECT t.id,t.title,t.status FROM person_stage_tasks l JOIN session_tasks t ON t.id=l.task_id WHERE l.stage_id=? ORDER BY t.created_at,t.id').all(stage.id) as unknown as PersonStage['tasks']
+  const stages = db.prepare('SELECT s.*,c.title AS session_title,c.bot_type FROM person_stages s LEFT JOIN sessions c ON c.id=s.session_id WHERE flow_id=? ORDER BY position').all(id) as unknown as PersonStage[]
+  for (const stage of stages) {
+    const delivery = db.prepare('SELECT state,error FROM person_stage_deliveries WHERE stage_id=? AND generation=?').get(stage.id,row.generation)
+    stage.delivery_state = delivery ? String(delivery.state) : undefined
+    stage.delivery_error = delivery ? String(delivery.error) : undefined
+    stage.tasks = db.prepare('SELECT t.id FROM person_stage_tasks l JOIN session_tasks t ON t.id=l.task_id WHERE l.stage_id=? ORDER BY t.created_at,t.id').all(stage.id).map(({ id }) => {
+      const task = getPersonTask(userId,String(id))
+      return { id:task.id,title:task.title,status:task.status,execution_state:task.execution_state || 'idle',agent:JSON.parse(task.selection_json).runtime }
+    })
+  }
   const error = db.prepare("SELECT error FROM person_stage_deliveries WHERE flow_id=? AND state='pending' ORDER BY updated_at DESC LIMIT 1").get(id)?.error || ''
   return { ...row, stages, error } as unknown as PersonConversationFlow
 }
 export function listPersonFlows(userId: number, sessionId = '', offset = 0) {
   return personDb().prepare(`SELECT f.id FROM person_flows f WHERE owner_user_id=? AND
     (?='' OR creator_session_id=? OR EXISTS(SELECT 1 FROM person_stages s WHERE s.flow_id=f.id AND s.session_id=?))
-    ORDER BY updated_at DESC,id LIMIT 20 OFFSET ?`).all(userId, sessionId, sessionId, sessionId, offset).map(row => getPersonFlow(userId, String(row.id)))
+    ORDER BY updated_at DESC,id LIMIT 50 OFFSET ?`).all(userId, sessionId, sessionId, sessionId, offset).map(row => getPersonFlow(userId, String(row.id)))
 }
 export function assertPersonStage(userId: number, context: PersonStageContext, sessionId?: string) {
   const flow = getPersonFlow(userId, context.flowId)
-  const stage = flow.stages[flow.current_position]
-  if (flow.state !== 'active' || flow.generation !== context.generation || stage?.id !== context.stageId || stage.state !== 'active') throw personError('Flow stage is no longer current', 409)
+  const stage = flow.stages.find(item => item.id === context.stageId)
+  if (flow.state !== 'active' || flow.generation !== context.generation || stage?.group_position !== flow.current_position || stage.state !== 'active') throw personError('Flow stage is no longer current', 409)
   if (sessionId && stage.session_id !== sessionId) throw personError('Stage belongs to another conversation', 403)
   requirePersonSession(userId, stage.session_id)
   if (context.deliveryId) {
@@ -87,12 +95,14 @@ export function stageDeliveryContext(userId: number, id: string): PersonStageCon
 
 /** Required inputs are read from originals, never copied into recipient history. */
 export function personStageSources(userId: number, context: PersonStageContext) {
-  const { flow } = assertPersonStage(userId, context)
-  const previous = flow.stages[flow.current_position - 1]
-  if (!previous) return []
-  requirePersonSession(userId, previous.session_id)
-  const row = personDb().prepare("SELECT id,session_id,content FROM messages WHERE id=? AND session_id=? AND role='assistant' AND COALESCE(finish_reason,'')!='streaming'").get(previous.result_message_id, previous.session_id)
-  if (!row) throw personError('Previous stage result is unavailable', 409)
-  // Bound inline context; the exact message remains readable via bot_context_search.
-  return [{ id: Number(row.id), session_id: String(row.session_id), content: String(row.content).slice(0,6000), truncated: String(row.content).length > 6000 }]
+  const { flow, stage } = assertPersonStage(userId, context)
+  const previous = flow.stages.filter(item => item.group_position === stage.group_position - 1)
+  // Share the context budget across every upstream branch, retaining all original references.
+  const limit = Math.floor(6000 / Math.max(1, previous.length))
+  return previous.map(source => {
+    requirePersonSession(userId, source.session_id)
+    const row = source.state === 'completed' && personDb().prepare("SELECT id,session_id,content FROM messages WHERE id=? AND session_id=? AND role='assistant' AND COALESCE(finish_reason,'')!='streaming'").get(source.result_message_id, source.session_id)
+    if (!row) throw personError('Previous stage result is unavailable', 409)
+    return { id: Number(row.id), session_id: String(row.session_id), content: String(row.content).slice(0,limit), truncated: String(row.content).length > limit }
+  })
 }

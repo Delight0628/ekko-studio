@@ -392,6 +392,10 @@ function openFlowResult(sessionId: string, messageId: number) {
   showPanel.value = false
   return router.push({ name: 'hermes.person', query: { session: sessionId, message: String(messageId) } })
 }
+function openFlowConversation(sessionId: string) {
+  showPanel.value = false
+  return router.push({ name:'hermes.person',query:{ session:sessionId } })
+}
 function openFlowTask(taskId: string) { showPanel.value = false; chatExecutionId.value = undefined; chatTaskId.value = taskId }
 async function act(work: () => Promise<unknown>) {
   if (pending.value) return false
@@ -681,7 +685,7 @@ onBeforeUnmount(() => { stopPersonUpdates(); disposed = true; personDeployment?.
               </NTabPane>
               <NTabPane name="flows" :tab-props="{ role: 'tab', 'aria-selected': tab === 'flows' }">
                 <template #tab><span class="workspace-tab"><SessionTaskIcon :size="17" />{{ t('person.flows') }}</span></template>
-                <PersonFlowsPanel :flows="data.flows || []" :saving="pending" @action="flowAction" @open-result="openFlowResult" @open-task="openFlowTask" />
+                <PersonFlowsPanel :flows="data.flows || []" :saving="pending" @action="flowAction" @open-result="openFlowResult" @open-task="openFlowTask" @open-conversation="openFlowConversation" />
               </NTabPane>
               <NTabPane name="schedules" :tab-props="{ role: 'tab', 'aria-selected': tab === 'schedules' }">
                 <template #tab><span class="workspace-tab"><PersonPanelIcon name="schedule" :size="17" />{{ t('person.schedules') }}<span class="workspace-tab-count">{{ data.schedules.length }}</span></span></template>

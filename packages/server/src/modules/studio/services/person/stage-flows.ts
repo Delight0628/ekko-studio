@@ -25,14 +25,25 @@ export function createPersonFlow(userId: number, input: Record<string, unknown>,
   if (origin?.stage) throw personError('Continue this flow instead of creating a replacement',403)
   const title = personText(input.title,'title',200), goal = personText(input.goal,'goal',8000)
   if (!Array.isArray(input.stages) || !input.stages.length || input.stages.length > 13 || JSON.stringify(input.stages).length > 32000) throw personError('Use 1 to 13 stages (at most 32000 characters)')
-  const steps = input.stages.map(raw => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(k => !['session_id','goal','return_expectation'].includes(k))) throw personError('Invalid stage')
+  const grouped = input.stages.some(raw => raw && typeof raw === 'object' && Object.hasOwn(raw,'group'))
+  const steps = input.stages.map((raw, position) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(k => !['session_id','goal','return_expectation','group'].includes(k))) throw personError('Invalid stage')
+    if (grouped && (!Number.isSafeInteger(raw.group) || raw.group < 0 || raw.group > 12)) throw personError('Set group on every stage, starting at 0; equal groups run in parallel')
     return { session_id: requirePersonSession(userId, personText(raw.session_id,'session_id',100)).id,
-      goal: personText(raw.goal,'goal',8000), return_expectation: personText(raw.return_expectation,'return_expectation',4000) }
+      goal: personText(raw.goal,'goal',8000), return_expectation: personText(raw.return_expectation,'return_expectation',4000), group: grouped ? Number(raw.group) : position }
   })
-  for (let index=0;index<steps.length;index++) {
-    const sender=index ? steps[index-1].session_id : creator
-    if (steps[index].session_id === sender) throw Object.assign(personError('A role cannot hand off to itself. Finish your own work here, then route only to another role.'),{code:'SELF_HANDOFF'})
+  const groups: typeof steps[] = []
+  for (const step of steps) {
+    const previous = groups.at(-1)?.[0].group ?? -1
+    if (step.group !== previous && step.group !== previous + 1) throw personError('Groups must be ordered and contiguous, starting at 0')
+    const group = groups[step.group] ||= []
+    if (group.some(item => item.session_id === step.session_id)) throw personError('A role may appear only once in each parallel group')
+    group.push(step)
+  }
+  for (let index=0;index<groups.length;index++) {
+    const previous = index ? groups[index-1] : [{ session_id: creator }]
+    if (groups[index].length === 1 && previous.length === 1 && groups[index][0].session_id === previous[0].session_id)
+      throw Object.assign(personError('A role cannot hand off to itself. Finish your own work here, then route only to another role.'),{code:'SELF_HANDOFF'})
   }
   const key = personText(input.idempotency_key,'idempotency_key',200)
   const result = personOperation(userId, `flow:${key}`, { ...input, creator }, () => {
@@ -46,11 +57,11 @@ export function createPersonFlow(userId: number, input: Record<string, unknown>,
     db.prepare('INSERT INTO person_flows(id,owner_user_id,creator_session_id,title,goal,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').run(id,userId,creator,title,goal,now,now)
     steps.forEach((step, position) => {
       requirePersonSession(userId,step.session_id)
-      db.prepare('INSERT INTO person_stages(id,flow_id,position,session_id,goal,return_expectation,state) VALUES(?,?,?,?,?,?,?)')
-        .run(randomUUID(), id, position, step.session_id, step.goal, step.return_expectation, position ? 'pending' : 'active')
+      db.prepare('INSERT INTO person_stages(id,flow_id,position,group_position,session_id,goal,return_expectation,state) VALUES(?,?,?,?,?,?,?,?)')
+        .run(randomUUID(), id, position, step.group, step.session_id, step.goal, step.return_expectation, step.group ? 'pending' : 'active')
     })
     const flow = getPersonFlow(userId,id)
-    enqueuePersonStage(userId,flow.stages[0],flow.generation)
+    for (const stage of flow.stages.filter(item => item.state === 'active')) enqueuePersonStage(userId,stage,flow.generation)
     return flow
   })
   personUpdated(userId)
@@ -68,11 +79,16 @@ export async function controlPersonFlow(userId: number, input: Record<string, un
   const action = personText(input.action,'action',30), id = personText(input.flow_id,'flow_id',100)
   if (!['complete','stop','resume'].includes(action)) throw personError('Unsupported flow action')
   const result = personOperation(userId,`flow:${personText(input.idempotency_key,'idempotency_key',200)}`, { ...input, actor: origin?.sessionId || null, stage: origin?.stage || null }, () => {
-    const flow = getPersonFlow(userId,id), stage = flow.stages[flow.current_position]
-    if (flow.revision !== personRevision(input.expected_revision)) throw personError('Flow changed; query it again',409)
+    const flow = getPersonFlow(userId,id)
+    const active = flow.stages.filter(stage => stage.group_position === flow.current_position && stage.state === 'active')
+    const expectedRevision = personRevision(input.expected_revision)
+    // Peers update the shared revision independently. Completing a branch is
+    // fenced by its trusted stage/generation below, not by its peers' progress.
+    // Flow-wide stop/resume still require the exact observed revision.
+    if (expectedRevision > flow.revision || (action !== 'complete' && flow.revision !== expectedRevision)) throw personError('Flow changed; query it again',409)
     if (origin) {
       requirePersonSession(userId,origin.sessionId)
-      if (origin.sessionId !== flow.creator_session_id && origin.sessionId !== stage.session_id) throw personError('Only the creator or current role may control this flow',403)
+      if (origin.sessionId !== flow.creator_session_id && !active.some(stage => stage.session_id === origin.sessionId)) throw personError('Only the creator or current role may control this flow',403)
       if (origin.stage) {
         assertPersonStage(userId,origin.stage,origin.sessionId)
         if (origin.stage.flowId !== id) throw personError('Control only the assigned flow in this turn',403)
@@ -81,7 +97,7 @@ export async function controlPersonFlow(userId: number, input: Record<string, un
     const db = personDb(), now = Date.now()
     if (action === 'complete') {
       if (!origin?.stage || origin.stage.flowId !== id || !origin.runId) throw personError('Complete the stage from its assigned live turn',403)
-      assertPersonStage(userId,origin.stage,origin.sessionId)
+      const { stage } = assertPersonStage(userId,origin.stage,origin.sessionId)
       if (stageHasWork(stage.id)) throw personError('Finish or explicitly close the stage subtask before completing',409)
       if (stage.completion_run_id && stage.completion_run_id !== origin.runId) throw personError('Stage completion is already being saved',409)
       db.prepare('UPDATE person_stages SET completion_run_id=? WHERE id=?').run(origin.runId,stage.id)
@@ -89,17 +105,20 @@ export async function controlPersonFlow(userId: number, input: Record<string, un
       if (flow.state === 'completed') throw personError('Flow is complete',409)
       if (action === 'resume') {
         if (origin && flow.state === 'stopped' && origin.sessionId !== flow.creator_session_id) throw personError('Only the creator can resume a stopped flow',403)
-        if (db.prepare(`SELECT 1 FROM person_stage_tasks l JOIN person_executions e ON e.task_id=l.task_id WHERE l.stage_id=?
-          AND e.state IN ('pending','queued','starting','running','stopping','waiting_person','waiting_user','waiting_approval')`).get(stage.id)) throw personError('Wait for stage workers to finish stopping',409)
-        requirePersonSession(userId,stage.session_id)
+        if (db.prepare(`SELECT 1 FROM person_stage_tasks l JOIN person_stages s ON s.id=l.stage_id JOIN person_executions e ON e.task_id=l.task_id
+          WHERE s.flow_id=? AND s.group_position=? AND s.state='active'
+          AND e.state IN ('pending','queued','starting','running','stopping','waiting_person','waiting_user','waiting_approval')`).get(id,flow.current_position)) throw personError('Wait for stage workers to finish stopping',409)
+        for (const stage of active) requirePersonSession(userId,stage.session_id)
       }
       db.prepare("UPDATE person_stage_deliveries SET state='cancelled',updated_at=? WHERE flow_id=? AND state IN ('pending','queued')").run(now,id)
-      db.prepare('UPDATE person_stages SET completion_run_id=\'\' WHERE id=?').run(stage.id)
+      db.prepare("UPDATE person_stages SET completion_run_id='' WHERE flow_id=? AND state='active'").run(id)
       db.prepare('UPDATE person_flows SET state=?,generation=generation+1 WHERE id=?').run(action === 'stop' ? 'stopped' : 'active', id)
       if (action === 'resume') {
         const updated = getPersonFlow(userId,id)
-        db.prepare('UPDATE person_stage_tasks SET generation=? WHERE stage_id=?').run(updated.generation,stage.id)
-        enqueuePersonStage(userId,stage,updated.generation)
+        for (const stage of active) {
+          db.prepare('UPDATE person_stage_tasks SET generation=? WHERE stage_id=?').run(updated.generation,stage.id)
+          enqueuePersonStage(userId,stage,updated.generation)
+        }
       }
     }
     db.prepare('UPDATE person_flows SET revision=revision+1,updated_at=? WHERE id=?').run(now,id)
@@ -140,14 +159,20 @@ export function finishPersonStageTurn(userId: number, context: PersonStageContex
       return
     }
     if (stageHasWork(stage.id)) throw personError('Stage still has unfinished work',409)
-    const next = flow.stages[stage.position + 1]
     // Save the result even if the destination was removed. Delivery reports that blocker.
     db.prepare("UPDATE person_stages SET state='completed',result_message_id=?,completion_run_id='' WHERE id=?").run(message.id,stage.id)
     db.prepare("UPDATE person_stage_deliveries SET state='delivered',error='',updated_at=? WHERE stage_id=? AND state IN ('pending','queued')").run(Date.now(),stage.id)
-    if (next) {
-      db.prepare("UPDATE person_stages SET state='active' WHERE id=?").run(next.id)
-      db.prepare('UPDATE person_flows SET current_position=?,revision=revision+1,updated_at=? WHERE id=?').run(next.position,Date.now(),flow.id)
-      enqueuePersonStage(userId,next,flow.generation)
+    if (flow.stages.some(item => item.group_position === stage.group_position && item.id !== stage.id && item.state !== 'completed')) {
+      db.prepare('UPDATE person_flows SET revision=revision+1,updated_at=? WHERE id=?').run(Date.now(),flow.id)
+      return
+    }
+    const next = flow.stages.filter(item => item.group_position === stage.group_position + 1)
+    if (next.length) {
+      db.prepare('UPDATE person_flows SET current_position=?,revision=revision+1,updated_at=? WHERE id=?').run(stage.group_position + 1,Date.now(),flow.id)
+      for (const item of next) {
+        db.prepare("UPDATE person_stages SET state='active' WHERE id=? AND state='pending'").run(item.id)
+        enqueuePersonStage(userId,item,flow.generation)
+      }
     } else {
       db.prepare("UPDATE person_flows SET state='completed',revision=revision+1,updated_at=? WHERE id=?").run(Date.now(),flow.id)
       recordSessionAttention(flow.creator_session_id, `person-flow-completed:${flow.id}:${flow.generation}`)
